@@ -292,7 +292,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
     const { setActiveTab } = useActions(outputPaneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { sourceQuery, exportContext, editingInsight, updateInsightButtonEnabled, showLegacyFilters, queryInput } =
+    const { sourceQuery, exportContext, editingInsight, updateInsightButtonEnabled, showLegacyFilters, hasQueryInput } =
         useValues(multitabEditorLogic)
     const { saveAsInsight, updateInsight, setSourceQuery, runQuery, shareTab } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
@@ -630,7 +630,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                         <Tooltip title="Share your current query">
                             <LemonButton
                                 id="sql-editor-share"
-                                disabledReason={!queryInput && 'No query to share'}
+                                disabledReason={!hasQueryInput && 'No query to share'}
                                 type="secondary"
                                 icon={<IconShare />}
                                 onClick={() => shareTab()}

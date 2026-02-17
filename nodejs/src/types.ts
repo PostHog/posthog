@@ -375,6 +375,14 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: number
     /** TTL in milliseconds for the in-memory session filter cache */
     SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: number
+    /** Rate (0.0–1.0) at which to verify encrypt→decrypt round-trip integrity during ingestion */
+    SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: number
+
+    // Kafka consumer config (overrides hardcoded defaults when set)
+    INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: string
+    INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: string
+    INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC: string
+    INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC: string
 }
 
 export interface PluginsServerConfig
@@ -486,6 +494,9 @@ export interface PluginsServerConfig
     // posthog
     POSTHOG_API_KEY: string
     POSTHOG_HOST_URL: string
+
+    // Internal API authentication
+    INTERNAL_API_SECRET: string
 
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean

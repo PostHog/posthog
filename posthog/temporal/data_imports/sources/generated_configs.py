@@ -37,6 +37,13 @@ class BigQueryUseCustomRegionConfig(config.Config):
 
 
 @config.config
+class GithubAuthTypeConfig(config.Config):
+    github_integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
+    selection: Literal["oauth", "pat"] = "oauth"
+    personal_access_token: str | None = None
+
+
+@config.config
 class GoogleAdsIsMccAccountConfig(config.Config):
     mcc_client_id: str
     enabled: bool = config.value(converter=config.str_to_bool, default=False)
@@ -112,7 +119,7 @@ class DoItSourceConfig(config.Config):
 
 @config.config
 class GithubSourceConfig(config.Config):
-    personal_access_token: str
+    auth_method: GithubAuthTypeConfig
     repository: str
 
 

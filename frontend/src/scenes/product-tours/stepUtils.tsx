@@ -48,6 +48,79 @@ export function getDefaultStepContent(): JSONContent {
     }
 }
 
+export function getExplainerStepContent(): JSONContent {
+    return {
+        type: 'doc',
+        content: [
+            {
+                type: 'heading',
+                attrs: { level: 2 },
+                content: [{ type: 'text', text: 'Welcome to Product Tours!' }],
+            },
+            {
+                type: 'paragraph',
+                content: [{ type: 'text', text: 'Here are some tips to get you going 🦔' }],
+            },
+            {
+                type: 'bulletList',
+                content: [
+                    {
+                        type: 'listItem',
+                        content: [
+                            {
+                                type: 'paragraph',
+                                content: [
+                                    {
+                                        type: 'text',
+                                        text: 'Add an element to display this step as a tooltip',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        type: 'listItem',
+                        content: [
+                            {
+                                type: 'paragraph',
+                                content: [
+                                    {
+                                        type: 'text',
+                                        text: 'Configure when & where to show the tour',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        type: 'listItem',
+                        content: [
+                            {
+                                type: 'paragraph',
+                                content: [
+                                    {
+                                        type: 'text',
+                                        text: "Customize your tour's theme",
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        type: 'listItem',
+                        content: [
+                            {
+                                type: 'paragraph',
+                                content: [{ type: 'text', text: 'Add custom buttons' }],
+                            },
+                        ],
+                    },
+                ],
+            },
+        ],
+    }
+}
+
 export function getDefaultSurveyContent(type: ProductTourSurveyQuestionType): ProductTourSurveyQuestion {
     if (type === 'rating') {
         return {

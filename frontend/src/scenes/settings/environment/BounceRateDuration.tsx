@@ -35,11 +35,6 @@ export function BounceRateDurationSetting(): JSX.Element {
 
     return (
         <>
-            <p>
-                Choose how long a user can stay on a page, in seconds, before the session is not a bounce. Leave blank
-                to use the default of {DEFAULT_BOUNCE_RATE_DURATION} seconds, or set a custom value between{' '}
-                {MIN_BOUNCE_RATE_DURATION} second and {MAX_BOUNCE_RATE_DURATION} seconds inclusive.
-            </p>
             <AccessControlAction
                 resourceType={AccessControlResourceType.WebAnalytics}
                 minAccessLevel={AccessControlLevel.Editor}

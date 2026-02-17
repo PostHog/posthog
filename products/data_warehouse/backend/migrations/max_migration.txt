@@ -1,1 +1,1 @@
-0019_fix_orphaned_tables
+0020_migrate_github_job_inputs_to_auth_type

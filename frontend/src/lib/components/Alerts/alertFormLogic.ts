@@ -142,15 +142,14 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     }
                 }
 
-                const createPendingNotifications = async (alertId: string): Promise<boolean> => {
-                    // Use props.alert?.id (not alertId) to match the logic instance where notifications were queued.
-                    // For new alerts this is undefined (key 'new'), for existing alerts it matches the edit key.
-                    const notifLogic = alertNotificationLogic({ alertId: props.alert?.id })
-                    if (notifLogic.values.pendingNotifications.length === 0) {
-                        return true
+                // Must use alert.id (not the server-returned ID) to look up the logic instance where pending notifications were queued.
+                // For new alerts alert.id is undefined, keying the logic as 'new' — using the server-returned ID would miss the queued state.
+                const notifLogic = alertNotificationLogic({ alertId: alert.id })
+
+                const flushPendingNotifications = async (savedAlertId: string): Promise<void> => {
+                    if (notifLogic.values.pendingNotifications.length > 0) {
+                        await notifLogic.asyncActions.createPendingHogFunctions(savedAlertId, alert.name)
                     }
-                    await notifLogic.asyncActions.createPendingHogFunctions(alertId, alert.name)
-                    return notifLogic.values.pendingNotifications.length === 0
                 }
 
                 try {

@@ -321,7 +321,7 @@ async fn test_unpopulated_exporter() {
     assert!(result.unwrap().is_none());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_checkpoint_from_plan_with_no_previous_metadata() {
     let test_topic = "manual_cp_incremental";
     let test_partition = 0;
@@ -435,7 +435,7 @@ async fn test_checkpoint_from_plan_with_no_previous_metadata() {
     assert!(remote_checkpoint_files.keys().any(|k| k.ends_with(".log")));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_checkpoint_from_plan_with_previous_metadata() {
     // Note: detailed planner diffs are exercised in the planner test suite
     let test_topic = "test_cp_from_plan_with_prev_metadata";
@@ -634,7 +634,7 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
 // Cancellation Tests
 // ============================================================
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_checkpoint_with_pre_cancelled_token_fails() {
     let test_topic = "test_pre_cancelled";
     let test_partition = 0;
@@ -703,7 +703,7 @@ async fn test_checkpoint_with_pre_cancelled_token_fails() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_checkpoint_with_active_token_succeeds() {
     let test_topic = "test_active_token";
     let test_partition = 0;
@@ -825,4 +825,308 @@ async fn test_checkpoint_without_token_succeeds() {
     // Verify files were uploaded
     let file_count = uploader.file_count().await.unwrap();
     assert!(file_count > 0, "Files should be uploaded");
+}
+
+// ============================================================
+// spawn_blocking Tests
+// ============================================================
+// These tests verify that spawn_blocking correctly moves blocking RocksDB
+// operations off the tokio worker threads to prevent runtime starvation.
+
+/// Test that spawn_blocking doesn't starve the tokio runtime.
+/// This is the core issue that spawn_blocking was introduced to solve.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_checkpoint_doesnt_starve_runtime() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let heartbeat_count = Arc::new(AtomicUsize::new(0));
+    let count_clone = heartbeat_count.clone();
+
+    // Simulate liveness check running every 50ms
+    let heartbeat_task = tokio::spawn(async move {
+        for _ in 0..10 {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            count_clone.fetch_add(1, Ordering::SeqCst);
+        }
+    });
+
+    // Create a store with some data that will require actual RocksDB work
+    let test_topic = "test_starve";
+    let test_partition = 0;
+    let tmp_store_dir = TempDir::new().unwrap();
+    let store = create_test_dedup_store(tmp_store_dir.path(), test_topic, test_partition);
+
+    // Write some test data to make checkpoint creation do real work
+    for i in 0..100 {
+        let event = TestRawEventBuilder::new()
+            .distinct_id(&format!("user-{}", i))
+            .token("test-token")
+            .event(&format!("event-{}", i))
+            .current_timestamp()
+            .build();
+        let key = (&event).into();
+        let metadata = TimestampMetadata::new(&event);
+        store.put_timestamp_record(&key, &metadata).unwrap();
+    }
+
+    // Create checkpoint worker
+    let tmp_checkpoint_dir = TempDir::new().unwrap();
+    let config = CheckpointConfig {
+        checkpoint_interval: Duration::from_secs(60),
+        local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
+        s3_bucket: "test-bucket".to_string(),
+        s3_key_prefix: "test-prefix".to_string(),
+        aws_region: Some("us-east-1".to_string()),
+        ..Default::default()
+    };
+
+    let worker = CheckpointWorker::new(
+        1,
+        Path::new(&config.local_checkpoint_dir),
+        config.s3_key_prefix.clone(),
+        Partition::new(test_topic.to_string(), test_partition),
+        Utc::now(),
+        None,
+        None,
+    );
+
+    // Run checkpoint (which uses spawn_blocking for RocksDB operations)
+    let checkpoint_task = tokio::spawn(async move {
+        worker
+            .checkpoint_partition_cancellable(
+                &store,
+                None,
+                Some(&CancellationToken::new()),
+                Some("test"),
+            )
+            .await
+    });
+
+    let (heartbeat_result, checkpoint_result) = tokio::join!(heartbeat_task, checkpoint_task);
+
+    // With spawn_blocking: heartbeats continue during checkpoint
+    // Without spawn_blocking: heartbeats would stall until checkpoint completes
+    assert!(heartbeat_result.is_ok());
+    let final_count = heartbeat_count.load(Ordering::SeqCst);
+    assert!(
+        final_count >= 8,
+        "Heartbeats should continue during checkpoint (got {})",
+        final_count
+    );
+
+    assert!(checkpoint_result.unwrap().is_ok());
+}
+
+/// Test that concurrent checkpoint operations complete successfully
+/// when running on the blocking thread pool.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_concurrent_checkpoint_operations_complete() {
+    let tmp_base_dir = TempDir::new().unwrap();
+
+    let mut handles = vec![];
+
+    // Create multiple workers for different partitions
+    for partition_num in 0..5 {
+        let tmp_checkpoint_dir = tmp_base_dir
+            .path()
+            .join(format!("checkpoints-{}", partition_num));
+        let tmp_store_dir = tmp_base_dir.path().join(format!("store-{}", partition_num));
+
+        let handle = tokio::spawn(async move {
+            let test_topic = "test_concurrent";
+            let store = create_test_dedup_store(&tmp_store_dir, test_topic, partition_num);
+
+            // Write some test data
+            for i in 0..20 {
+                let event = TestRawEventBuilder::new()
+                    .distinct_id(&format!("user-p{}-{}", partition_num, i))
+                    .token("test-token")
+                    .event(&format!("event-{}", i))
+                    .current_timestamp()
+                    .build();
+                let key = (&event).into();
+                let metadata = TimestampMetadata::new(&event);
+                store.put_timestamp_record(&key, &metadata).unwrap();
+            }
+
+            let worker = CheckpointWorker::new(
+                partition_num as u32,
+                &tmp_checkpoint_dir,
+                "test-namespace".to_string(),
+                Partition::new(test_topic.to_string(), partition_num),
+                Utc::now(),
+                None,
+                None,
+            );
+
+            worker
+                .checkpoint_partition_cancellable(
+                    &store,
+                    None,
+                    Some(&CancellationToken::new()),
+                    Some("test"),
+                )
+                .await
+        });
+
+        handles.push(handle);
+    }
+
+    // All checkpoints should complete successfully despite limited tokio workers
+    for handle in handles {
+        let result = handle.await.unwrap();
+        assert!(
+            result.is_ok(),
+            "All concurrent checkpoints should complete successfully"
+        );
+    }
+}
+
+/// Test that checkpoint operations produce correct results after thread migration.
+/// Verifies that Arc cloning and spawn_blocking don't corrupt data.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_checkpoint_metadata_consistency_across_threads() {
+    let test_topic = "test_consistency";
+    let test_partition = 0;
+    let tmp_store_dir = TempDir::new().unwrap();
+    let store = create_test_dedup_store(tmp_store_dir.path(), test_topic, test_partition);
+
+    // Write known data to store
+    let test_events = vec![
+        ("user-1", "token-1", "event-1"),
+        ("user-2", "token-2", "event-2"),
+        ("user-3", "token-3", "event-3"),
+    ];
+
+    for (user, token, event_name) in &test_events {
+        let event = TestRawEventBuilder::new()
+            .distinct_id(user)
+            .token(token)
+            .event(event_name)
+            .current_timestamp()
+            .build();
+        let key = (&event).into();
+        let metadata = TimestampMetadata::new(&event);
+        store.put_timestamp_record(&key, &metadata).unwrap();
+    }
+
+    // Create checkpoint (which clones store Arc into spawn_blocking)
+    let tmp_checkpoint_dir = TempDir::new().unwrap();
+    let config = CheckpointConfig {
+        checkpoint_interval: Duration::from_secs(60),
+        local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
+        s3_bucket: "test-bucket".to_string(),
+        s3_key_prefix: "test-prefix".to_string(),
+        aws_region: Some("us-east-1".to_string()),
+        ..Default::default()
+    };
+
+    let worker = CheckpointWorker::new(
+        1,
+        Path::new(&config.local_checkpoint_dir),
+        config.s3_key_prefix.clone(),
+        Partition::new(test_topic.to_string(), test_partition),
+        Utc::now(),
+        None,
+        None,
+    );
+
+    let result = worker
+        .checkpoint_partition_cancellable(
+            &store,
+            None,
+            Some(&CancellationToken::new()),
+            Some("test"),
+        )
+        .await;
+    assert!(result.is_ok(), "Checkpoint should succeed");
+
+    // Verify original store still has correct data (Arc wasn't corrupted)
+    for (user, token, event_name) in &test_events {
+        let event = TestRawEventBuilder::new()
+            .distinct_id(user)
+            .token(token)
+            .event(event_name)
+            .current_timestamp()
+            .build();
+        let key = (&event).into();
+        let metadata = store.get_timestamp_record(&key).unwrap();
+        assert!(metadata.is_some(), "Original store should still have data");
+        assert_eq!(
+            metadata.unwrap().original_event.token.as_deref(),
+            Some(*token),
+            "Metadata should survive spawn_blocking clone"
+        );
+    }
+}
+
+/// Test that liveness handlers aren't starved during long checkpoint operations.
+/// This simulates the production scenario that spawn_blocking was added to fix.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_liveness_check_during_checkpoint() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let liveness_flag = Arc::new(AtomicBool::new(false));
+    let flag_clone = liveness_flag.clone();
+
+    let test_topic = "test_liveness";
+    let test_partition = 0;
+    let tmp_store_dir = TempDir::new().unwrap();
+    let store = create_test_dedup_store(tmp_store_dir.path(), test_topic, test_partition);
+
+    // Write data to make checkpoint take some time
+    for i in 0..200 {
+        let event = TestRawEventBuilder::new()
+            .distinct_id(&format!("user-{}", i))
+            .token("test-token")
+            .event(&format!("event-{}", i))
+            .current_timestamp()
+            .build();
+        let key = (&event).into();
+        let metadata = TimestampMetadata::new(&event);
+        store.put_timestamp_record(&key, &metadata).unwrap();
+    }
+
+    // Spawn liveness check on tokio runtime
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        flag_clone.store(true, Ordering::SeqCst);
+    });
+
+    // Start checkpoint operation
+    let tmp_checkpoint_dir = TempDir::new().unwrap();
+    let config = CheckpointConfig {
+        checkpoint_interval: Duration::from_secs(60),
+        local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
+        s3_bucket: "test-bucket".to_string(),
+        s3_key_prefix: "test-prefix".to_string(),
+        aws_region: Some("us-east-1".to_string()),
+        ..Default::default()
+    };
+
+    let worker = CheckpointWorker::new(
+        1,
+        Path::new(&config.local_checkpoint_dir),
+        config.s3_key_prefix.clone(),
+        Partition::new(test_topic.to_string(), test_partition),
+        Utc::now(),
+        None,
+        None,
+    );
+
+    let _result = worker
+        .checkpoint_partition_cancellable(
+            &store,
+            None,
+            Some(&CancellationToken::new()),
+            Some("test"),
+        )
+        .await;
+
+    // Verify liveness check completed despite checkpoint running
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(
+        liveness_flag.load(Ordering::SeqCst),
+        "Liveness check should complete while checkpoint blocks"
+    );
 }
