@@ -921,14 +921,13 @@ def toolbar_oauth_exchange(request):
         return JsonResponse({"code": exc.code, "detail": exc.detail}, status=exc.status_code)
 
 
-@session_auth_required
 def toolbar_oauth_authorize(request):
     """
     Start the toolbar OAuth flow.
 
     Validates the redirect URL, generates PKCE + signed state, stores the
-    code_verifier in the session, and redirects straight to the OAuth
-    authorization endpoint (skipping an intermediate consent page).
+    code_verifier in the session, and renders a consent page with the
+    authorization URL.
     """
     redirect_url = request.GET.get("redirect")
     if not redirect_url:
@@ -961,7 +960,17 @@ def toolbar_oauth_authorize(request):
 
     request.session["toolbar_oauth_code_verifier"] = code_verifier
 
-    return redirect(authorization_url)
+    parsed_redirect = urllib.parse.urlparse(redirect_url)
+    return render_template(
+        "authorize_and_redirect.html",
+        request=request,
+        context={
+            "email": request.user,
+            "domain": parsed_redirect.hostname,
+            "redirect_url": redirect_url,
+            "authorization_url": authorization_url,
+        },
+    )
 
 
 @require_http_methods(["GET"])
@@ -982,15 +991,21 @@ def toolbar_oauth_callback(request):
             "error": error,
             "error_description": request.GET.get("error_description"),
         }
+        # Error payloads contain no sensitive data, so "*" is safe and ensures
+        # the opener (on the customer's domain) can receive the message.
         return render_template(
             "toolbar_oauth_callback.html",
             request=request,
-            context={"payload": payload, "target_origin": settings.SITE_URL},
+            context={"payload": payload, "target_origin": "*"},
         )
 
     code = request.GET.get("code")
     state = request.GET.get("state")
-    code_verifier = request.session.pop("toolbar_oauth_code_verifier", None)
+
+    if not request.user.is_authenticated:
+        code_verifier = None
+    else:
+        code_verifier = request.session.pop("toolbar_oauth_code_verifier", None)
 
     if code_verifier and code and state:
         # Toolbar flow: exchange code for tokens on the server
@@ -1000,7 +1015,7 @@ def toolbar_oauth_callback(request):
             return render_template(
                 "toolbar_oauth_callback.html",
                 request=request,
-                context={"payload": payload, "target_origin": settings.SITE_URL},
+                context={"payload": payload, "target_origin": "*"},
             )
 
         try:
@@ -1020,7 +1035,7 @@ def toolbar_oauth_callback(request):
             return render_template(
                 "toolbar_oauth_callback.html",
                 request=request,
-                context={"payload": payload, "target_origin": settings.SITE_URL},
+                context={"payload": payload, "target_origin": "*"},
             )
 
         app_url = state_payload["app_url"]
