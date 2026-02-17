@@ -55,6 +55,10 @@ from posthog.temporal.enforce_max_replay_retention import (
     ACTIVITIES as ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
     WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
 )
+from posthog.temporal.event_screenshots import (
+    ACTIVITIES as EVENT_SCREENSHOTS_ACTIVITIES,
+    WORKFLOWS as EVENT_SCREENSHOTS_WORKFLOWS,
+)
 from posthog.temporal.experiments import (
     ACTIVITIES as EXPERIMENTS_ACTIVITIES,
     WORKFLOWS as EXPERIMENTS_WORKFLOWS,
@@ -250,6 +254,11 @@ _task_queue_specs = [
         settings.LLMA_TASK_QUEUE,
         LLM_ANALYTICS_WORKFLOWS,
         LLM_ANALYTICS_ACTIVITIES,
+    ),
+    (
+        settings.EVENT_SCREENSHOTS_TASK_QUEUE,
+        EVENT_SCREENSHOTS_WORKFLOWS,
+        EVENT_SCREENSHOTS_ACTIVITIES,
     ),
 ]
 

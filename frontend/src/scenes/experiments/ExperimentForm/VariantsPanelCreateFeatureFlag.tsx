@@ -230,6 +230,10 @@ export const VariantsPanelCreateFeatureFlag = ({
     const updateVariant = (index: number, updates: Partial<MultivariateFlagVariant>): void => {
         const newVariants = [...variants]
         newVariants[index] = { ...newVariants[index], ...updates }
+        updateVariants(newVariants)
+    }
+
+    const updateVariants = (newVariants: MultivariateFlagVariant[]): void => {
         onChange({
             parameters: {
                 ...experiment.parameters,
@@ -238,6 +242,20 @@ export const VariantsPanelCreateFeatureFlag = ({
                 rollout_percentage: rolloutPercentage,
             },
         })
+    }
+
+    // In case of 2 variants we can improve the UX by automatically adjusting the other variant to ensure the total is always 100%
+    const updateVariantSplit = (index: number, value: number): void => {
+        const cappedValue = Math.min(100, Math.max(0, value))
+        if (variants.length === 2) {
+            const otherIndex = index === 0 ? 1 : 0
+            const newVariants = [...variants]
+            newVariants[index] = { ...newVariants[index], rollout_percentage: cappedValue }
+            newVariants[otherIndex] = { ...newVariants[otherIndex], rollout_percentage: 100 - cappedValue }
+            updateVariants(newVariants)
+        } else {
+            updateVariant(index, { rollout_percentage: cappedValue })
+        }
     }
 
     const addVariant = (): void => {
@@ -365,9 +383,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                                                                     !Number.isNaN(changedValue)
                                                                         ? parseInt(changedValue.toString(), 10)
                                                                         : 0
-                                                                updateVariant(index, {
-                                                                    rollout_percentage: valueInt,
-                                                                })
+                                                                updateVariantSplit(index, valueInt)
                                                             }}
                                                             suffix={<span>%</span>}
                                                             data-attr="experiment-variant-rollout-percentage-input"

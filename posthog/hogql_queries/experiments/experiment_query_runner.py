@@ -58,8 +58,13 @@ from products.analytics_platform.backend.lazy_preaggregation.lazy_preaggregation
 
 logger = structlog.get_logger(__name__)
 
-# Default TTL for experiment exposure preaggregation (6 hours)
-DEFAULT_EXPOSURE_TTL_SECONDS = 6 * 60 * 60
+# Variable TTL for experiment exposure preaggregation
+# Current day refreshes frequently (data arriving), old data cached long
+DEFAULT_EXPOSURE_TTL_SECONDS = {
+    "0d": 15 * 60,  # 15 min
+    "1d": 60 * 60,  # 1 hour
+    "default": 60 * 24 * 60 * 60,  # 60 days - data frozen
+}
 
 MAX_EXECUTION_TIME = 600
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 37 * 1024 * 1024 * 1024  # 37 GB

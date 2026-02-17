@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { match } from 'ts-pattern'
 import { useDebouncedCallback } from 'use-debounce'
 
@@ -46,6 +46,10 @@ export function VariantsPanel({ experiment, updateFeatureFlag, disabled = false 
     const { featureFlags, featureFlagsLoading } = useValues(selectExistingFeatureFlagModalLogic)
     const { loadFeatureFlagsForAutocomplete } = useActions(selectExistingFeatureFlagModalLogic)
 
+    // Track whether the user has interacted with the FF autocomplete to avoid
+    // auto-switching to link mode after explicit user interaction
+    const hasUserInteractedWithAutocomplete = useRef(false)
+
     const debouncedValidateFeatureFlagKey = useDebouncedCallback((key: string) => {
         if (key) {
             validateFeatureFlagKey(key)
@@ -69,6 +73,35 @@ export function VariantsPanel({ experiment, updateFeatureFlag, disabled = false 
         featureFlagKeyForAutocomplete,
         setFeatureFlagKeyForAutocomplete,
         debouncedValidateFeatureFlagKey,
+    ])
+
+    const linkMatchingFeatureFlag = (flags: FeatureFlagType[], key: string): void => {
+        const matchingFlag = flags.find((flag) => flag.key === key)
+        if (matchingFlag) {
+            setMode('link')
+            setLinkedFeatureFlag(matchingFlag)
+        }
+    }
+
+    // Auto-detect linked feature flag when the experiment has a key matching an existing flag.
+    // This handles the wizard → classic form transition where the wizard selected an existing flag.
+    useEffect(() => {
+        if (
+            !hasUserInteractedWithAutocomplete.current &&
+            !disabled &&
+            !linkedFeatureFlag &&
+            featureFlagKeyForAutocomplete &&
+            featureFlags.results?.length
+        ) {
+            linkMatchingFeatureFlag(featureFlags.results, featureFlagKeyForAutocomplete)
+        }
+    }, [
+        featureFlags.results,
+        featureFlagKeyForAutocomplete,
+        disabled,
+        linkedFeatureFlag,
+        setMode,
+        setLinkedFeatureFlag,
     ])
 
     const featureFlagOptions = useMemo(() => {
@@ -95,6 +128,8 @@ export function VariantsPanel({ experiment, updateFeatureFlag, disabled = false 
     }, [featureFlagKeyForAutocomplete, featureFlags.results])
 
     const handleFeatureFlagSelection = (selectedKeys: (FeatureFlagType | string)[]): void => {
+        hasUserInteractedWithAutocomplete.current = true
+
         if (selectedKeys.length === 0) {
             // Clear validation first to prevent it from being re-triggered by setMode listener
             clearFeatureFlagKeyValidation()
