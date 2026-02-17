@@ -1140,6 +1140,11 @@ function FeatureFlagRollout({
                                                 userAccessLevel={featureFlag.user_access_level}
                                             >
                                                 <LemonSwitch
+                                                    aria-label={
+                                                        featureFlag.active
+                                                            ? 'Feature flag ON — users may receive this feature'
+                                                            : 'Feature flag OFF — feature will not be served'
+                                                    }
                                                     onChange={(newValue) => {
                                                         toggleFeatureFlagActive(newValue)
                                                     }}
