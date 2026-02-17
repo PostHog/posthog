@@ -122,12 +122,7 @@ describe('HogFlowBatchPersonQueryService', () => {
         it('calls the Django persons endpoint with cursor pagination and returns parsed response', async () => {
             const service = createService('internal-secret')
             const response: BlastRadiusPersonsResponse = {
-                users_affected: [
-                    {
-                        distinct_id: 'user_1',
-                        person_id: 'person_1',
-                    },
-                ],
+                users_affected: ['person_1'],
                 cursor: 'next-cursor',
                 has_more: true,
             }
