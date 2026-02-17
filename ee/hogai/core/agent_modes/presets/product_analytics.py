@@ -3,6 +3,8 @@ from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
+from products.alerts.backend.max_tools import CreateAlertTool
+
 from ee.hogai.chat_agent.executables import (
     ChatAgentExecutable,
     ChatAgentPlanExecutable,
@@ -55,7 +57,7 @@ class ProductAnalyticsAgentToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        return [CreateInsightTool, UpsertDashboardTool]
+        return [CreateInsightTool, UpsertDashboardTool, CreateAlertTool]
 
 
 product_analytics_agent = AgentModeDefinition(

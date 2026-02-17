@@ -1,15 +1,25 @@
 from textwrap import dedent
 from typing import Any
 
+from django.core.exceptions import ValidationError
+from django.db import transaction
+
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel, Field
 
-from posthog.schema import AlertCalculationInterval, AlertConditionType, InsightThresholdType
+from posthog.schema import (
+    AlertCalculationInterval,
+    AlertConditionType,
+    InsightThresholdType,
+    InsightVizNode,
+    QuerySchemaRoot,
+)
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.alert import AlertConfiguration, AlertSubscription, Threshold, are_alerts_supported_for_insight
 from posthog.models.insight import Insight
 
+from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.tool import MaxTool
 
 ALERT_CREATION_TOOL_DESCRIPTION = dedent("""
@@ -22,7 +32,11 @@ ALERT_CREATION_TOOL_DESCRIPTION = dedent("""
 
     # Requirements
     - Only works for TrendsQuery insights (not funnels, retention, etc.)
-    - An insight must be available either from the current context or via insight_id
+    - An insight must be available via insight_id or from the current context
+
+    # Identifying the insight
+    - **insight_id**: The ID of the insight to monitor. This can be a numeric database ID or a string short ID (e.g., "M3dD2XyC" from a visualization you just created with create_insight). If the visualization is not yet saved, it will be saved automatically as a new insight.
+    - If not provided, the tool falls back to the insight from the current page context.
 
     # Condition types
     - **absolute_value**: Fires when the metric's absolute value crosses the threshold bounds
@@ -49,6 +63,12 @@ ALERT_CREATION_TOOL_DESCRIPTION = dedent("""
     - "Alert me when daily signups drop below 100": condition_type=absolute_value, lower_threshold=100
     - "Alert when pageviews increase by more than 50%": condition_type=relative_increase, upper_threshold=0.5, threshold_type=percentage
     - "Notify me if revenue drops more than 20% week over week": condition_type=relative_decrease, lower_threshold=0.2, threshold_type=percentage, calculation_interval=weekly
+    - "Create a trend for signups and alert me if it drops": First use create_insight, then use create_alert with the insight_id from the visualization
+
+    # Listing alerts
+    - To list existing alerts, use the list_data tool with kind="alerts"
+    - To view alerts in the UI, direct the user to /insights?tab=alerts
+    - To view alerts for a specific insight, direct the user to /insights/{insightShortId}/alerts
     """).strip()
 
 
@@ -57,9 +77,9 @@ class CreateAlertToolArgs(BaseModel):
     condition_type: AlertConditionType = Field(
         description="Type of condition: absolute_value, relative_increase, or relative_decrease"
     )
-    insight_id: int | None = Field(
+    insight_id: str | None = Field(
         default=None,
-        description="ID of the insight to monitor. If not provided, uses the insight from the current context.",
+        description="ID of the insight to monitor. Accepts a numeric database ID or a string short ID (e.g., from a visualization created with create_insight). If not provided, uses the insight from the current context.",
     )
     calculation_interval: AlertCalculationInterval = Field(
         default=AlertCalculationInterval.DAILY,
@@ -99,46 +119,113 @@ class CreateAlertTool(MaxTool):
     def get_required_resource_access(self):
         return [("alert", "editor")]
 
-    async def is_dangerous_operation(self, **kwargs) -> bool:
-        return kwargs.get("enabled", True) is True
+    async def _check_alert_limit(self) -> str | None:
+        team = self._team
+        org = await sync_to_async(lambda: team.organization)()
+        return await sync_to_async(AlertConfiguration.check_alert_limit)(team.id, org)
 
-    async def format_dangerous_operation_preview(self, **kwargs) -> str:
-        name = kwargs.get("name", "Untitled Alert")
-        condition_type = kwargs.get("condition_type", "absolute_value")
-        interval = kwargs.get("calculation_interval", AlertCalculationInterval.DAILY)
-        lower = kwargs.get("lower_threshold")
-        upper = kwargs.get("upper_threshold")
-        threshold_type = kwargs.get("threshold_type", InsightThresholdType.ABSOLUTE)
+    @staticmethod
+    def _is_numeric_id(value: str) -> bool:
+        try:
+            int(float(value))
+            return True
+        except (ValueError, TypeError):
+            return False
 
-        is_pct = threshold_type == InsightThresholdType.PERCENTAGE
+    async def _resolve_insight_by_numeric_id(self, numeric_id: int) -> Insight:
+        """Look up an insight by its numeric database ID."""
+        return await sync_to_async(Insight.objects.get)(id=numeric_id, team=self._team)
 
-        parts = [f"**Create and enable** alert '{name}'"]
+    async def _resolve_insight_from_artifact(self, artifact_id: str) -> tuple[Insight, bool]:
+        """Resolve a visualization artifact or short_id to a persisted Insight.
 
-        condition_desc = {
-            AlertConditionType.ABSOLUTE_VALUE: "absolute value",
-            AlertConditionType.RELATIVE_INCREASE: "relative increase",
-            AlertConditionType.RELATIVE_DECREASE: "relative decrease",
-        }.get(condition_type, str(condition_type))
-        parts.append(f"Condition: {condition_desc}")
+        Checks sources in priority order: conversation state, artifact DB, insights table.
+        If the artifact is transient, creates and saves a new Insight.
 
-        bounds = []
-        if lower is not None:
-            bounds.append(f"lower: {lower * 100 if is_pct else lower}{'%' if is_pct else ''}")
-        if upper is not None:
-            bounds.append(f"upper: {upper * 100 if is_pct else upper}{'%' if is_pct else ''}")
-        if bounds:
-            parts.append(f"Thresholds: {', '.join(bounds)}")
+        Returns (insight, was_created) — was_created is True when a new Insight was persisted.
+        """
+        result = await self._context_manager.artifacts.aget_visualization(self._state.messages, artifact_id)
 
-        parts.append(f"Check interval: {interval}")
-        parts.append("It will immediately start monitoring and sending notifications.")
+        if result is None:
+            raise ValueError(f"Insight or visualization '{artifact_id}' not found.")
 
-        return "\n".join(parts)
+        if isinstance(result, ModelArtifactResult):
+            return result.model, False
+
+        # Transient artifact (State or DB artifact) — persist as a saved Insight
+        content = result.content
+        coerced_query = QuerySchemaRoot.model_validate(content.query.model_dump(mode="json")).root
+        converted = InsightVizNode(source=coerced_query).model_dump(exclude_none=True)
+
+        insight = await sync_to_async(Insight.objects.create)(
+            team=self._team,
+            created_by=self._user,
+            name=(content.name or "Untitled")[:400],
+            description=(content.description or "")[:400],
+            query=converted,
+            saved=True,
+        )
+        return insight, True
+
+    async def _resolve_insight(self, insight_id: str | None) -> tuple[Insight, bool]:
+        """Resolve an insight from any ID format or context.
+
+        Tries in order:
+        1. Numeric DB ID lookup
+        2. Artifact/short_id resolution (conversation state → artifact DB → insights table)
+        3. Context insight_id fallback
+
+        Returns (insight, was_created).
+        """
+        effective_id = insight_id or str(self.context.get("insight_id") or "")
+        if not effective_id:
+            raise ValueError("No insight provided. Provide an insight_id or navigate to an insight first.")
+
+        # Try numeric DB ID first
+        if self._is_numeric_id(effective_id):
+            try:
+                insight = await self._resolve_insight_by_numeric_id(int(float(effective_id)))
+                return insight, False
+            except Insight.DoesNotExist:
+                pass  # Fall through to artifact resolution
+
+        # Try artifact/short_id resolution
+        return await self._resolve_insight_from_artifact(effective_id)
+
+    @staticmethod
+    @sync_to_async
+    @transaction.atomic
+    def _persist_alert(
+        *, team, user, insight, name, unsaved_threshold, condition, config, calculation_interval, enabled, skip_weekend
+    ):
+        unsaved_threshold.save()
+
+        alert = AlertConfiguration.objects.create(
+            team=team,
+            insight=insight,
+            name=name,
+            threshold=unsaved_threshold,
+            condition=condition,
+            config=config,
+            calculation_interval=calculation_interval,
+            enabled=enabled,
+            skip_weekend=skip_weekend,
+            created_by=user,
+        )
+
+        AlertSubscription.objects.create(
+            user=user,
+            alert_configuration=alert,
+            created_by=user,
+        )
+
+        return alert, unsaved_threshold
 
     async def _arun_impl(
         self,
         name: str,
         condition_type: AlertConditionType,
-        insight_id: int | None = None,
+        insight_id: str | None = None,
         calculation_interval: AlertCalculationInterval = AlertCalculationInterval.DAILY,
         upper_threshold: float | None = None,
         lower_threshold: float | None = None,
@@ -151,18 +238,22 @@ class CreateAlertTool(MaxTool):
             team = self._team
             user = self._user
 
-            effective_insight_id = insight_id or self.context.get("insight_id")
-            if not effective_insight_id:
-                return "No insight ID provided. Please provide an insight_id or navigate to an insight first.", {
-                    "error": "no_insight_id",
+            if upper_threshold is None and lower_threshold is None:
+                return "At least one threshold (upper or lower) must be provided.", {
+                    "error": "validation_failed",
                 }
 
+            limit_error = await self._check_alert_limit()
+            if limit_error:
+                return limit_error, {"error": "plan_limit_reached"}
+
             try:
-                insight = await sync_to_async(Insight.objects.get)(id=effective_insight_id, team=team)
-            except Insight.DoesNotExist:
-                return f"Insight with ID {effective_insight_id} not found.", {
-                    "error": "not_found",
-                }
+                insight, saved_new_insight = await self._resolve_insight(insight_id)
+            except ValueError as e:
+                return str(e), {"error": "insight_resolution_failed"}
+
+            if insight.team_id != team.id:
+                return "Insight not found.", {"error": "insight_resolution_failed"}
 
             await self.check_object_access(insight, "editor", resource="insight", action="create alert for")
 
@@ -170,11 +261,6 @@ class CreateAlertTool(MaxTool):
             if not is_supported:
                 return "Alerts are only supported for TrendsQuery insights. This insight type is not supported.", {
                     "error": "unsupported_insight",
-                }
-
-            if upper_threshold is None and lower_threshold is None:
-                return "At least one threshold (upper or lower) must be provided.", {
-                    "error": "validation_failed",
                 }
 
             threshold_config = {
@@ -186,46 +272,47 @@ class CreateAlertTool(MaxTool):
             if upper_threshold is not None:
                 threshold_config["bounds"]["upper"] = upper_threshold
 
-            threshold = await sync_to_async(Threshold.objects.create)(
-                team=team,
-                insight=insight,
-                name=name,
-                configuration=threshold_config,
-                created_by=user,
+            truncated_name = name[:255]
+
+            unsaved_threshold = Threshold(
+                team=team, insight=insight, name=truncated_name, configuration=threshold_config, created_by=user
             )
+            try:
+                unsaved_threshold.clean()
+            except ValidationError as e:
+                return str(e), {"error": "validation_failed"}
 
-            alert_condition = {"type": condition_type}
-            alert_config = {
-                "type": "TrendsAlertConfig",
-                "series_index": series_index,
-            }
-
-            alert = await sync_to_async(AlertConfiguration.objects.create)(
+            alert, threshold = await self._persist_alert(
                 team=team,
+                user=user,
                 insight=insight,
-                name=name,
-                threshold=threshold,
-                condition=alert_condition,
-                config=alert_config,
+                name=truncated_name,
+                unsaved_threshold=unsaved_threshold,
+                condition={"type": condition_type},
+                config={"type": "TrendsAlertConfig", "series_index": series_index},
                 calculation_interval=calculation_interval,
                 enabled=enabled,
                 skip_weekend=skip_weekend,
-                created_by=user,
-            )
-
-            await sync_to_async(AlertSubscription.objects.create)(
-                user=user,
-                alert_configuration=alert,
-                created_by=user,
             )
 
             status = "enabled" if enabled else "disabled (draft)"
+            alert_url = f"/insights/{insight.short_id}/alerts?alert_id={alert.id}"
+            message = (
+                f"Alert '{name}' created successfully and is {status}."
+                f" [View alert]({alert_url})."
+                f" You will be notified when conditions are met."
+            )
+            if saved_new_insight:
+                message += f" The visualization was saved as insight '{insight.name or insight.short_id}'."
+
             return (
-                f"Alert '{name}' created successfully and is {status}. You will be notified when conditions are met.",
+                message,
                 {
                     "alert_id": str(alert.id),
                     "alert_name": name,
+                    "alert_url": alert_url,
                     "insight_id": insight.id,
+                    "insight_short_id": insight.short_id,
                 },
             )
 

@@ -16,7 +16,6 @@ from posthog.api.documentation import extend_schema_field
 from posthog.api.insight import InsightBasicSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import AvailableFeature
 from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.alert import (
@@ -285,26 +284,11 @@ class AlertSerializer(serializers.ModelSerializer):
         if self.context["request"].method != "POST":
             return attrs
 
-        user_org = self.context["request"].user.organization
-
-        alerts_feature = user_org.get_available_feature(AvailableFeature.ALERTS)
-        existing_alerts_count = AlertConfiguration.objects.filter(team_id=self.context["team_id"]).count()
-
-        if alerts_feature:
-            allowed_alerts_count = alerts_feature.get("limit")
-            # If allowed_alerts_count is None then the user is allowed unlimited alerts
-            if allowed_alerts_count is not None:
-                # Check current count against allowed limit
-                if existing_alerts_count >= allowed_alerts_count:
-                    raise ValidationError(
-                        {"alert": [f"Your team has reached the limit of {allowed_alerts_count} alerts on your plan."]}
-                    )
-        else:
-            # If the org doesn't have alerts feature, limit to that on free tier
-            if existing_alerts_count >= AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER:
-                raise ValidationError(
-                    {"alert": [f"Your plan is limited to {AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER} alerts"]}
-                )
+        limit_error = AlertConfiguration.check_alert_limit(
+            self.context["team_id"], self.context["request"].user.organization
+        )
+        if limit_error:
+            raise ValidationError({"alert": [limit_error]})
 
         return attrs
 

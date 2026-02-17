@@ -15,6 +15,7 @@ from posthog.api.search import (
     search_entities as search_entities_fts,
 )
 from posthog.models import Action, Cohort, Dashboard, Experiment, FeatureFlag, Insight, Survey, Team, User
+from posthog.models.alert import AlertConfiguration
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
@@ -31,6 +32,7 @@ class EntityKind(StrEnum):
     FEATURE_FLAGS = "feature_flags"
     NOTEBOOKS = "notebooks"
     SURVEYS = "surveys"
+    ALERTS = "alerts"
     ALL = "all"
 
 
@@ -43,6 +45,7 @@ SEARCH_KIND_TO_DATABASE_ENTITY_TYPE: dict[EntityKind, str] = {
     EntityKind.ACTIONS: "action",
     EntityKind.COHORTS: "cohort",
     EntityKind.SURVEYS: "survey",
+    EntityKind.ALERTS: "alert_configuration",
 }
 
 ENTITY_MAP: dict[str, EntityConfig] = {
@@ -87,6 +90,12 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
         "filters": {"archived": False},
+    },
+    "alert_configuration": {
+        "klass": AlertConfiguration,
+        "search_fields": {"name": "A"},
+        "extra_fields": ["name", "enabled", "state", "calculation_interval"],
+        "filters": {},
     },
 }
 """
@@ -388,5 +397,7 @@ class EntitySearchContext:
                 return f"{base_url}/surveys/{result_id}"
             case "error_tracking_issue":
                 return f"{base_url}/error_tracking/{result_id}"
+            case "alert_configuration":
+                return f"{base_url}/insights?tab=alerts&alert_id={result_id}"
             case _:
                 raise ValueError(f"Unknown entity type: {entity_type}")
