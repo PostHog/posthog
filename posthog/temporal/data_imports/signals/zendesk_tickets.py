@@ -1,6 +1,10 @@
 from typing import Any
 
+from structlog import get_logger
+
 from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput, SignalSourceTableConfig
+
+logger = get_logger(__name__)
 
 # We don't want to analyze tickets that were already solved
 ZENDESK_IGNORED_STATUSES = ("closed", "solved")
@@ -24,7 +28,6 @@ Ticket:
 
 Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE"""
 
-
 # Zendesk ticket metadata to include as an extra data for a signal
 EXTRA_FIELDS = (
     "id",
@@ -40,6 +43,10 @@ EXTRA_FIELDS = (
 )
 
 
+def _keep_meaningful_data(record: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in record.items() if k in EXTRA_FIELDS}
+
+
 def zendesk_ticket_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterOutput | None:
     # Required fields based on `zendesk_tickets` table definition
     ticket_id = record.get("id")
@@ -47,6 +54,11 @@ def zendesk_ticket_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitte
     description = record.get("description")
     # Not enough meaningful data to emit a signal
     if not ticket_id or not subject or not description:
+        logger.warning(
+            f"Not enough meaningful data to emit a signal for ticket {ticket_id}",
+            record=_keep_meaningful_data(record),
+            signals_type="zendesk_ticket",
+        )
         return None
     priority = record.get("priority")
     status = record.get("status")
@@ -64,7 +76,7 @@ def zendesk_ticket_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitte
         # Sticking to 1 by default for user-generated issues
         weight=1.0,
         # Attach only the fields that would make sense for a signal
-        extra={k: v for k, v in record.items() if k in EXTRA_FIELDS},
+        extra=_keep_meaningful_data(record),
     )
 
 
