@@ -298,7 +298,7 @@ class EmitDataImportSignalsWorkflow(PostHogWorkflow):
         await workflow.execute_activity(
             emit_data_import_signals_activity,
             inputs,
-            start_to_close_timeout=timedelta(minutes=30),
+            start_to_close_timeout=timedelta(minutes=60),
             heartbeat_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
