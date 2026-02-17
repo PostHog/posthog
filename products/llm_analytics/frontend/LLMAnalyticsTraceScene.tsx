@@ -321,9 +321,10 @@ function TraceMetadata({
     const { getTraceSentiment, isTraceLoading } = useValues(llmSentimentLazyLoaderLogic)
     const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
 
-    const sentimentResult = getTraceSentiment(trace.id)
-    const sentimentLoading = isTraceLoading(trace.id)
-    if (sentimentResult === undefined && !sentimentLoading) {
+    const showSentiment = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+    const sentimentResult = showSentiment ? getTraceSentiment(trace.id) : undefined
+    const sentimentLoading = showSentiment ? isTraceLoading(trace.id) : false
+    if (showSentiment && sentimentResult === undefined && !sentimentLoading) {
         ensureSentimentLoaded(trace.id)
     }
 
@@ -580,6 +581,7 @@ const TreeNode = React.memo(function TraceNode({
 
     const { eventTypeExpanded } = useValues(llmAnalyticsTraceLogic)
     const { searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { getGenerationSentiment } = useValues(llmSentimentLazyLoaderLogic)
     const eventType = getEventType(item)
     const isCollapsedDueToFilter = !eventTypeExpanded(eventType)
@@ -589,8 +591,9 @@ const TreeNode = React.memo(function TraceNode({
         (item as LLMTraceEvent).event === '$ai_generation' &&
         !!(item as LLMTraceEvent).properties?.$ai_billable
 
+    const showSentiment = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
     const isGeneration = isLLMEvent(item) && (item as LLMTraceEvent).event === '$ai_generation'
-    const genSentiment = isGeneration ? getGenerationSentiment(topLevelTrace.id, item.id) : undefined
+    const genSentiment = showSentiment && isGeneration ? getGenerationSentiment(topLevelTrace.id, item.id) : undefined
 
     const children = [
         isLLMEvent(item) && item.properties.$ai_is_error && (
