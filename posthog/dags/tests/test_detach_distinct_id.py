@@ -21,12 +21,10 @@ TEAM_ID = 7
 DUMMY_OVERRIDE_UUID = "00000000-0000-0000-0000-000000000001"
 
 
-def _make_cursor(fetchone_values: list | None = None, fetchall_values: list | None = None) -> MagicMock:
+def _make_cursor(fetchone_values: list | None = None) -> MagicMock:
     cursor = MagicMock()
     if fetchone_values is not None:
         cursor.fetchone.side_effect = fetchone_values
-    if fetchall_values is not None:
-        cursor.fetchall.side_effect = fetchall_values
     return cursor
 
 
@@ -125,7 +123,8 @@ class TestInsertChOverride:
 
 
 class TestDetachDistinctIdJob:
-    """Integration tests that run the full Dagster job with mock resources."""
+    """Run the full Dagster job with mock Postgres (psycopg2), Kafka, and ClickHouse
+    (sync_execute). Verifies the three cleanup phases only fire when all safety checks pass."""
 
     def _make_connection(self, lookup_row, other_count, delete_version=PDI_VERSION):
         """Build a mock psycopg2 connection with a cursor that responds to the
@@ -224,7 +223,8 @@ class TestDetachDistinctIdJob:
         override_rows = mock_sync_execute.call_args.args[1]
         assert override_rows[0][2] == explicit_uuid
 
-    def test_fails_when_distinct_id_not_found(self):
+    @patch("posthog.dags.detach_distinct_id.sync_execute")
+    def test_fails_when_distinct_id_not_found(self, mock_sync_execute):
         conn, cursor = self._make_connection(lookup_row=None, other_count=0, delete_version=None)
         cursor.fetchone.side_effect = [None]
         producer = MagicMock()
@@ -238,8 +238,10 @@ class TestDetachDistinctIdJob:
         assert not result.success
         conn.commit.assert_not_called()
         producer.produce.assert_not_called()
+        mock_sync_execute.assert_not_called()
 
-    def test_fails_when_person_id_mismatch(self):
+    @patch("posthog.dags.detach_distinct_id.sync_execute")
+    def test_fails_when_person_id_mismatch(self, mock_sync_execute):
         wrong_person = UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
         lookup_row = (PDI_ID, PDI_VERSION, PERSON_PK, wrong_person)
         conn, cursor = self._make_connection(lookup_row, other_count=2)
@@ -254,8 +256,10 @@ class TestDetachDistinctIdJob:
         assert not result.success
         conn.commit.assert_not_called()
         producer.produce.assert_not_called()
+        mock_sync_execute.assert_not_called()
 
-    def test_fails_when_only_distinct_id(self):
+    @patch("posthog.dags.detach_distinct_id.sync_execute")
+    def test_fails_when_only_distinct_id(self, mock_sync_execute):
         lookup_row = (PDI_ID, PDI_VERSION, PERSON_PK, UUID(PERSON_UUID))
         conn, cursor = self._make_connection(lookup_row, other_count=0)
         producer = MagicMock()
@@ -269,3 +273,4 @@ class TestDetachDistinctIdJob:
         assert not result.success
         conn.commit.assert_not_called()
         producer.produce.assert_not_called()
+        mock_sync_execute.assert_not_called()

@@ -1,12 +1,28 @@
 """Dagster job to detach a distinct_id from its person.
 
-Deletes the mapping in Postgres (posthog_persondistinctid), publishes a
-deletion message to Kafka so ClickHouse person_distinct_id2 follows suit,
-and inserts a person_distinct_id_overrides row so the squash job can fix
-the person_id embedded on historical events.
+Three cleanup phases, all required:
+  1. Postgres — delete posthog_persondistinctid row (stops future ingestion lookups).
+  2. Kafka  — publish is_deleted to person_distinct_id2 (stops ClickHouse lookups).
+  3. Override — insert into person_distinct_id_overrides so the HogQL query layer
+     immediately re-attributes historical events whose person_id was baked in at
+     ingestion time (Person-on-Events). squash_person_overrides later makes it
+     permanent and removes the override row.
+
+When no ``override_person_id`` is supplied a random dummy UUID is used, effectively
+orphaning the events (the dummy person has no record in the person table).
 
 Typical use: removing a sentinel ``$posthog_cookieless`` distinct_id that was
 erroneously associated with a real person due to a cookieless-ingestion bug.
+
+Example Dagster launchpad config (run with dry_run: true first!)::
+
+    ops:
+      detach_distinct_id_op:
+        config:
+          team_id: 12345
+          distinct_id: "$posthog_cookieless"
+          expected_person_id: "5e00024e-cb68-59f6-821f-6150fcffc431"
+          dry_run: true
 """
 
 import json
@@ -219,7 +235,7 @@ def detach_distinct_id_op(
     )
     log.info(f"Published deletion to {KAFKA_PERSON_DISTINCT_ID} (version={version + 100}, is_deleted=1)")
 
-    # --- 5. Insert override so squash job fixes historical events ---
+    # --- 5. Override: fix person_id baked into historical events (see module docstring) ---
     _insert_ch_override(
         team_id=config.team_id,
         distinct_id=config.distinct_id,
