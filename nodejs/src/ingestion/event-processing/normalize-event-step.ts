@@ -20,15 +20,16 @@ type NormalizeEventOutput = {
 
 export function createNormalizeEventStep<TInput extends NormalizeEventInput>(): ProcessingStep<
     TInput,
-    TInput & NormalizeEventOutput
+    Omit<TInput, 'event'> & NormalizeEventOutput
 > {
     return async function normalizeEventStepWrapper(
         input: TInput
-    ): Promise<PipelineResult<TInput & NormalizeEventOutput>> {
-        const [normalizedEvent, timestamp] = await normalizeEventStep(input.event, input.processPerson, input.headers)
+    ): Promise<PipelineResult<Omit<TInput, 'event'> & NormalizeEventOutput>> {
+        const { event, ...restInput } = input
+        const [normalizedEvent, timestamp] = await normalizeEventStep(input.event, input.processPerson)
 
         return ok({
-            ...input,
+            ...restInput,
             normalizedEvent,
             timestamp,
         })

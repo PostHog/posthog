@@ -25,9 +25,7 @@ import {
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
 import { logger } from '../../utils/logger'
-import { TeamManager } from '../../utils/team-manager'
 import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '../../utils/utils'
-import { compareTimestamps } from '../../worker/ingestion/timestamp-comparison'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
 import { PipelineResult, dlq, drop, ok } from '../pipelines/results'
 import { RedisHelpers } from './redis-helpers'
@@ -107,11 +105,7 @@ export class CookielessManager {
     private readonly mutex = new ConcurrencyController(1)
     private cleanupInterval: NodeJS.Timeout | null = null
 
-    constructor(
-        config: PluginsServerConfig,
-        redis: GenericPool<Redis.Redis>,
-        private teamManager: TeamManager
-    ) {
+    constructor(config: PluginsServerConfig, redis: GenericPool<Redis.Redis>) {
         this.config = {
             disabled: config.COOKIELESS_DISABLED,
             forceStatelessMode: config.COOKIELESS_FORCE_STATELESS_MODE,
@@ -375,9 +369,6 @@ export class CookielessManager {
                 )
                 continue
             }
-
-            // Compare timestamp from headers with current parsing logic
-            compareTimestamps(timestamp, headers, team.id, event.uuid, 'cookieless_processing')
 
             const {
                 userAgent,
