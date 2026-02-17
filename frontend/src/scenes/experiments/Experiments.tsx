@@ -536,7 +536,7 @@ export function Experiments(): JSX.Element {
                                     type="secondary"
                                     icon={<IconMagicWand />}
                                     data-attr="create-experiment-wizard"
-                                    to={urls.experiment('new') + '?mode=wizard'}
+                                    to={urls.experimentWizard()}
                                 >
                                     Guided creation
                                 </LemonButton>
