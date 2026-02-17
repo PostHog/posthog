@@ -10283,3 +10283,132 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         assert "Unknown filter keys" in data["error"]
         assert "another_bad_key" in data["error"]
         assert "invalid_key" in data["error"]
+
+    def test_bulk_delete_creates_activity_logs_for_all_deleted_flags(self):
+        """Test that activity logs are created for each deleted flag."""
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        flags = [
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key=f"flag_{i}",
+                filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+            )
+            for i in range(5)
+        ]
+        flag_ids = {f.id for f in flags}
+
+        # Clear any existing activity logs
+        ActivityLog.objects.filter(team_id=self.team.id, scope="FeatureFlag").delete()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [f.id for f in flags]},
+        )
+
+        assert response.status_code == 200
+        assert len(response.json()["deleted"]) == 5
+
+        # Verify activity logs were created for each flag
+        activity_logs = ActivityLog.objects.filter(team_id=self.team.id, scope="FeatureFlag", activity="deleted")
+        assert activity_logs.count() == 5
+
+        logged_item_ids = {int(log.item_id) for log in activity_logs if log.item_id is not None}
+        assert logged_item_ids == flag_ids
+
+        # Verify each log has the correct structure
+        for log in activity_logs:
+            assert log.user == self.user
+            assert log.detail is not None
+            assert log.detail.get("name") is not None
+
+    def test_bulk_delete_sets_last_modified_by(self):
+        """Test that last_modified_by is set to the requesting user for all deleted flags."""
+        flags = [
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key=f"flag_{i}",
+                filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+                last_modified_by=None,
+            )
+            for i in range(3)
+        ]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [f.id for f in flags]},
+        )
+
+        assert response.status_code == 200
+        assert len(response.json()["deleted"]) == 3
+
+        # Verify last_modified_by is set on all flags
+        for flag in flags:
+            flag.refresh_from_db()
+            assert flag.deleted is True
+            assert flag.last_modified_by == self.user
+
+    def test_bulk_delete_invalidates_cache_efficiently(self):
+        """Test that cache invalidation happens once, not per flag."""
+        flags = [
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key=f"flag_{i}",
+                filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+            )
+            for i in range(10)
+        ]
+
+        with patch("posthog.models.feature_flag.feature_flag.set_feature_flags_for_team_in_cache") as mock_cache:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+                {"ids": [f.id for f in flags]},
+            )
+
+            assert response.status_code == 200
+            assert len(response.json()["deleted"]) == 10
+
+            # Cache should be invalidated only once, not 10 times
+            assert mock_cache.call_count == 1
+
+    def test_bulk_delete_handles_mixed_key_rename_scenarios(self):
+        """Test bulk delete correctly handles mix of flags needing key rename and not."""
+        # Flag without deleted experiment (no rename needed)
+        normal_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="normal_flag",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        # Flag with deleted experiment (rename needed)
+        flag_with_deleted_exp = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="flag_with_deleted_exp",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag_with_deleted_exp)
+        exp.deleted = True
+        exp.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [normal_flag.id, flag_with_deleted_exp.id]},
+        )
+
+        assert response.status_code == 200
+        assert len(response.json()["deleted"]) == 2
+
+        # Verify normal flag keeps its key
+        normal_flag.refresh_from_db()
+        assert normal_flag.deleted is True
+        assert normal_flag.key == "normal_flag"
+
+        # Verify flag with deleted experiment has renamed key
+        flag_with_deleted_exp.refresh_from_db()
+        assert flag_with_deleted_exp.deleted is True
+        assert flag_with_deleted_exp.key == f"flag_with_deleted_exp:deleted:{flag_with_deleted_exp.id}"

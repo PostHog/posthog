@@ -1879,8 +1879,17 @@ class FeatureFlagViewSet(
         - {"ids": [...]} - Explicit list of flag IDs (no limit)
 
         Returns same format as bulk_delete for UI compatibility.
+
+        Uses bulk operations for efficiency: database updates are batched and cache
+        invalidation happens once at the end rather than per-flag.
         """
+        from django.utils import timezone
+
+        from posthog.models.activity_logging.activity_log import LogActivityEntry, bulk_log_activity
+        from posthog.models.feature_flag.feature_flag import set_feature_flags_for_team_in_cache
         from posthog.rbac.user_access_control import access_level_satisfied_for_resource
+        from posthog.tasks.feature_flags import update_team_flags_cache, update_team_service_flags_cache
+        from posthog.tasks.remote_config import update_team_remote_config
 
         filters = request.data.get("filters", {})
         explicit_ids = request.data.get("ids", [])
@@ -1988,7 +1997,15 @@ class FeatureFlagViewSet(
                     if numeric_id not in found_ids:
                         errors.append({"id": numeric_id, "reason": "Flag not found"})
 
-        # Process each flag
+        # Separate flags into those that pass validation vs those that don't
+        # Also track which need key renames (have deleted experiments)
+        flags_to_delete_normal: list[FeatureFlag] = []
+        flags_to_delete_with_rename: list[FeatureFlag] = []
+        activity_log_entries: list[LogActivityEntry] = []
+
+        current_user = request.user if request.user.is_authenticated else None
+        was_impersonated = is_impersonated_session(request)
+
         for flag in flags_list:
             flag_id = flag.id
 
@@ -2031,38 +2048,76 @@ class FeatureFlagViewSet(
                 )
                 continue
 
-            # Capture rollout state before deletion
+            # Flag passes validation - capture rollout state before deletion
             checker = FeatureFlagStatusChecker(feature_flag=flag)
             rollout_info = _get_flag_rollout_info(flag, checker)
-
-            # Soft delete the flag
             old_key = flag.key
 
-            # Rename key if has deleted experiments
+            # Determine if key rename is needed
             has_deleted_experiments = any(exp.deleted for exp in flag.experiment_set.all())
             if has_deleted_experiments:
-                flag.key = f"{flag.key}:deleted:{flag.id}"
+                flags_to_delete_with_rename.append(flag)
+            else:
+                flags_to_delete_normal.append(flag)
 
-            flag.deleted = True
-            flag.last_modified_by = request.user if request.user.is_authenticated else None
-            flag.save()
-
-            # Log activity
-            log_activity(
-                organization_id=flag.team.organization_id,
-                team_id=flag.team_id,
-                user=request.user if request.user.is_authenticated else None,
-                was_impersonated=is_impersonated_session(request),
-                item_id=flag.id,
-                scope="FeatureFlag",
-                activity="deleted",
-                detail=Detail(
-                    changes=[],
-                    name=old_key,
-                ),
+            # Prepare activity log entry
+            activity_log_entries.append(
+                LogActivityEntry(
+                    organization_id=flag.team.organization_id,
+                    team_id=flag.team_id,
+                    user=current_user,
+                    was_impersonated=was_impersonated,
+                    item_id=flag.id,
+                    scope="FeatureFlag",
+                    activity="deleted",
+                    detail=Detail(changes=[], name=old_key),
+                )
             )
 
             deleted.append({"id": flag_id, "key": old_key, **rollout_info})
+
+        # Perform bulk database updates
+        # Using queryset.update() instead of individual saves means Django signals don't fire.
+        # The signals (refresh_flag_cache_on_updates, feature_flag_changed_flags_cache, etc.)
+        # all do cache invalidation, which we handle manually below - once for all flags
+        # instead of once per flag.
+        now_timestamp = timezone.now()
+
+        if flags_to_delete_normal or flags_to_delete_with_rename:
+            sample_flag = flags_to_delete_normal[0] if flags_to_delete_normal else flags_to_delete_with_rename[0]
+            team_id = sample_flag.team_id
+            project_id = sample_flag.team.project_id
+
+            if flags_to_delete_normal:
+                normal_ids = [f.id for f in flags_to_delete_normal]
+                FeatureFlag.objects.filter(id__in=normal_ids).update(
+                    deleted=True,
+                    last_modified_by=current_user,
+                    updated_at=now_timestamp,
+                )
+
+            # Flags with soft-deleted experiments need key rename - handled individually
+            # since each has a unique new key
+            if flags_to_delete_with_rename:
+                for flag in flags_to_delete_with_rename:
+                    FeatureFlag.objects.filter(id=flag.id).update(
+                        deleted=True,
+                        last_modified_by=current_user,
+                        updated_at=now_timestamp,
+                        key=f"{flag.key}:deleted:{flag.id}",
+                    )
+
+            if activity_log_entries:
+                bulk_log_activity(activity_log_entries)
+
+            # Cache invalidation - same work the signals would do, but once instead of N times
+            def invalidate_caches():
+                set_feature_flags_for_team_in_cache(project_id)
+                update_team_service_flags_cache.delay(team_id)
+                update_team_flags_cache.delay(team_id)
+                update_team_remote_config.delay(team_id)
+
+            transaction.on_commit(invalidate_caches)
 
         return Response(
             {
