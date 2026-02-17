@@ -219,7 +219,7 @@ Key behaviours:
 
 - **Retry with conversation-style error correction:** On validation failure, the full response content (including thinking blocks when applicable) is appended as an assistant message, followed by the error as a user message, giving the LLM context to self-correct.
 - **JSON enforcement:** For non-thinking calls, pre-fills the assistant response with `{` to prevent markdown fences. For thinking calls (where pre-fill is not supported), strips ` ```json ... ``` ` fences from the response if present.
-- **Extended thinking:** When `thinking=True`, enables Anthropic extended thinking with `budget_tokens = MAX_RESPONSE_TOKENS` and `max_tokens = MAX_RESPONSE_TOKENS * 2`. Temperature is set to 1 (required by thinking). Full response blocks (including `ThinkingBlock`) are preserved in retry conversation history.
+- **Extended thinking:** When `thinking=True`, enables Anthropic extended thinking with `budget_tokens = MAX_RESPONSE_TOKENS * 2` and `max_tokens = MAX_RESPONSE_TOKENS * 3`. Temperature is set to 1 (required by thinking). Full response blocks (including `ThinkingBlock`) are preserved in retry conversation history.
 - **Debug logging:** In `DEBUG` mode, logs the raw LLM response text on validation failure.
 
 ### Grouping LLM calls (`backend/temporal/llm.py`)
@@ -318,7 +318,7 @@ products/signals/
 │   ├── migrations/
 │   │   ├── 0001_initial.py
 │   │   ├── 0002_signalreport_clustering_fields.py
-│   │   └── 0003_signalreport_pending_input_status.py
+│   │   └── 0003_alter_signalreport_status_and_more.py
 │   └── temporal/
 │       ├── __init__.py             # Registers all workflows and activities (WORKFLOWS + ACTIVITIES lists)
 │       ├── grouping.py             # EmitSignalWorkflow + grouping activities

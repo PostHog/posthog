@@ -38,6 +38,158 @@ logger = structlog.get_logger(__name__)
 EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
 
 
+@temporalio.workflow.defn(name="signal-report-summary")
+class SignalReportSummaryWorkflow:
+    """
+    Workflow that runs when a signal report is promoted to candidate status.
+
+    Flow:
+    1. Fetch all signals for the report from ClickHouse
+    2. Mark report as in_progress
+    3. Summarize signals into a title + summary via LLM
+    4. Safety judge: assess the report for prompt injection / manipulation attempts
+       - If unsafe -> mark report as failed, stop
+    5. Actionability judge: assess whether the report is actionable by a coding agent
+       - If not actionable -> reset report weight to 0 and status to potential, stop
+    6. Mark report as ready with the generated title and summary
+    """
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> SignalReportSummaryWorkflowInputs:
+        loaded = json.loads(inputs[0])
+        return SignalReportSummaryWorkflowInputs(**loaded)
+
+    @staticmethod
+    def workflow_id_for(team_id: int, report_id: str) -> str:
+        return f"signals-report:{team_id}:{report_id}"
+
+    @temporalio.workflow.run
+    async def run(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
+        fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
+            fetch_signals_for_report_activity,
+            FetchSignalsForReportInput(team_id=inputs.team_id, report_id=inputs.report_id),
+            start_to_close_timeout=timedelta(minutes=2),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+        if not fetch_result.signals:
+            workflow.logger.error(f"No signals found for report {inputs.report_id}, marking as failed")
+            await workflow.execute_activity(
+                mark_report_failed_activity,
+                MarkReportFailedInput(report_id=inputs.report_id, error="No signals found"),
+                start_to_close_timeout=timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            return
+
+        await workflow.execute_activity(
+            mark_report_in_progress_activity,
+            MarkReportInProgressInput(report_id=inputs.report_id, signal_count=len(fetch_result.signals)),
+            start_to_close_timeout=timedelta(minutes=1),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+        try:
+            summarize_result: SummarizeSignalsOutput = await workflow.execute_activity(
+                summarize_signals_activity,
+                SummarizeSignalsInput(report_id=inputs.report_id, signals=fetch_result.signals),
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+
+            safety_result, actionability_result = await asyncio.gather(
+                workflow.execute_activity(
+                    safety_judge_activity,
+                    SafetyJudgeInput(
+                        team_id=inputs.team_id,
+                        report_id=inputs.report_id,
+                        title=summarize_result.title,
+                        summary=summarize_result.summary,
+                        signals=fetch_result.signals,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                ),
+                workflow.execute_activity(
+                    actionability_judge_activity,
+                    ActionabilityJudgeInput(
+                        team_id=inputs.team_id,
+                        report_id=inputs.report_id,
+                        title=summarize_result.title,
+                        summary=summarize_result.summary,
+                        signals=fetch_result.signals,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                ),
+            )
+
+            if not safety_result.safe:
+                workflow.logger.warning(f"Report {inputs.report_id} failed safety review: {safety_result.explanation}")
+                await workflow.execute_activity(
+                    mark_report_failed_activity,
+                    MarkReportFailedInput(
+                        report_id=inputs.report_id,
+                        error=f"Failed safety review: {safety_result.explanation}",
+                    ),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                return
+
+            if actionability_result.choice == ActionabilityChoice.NOT_ACTIONABLE:
+                workflow.logger.info(
+                    f"Report {inputs.report_id} deemed not actionable: {actionability_result.explanation}"
+                )
+                await workflow.execute_activity(
+                    reset_report_to_potential_activity,
+                    ResetReportToPotentialInput(
+                        report_id=inputs.report_id,
+                        reason=f"Not actionable: {actionability_result.explanation}",
+                    ),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                return
+
+            if actionability_result.choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT:
+                workflow.logger.info(
+                    f"Report {inputs.report_id} requires human input: {actionability_result.explanation}"
+                )
+                await workflow.execute_activity(
+                    mark_report_pending_input_activity,
+                    MarkReportPendingInput(
+                        report_id=inputs.report_id,
+                        title=summarize_result.title,
+                        summary=summarize_result.summary,
+                        reason=f"Requires human input: {actionability_result.explanation}",
+                    ),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                return
+
+            await workflow.execute_activity(
+                mark_report_ready_activity,
+                MarkReportReadyInput(
+                    report_id=inputs.report_id,
+                    title=summarize_result.title,
+                    summary=summarize_result.summary,
+                ),
+                start_to_close_timeout=timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+
+        except Exception as e:
+            await workflow.execute_activity(
+                mark_report_failed_activity,
+                MarkReportFailedInput(report_id=inputs.report_id, error=str(e)),
+                start_to_close_timeout=timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            raise
+
+
 @dataclass
 class FetchSignalsForReportInput:
     team_id: int
@@ -72,7 +224,7 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
                   AND document_type = 'signal'
                 GROUP BY document_id
             )
-            Where JSONExtractString(metadata, 'report_id') = {report_id}
+            WHERE JSONExtractString(metadata, 'report_id') = {report_id}
             ORDER BY timestamp ASC
         """
 
@@ -222,7 +374,7 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
 
 
 @dataclass
-class MarkReportPendingInputInput:
+class MarkReportPendingInput:
     report_id: str
     title: str
     summary: str
@@ -230,7 +382,7 @@ class MarkReportPendingInputInput:
 
 
 @temporalio.activity.defn
-async def mark_report_pending_input_activity(input: MarkReportPendingInputInput) -> None:
+async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> None:
     """Mark a report as pending human input, storing the draft title/summary for human review."""
     try:
 
@@ -289,155 +441,3 @@ async def reset_report_to_potential_activity(input: ResetReportToPotentialInput)
             report_id=input.report_id,
         )
         raise
-
-
-@temporalio.workflow.defn(name="signal-report-summary")
-class SignalReportSummaryWorkflow:
-    """
-    Workflow that runs when a signal report is promoted to candidate status.
-
-    Flow:
-    1. Fetch all signals for the report from ClickHouse
-    2. Mark report as in_progress
-    3. Summarize signals into a title + summary via LLM
-    4. Safety judge: assess the report for prompt injection / manipulation attempts
-       - If unsafe → mark report as failed, stop
-    5. Actionability judge: assess whether the report is actionable by a coding agent
-       - If not actionable → reset report weight to 0 and status to potential, stop
-    6. Mark report as ready with the generated title and summary
-    """
-
-    @staticmethod
-    def parse_inputs(inputs: list[str]) -> SignalReportSummaryWorkflowInputs:
-        loaded = json.loads(inputs[0])
-        return SignalReportSummaryWorkflowInputs(**loaded)
-
-    @staticmethod
-    def workflow_id_for(team_id: int, report_id: str) -> str:
-        return f"signals-report:{team_id}:{report_id}"
-
-    @temporalio.workflow.run
-    async def run(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
-        fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
-            fetch_signals_for_report_activity,
-            FetchSignalsForReportInput(team_id=inputs.team_id, report_id=inputs.report_id),
-            start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-        if not fetch_result.signals:
-            workflow.logger.error(f"No signals found for report {inputs.report_id}, marking as failed")
-            await workflow.execute_activity(
-                mark_report_failed_activity,
-                MarkReportFailedInput(report_id=inputs.report_id, error="No signals found"),
-                start_to_close_timeout=timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-            return
-
-        await workflow.execute_activity(
-            mark_report_in_progress_activity,
-            MarkReportInProgressInput(report_id=inputs.report_id, signal_count=len(fetch_result.signals)),
-            start_to_close_timeout=timedelta(minutes=1),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-        try:
-            summarize_result: SummarizeSignalsOutput = await workflow.execute_activity(
-                summarize_signals_activity,
-                SummarizeSignalsInput(report_id=inputs.report_id, signals=fetch_result.signals),
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-
-            safety_result, actionability_result = await asyncio.gather(
-                workflow.execute_activity(
-                    safety_judge_activity,
-                    SafetyJudgeInput(
-                        team_id=inputs.team_id,
-                        report_id=inputs.report_id,
-                        title=summarize_result.title,
-                        summary=summarize_result.summary,
-                        signals=fetch_result.signals,
-                    ),
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                ),
-                workflow.execute_activity(
-                    actionability_judge_activity,
-                    ActionabilityJudgeInput(
-                        team_id=inputs.team_id,
-                        report_id=inputs.report_id,
-                        title=summarize_result.title,
-                        summary=summarize_result.summary,
-                        signals=fetch_result.signals,
-                    ),
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                ),
-            )
-
-            if not safety_result.safe:
-                workflow.logger.warning(f"Report {inputs.report_id} failed safety review: {safety_result.explanation}")
-                await workflow.execute_activity(
-                    mark_report_failed_activity,
-                    MarkReportFailedInput(
-                        report_id=inputs.report_id,
-                        error=f"Failed safety review: {safety_result.explanation}",
-                    ),
-                    start_to_close_timeout=timedelta(minutes=1),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
-                return
-
-            if actionability_result.choice == ActionabilityChoice.NOT_ACTIONABLE.value:
-                workflow.logger.info(
-                    f"Report {inputs.report_id} deemed not actionable: {actionability_result.explanation}"
-                )
-                await workflow.execute_activity(
-                    reset_report_to_potential_activity,
-                    ResetReportToPotentialInput(
-                        report_id=inputs.report_id,
-                        reason=f"Not actionable: {actionability_result.explanation}",
-                    ),
-                    start_to_close_timeout=timedelta(minutes=1),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
-                return
-
-            if actionability_result.choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT.value:
-                workflow.logger.info(
-                    f"Report {inputs.report_id} requires human input: {actionability_result.explanation}"
-                )
-                await workflow.execute_activity(
-                    mark_report_pending_input_activity,
-                    MarkReportPendingInputInput(
-                        report_id=inputs.report_id,
-                        title=summarize_result.title,
-                        summary=summarize_result.summary,
-                        reason=f"Requires human input: {actionability_result.explanation}",
-                    ),
-                    start_to_close_timeout=timedelta(minutes=1),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
-                return
-
-            await workflow.execute_activity(
-                mark_report_ready_activity,
-                MarkReportReadyInput(
-                    report_id=inputs.report_id,
-                    title=summarize_result.title,
-                    summary=summarize_result.summary,
-                ),
-                start_to_close_timeout=timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-
-        except Exception as e:
-            await workflow.execute_activity(
-                mark_report_failed_activity,
-                MarkReportFailedInput(report_id=inputs.report_id, error=str(e)),
-                start_to_close_timeout=timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-            raise

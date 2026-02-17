@@ -8,13 +8,13 @@ from .models import SignalReport, SignalReportArtefact
 class SignalReportArtefactInline(admin.TabularInline):
     model = SignalReportArtefact
     extra = 0
-    fields = ("id", "type", "content_size", "created_at")
+    fields = ("id", "type", "content_preview", "created_at")
     readonly_fields = fields
     can_delete = False
 
-    @admin.display(description="Content size (bytes)")
-    def content_size(self, obj: SignalReportArtefact) -> int:
-        return len(obj.content) if obj.content else 0
+    @admin.display(description="Content preview")
+    def content_preview(self, obj: SignalReportArtefact) -> str:
+        return (obj.text_content[:200] + "...") if len(obj.text_content) > 200 else obj.text_content
 
 
 class SignalReportAdmin(admin.ModelAdmin):

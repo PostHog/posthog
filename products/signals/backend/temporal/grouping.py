@@ -4,14 +4,16 @@ import uuid
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Literal, Optional
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
 import structlog
 import temporalio
 from asgiref.sync import sync_to_async
+from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.workflow import ParentClosePolicy
@@ -25,7 +27,7 @@ from posthog.api.embedding_worker import emit_embedding_request, generate_embedd
 from posthog.models import Team
 
 from products.signals.backend.models import SignalReport
-from products.signals.backend.temporal.llm import generate_search_queries, match_signal_with_llm
+from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
 from products.signals.backend.temporal.types import (
     EmitSignalInputs,
     ExistingReportMatch,
@@ -39,6 +41,160 @@ logger = structlog.get_logger(__name__)
 
 EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
 WEIGHT_THRESHOLD = float(os.getenv("SIGNAL_WEIGHT_THRESHOLD", "1.0"))
+MAX_QUERIES = 3
+
+
+@temporalio.workflow.defn(name="emit-signal")
+class EmitSignalWorkflow:
+    """
+    Workflow for processing a new signal.
+
+    Flow:
+    1. Generate embedding for signal content
+    2. Find nearest signals already assigned to reports
+    3. LLM determines if new signal matches an existing report
+    4. Create or update report, check for promotion
+    5. Emit signal to ClickHouse with correct report_id
+    """
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> EmitSignalInputs:
+        loaded = json.loads(inputs[0])
+        return EmitSignalInputs(**loaded)
+
+    @staticmethod
+    def workflow_id_for(team_id: int, source_product: str, source_type: str, source_id: str) -> str:
+        return f"{team_id}:{source_product}:{source_type}:{source_id}"
+
+    @temporalio.workflow.run
+    async def run(self, inputs: EmitSignalInputs) -> str:
+        from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
+
+        signal_id = str(uuid.uuid4())
+
+        # Fetch signal type examples and embedding in parallel (examples needed for query generation)
+        embedding_result, type_examples_result = await asyncio.gather(
+            workflow.execute_activity(
+                get_embedding_activity,
+                GenerateEmbeddingInput(team_id=inputs.team_id, content=inputs.description),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            ),
+            workflow.execute_activity(
+                fetch_signal_type_examples_activity,
+                FetchSignalTypeExamplesInput(team_id=inputs.team_id),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            ),
+        )
+
+        search_queries_result = await workflow.execute_activity(
+            generate_search_queries_activity,
+            GenerateSearchQueriesInput(
+                description=inputs.description,
+                source_product=inputs.source_product,
+                source_type=inputs.source_type,
+                signal_type_examples=type_examples_result.examples,
+            ),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+        queries = search_queries_result.queries
+
+        query_embedding_results: list[GenerateEmbeddingOutput] = await asyncio.gather(
+            *[
+                workflow.execute_activity(
+                    get_embedding_activity,
+                    GenerateEmbeddingInput(team_id=inputs.team_id, content=query),
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                for query in queries
+            ]
+        )
+
+        query_results: list[RunSignalSemanticSearchOutput] = await asyncio.gather(
+            *[
+                workflow.execute_activity(
+                    run_signal_semantic_search_activity,
+                    RunSignalSemanticSearchInput(
+                        team_id=inputs.team_id,
+                        embedding=emb_result.embedding,
+                        limit=10,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                for emb_result in query_embedding_results
+            ]
+        )
+
+        match_result = await workflow.execute_activity(
+            llm_match_signal_activity,
+            LLMMatchSignalInput(
+                description=inputs.description,
+                source_product=inputs.source_product,
+                source_type=inputs.source_type,
+                queries=queries,
+                query_results=[r.candidates for r in query_results],
+            ),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+        assign_result: AssignSignalOutput = await workflow.execute_activity(
+            assign_signal_to_report_activity,
+            AssignSignalInput(
+                team_id=inputs.team_id,
+                signal_id=signal_id,
+                description=inputs.description,
+                weight=inputs.weight,
+                source_product=inputs.source_product,
+                source_type=inputs.source_type,
+                source_id=inputs.source_id,
+                extra=inputs.extra,
+                embedding=embedding_result.embedding,
+                match_result=match_result,
+            ),
+            start_to_close_timeout=timedelta(minutes=2),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+        await workflow.execute_activity(
+            emit_to_clickhouse_activity,
+            EmitToClickHouseInput(
+                team_id=inputs.team_id,
+                signal_id=signal_id,
+                description=inputs.description,
+                source_product=inputs.source_product,
+                source_type=inputs.source_type,
+                source_id=inputs.source_id,
+                weight=inputs.weight,
+                extra=inputs.extra,
+                report_id=assign_result.report_id,
+            ),
+            start_to_close_timeout=timedelta(minutes=1),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+        if assign_result.promoted:
+            from products.signals.backend.temporal.types import SignalReportSummaryWorkflowInputs
+
+            try:
+                await workflow.start_child_workflow(
+                    SignalReportSummaryWorkflow.run,
+                    SignalReportSummaryWorkflowInputs(team_id=inputs.team_id, report_id=assign_result.report_id),
+                    id=SignalReportSummaryWorkflow.workflow_id_for(inputs.team_id, assign_result.report_id),
+                    task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                    parent_close_policy=ParentClosePolicy.ABANDON,
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    execution_timeout=timedelta(minutes=30),
+                )
+            except temporalio.exceptions.WorkflowAlreadyStartedError:
+                pass
+
+        return signal_id
 
 
 @dataclass
@@ -157,6 +313,83 @@ async def fetch_signal_type_examples_activity(input: FetchSignalTypeExamplesInpu
             team_id=input.team_id,
         )
         raise
+
+
+class QueryGenerationResponse(BaseModel):
+    queries: list[str] = Field(min_length=1, max_length=3)
+
+
+QUERY_GENERATION_SYSTEM_PROMPT_TEMPLATE = """You are a signal grouping assistant. Your job is to generate search queries that will help find related signals in an embedding database.
+
+Signals come from diverse sources: exceptions, experiments, insight alerts, session behaviour analysis, and more.
+Related signals may be different types but connected by the same underlying cause, feature, or user journey. Note that "related" does not just mean "semantically similar", but "likely to share a common root cause or impact".
+
+The signal database is heterogeneous — it contains many different signal types. Your queries should search ACROSS these types to find signals that share a common root cause, affected feature, or user journey with the new signal. Do NOT try to generate one query per signal type. Instead, generate queries that would surface related signals regardless of their type.
+
+{examples_section}
+
+Given a new signal, generate 1-3 search queries that would help find related signals. Each query should be a natural language description that captures a different angle of what might be related:
+
+1. The specific feature, page, or component involved
+2. The type of user behavior or technical issue
+3. The broader category or business impact
+
+Keep queries concise but descriptive - they have a maximum length of {max_query_tokens} tokens. Each query will be embedded and used for semantic similarity search.
+
+Respond with a JSON object containing a "queries" array with 1-3 query strings. Return ONLY valid JSON, no other text."""
+
+
+def _build_query_generation_system_prompt(signal_type_examples: list[SignalTypeExample]) -> str:
+    """Build the query generation system prompt, optionally including signal type examples."""
+    if signal_type_examples:
+        lines = [
+            "Here are examples of signal types currently in the database, to help you understand what kinds of signals your queries might match against:\n"
+        ]
+        for ex in signal_type_examples:
+            lines.append(f'- {ex.source_product} / {ex.source_type} (last seen: {ex.timestamp}): "{ex.content[:300]}"')
+        examples_section = "\n".join(lines)
+    else:
+        examples_section = ""
+
+    return QUERY_GENERATION_SYSTEM_PROMPT_TEMPLATE.format(
+        examples_section=examples_section,
+        max_query_tokens=MAX_QUERY_TOKENS,
+    )
+
+
+async def generate_search_queries(
+    description: str,
+    source_product: str,
+    source_type: str,
+    signal_type_examples: list[SignalTypeExample] | None = None,
+) -> list[str]:
+    """
+    Use LLM to generate 1-3 search queries for finding related signals.
+    Returns queries truncated to fit within embedding token limits.
+    """
+
+    system_prompt = _build_query_generation_system_prompt(signal_type_examples or [])
+
+    user_prompt = f"""NEW SIGNAL:
+- Source: {source_product} / {source_type}
+- Description: {description}"""
+
+    def validate(text: str) -> list[str]:
+        data = json.loads(text)
+        result = QueryGenerationResponse.model_validate(data)
+
+        if len(result.queries) == 0:
+            raise ValueError("LLM returned empty queries list")
+
+        queries = result.queries[:MAX_QUERIES]
+        return [truncate_query_to_token_limit(q) for q in queries]
+
+    return await call_llm(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        validate=validate,
+        temperature=0.7,
+    )
 
 
 @dataclass
@@ -280,6 +513,127 @@ async def run_signal_semantic_search_activity(input: RunSignalSemanticSearchInpu
             team_id=input.team_id,
         )
         raise
+
+
+class LLMMatchFound(BaseModel):
+    match_type: Literal["existing"]
+    signal_id: str
+
+
+class LLMNewGroup(BaseModel):
+    match_type: Literal["new"]
+    title: str
+    summary: str
+
+
+LLMMatchResponse = LLMMatchFound | LLMNewGroup
+
+
+def _parse_match_response(data: dict) -> LLMMatchResponse:
+    """Parse and validate LLM match response using discriminated union."""
+    match_type = data.get("match_type")
+    if match_type == "existing":
+        return LLMMatchFound.model_validate(data)
+    elif match_type == "new":
+        return LLMNewGroup.model_validate(data)
+    else:
+        raise ValueError(f"Invalid match_type: {match_type}")
+
+
+MATCHING_SYSTEM_PROMPT = """You are a signal grouping assistant. Your job is to determine if a new signal is related to an existing group of signals,
+or if it should start a new group.
+
+Signals come from diverse sources: exceptions, experiments, insight alerts, session behaviour analysis, and more.
+Your task is to identify signals that are RELATED - they may be different signal types but connected by the same underlying cause, feature, or user journey.
+
+IMPORTANT: Signals should be grouped if they are meaningfully related, not just superficially similar:
+- An experiment reaching significance AND an error spike on the same feature SHOULD match (related by feature)
+- A session behaviour anomaly AND an insight alert about the same user flow SHOULD match (related by user journey)
+- Two "experiment reached significance" signals from DIFFERENT, unrelated experiments should NOT match
+- Two signals about the SAME experiment (e.g., significance + follow-up analysis) SHOULD match
+
+You will receive:
+1. A new signal with its description and source information
+2. Results from multiple search queries, each containing candidate signals with their IDs, descriptions, sources, and cosine distances
+
+If a candidate signal from ANY query is related to the new signal, respond with the signal's ID:
+{"match_type": "existing", "signal_id": "<the signal_id of the matching candidate>"}
+
+If no candidate is related (or all queries returned no results), respond with:
+{"match_type": "new", "title": "<short title for a new report>", "summary": "<1-2 sentence summary of what this signal group is about>"}
+
+You must respond with valid JSON only, no other text."""
+
+
+def _build_matching_prompt(
+    description: str,
+    source_product: str,
+    source_type: str,
+    queries: list[str],
+    query_results: list[list[SignalCandidate]],
+) -> str:
+    prompt = f"""NEW SIGNAL:
+- Source: {source_product} / {source_type}
+- Description: {description}
+
+SEARCH RESULTS:
+"""
+
+    for query_idx, (query, candidates) in enumerate(zip(queries, query_results)):
+        prompt += f'\n--- Query {query_idx}: "{query}" ---\n'
+
+        if not candidates:
+            prompt += "(no results)\n"
+        else:
+            for c in candidates:
+                prompt += f"""
+- signal_id: {c.signal_id}
+  distance: {c.distance:.4f}
+  Source: {c.source_product} / {c.source_type}
+  Description: {c.content}
+"""
+
+    return prompt
+
+
+async def match_signal_with_llm(
+    description: str,
+    source_product: str,
+    source_type: str,
+    queries: list[str],
+    query_results: list[list[SignalCandidate]],
+) -> MatchResult:
+    """
+    Use LLM to determine if a new signal matches any existing report.
+
+    Returns:
+        ExistingReportMatch if a match is found, NewReportMatch otherwise
+    """
+    candidates_by_id: dict[str, SignalCandidate] = {}
+    for candidates in query_results:
+        for c in candidates:
+            candidates_by_id[c.signal_id] = c
+
+    user_prompt = _build_matching_prompt(description, source_product, source_type, queries, query_results)
+
+    def validate(text: str) -> MatchResult:
+        data = json.loads(text)
+        result = _parse_match_response(data)
+
+        if isinstance(result, LLMMatchFound):
+            matched = candidates_by_id.get(result.signal_id)
+            if matched is None:
+                raise ValueError(f"signal_id {result.signal_id} not found in candidates")
+            return ExistingReportMatch(report_id=matched.report_id)
+
+        return NewReportMatch(title=result.title, summary=result.summary)
+
+    return await call_llm(
+        system_prompt=MATCHING_SYSTEM_PROMPT,
+        user_prompt=user_prompt,
+        validate=validate,
+        temperature=0.2,
+    )
 
 
 @dataclass
@@ -442,165 +796,3 @@ async def emit_to_clickhouse_activity(input: EmitToClickHouseInput) -> None:
             team_id=input.team_id,
         )
         raise
-
-
-# TODO: Not idempotent on source_id - re-running with the same source_id will create duplicate signals.
-# Need to check ClickHouse for existing signal before processing.
-@temporalio.workflow.defn(name="emit-signal")
-class EmitSignalWorkflow:
-    """
-    Workflow for processing a new signal.
-
-    Flow:
-    1. Generate embedding for signal content
-    2. Find nearest signals already assigned to reports
-    3. LLM determines if new signal matches an existing report
-    4. Create or update report, check for promotion
-    5. Emit signal to ClickHouse with correct report_id
-    """
-
-    @staticmethod
-    def parse_inputs(inputs: list[str]) -> EmitSignalInputs:
-        loaded = json.loads(inputs[0])
-        return EmitSignalInputs(**loaded)
-
-    @staticmethod
-    def workflow_id_for(team_id: int, source_product: str, source_type: str, source_id: str) -> str:
-        # Prevents the same signal from being processed simultaneously, but does NOT
-        # prevent re-running the workflow for the same source_id (see TODO above).
-        return f"{team_id}:{source_product}:{source_type}:{source_id}"
-
-    @temporalio.workflow.run
-    async def run(self, inputs: EmitSignalInputs) -> str:
-        # Import here to avoid circular imports (summary imports are only needed for child workflow spawn)
-        from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
-
-        with workflow.unsafe.imports_passed_through():
-            from django.conf import settings
-
-        signal_id = str(uuid.uuid4())
-
-        # Fetch signal type examples and embedding in parallel (examples needed for query generation)
-        embedding_result, type_examples_result = await asyncio.gather(
-            workflow.execute_activity(
-                get_embedding_activity,
-                GenerateEmbeddingInput(team_id=inputs.team_id, content=inputs.description),
-                start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            ),
-            workflow.execute_activity(
-                fetch_signal_type_examples_activity,
-                FetchSignalTypeExamplesInput(team_id=inputs.team_id),
-                start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            ),
-        )
-
-        search_queries_result = await workflow.execute_activity(
-            generate_search_queries_activity,
-            GenerateSearchQueriesInput(
-                description=inputs.description,
-                source_product=inputs.source_product,
-                source_type=inputs.source_type,
-                signal_type_examples=type_examples_result.examples,
-            ),
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-        queries = search_queries_result.queries
-
-        query_embedding_results: list[GenerateEmbeddingOutput] = await asyncio.gather(
-            *[
-                workflow.execute_activity(
-                    get_embedding_activity,
-                    GenerateEmbeddingInput(team_id=inputs.team_id, content=query),
-                    start_to_close_timeout=timedelta(minutes=2),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
-                for query in queries
-            ]
-        )
-
-        query_results: list[RunSignalSemanticSearchOutput] = await asyncio.gather(
-            *[
-                workflow.execute_activity(
-                    run_signal_semantic_search_activity,
-                    RunSignalSemanticSearchInput(
-                        team_id=inputs.team_id,
-                        embedding=emb_result.embedding,
-                        limit=10,
-                    ),
-                    start_to_close_timeout=timedelta(minutes=2),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
-                for emb_result in query_embedding_results
-            ]
-        )
-
-        match_result = await workflow.execute_activity(
-            llm_match_signal_activity,
-            LLMMatchSignalInput(
-                description=inputs.description,
-                source_product=inputs.source_product,
-                source_type=inputs.source_type,
-                queries=queries,
-                query_results=[r.candidates for r in query_results],
-            ),
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-        assign_result: AssignSignalOutput = await workflow.execute_activity(
-            assign_signal_to_report_activity,
-            AssignSignalInput(
-                team_id=inputs.team_id,
-                signal_id=signal_id,
-                description=inputs.description,
-                weight=inputs.weight,
-                source_product=inputs.source_product,
-                source_type=inputs.source_type,
-                source_id=inputs.source_id,
-                extra=inputs.extra,
-                embedding=embedding_result.embedding,
-                match_result=match_result,
-            ),
-            start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-        await workflow.execute_activity(
-            emit_to_clickhouse_activity,
-            EmitToClickHouseInput(
-                team_id=inputs.team_id,
-                signal_id=signal_id,
-                description=inputs.description,
-                source_product=inputs.source_product,
-                source_type=inputs.source_type,
-                source_id=inputs.source_id,
-                weight=inputs.weight,
-                extra=inputs.extra,
-                report_id=assign_result.report_id,
-            ),
-            start_to_close_timeout=timedelta(minutes=1),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-        # If the report was just promoted to candidate status, kick off summary
-        if assign_result.promoted:
-            from products.signals.backend.temporal.types import SignalReportSummaryWorkflowInputs
-
-            try:
-                await workflow.start_child_workflow(
-                    SignalReportSummaryWorkflow.run,
-                    SignalReportSummaryWorkflowInputs(team_id=inputs.team_id, report_id=assign_result.report_id),
-                    id=SignalReportSummaryWorkflow.workflow_id_for(inputs.team_id, assign_result.report_id),
-                    task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                    parent_close_policy=ParentClosePolicy.ABANDON,
-                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                    execution_timeout=timedelta(minutes=30),
-                )
-            except temporalio.exceptions.WorkflowAlreadyStartedError:
-                pass
-
-        return signal_id

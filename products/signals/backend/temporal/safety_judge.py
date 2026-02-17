@@ -60,7 +60,9 @@ Summary: {summary}
 
 UNDERLYING SIGNALS:
 
-{render_signals_to_text(signals)}"""
+<signal_data>
+{render_signals_to_text(signals)}
+</signal_data>"""
 
 
 # One thing I'd like to be doing here, or maybe on the signal-ingestion side, is compare each signals embedding
@@ -122,18 +124,16 @@ async def safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOutput:
             signals=input.signals,
         )
 
-        artefact_content = json.dumps(
-            {
-                "choice": result.choice,
-                "explanation": result.explanation,
-            }
-        ).encode("utf-8")
-
         await SignalReportArtefact.objects.acreate(
             team_id=input.team_id,
             report_id=input.report_id,
             type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
-            content=artefact_content,
+            text_content=json.dumps(
+                {
+                    "choice": result.choice,
+                    "explanation": result.explanation,
+                }
+            ),
         )
 
         logger.debug(

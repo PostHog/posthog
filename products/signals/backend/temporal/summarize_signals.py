@@ -12,7 +12,7 @@ logger = structlog.get_logger(__name__)
 
 
 class SummarizeSignalsResponse(BaseModel):
-    title: str = Field(description="A short, descriptive title for the report (max 100 chars)")
+    title: str = Field(description="A short, descriptive title for the report (max 75 chars)")
     summary: str = Field(description="A 2-4 sentence summary of the key findings")
 
 
@@ -23,7 +23,7 @@ Signals come from diverse sources: exceptions, experiments, insight alerts, sess
 They have been grouped together because they share a common underlying cause.
 
 Given a list of signals, produce:
-1. A short, descriptive title (max 100 characters) that captures the essence of what these signals are about
+1. A short, descriptive title (max 75 characters) that captures the essence of what these signals are about
 2. A 2-4 sentence summary that explains:
    - What the signals indicate
    - The potential impact or significance
@@ -41,7 +41,11 @@ Respond with a JSON object containing "title" and "summary" fields. Return ONLY 
 
 
 def _build_summarize_prompt(signals: list[SignalData]) -> str:
-    return "SIGNALS TO SUMMARIZE:\n\n" + render_signals_to_text(signals)
+    return f"""SIGNALS TO SUMMARIZE:
+
+<signal_data>
+{render_signals_to_text(signals)}
+</signal_data>"""
 
 
 async def summarize_signals(signals: list[SignalData]) -> tuple[str, str]:
@@ -57,7 +61,7 @@ async def summarize_signals(signals: list[SignalData]) -> tuple[str, str]:
         data = json.loads(text)
         result = SummarizeSignalsResponse.model_validate(data)
 
-        if len(result.title) > 100:
+        if len(result.title) > 75:
             raise ValueError("Title exceeds maximum length")
 
         return result.title, result.summary

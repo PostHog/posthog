@@ -1,7 +1,6 @@
 import json
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
 
 import structlog
 import temporalio
@@ -23,7 +22,7 @@ class ActionabilityChoice(str, Enum):
 class ActionabilityJudgeResponse(BaseModel):
     choice: ActionabilityChoice = Field(description="The actionability judgment")
     explanation: str = Field(
-        description="3-6 sentence explanation of the decision, required unless choice is immediately_actionable",
+        description="3-6 sentence explanation of the decision",
     )
 
 
@@ -66,7 +65,7 @@ When in doubt between "requires_human_input" and "not_actionable", choose "not_a
 
 Respond with a JSON object:
 - "choice": one of "immediately_actionable", "requires_human_input", or "not_actionable"
-- "explanation": a 3-6 sentence explanation of your reasoning.
+- "explanation": a 3-6 sentence explanation of your reasoning (required for all choices).
 
 Return ONLY valid JSON, no other text. The first token of output must be {"""
 
@@ -83,7 +82,9 @@ Summary: {summary}
 
 UNDERLYING SIGNALS:
 
-{render_signals_to_text(signals)}"""
+<signal_data>
+{render_signals_to_text(signals)}
+</signal_data>"""
 
 
 async def judge_report_actionability(
@@ -97,9 +98,8 @@ async def judge_report_actionability(
         data = json.loads(text)
         result = ActionabilityJudgeResponse.model_validate(data)
 
-        # Require explanation for non-immediately-actionable outcomes
-        if result.choice != ActionabilityChoice.IMMEDIATELY_ACTIONABLE and not result.explanation.strip():
-            raise ValueError(f"Explanation is required when choice is {result.choice.value}")
+        if not result.explanation.strip():
+            raise ValueError(f"Explanation is required for choice {result.choice.value}")
 
         return result
 
@@ -122,8 +122,8 @@ class ActionabilityJudgeInput:
 
 @dataclass
 class ActionabilityJudgeOutput:
-    choice: str  # ActionabilityChoice value, serialized for temporal transport
-    explanation: Optional[str]
+    choice: ActionabilityChoice
+    explanation: str
 
 
 @temporalio.activity.defn
@@ -136,19 +136,16 @@ async def actionability_judge_activity(input: ActionabilityJudgeInput) -> Action
             signals=input.signals,
         )
 
-        # Store judgment as a report artefact
-        artefact_content = json.dumps(
-            {
-                "choice": result.choice.value,
-                "explanation": result.explanation,
-            }
-        ).encode("utf-8")
-
         await SignalReportArtefact.objects.acreate(
             team_id=input.team_id,
             report_id=input.report_id,
             type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
-            content=artefact_content,
+            text_content=json.dumps(
+                {
+                    "choice": result.choice.value,
+                    "explanation": result.explanation,
+                }
+            ),
         )
 
         logger.debug(
@@ -157,8 +154,8 @@ async def actionability_judge_activity(input: ActionabilityJudgeInput) -> Action
             choice=result.choice.value,
         )
         return ActionabilityJudgeOutput(
-            choice=result.choice.value,
-            explanation=result.explanation if result.choice != ActionabilityChoice.IMMEDIATELY_ACTIONABLE else None,
+            choice=result.choice,
+            explanation=result.explanation,
         )
     except Exception as e:
         logger.exception(

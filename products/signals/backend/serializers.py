@@ -34,9 +34,7 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_content(self, obj: SignalReportArtefact) -> dict:
-        """Parse JSON from content BinaryField."""
         try:
-            content = bytes(obj.content) if isinstance(obj.content, memoryview) else obj.content
-            return json.loads(content.decode("utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError):
+            return json.loads(obj.text_content)
+        except (json.JSONDecodeError, ValueError):
             return {}

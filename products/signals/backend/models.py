@@ -58,5 +58,5 @@ class SignalReportArtefact(UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="artefacts")
     type = models.CharField(max_length=100, choices=ArtefactType.choices)
-    content = models.BinaryField()
+    text_content = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
