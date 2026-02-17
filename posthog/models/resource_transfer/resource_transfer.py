@@ -6,6 +6,7 @@ from posthog.models.utils import UUIDModel
 class ResourceTransfer(UUIDModel):
     source_team = models.ForeignKey("Team", on_delete=models.CASCADE, related_name="outbound_resource_transfers")
     destination_team = models.ForeignKey("Team", on_delete=models.CASCADE, related_name="inbound_resource_transfers")
+    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
 
     resource_kind = models.CharField(max_length=100)
     resource_id = models.CharField(max_length=100)  # from the source team

@@ -3,6 +3,7 @@ from typing import Any, cast
 from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import Q
 
+from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -10,6 +11,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.resource_transfer.inter_project_transferer import (
     ResourceTransferVertex,
     build_resource_duplication_graph,
@@ -151,10 +153,34 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         ]
 
         try:
-            duplicated = duplicate_resource_to_new_team(resource, destination_team, substitution_pairs)
+            duplicated = duplicate_resource_to_new_team(resource, destination_team, substitution_pairs, created_by=user)
         except (ValueError, TypeError) as e:
             raise exceptions.ValidationError(str(e))
         mutable_results = [r for r in duplicated if r is not None and not _is_immutable(r)]
+
+        substituted_dest_ids = {sub["destination_resource_id"] for sub in data["substitutions"]}
+        resource_kind = data["resource_kind"]
+        was_impersonated = is_impersonated_session(request)
+
+        _log_destination_activity(
+            mutable_results,
+            substituted_dest_ids=substituted_dest_ids,
+            user=user,
+            organization_id=self.organization_id,
+            destination_team=destination_team,
+            source_team=source_team,
+            was_impersonated=was_impersonated,
+        )
+
+        _log_source_activity(
+            resource=resource,
+            resource_kind=resource_kind,
+            user=user,
+            organization_id=self.organization_id,
+            source_team=source_team,
+            destination_team=destination_team,
+            was_impersonated=was_impersonated,
+        )
 
         return Response(
             {
@@ -285,3 +311,86 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 def _is_immutable(resource: Any) -> bool:
     visitor = ResourceTransferVisitor.get_visitor(resource)
     return visitor is not None and visitor.is_immutable()
+
+
+def _log_destination_activity(
+    mutable_results: list[Any],
+    *,
+    substituted_dest_ids: set[str],
+    user: User,
+    organization_id: Any,
+    destination_team: Team,
+    source_team: Team,
+    was_impersonated: bool,
+) -> None:
+    from posthog.models.activity_logging.model_activity import ModelActivityMixin
+
+    for duplicated_resource in mutable_results:
+        visitor = ResourceTransferVisitor.get_visitor(duplicated_resource)
+        if visitor is None or not visitor.user_facing:
+            continue
+
+        if str(duplicated_resource.pk) in substituted_dest_ids:
+            continue
+
+        # Models with ModelActivityMixin already create activity logs via
+        # signal handlers when objects.create() is called during duplication
+        if isinstance(duplicated_resource, ModelActivityMixin):
+            continue
+
+        log_activity(
+            organization_id=organization_id,
+            team_id=destination_team.pk,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=str(duplicated_resource.pk),
+            scope=visitor.kind,
+            activity="created",
+            detail=Detail(
+                name=visitor.get_display_name(duplicated_resource),
+                changes=[
+                    Change(
+                        type=visitor.kind,
+                        action="created",
+                        field="source_team_id",
+                        after=source_team.pk,
+                    )
+                ],
+            ),
+        )
+
+
+def _log_source_activity(
+    *,
+    resource: Any,
+    resource_kind: str,
+    user: User,
+    organization_id: Any,
+    source_team: Team,
+    destination_team: Team,
+    was_impersonated: bool,
+) -> None:
+    visitor = ResourceTransferVisitor.get_visitor(resource_kind)
+    if visitor is None:
+        return
+
+    log_activity(
+        organization_id=organization_id,
+        team_id=source_team.pk,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=str(resource.pk),
+        scope=visitor.kind,
+        activity="copied_to_project",
+        detail=Detail(
+            name=visitor.get_display_name(resource),
+            changes=[
+                Change(
+                    type=visitor.kind,
+                    action="changed",
+                    field="destination_team_id",
+                    after=destination_team.pk,
+                )
+            ],
+        ),
+    )

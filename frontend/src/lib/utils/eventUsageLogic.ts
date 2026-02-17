@@ -321,7 +321,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ correlationType, action, props }),
         reportCorrelationAnalysisFeedback: (rating: number) => ({ rating }),
         reportCorrelationAnalysisDetailedFeedback: (rating: number, comments: string) => ({ rating, comments }),
-        reportBookmarkletDragged: true,
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
         reportProjectNoticeDismissed: (key: string) => ({ key }),
         reportPersonPropertyUpdated: (
@@ -937,10 +936,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
 
             const eventName = delay ? 'dashboard analyzed' : 'viewed dashboard' // `viewed dashboard` name is kept for backwards compatibility
             posthog.capture(eventName, properties)
-        },
-        reportBookmarkletDragged: async (_, breakpoint) => {
-            await breakpoint(500)
-            posthog.capture('bookmarklet drag start')
         },
         reportProjectCreationSubmitted: async ({
             projectCount,
