@@ -10,7 +10,8 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 
-from products.product_tours.backend.constants import ProductTourEventName
+from products.product_tours.backend.api.product_tour import get_product_tours_response
+from products.product_tours.backend.constants import ProductTourEventName, ProductTourPersonProperties
 from products.product_tours.backend.models import ProductTour
 
 
@@ -964,3 +965,213 @@ class TestProductTourLaunchValidation(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "linkedFlagVariant can only be used when a linked_flag_id is specified" in str(response.json())
+
+
+class TestProductTourAPISerializerTourType(APIBaseTest):
+    @parameterized.expand(
+        [
+            # (content, expected_tour_type)
+            ({"steps": [{"id": "s1", "type": "modal"}]}, "tour"),  # no content type → default
+            ({}, "tour"),  # empty content
+            ({"type": "tour", "steps": []}, "tour"),  # explicit tour type
+            ({"type": "announcement", "steps": [{"id": "s1", "type": "modal"}]}, "announcement"),
+            ({"type": "announcement", "steps": [{"id": "s1", "type": "banner"}]}, "banner"),
+            ({"type": "announcement", "steps": []}, "announcement"),  # announcement with no steps
+        ]
+    )
+    def test_tour_type_in_sdk_response(self, content, expected_tour_type):
+        ProductTour.objects.create(
+            team=self.team,
+            name=f"Tour {expected_tour_type}",
+            content=content,
+            created_by=self.user,
+            start_date=timezone.now(),
+        )
+        tours = get_product_tours_response(self.team)["product_tours"]
+        assert len(tours) == 1
+        assert tours[0]["tour_type"] == expected_tour_type
+
+
+class TestProductTourWaitPeriodTargetingFlag(APIBaseTest):
+    def _create_tour_with_wait_period(self, types: list[str], days: int = 7) -> dict:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Wait period tour",
+                "content": {
+                    "steps": [],
+                    "conditions": {"seenTourWaitPeriod": {"days": days, "types": types}},
+                },
+                "auto_launch": True,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        return response.json()
+
+    def _get_flag_groups(self, tour_id: str) -> list[dict]:
+        tour = ProductTour.objects.get(id=tour_id)
+        tour.internal_targeting_flag.refresh_from_db()
+        return tour.internal_targeting_flag.filters.get("groups", [])
+
+    def _all_properties_across_groups(self, groups: list[dict]) -> list[dict]:
+        return [p for g in groups for p in g.get("properties", [])]
+
+    def test_single_type_creates_two_groups(self):
+        data = self._create_tour_with_wait_period(["tour"], days=7)
+        groups = self._get_flag_groups(data["id"])
+
+        assert len(groups) == 2
+        keys = {p["key"] for g in groups for p in g.get("properties", []) if "last_seen" in p["key"]}
+        assert keys == {f"{ProductTourPersonProperties.TOUR_LAST_SEEN_DATE}/tour"}
+
+        operators = {p["operator"] for g in groups for p in g.get("properties", []) if "last_seen" in p["key"]}
+        assert operators == {"is_not_set", "is_date_before"}
+
+    @parameterized.expand(
+        [
+            (["tour"], 2),
+            (["tour", "announcement"], 4),
+            (["tour", "announcement", "banner"], 8),
+        ]
+    )
+    def test_group_count_is_2_to_the_n_types(self, types, expected_groups):
+        data = self._create_tour_with_wait_period(types, days=5)
+        groups = self._get_flag_groups(data["id"])
+        assert len(groups) == expected_groups
+
+    def test_wait_period_days_in_flag_properties(self):
+        data = self._create_tour_with_wait_period(["tour"], days=14)
+        all_props = self._all_properties_across_groups(self._get_flag_groups(data["id"]))
+
+        date_before_props = [p for p in all_props if p.get("operator") == "is_date_before"]
+        assert len(date_before_props) == 1
+        assert date_before_props[0]["value"] == "14d"
+
+    def test_no_wait_period_creates_single_group(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "No wait period",
+                "content": {"steps": []},
+                "auto_launch": True,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        groups = self._get_flag_groups(response.json()["id"])
+        assert len(groups) == 1
+
+    def test_wait_period_combined_with_user_targeting(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Wait + targeting",
+                "content": {
+                    "steps": [],
+                    "conditions": {"seenTourWaitPeriod": {"days": 7, "types": ["tour"]}},
+                },
+                "auto_launch": True,
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "email", "value": "test@example.com", "operator": "exact", "type": "person"}
+                            ]
+                        },
+                    ]
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        groups = self._get_flag_groups(response.json()["id"])
+
+        # 1 user group × 2 wait period combos = 2 groups
+        assert len(groups) == 2
+        for g in groups:
+            prop_keys = [p["key"] for p in g["properties"]]
+            assert "email" in prop_keys
+
+    def test_adding_wait_period_on_update_refreshes_flag(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Add wait later",
+                "content": {"steps": []},
+                "auto_launch": True,
+            },
+            format="json",
+        )
+        tour_id = response.json()["id"]
+        assert len(self._get_flag_groups(tour_id)) == 1
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour_id}/",
+            data={
+                "content": {
+                    "steps": [],
+                    "conditions": {"seenTourWaitPeriod": {"days": 3, "types": ["tour", "announcement"]}},
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        groups = self._get_flag_groups(tour_id)
+        assert len(groups) == 4
+
+    def test_removing_wait_period_on_update_collapses_groups(self):
+        data = self._create_tour_with_wait_period(["tour", "announcement"], days=7)
+        tour_id = data["id"]
+        assert len(self._get_flag_groups(tour_id)) == 4
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour_id}/",
+            data={"content": {"steps": [], "conditions": {}}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        groups = self._get_flag_groups(tour_id)
+        assert len(groups) == 1
+
+    def test_wait_period_preserves_user_targeting_on_refresh(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Preserve targeting",
+                "content": {
+                    "steps": [],
+                    "displayFrequency": "show_once",
+                    "conditions": {"seenTourWaitPeriod": {"days": 7, "types": ["tour"]}},
+                },
+                "auto_launch": True,
+                "targeting_flag_filters": {
+                    "groups": [
+                        {"properties": [{"key": "plan", "value": "pro", "operator": "exact", "type": "person"}]},
+                    ]
+                },
+            },
+            format="json",
+        )
+        tour_id = response.json()["id"]
+        # 1 user group × 2 wait combos = 2 groups
+        assert len(self._get_flag_groups(tour_id)) == 2
+
+        # Change displayFrequency without re-providing targeting_flag_filters
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour_id}/",
+            data={
+                "content": {
+                    "steps": [],
+                    "displayFrequency": "until_interacted",
+                    "conditions": {"seenTourWaitPeriod": {"days": 7, "types": ["tour"]}},
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        groups = self._get_flag_groups(tour_id)
+        assert len(groups) == 2
+        for g in groups:
+            prop_keys = [p["key"] for p in g["properties"]]
+            assert "plan" in prop_keys

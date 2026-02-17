@@ -20,3 +20,7 @@ class ProductTourEventProperties(StrEnum):
     DISPLAY_FREQUENCY = "display_frequency"
     CREATION_CONTEXT = "creation_context"
     UPDATED_BY_CREATOR = "updated_by_creator"
+
+
+class ProductTourPersonProperties(StrEnum):
+    TOUR_LAST_SEEN_DATE = "$product_tour_last_seen_date"
