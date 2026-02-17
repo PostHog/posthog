@@ -50,6 +50,16 @@ _EMPTY_RESULT: dict[str, Any] = {
 }
 
 
+def _empty_trace_result(trace_id: str) -> dict[str, Any]:
+    return {
+        "trace_id": trace_id,
+        **_EMPTY_RESULT,
+        "generations": {},
+        "generation_count": 0,
+        "message_count": 0,
+    }
+
+
 _GENERATIONS_QUERY = """
     SELECT uuid, properties
     FROM events
@@ -108,6 +118,45 @@ def _resolve_date_bounds(date_from: str | None, date_to: str | None) -> tuple[st
     return resolved_from, resolved_to
 
 
+def _collect_pending(
+    generations: list[tuple[str, dict]],
+    trace_id: str,
+    cap: int,
+) -> tuple[list[_PendingClassification], list[str]]:
+    """Parse generation rows and collect user messages for classification."""
+    from posthog.temporal.llm_analytics.sentiment.extraction import (
+        extract_user_messages_individually,
+        truncate_to_token_limit,
+    )
+
+    pending: list[_PendingClassification] = []
+    gen_uuids_seen: list[str] = []
+
+    for event_uuid, props in generations:
+        user_messages = extract_user_messages_individually(props.get("$ai_input"))
+        if not user_messages:
+            continue
+
+        gen_uuids_seen.append(event_uuid)
+
+        for original_index, msg_text in user_messages:
+            if len(pending) >= cap:
+                break
+            pending.append(
+                _PendingClassification(
+                    trace_id=trace_id,
+                    gen_uuid=event_uuid,
+                    msg_index=original_index,
+                    text=truncate_to_token_limit(msg_text),
+                )
+            )
+
+        if len(pending) >= cap:
+            break
+
+    return pending, gen_uuids_seen
+
+
 @temporalio.activity.defn
 async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str, Any]:
     """Fetch $ai_generation events for a trace and classify sentiment on each user message."""
@@ -119,10 +168,6 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
     from posthog.models.team import Team
     from posthog.sync import database_sync_to_async
     from posthog.temporal.llm_analytics.sentiment.constants import MAX_GENERATIONS, MAX_TOTAL_CLASSIFICATIONS
-    from posthog.temporal.llm_analytics.sentiment.extraction import (
-        extract_user_messages_individually,
-        truncate_to_token_limit,
-    )
     from posthog.temporal.llm_analytics.sentiment.model import classify_batch
 
     resolved_from, resolved_to = _resolve_date_bounds(input.date_from, input.date_to)
@@ -146,111 +191,37 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
     result = await database_sync_to_async(_fetch_generations, thread_sensitive=False)()
 
     if not result.results:
-        return {
-            "trace_id": input.trace_id,
-            **_EMPTY_RESULT,
-            "generations": {},
-            "generation_count": 0,
-            "message_count": 0,
-        }
+        return _empty_trace_result(input.trace_id)
 
-    # Phase 1: collect all texts to classify, respecting the cap
-    pending: list[_PendingClassification] = []
-    # Track generation ordering so we can reconstruct per-gen results
-    gen_uuids_seen: list[str] = []
-    cap_hit = False
-
+    generations: list[tuple[str, dict]] = []
     for row in result.results:
-        event_uuid, raw_props = str(row[0]), row[1]
+        event_uuid = str(row[0])
+        raw_props = row[1]
         props = json.loads(raw_props) if isinstance(raw_props, str) else raw_props
+        generations.append((event_uuid, props))
 
-        ai_input = props.get("$ai_input")
-        user_messages = extract_user_messages_individually(ai_input)
-        if not user_messages:
-            continue
-
-        gen_uuids_seen.append(event_uuid)
-
-        for original_index, msg_text in user_messages:
-            if len(pending) >= MAX_TOTAL_CLASSIFICATIONS:
-                cap_hit = True
-                break
-            pending.append(
-                _PendingClassification(
-                    trace_id=input.trace_id,
-                    gen_uuid=event_uuid,
-                    msg_index=original_index,
-                    text=truncate_to_token_limit(msg_text),
-                )
-            )
-        if cap_hit:
-            logger.warning(
-                "Hit classification cap for trace",
-                trace_id=input.trace_id,
-                cap=MAX_TOTAL_CLASSIFICATIONS,
-                generations_seen=len(gen_uuids_seen),
-            )
-            break
+    pending, gen_uuids_seen = _collect_pending(generations, input.trace_id, MAX_TOTAL_CLASSIFICATIONS)
 
     if not pending:
-        return {
-            "trace_id": input.trace_id,
-            **_EMPTY_RESULT,
-            "generations": {},
-            "generation_count": 0,
-            "message_count": 0,
-        }
+        return _empty_trace_result(input.trace_id)
 
-    # Phase 2: batch classify all collected texts at once
-    results = classify_batch([p.text for p in pending])
+    if len(pending) >= MAX_TOTAL_CLASSIFICATIONS:
+        logger.warning(
+            "Hit classification cap for trace",
+            trace_id=input.trace_id,
+            cap=MAX_TOTAL_CLASSIFICATIONS,
+            generations_seen=len(gen_uuids_seen),
+        )
+
+    classification_results = classify_batch([p.text for p in pending])
 
     from posthog.temporal.llm_analytics.sentiment.metrics import record_messages_classified, record_traces_classified
 
     record_traces_classified(1)
     record_messages_classified(len(pending))
 
-    # Phase 3: reconstruct per-generation and per-message structures
-    # Messages are keyed by their original position in $ai_input so the
-    # frontend can look up sentiment by the same stable index.
-    gen_messages: dict[str, dict[int, dict[str, Any]]] = {}
-    all_scores: list[dict[str, float]] = []
-
-    for item, result in zip(pending, results):
-        msg_dict = {
-            "label": result.label,
-            "score": result.score,
-            "scores": result.scores,
-        }
-        gen_messages.setdefault(item.gen_uuid, {})[item.msg_index] = msg_dict
-        all_scores.append(result.scores)
-
-    generations: dict[str, Any] = {}
-    for gen_uuid in gen_uuids_seen:
-        msgs = gen_messages.get(gen_uuid)
-        if not msgs:
-            continue
-        gen_scores = _average_scores(list(msgs.values()))
-        gen_label = max(gen_scores, key=gen_scores.get)  # type: ignore
-        generations[gen_uuid] = {
-            "label": gen_label,
-            "score": gen_scores[gen_label],
-            "scores": gen_scores,
-            "messages": msgs,
-        }
-
-    # Trace-level: average across all messages
-    trace_scores = _average_score_dicts(all_scores)
-    trace_label = max(trace_scores, key=trace_scores.get)  # type: ignore
-
-    return {
-        "trace_id": input.trace_id,
-        "label": trace_label,
-        "score": round(trace_scores[trace_label], 4),
-        "scores": trace_scores,
-        "generations": generations,
-        "generation_count": len(generations),
-        "message_count": len(pending),
-    }
+    trace_result, _ = _build_trace_result(input.trace_id, pending, gen_uuids_seen, classification_results, 0)
+    return trace_result
 
 
 def _average_scores(message_results: list[dict[str, Any]]) -> dict[str, float]:
@@ -286,13 +257,7 @@ def _build_trace_result(
     trace_results = classification_results[pending_offset : pending_offset + len(trace_pending)]
 
     if not trace_pending:
-        return {
-            "trace_id": trace_id,
-            **_EMPTY_RESULT,
-            "generations": {},
-            "generation_count": 0,
-            "message_count": 0,
-        }, 0
+        return _empty_trace_result(trace_id), 0
 
     gen_messages: dict[str, dict[int, dict[str, Any]]] = {}
     all_scores: list[dict[str, float]] = []
@@ -344,10 +309,6 @@ async def classify_sentiment_batch_activity(input: ClassifySentimentBatchInput) 
     from posthog.models.team import Team
     from posthog.sync import database_sync_to_async
     from posthog.temporal.llm_analytics.sentiment.constants import MAX_GENERATIONS, MAX_TOTAL_CLASSIFICATIONS
-    from posthog.temporal.llm_analytics.sentiment.extraction import (
-        extract_user_messages_individually,
-        truncate_to_token_limit,
-    )
     from posthog.temporal.llm_analytics.sentiment.model import classify_batch
 
     resolved_from, resolved_to = _resolve_date_bounds(input.date_from, input.date_to)
@@ -371,44 +332,25 @@ async def classify_sentiment_batch_activity(input: ClassifySentimentBatchInput) 
     result = await database_sync_to_async(_fetch_generations, thread_sensitive=False)()
 
     # Group rows by trace_id, enforcing per-trace generation limit
-    rows_by_trace: dict[str, list[tuple]] = {}
+    rows_by_trace: dict[str, list[tuple[str, dict]]] = {}
     for row in result.results or []:
         row_trace_id = str(row[2])
         trace_rows = rows_by_trace.setdefault(row_trace_id, [])
         if len(trace_rows) < MAX_GENERATIONS:
-            trace_rows.append(row)
+            raw_props = row[1]
+            props = json.loads(raw_props) if isinstance(raw_props, str) else raw_props
+            trace_rows.append((str(row[0]), props))
 
     # Collect all texts to classify across all traces
     pending: list[_PendingClassification] = []
     gen_uuids_seen: list[str] = []
 
     for trace_id in input.trace_ids:
-        trace_rows = rows_by_trace.get(trace_id, [])
-        trace_count = 0
-
-        for row in trace_rows:
-            event_uuid = str(row[0])
-            raw_props = row[1]
-            props = json.loads(raw_props) if isinstance(raw_props, str) else raw_props
-
-            user_messages = extract_user_messages_individually(props.get("$ai_input"))
-            if not user_messages:
-                continue
-
-            gen_uuids_seen.append(event_uuid)
-
-            for original_index, msg_text in user_messages:
-                if trace_count >= MAX_TOTAL_CLASSIFICATIONS:
-                    break
-                pending.append(
-                    _PendingClassification(
-                        trace_id=trace_id,
-                        gen_uuid=event_uuid,
-                        msg_index=original_index,
-                        text=truncate_to_token_limit(msg_text),
-                    )
-                )
-                trace_count += 1
+        trace_pending, trace_gen_uuids = _collect_pending(
+            rows_by_trace.get(trace_id, []), trace_id, MAX_TOTAL_CLASSIFICATIONS
+        )
+        pending.extend(trace_pending)
+        gen_uuids_seen.extend(trace_gen_uuids)
 
     # Batch classify all texts across all traces in one call
     all_results = classify_batch([p.text for p in pending]) if pending else []
