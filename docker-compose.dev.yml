@@ -290,6 +290,21 @@ services:
         volumes:
             - 'seaweedfs-data:/data'
 
+    etcd:
+        image: quay.io/coreos/etcd:v3.6.8
+        restart: on-failure
+        environment:
+            ETCD_NAME: etcd0
+            ETCD_ADVERTISE_CLIENT_URLS: http://0.0.0.0:2379
+            ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+        ports:
+            - '127.0.0.1:2379:2379'
+        healthcheck:
+            test: ['CMD', 'etcdctl', 'endpoint', 'health']
+            interval: 5s
+            timeout: 5s
+            retries: 10
+
 networks:
     otel_network:
         driver: bridge
