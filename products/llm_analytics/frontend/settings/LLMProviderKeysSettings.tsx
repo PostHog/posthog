@@ -167,7 +167,7 @@ function AddKeyModal(): JSX.Element {
                 })
             }
         }
-    }, [pendingSubmit, preValidationResult, preValidationResultLoading, createProviderKey, name, apiKey, provider])
+    }, [pendingSubmit, preValidationResult, preValidationResultLoading, createProviderKey, name, apiKey, provider]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const handleClose = (): void => {
         setNewKeyModalOpen(false)

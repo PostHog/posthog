@@ -69,10 +69,6 @@ export function BounceRatePageViewModeSetting(): JSX.Element {
 
     return (
         <>
-            <p>
-                Choose how pageviews are counted, as part of the bounce rate calculation. Note that other factors are
-                taken into account, e.g. the number of autocaptures, and the session duration.
-            </p>
             <AccessControlAction
                 resourceType={AccessControlResourceType.WebAnalytics}
                 minAccessLevel={AccessControlLevel.Editor}

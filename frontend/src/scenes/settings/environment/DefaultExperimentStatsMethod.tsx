@@ -21,13 +21,11 @@ export function DefaultExperimentStatsMethod(): JSX.Element {
     }
 
     return (
-        <div className="mt-4">
-            <StatsMethodSelector
-                value={currentTeam?.default_experiment_stats_method ?? ExperimentStatsMethod.Bayesian}
-                onChange={handleChange}
-                disabled={!!restrictionReason || currentTeamLoading}
-                disabledReason={restrictionReason || (currentTeamLoading ? 'Loading...' : undefined)}
-            />
-        </div>
+        <StatsMethodSelector
+            value={currentTeam?.default_experiment_stats_method ?? ExperimentStatsMethod.Bayesian}
+            onChange={handleChange}
+            disabled={!!restrictionReason || currentTeamLoading}
+            disabledReason={restrictionReason || (currentTeamLoading ? 'Loading...' : undefined)}
+        />
     )
 }
