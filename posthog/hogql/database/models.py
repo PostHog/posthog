@@ -9,6 +9,9 @@ from posthog.hogql.base import Expr
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.errors import NotImplementedError, ResolutionError
 
+# Import Workload at module level for Pydantic (needed at runtime)
+from posthog.clickhouse.workload import Workload
+
 if TYPE_CHECKING:
     from posthog.hogql.ast import LazyJoinType, SelectQuery
     from posthog.hogql.base import ConstantType
@@ -165,6 +168,7 @@ class FieldTraverser(FieldOrTable):
 class Table(FieldOrTable):
     fields: dict[str, FieldOrTable]
     top_level_settings: Optional[HogQLQuerySettings] = None
+    workload: Optional[Workload] = None
     model_config = ConfigDict(extra="forbid")
 
     def has_field(self, name: str | int) -> bool:
