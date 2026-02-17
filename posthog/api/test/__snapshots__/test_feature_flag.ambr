@@ -15,17 +15,17 @@
      GROUP BY person.id
      HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
   WHERE and(ifNull(equals(persons.team_id, 99999), 0), in(persons.properties___group, tuple('0', '1', '2', '3')))
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius.1
@@ -53,17 +53,17 @@
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
   WHERE and(ifNull(equals(groups.team_id, 99999), 0), ifNull(equals(groups.index, 0), 0), ifNull(equals(groups.key, 'special-workspace'), 0))
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_group_key_property.1
@@ -88,17 +88,17 @@
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
   WHERE and(ifNull(equals(groups.team_id, 99999), 0), ifNull(equals(groups.index, 0), 0), ifNull(ilike(groups.key, '%org:%'), 0))
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_groups
@@ -115,17 +115,17 @@
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
   WHERE and(ifNull(equals(groups.team_id, 99999), 0), ifNull(equals(groups.index, 0), 0), in(groups.properties___industry, tuple('0', '1', '2', '3')))
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_groups.1
@@ -151,17 +151,17 @@
      GROUP BY groups.group_type_index,
               groups.group_key) AS groups
   WHERE and(ifNull(equals(groups.team_id, 99999), 0), ifNull(equals(groups.index, 0), 0), and(in(groups.properties___industry, tuple('0', '1', '2', '3', '4')), in(groups.properties___industry, tuple('2', '3', '4', '5', '6'))))
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_groups_multiple_queries.1
@@ -220,17 +220,17 @@
                                                                                                                                                                                                 (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                  FROM cohortpeople
                                                                                                                                                                                                  WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.3
@@ -267,17 +267,17 @@
                                                                 (SELECT person_static_cohort.person_id AS person_id
                                                                  FROM person_static_cohort
                                                                  WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(persons.properties___group, tuple('1', '2', '4', '5', '6'))))
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.1
@@ -329,17 +329,17 @@
                                                                                                                                                                                (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                 FROM cohortpeople
                                                                                                                                                                                 WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort
@@ -358,17 +358,17 @@
      GROUP BY person.id
      HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
   WHERE and(ifNull(equals(persons.team_id, 99999), 0), or(ifNull(equals(persons.properties___group, 'none'), 0), in(persons.properties___group, tuple('1', '2', '3'))))
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort.1
@@ -414,17 +414,17 @@
                                                             (SELECT cohortpeople.person_id AS person_id
                                                              FROM cohortpeople
                                                              WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))))
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator
