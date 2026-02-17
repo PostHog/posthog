@@ -101,7 +101,7 @@ function computeExtremes(messages?: Record<string | number, MessageScore>): {
 
 export function SentimentBar({ label, score, loading, size = 'sm', messages }: SentimentBarProps): JSX.Element | null {
     if (loading) {
-        return <LemonSkeleton className={`h-1.5 ${size === 'full' ? 'w-full' : 'w-10'}`} />
+        return <LemonSkeleton className={`h-1.5 ${size === 'full' ? 'w-3/4' : 'w-10'}`} />
     }
 
     const sentimentLabel = (label as SentimentLabel) ?? 'neutral'
@@ -124,7 +124,7 @@ export function SentimentBar({ label, score, loading, size = 'sm', messages }: S
 
     return (
         <Tooltip title={tooltipText}>
-            <span className={`relative my-0.5 inline-block shrink-0 ${size === 'full' ? 'w-full' : 'w-10'}`}>
+            <span className={`relative my-0.5 inline-block shrink-0 ${size === 'full' ? 'w-3/4' : 'w-10'}`}>
                 <span className="block h-1.5 bg-border-light rounded-full overflow-hidden">
                     <span
                         className={`block h-full rounded-full ${barColor}`}
