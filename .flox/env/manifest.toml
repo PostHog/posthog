@@ -30,7 +30,7 @@ rust-analyzer = { pkg-path = "rust-analyzer", pkg-group = "rust-analyzer" } # ru
 lld = { pkg-path = "lld", systems = ["aarch64-darwin"] } # Faster linker for Rust dev builds on macOS
 sccache = { pkg-path = "sccache" } # Compilation cache for Rust (also used in CI)
 # Go
-go = { pkg-path = "go", version = "1.26", pkg-group = "go" }
+go = { pkg-path = "go", version = "1.26.0", pkg-group = "go" }
 golangci-lint = { pkg-path = "golangci-lint", pkg-group = "go" }
 air = { pkg-path = "air" }
 # CLI tools
