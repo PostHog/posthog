@@ -177,7 +177,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         ],
         actions: [
             dataWarehouseSettingsLogic,
-            ['loadSources', 'loadSourcesSuccess'],
+            ['loadSources', 'loadSourcesSuccess', 'loadDatabase'],
             dataNodeCollectionLogic({ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }),
             ['reloadAll'],
             marketingAnalyticsSettingsLogic,
@@ -374,7 +374,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     return null
                 }
 
-                const validSourcesMap = sources_map
+                const validSourcesMap = { ...sources_map }
                 const requiredColumns = Object.values(MarketingAnalyticsColumnsSchemaNames).filter(
                     (column_name: MarketingAnalyticsColumnsSchemaNames) =>
                         MARKETING_ANALYTICS_SCHEMA[column_name].required
@@ -816,6 +816,9 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     }
                 }
 
+                // Refresh warehouse tables so newly added source tables are picked up
+                actions.loadDatabase()
+
                 // Reload all queries to reflect the updated sources
                 actions.reloadAll()
 
@@ -870,5 +873,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         }
 
         actions.loadSources(null)
+        actions.loadDatabase()
     }),
 ])

@@ -18,18 +18,16 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
     connect(() => ({
         values: [
             settingsLogic({ logicKey: 'settingsScene' }),
-            ['selectedLevel', 'selectedSectionId', 'sections', 'settings', 'sections'],
+            ['selectedLevel', 'selectedSectionId', 'selectedSection', 'sections', 'settings'],
         ],
         actions: [settingsLogic({ logicKey: 'settingsScene' }), ['selectLevel', 'selectSection', 'selectSetting']],
     })),
 
     selectors({
         breadcrumbs: [
-            (s) => [s.selectedLevel, s.selectedSectionId, s.sections],
-            (selectedLevel, selectedSectionId, sections): Breadcrumb[] => {
-                const sectionName = selectedSectionId
-                    ? sections.find((x) => x.id === selectedSectionId)?.title
-                    : capitalizeFirstLetter(selectedLevel)
+            (s) => [s.selectedLevel, s.selectedSectionId, s.selectedSection],
+            (selectedLevel, selectedSectionId, selectedSection): Breadcrumb[] => {
+                const sectionName = selectedSection?.title ?? capitalizeFirstLetter(selectedLevel)
 
                 return [
                     {
@@ -78,8 +76,14 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
             }
 
             if (SettingLevelIds.includes(section as SettingLevelId)) {
-                if (section !== values.selectedLevel || values.selectedSectionId) {
-                    actions.selectLevel(section as SettingLevelId)
+                // Redirect level-only URLs to the first section at that level
+                const level = section as SettingLevelId
+                const effectiveLevel = level === 'environment' ? 'project' : level
+                const firstSection = values.sections.find((s) => s.level === effectiveLevel)
+                if (firstSection) {
+                    router.actions.replace(urls.settings(firstSection.id))
+                } else {
+                    actions.selectLevel(effectiveLevel)
                 }
             } else if (section !== values.selectedSectionId) {
                 actions.selectSection(

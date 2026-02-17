@@ -7,6 +7,7 @@ import {
     LemonBanner,
     LemonCheckbox,
     LemonCollapse,
+    LemonDivider,
     LemonInput,
     LemonSegmentedButton,
     LemonSelect,
@@ -18,10 +19,12 @@ import { AlertStateIndicator } from 'lib/components/Alerts/views/ManageAlertsMod
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet, formatDate } from 'lib/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
@@ -36,8 +39,10 @@ import { InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/typ
 import { SnoozeButton } from '../SnoozeButton'
 import { alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'
 import { alertLogic } from '../alertLogic'
+import { alertNotificationLogic } from '../alertNotificationLogic'
 import { AlertType } from '../types'
 import { AlertDestinationSelector } from './AlertDestinationSelector'
+import { InlineAlertNotifications } from './InlineAlertNotifications'
 
 function alertCalculationIntervalToLabel(interval: AlertCalculationInterval): string {
     switch (interval) {
@@ -136,6 +141,12 @@ export function EditAlertModal({
     const { alertForm, isAlertFormSubmitting, alertFormChanged } = useValues(formLogic)
     const { deleteAlert, snoozeAlert, clearSnooze } = useActions(formLogic)
     const { setAlertFormValue } = useActions(formLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const inlineNotificationsEnabled = !!featureFlags[FEATURE_FLAGS.ALERTS_INLINE_NOTIFICATIONS]
+
+    const { pendingNotifications } = useValues(alertNotificationLogic({ alertId: alertId }))
+    const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
 
     const trendsLogic = trendsDataLogic({ dashboardItemId: insightShortId })
     const {
@@ -404,8 +415,10 @@ export function EditAlertModal({
                                 </div>
 
                                 <h4 className="mt-4">CDP Destinations</h4>
-                                <div className="mt-2">
-                                    {alertId ? (
+                                <div className="mt-4">
+                                    {inlineNotificationsEnabled ? (
+                                        <InlineAlertNotifications alertId={alertId} />
+                                    ) : alertId ? (
                                         <div className="flex flex-col">
                                             <AlertDestinationSelector
                                                 alertId={alertId}
@@ -475,6 +488,16 @@ export function EditAlertModal({
                                                             }
                                                         />
                                                     </LemonField>
+                                                    {inlineNotificationsEnabled && alertId && (
+                                                        <>
+                                                            <LemonDivider className="my-3" />
+                                                            <h4 className="mb-2">Notification destinations</h4>
+                                                            <AlertDestinationSelector
+                                                                alertId={alertId}
+                                                                insightShortId={insightShortId}
+                                                            />
+                                                        </>
+                                                    )}
                                                 </div>
                                             ),
                                         },
@@ -516,7 +539,7 @@ export function EditAlertModal({
                             type="primary"
                             htmlType="submit"
                             loading={isAlertFormSubmitting}
-                            disabledReason={!alertFormChanged && 'No changes to save'}
+                            disabledReason={!alertFormChanged && !hasPendingNotifications && 'No changes to save'}
                         >
                             {creatingNewAlert ? 'Create alert' : 'Save'}
                         </LemonButton>
