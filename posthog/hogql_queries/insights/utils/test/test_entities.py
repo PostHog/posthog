@@ -2,9 +2,12 @@ import pytest
 
 from posthog.schema import (
     ActionsNode,
+    DataWarehouseNode,
     EmptyPropertyFilter,
     EventPropertyFilter,
     EventsNode,
+    FilterLogicalOperator,
+    GroupNode,
     PersonPropertyFilter,
     PropertyOperator,
 )
@@ -92,10 +95,144 @@ testdata_equals = [
         ),
         False,
     ),
+    # group node vs non-group node
+    (
+        GroupNode(operator=FilterLogicalOperator.OR_, nodes=[EventsNode(event="$pageview")]),
+        EventsNode(event="$pageview"),
+        False,
+    ),
+]
+
+testdata_group_equals = [
+    # identical single-node groups
+    (
+        GroupNode(operator=FilterLogicalOperator.OR_, nodes=[EventsNode(event="$pageview")]),
+        GroupNode(operator=FilterLogicalOperator.OR_, nodes=[EventsNode(event="$pageview")]),
+        True,
+    ),
+    # different operator
+    (
+        GroupNode(operator=FilterLogicalOperator.OR_, nodes=[EventsNode(event="$pageview")]),
+        GroupNode(operator=FilterLogicalOperator.AND_, nodes=[EventsNode(event="$pageview")]),
+        False,
+    ),
+    # different child event
+    (
+        GroupNode(operator=FilterLogicalOperator.OR_, nodes=[EventsNode(event="$pageview")]),
+        GroupNode(operator=FilterLogicalOperator.OR_, nodes=[EventsNode(event="$pageleave")]),
+        False,
+    ),
+    # different number of children
+    (
+        GroupNode(operator=FilterLogicalOperator.OR_, nodes=[EventsNode(event="$pageview")]),
+        GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+        ),
+        False,
+    ),
+    # same children in different order
+    (
+        GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[EventsNode(event="$pageview"), ActionsNode(id=1)],
+        ),
+        GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[ActionsNode(id=1), EventsNode(event="$pageview")],
+        ),
+        True,
+    ),
+    # mixed node types reordered
+    (
+        GroupNode(
+            operator=FilterLogicalOperator.AND_,
+            nodes=[
+                EventsNode(event="$pageview"),
+                ActionsNode(id=1),
+                DataWarehouseNode(
+                    id="dw1", id_field="id", table_name="t", distinct_id_field="did", timestamp_field="ts"
+                ),
+            ],
+        ),
+        GroupNode(
+            operator=FilterLogicalOperator.AND_,
+            nodes=[
+                DataWarehouseNode(
+                    id="dw1", id_field="id", table_name="t", distinct_id_field="did", timestamp_field="ts"
+                ),
+                EventsNode(event="$pageview"),
+                ActionsNode(id=1),
+            ],
+        ),
+        True,
+    ),
+    # duplicate children must match (multiset comparison)
+    (
+        GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[EventsNode(event="$pageview"), EventsNode(event="$pageview")],
+        ),
+        GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+        ),
+        False,
+    ),
+    # same group-level properties
+    (
+        GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[EventsNode(event="$pageview")],
+            properties=[EventPropertyFilter(key="k", value="v", operator=PropertyOperator.EXACT)],
+        ),
+        GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[EventsNode(event="$pageview")],
+            properties=[EventPropertyFilter(key="k", value="v", operator=PropertyOperator.EXACT)],
+        ),
+        True,
+    ),
+    # different group-level properties
+    (
+        GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[EventsNode(event="$pageview")],
+            properties=[EventPropertyFilter(key="k", value="v1", operator=PropertyOperator.EXACT)],
+        ),
+        GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[EventsNode(event="$pageview")],
+            properties=[EventPropertyFilter(key="k", value="v2", operator=PropertyOperator.EXACT)],
+        ),
+        False,
+    ),
+    # child node properties differ
+    (
+        GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[
+                EventsNode(
+                    event="$pageview",
+                    properties=[EventPropertyFilter(key="k", value="v1", operator=PropertyOperator.EXACT)],
+                ),
+            ],
+        ),
+        GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[
+                EventsNode(
+                    event="$pageview",
+                    properties=[EventPropertyFilter(key="k", value="v2", operator=PropertyOperator.EXACT)],
+                ),
+            ],
+        ),
+        False,
+    ),
 ]
 
 
-@pytest.mark.parametrize("a,b,expected", testdata_equals)
+@pytest.mark.parametrize("a,b,expected", testdata_equals + testdata_group_equals)
 def test_is_equal(a, b, expected):
     assert is_equal(a, b) == expected
 
@@ -164,7 +301,50 @@ testdata_superset = [
     ),
 ]
 
+testdata_group_superset = [
+    # a has fewer properties (less filtered) so a is superset of b
+    (
+        GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[EventsNode(event="$pageview")],
+            properties=[EventPropertyFilter(key="k1", value="v1", operator=PropertyOperator.EXACT)],
+        ),
+        GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[EventsNode(event="$pageview")],
+            properties=[
+                EventPropertyFilter(key="k1", value="v1", operator=PropertyOperator.EXACT),
+                EventPropertyFilter(key="k2", value="v2", operator=PropertyOperator.EXACT),
+            ],
+        ),
+        True,
+    ),
+    # a has more properties (more filtered) so a is NOT superset of b
+    (
+        GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[EventsNode(event="$pageview")],
+            properties=[
+                EventPropertyFilter(key="k1", value="v1", operator=PropertyOperator.EXACT),
+                EventPropertyFilter(key="k2", value="v2", operator=PropertyOperator.EXACT),
+            ],
+        ),
+        GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[EventsNode(event="$pageview")],
+            properties=[EventPropertyFilter(key="k1", value="v1", operator=PropertyOperator.EXACT)],
+        ),
+        False,
+    ),
+    # different operator means not superset
+    (
+        GroupNode(operator=FilterLogicalOperator.OR_, nodes=[EventsNode(event="$pageview")]),
+        GroupNode(operator=FilterLogicalOperator.AND_, nodes=[EventsNode(event="$pageview")]),
+        False,
+    ),
+]
 
-@pytest.mark.parametrize("a,b,expected", testdata_equals)
+
+@pytest.mark.parametrize("a,b,expected", testdata_superset + testdata_group_superset)
 def test_is_superset(a, b, expected):
     assert is_superset(a, b) == expected
