@@ -1,5 +1,6 @@
 import { Tabs } from '@base-ui/react/tabs'
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconArrowLeft, IconArrowRight, IconSidePanel } from '@posthog/icons'
@@ -75,7 +76,10 @@ export function SidePanelOfframpModal(): JSX.Element {
     return (
         <DialogPrimitive
             open={shouldShowOfframpModal}
-            onOpenChange={(open) => {
+            onOpenChange={(open, details) => {
+                if (details?.reason) {
+                    posthog.capture('sidepanel offramp modal dismissed', { step: activeIndex, method: details.reason })
+                }
                 if (!open) {
                     dismissOfframpModal(activeIndex)
                 }
