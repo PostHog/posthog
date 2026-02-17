@@ -340,7 +340,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
             raise
         finally:
-            self.save()
+            # Save fields modified during calculation, but exclude is_calculating to prevent race condition
+            self.save(update_fields=["last_calculation", "errors_calculating", "last_error_at", "cohort_type"])
             # Only set is_calculating = False if this is the highest pending version
             # This prevents the flag from being reset while other higher-version calculations are still running
             self._safe_reset_calculating_state(completed_version=pending_version)
