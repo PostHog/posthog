@@ -15,7 +15,7 @@ export type ExperimentWizardStep = 'about' | 'variants' | 'analytics'
 
 const WIZARD_STEPS: ExperimentWizardStep[] = ['about', 'variants', 'analytics']
 
-const STEP_ORDER: Record<ExperimentWizardStep, number> = {
+export const STEP_ORDER: Record<ExperimentWizardStep, number> = {
     about: 0,
     variants: 1,
     analytics: 2,

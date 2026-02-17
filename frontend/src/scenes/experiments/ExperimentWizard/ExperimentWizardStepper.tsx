@@ -3,7 +3,7 @@ import { IconCheckCircle } from '@posthog/icons'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 
-import { ExperimentWizardStep } from './experimentWizardLogic'
+import { ExperimentWizardStep, STEP_ORDER } from './experimentWizardLogic'
 
 interface Step {
     key: ExperimentWizardStep
@@ -15,12 +15,6 @@ const STEPS: Step[] = [
     { key: 'variants', label: 'Variant rollout' },
     { key: 'analytics', label: 'Analytics' },
 ]
-
-const STEP_ORDER: Record<ExperimentWizardStep, number> = {
-    about: 0,
-    variants: 1,
-    analytics: 2,
-}
 
 interface ExperimentWizardStepperProps {
     currentStep: ExperimentWizardStep

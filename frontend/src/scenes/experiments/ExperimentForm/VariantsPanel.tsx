@@ -75,14 +75,6 @@ export function VariantsPanel({ experiment, updateFeatureFlag, disabled = false 
         debouncedValidateFeatureFlagKey,
     ])
 
-    const linkMatchingFeatureFlag = (flags: FeatureFlagType[], key: string): void => {
-        const matchingFlag = flags.find((flag) => flag.key === key)
-        if (matchingFlag) {
-            setMode('link')
-            setLinkedFeatureFlag(matchingFlag)
-        }
-    }
-
     // Auto-detect linked feature flag when the experiment has a key matching an existing flag.
     // This handles the wizard → classic form transition where the wizard selected an existing flag.
     useEffect(() => {
@@ -93,7 +85,11 @@ export function VariantsPanel({ experiment, updateFeatureFlag, disabled = false 
             featureFlagKeyForAutocomplete &&
             featureFlags.results?.length
         ) {
-            linkMatchingFeatureFlag(featureFlags.results, featureFlagKeyForAutocomplete)
+            const matchingFlag = featureFlags.results.find((flag) => flag.key === featureFlagKeyForAutocomplete)
+            if (matchingFlag) {
+                setMode('link')
+                setLinkedFeatureFlag(matchingFlag)
+            }
         }
     }, [
         featureFlags.results,
