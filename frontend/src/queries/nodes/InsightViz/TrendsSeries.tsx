@@ -38,8 +38,9 @@ export function TrendsSeries(): JSX.Element | null {
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.EventFeatureFlags,
         TaxonomicFilterGroupType.EventMetadata,
-        ...(hasPageview ? [TaxonomicFilterGroupType.PageviewEvents] : []),
-        ...(hasScreen ? [TaxonomicFilterGroupType.ScreenEvents] : []),
+        ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
+        ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
+        TaxonomicFilterGroupType.EmailAddresses,
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
@@ -102,6 +103,7 @@ export function TrendsSeries(): JSX.Element | null {
                     TaxonomicFilterGroupType.Actions,
                     ...(hasPageview ? [TaxonomicFilterGroupType.PageviewEvents] : []),
                     ...(hasScreen ? [TaxonomicFilterGroupType.ScreenEvents] : []),
+                    TaxonomicFilterGroupType.AutocaptureEvents,
                     ...(isTrends && display !== ChartDisplayType.CalendarHeatmap
                         ? [TaxonomicFilterGroupType.DataWarehouse]
                         : []),

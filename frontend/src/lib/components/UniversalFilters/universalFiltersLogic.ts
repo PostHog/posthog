@@ -124,6 +124,9 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                         TaxonomicFilterGroupType.Elements,
                         TaxonomicFilterGroupType.HogQLExpression,
                         TaxonomicFilterGroupType.FeatureFlags,
+                        TaxonomicFilterGroupType.PageviewUrls,
+                        TaxonomicFilterGroupType.Screens,
+                        TaxonomicFilterGroupType.EmailAddresses,
                         TaxonomicFilterGroupType.Logs,
                         TaxonomicFilterGroupType.LogAttributes,
                         TaxonomicFilterGroupType.LogResourceAttributes,
@@ -189,6 +192,24 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                     name: '$screen',
                     type: EntityTypes.EVENTS,
                     properties: [screenNameFilter],
+                }
+                newValues.push(eventFilter)
+                actions.setGroupValues(newValues)
+                return
+            }
+
+            if (taxonomicGroup.type === TaxonomicFilterGroupType.AutocaptureEvents) {
+                const elTextFilter: EventPropertyFilter = {
+                    key: '$el_text',
+                    value: propertyKey ? String(propertyKey) : '',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                }
+                const eventFilter: ActionFilter = {
+                    id: '$autocapture',
+                    name: '$autocapture',
+                    type: EntityTypes.EVENTS,
+                    properties: [elTextFilter],
                 }
                 newValues.push(eventFilter)
                 actions.setGroupValues(newValues)

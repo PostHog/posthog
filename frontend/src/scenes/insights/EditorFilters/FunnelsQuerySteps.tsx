@@ -80,8 +80,9 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     TaxonomicFilterGroupType.PersonProperties,
                     TaxonomicFilterGroupType.EventFeatureFlags,
                     TaxonomicFilterGroupType.EventMetadata,
-                    ...(hasPageview ? [TaxonomicFilterGroupType.PageviewEvents] : []),
-                    ...(hasScreen ? [TaxonomicFilterGroupType.ScreenEvents] : []),
+                    ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
+                    ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
+                    TaxonomicFilterGroupType.EmailAddresses,
                     ...groupsTaxonomicTypes,
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Elements,
@@ -94,6 +95,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     TaxonomicFilterGroupType.Actions,
                     ...(hasPageview ? [TaxonomicFilterGroupType.PageviewEvents] : []),
                     ...(hasScreen ? [TaxonomicFilterGroupType.ScreenEvents] : []),
+                    TaxonomicFilterGroupType.AutocaptureEvents,
                     ...(supportsDwhFunnels ? [TaxonomicFilterGroupType.DataWarehouse] : []),
                 ]}
             />

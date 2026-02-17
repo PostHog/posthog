@@ -184,6 +184,8 @@ export enum TaxonomicFilterGroupType {
     PageviewEvents = 'pageview_events',
     Screens = 'screens',
     ScreenEvents = 'screen_events',
+    EmailAddresses = 'email_addresses',
+    AutocaptureEvents = 'autocapture_events',
     CustomEvents = 'custom_events',
     Wildcards = 'wildcard',
     GroupsPrefix = 'groups',

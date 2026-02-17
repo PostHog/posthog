@@ -415,6 +415,26 @@ export function ActionFilterRow({
                     })
                     return
                 }
+                if (taxonomicGroupType === TaxonomicFilterGroupType.AutocaptureEvents) {
+                    updateFilter({
+                        type: EntityTypes.EVENTS,
+                        id: '$autocapture',
+                        name: '$autocapture',
+                        index,
+                    })
+                    updateFilterProperty({
+                        index,
+                        properties: [
+                            {
+                                key: '$el_text',
+                                value: changedValue ? String(changedValue) : '',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                    })
+                    return
+                }
                 const groupType = taxonomicFilterGroupTypeToEntityType(taxonomicGroupType)
                 if (groupType === EntityTypes.DATA_WAREHOUSE) {
                     const extraValues = Object.fromEntries(

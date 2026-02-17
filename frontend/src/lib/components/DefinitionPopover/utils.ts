@@ -66,6 +66,10 @@ export function getSingularType(type: TaxonomicFilterGroupType): string {
             return 'screen'
         case TaxonomicFilterGroupType.ScreenEvents:
             return 'screen event'
+        case TaxonomicFilterGroupType.EmailAddresses:
+            return 'email address'
+        case TaxonomicFilterGroupType.AutocaptureEvents:
+            return 'autocapture event'
         case TaxonomicFilterGroupType.Wildcards:
             return 'wildcard'
         default:

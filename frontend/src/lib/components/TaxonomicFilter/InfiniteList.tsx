@@ -184,8 +184,12 @@ const selectedItemHasPopover = (
             TaxonomicFilterGroupType.Metadata,
             TaxonomicFilterGroupType.SessionProperties,
             TaxonomicFilterGroupType.ErrorTrackingProperties,
+            TaxonomicFilterGroupType.PageviewUrls,
             TaxonomicFilterGroupType.PageviewEvents,
+            TaxonomicFilterGroupType.Screens,
             TaxonomicFilterGroupType.ScreenEvents,
+            TaxonomicFilterGroupType.EmailAddresses,
+            TaxonomicFilterGroupType.AutocaptureEvents,
         ].includes(listGroupType) ||
             listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
     )

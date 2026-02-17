@@ -78,7 +78,7 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         if (firstSlackIntegration) {
             loadAllSlackChannels()
         }
-    }, [firstSlackIntegration?.id, loadAllSlackChannels])
+    }, [firstSlackIntegration?.id, loadAllSlackChannels, firstSlackIntegration])
 
     const handleAdd = (): void => {
         if (selectedType === ALERT_NOTIFICATION_TYPE_SLACK) {

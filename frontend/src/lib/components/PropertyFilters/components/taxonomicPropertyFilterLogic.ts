@@ -11,6 +11,7 @@ import {
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
     isQuickFilterItem,
@@ -100,7 +101,10 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 return
             }
 
-            if (taxonomicGroup.type === TaxonomicFilterGroupType.PageviewEvents) {
+            if (
+                taxonomicGroup.type === TaxonomicFilterGroupType.PageviewEvents ||
+                taxonomicGroup.type === TaxonomicFilterGroupType.PageviewUrls
+            ) {
                 const filter: EventPropertyFilter = {
                     key: '$current_url',
                     value: propertyKey ? String(propertyKey) : '',
@@ -112,12 +116,27 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 return
             }
 
-            if (taxonomicGroup.type === TaxonomicFilterGroupType.ScreenEvents) {
+            if (
+                taxonomicGroup.type === TaxonomicFilterGroupType.ScreenEvents ||
+                taxonomicGroup.type === TaxonomicFilterGroupType.Screens
+            ) {
                 const filter: EventPropertyFilter = {
                     key: '$screen_name',
                     value: propertyKey ? String(propertyKey) : '',
                     operator: PropertyOperator.Exact,
                     type: PropertyFilterType.Event,
+                }
+                props.setFilter(props.filterIndex, filter)
+                actions.closeDropdown()
+                return
+            }
+
+            if (taxonomicGroup.type === TaxonomicFilterGroupType.EmailAddresses) {
+                const filter: AnyPropertyFilter = {
+                    key: 'email',
+                    value: propertyKey ? String(propertyKey) : '',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Person,
                 }
                 props.setFilter(props.filterIndex, filter)
                 actions.closeDropdown()
