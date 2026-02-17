@@ -634,7 +634,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 if (values.hedgehogModeEnabled && values.getHedgehogActor()) {
                     actions.syncWithHedgehog()
                 }
-            }, 20)
+            }, 100)
 
             return () => clearInterval(syncHedgehogLoop)
         }, 'syncHedgehogLoop')
