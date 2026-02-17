@@ -1,9 +1,13 @@
-import { actions, events, kea, listeners, path, reducers } from 'kea'
+import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
+
+import { Breadcrumb } from '~/types'
 
 import type { inboxSceneLogicType } from './inboxSceneLogicType'
 import { SignalReport, SignalReportArtefact, SignalReportArtefactResponse } from './types'
@@ -53,6 +57,19 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 runSessionAnalysisSuccess: () => false,
                 runSessionAnalysisFailure: () => false,
             },
+        ],
+    }),
+
+    selectors({
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: 'inbox',
+                    name: sceneConfigurations[Scene.Inbox].name,
+                    iconType: 'inbox',
+                },
+            ],
         ],
     }),
 

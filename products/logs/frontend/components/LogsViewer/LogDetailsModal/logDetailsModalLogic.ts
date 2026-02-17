@@ -3,7 +3,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { ParsedLogMessage } from 'products/logs/frontend/types'
-import { isSessionIdKey } from 'products/logs/frontend/utils'
+import { getSessionIdFromLogAttributes } from 'products/logs/frontend/utils'
 
 import type { logDetailsModalLogicType } from './logDetailsModalLogicType'
 
@@ -73,27 +73,10 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
     selectors({
         sessionId: [
             (s) => [s.selectedLog],
-            (selectedLog): string | null => {
-                if (!selectedLog) {
-                    return null
-                }
-
-                // Check log attributes first
-                for (const [key, value] of Object.entries(selectedLog?.attributes || {})) {
-                    if (isSessionIdKey(key) && value) {
-                        return String(value)
-                    }
-                }
-
-                // Then check resource_attributes
-                for (const [key, value] of Object.entries(selectedLog?.resource_attributes || {})) {
-                    if (isSessionIdKey(key) && value) {
-                        return String(value)
-                    }
-                }
-
-                return null
-            },
+            (selectedLog): string | null =>
+                selectedLog
+                    ? getSessionIdFromLogAttributes(selectedLog.attributes, selectedLog.resource_attributes)
+                    : null,
         ],
         hasSessionId: [(s) => [s.sessionId], (sessionId): boolean => sessionId !== null],
     }),

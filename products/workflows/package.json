@@ -6,7 +6,7 @@
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
-        "posthog-js": "1.347.2",
+        "posthog-js": "catalog:",
         "use-debounce": "catalog:"
     },
     "devDependencies": {
