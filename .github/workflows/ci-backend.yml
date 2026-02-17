@@ -217,38 +217,39 @@ jobs:
                   # - Legacy (posthog/ee/common) changed: run Django
                   # - Any contract-check cache miss: run Django
                   # - All cache hits: skip Django (isolated impl-only changes)
+                  #
+                  # Always runs contract-check at the end to keep the remote cache
+                  # warm as a baseline for future product-only PRs.
 
                   if [[ "${{ github.event_name }}" != "pull_request" ]]; then
                     echo "Push to master - Django will run"
                     echo "run_legacy=true" >> $GITHUB_OUTPUT
-                    exit 0
-                  fi
-
-                  LEGACY_CHANGED="${{ needs.changes.outputs.legacy }}"
-                  if [[ "$LEGACY_CHANGED" == "true" ]]; then
+                  elif [[ "${{ needs.changes.outputs.legacy }}" == "true" ]]; then
                     echo "Legacy code changed - Django will run"
                     echo "run_legacy=true" >> $GITHUB_OUTPUT
-                    exit 0
-                  fi
-
-                  # Call turbo directly to avoid pnpm wrapper noise on stdout
-                  CACHE_STATUS=$(./node_modules/.bin/turbo run backend:contract-check --dry-run=json 2>/dev/null | jq -r '
-                    [.tasks[] | select(.command | test("NONEXISTENT") | not) | .cache.status] |
-                    if length == 0 then "NO_TASKS"
-                    elif any(. == "MISS") then "MISS"
-                    else "HIT"
-                    end
-                  ' || echo "PARSE_ERROR")
-
-                  echo "Contract check cache status: $CACHE_STATUS"
-
-                  if [[ "$CACHE_STATUS" == "HIT" || "$CACHE_STATUS" == "NO_TASKS" ]]; then
-                    echo "Contracts unchanged (cache $CACHE_STATUS) - Django can be skipped"
-                    echo "run_legacy=false" >> $GITHUB_OUTPUT
                   else
-                    echo "Contract files changed ($CACHE_STATUS) - Django will run"
-                    echo "run_legacy=true" >> $GITHUB_OUTPUT
+                    # Product-only change — check contract cache to decide
+                    CACHE_STATUS=$(./node_modules/.bin/turbo run backend:contract-check --dry-run=json 2>/dev/null | jq -r '
+                      [.tasks[] | select(.command | test("NONEXISTENT") | not) | .cache.status] |
+                      if length == 0 then "NO_TASKS"
+                      elif any(. == "MISS") then "MISS"
+                      else "HIT"
+                      end
+                    ' || echo "PARSE_ERROR")
+
+                    echo "Contract check cache status: $CACHE_STATUS"
+
+                    if [[ "$CACHE_STATUS" == "HIT" || "$CACHE_STATUS" == "NO_TASKS" ]]; then
+                      echo "Contracts unchanged (cache $CACHE_STATUS) - Django can be skipped"
+                      echo "run_legacy=false" >> $GITHUB_OUTPUT
+                    else
+                      echo "Contract files changed ($CACHE_STATUS) - Django will run"
+                      echo "run_legacy=true" >> $GITHUB_OUTPUT
+                    fi
                   fi
+
+                  # Always run to keep remote cache warm as baseline
+                  ./node_modules/.bin/turbo run backend:contract-check --output-logs=errors-only 2>/dev/null || true
 
             - name: Discover products to test
               id: discover
