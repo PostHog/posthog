@@ -224,7 +224,7 @@ async def generate_test_events_in_clickhouse(
         person_properties: A person_properties for events.
         duplicate: Generate and insert duplicate events.
         batch_size: The number of events to insert in a single query.
-        table: The table to insert the events into (defaults to events_recent, since this is used by the majority of
+        table: The table to insert the events into (defaults to sharded_events_recent, since this is used by the majority of
             batch exports, except for backfills older than 6 days).
     """
     possible_datetimes = list(date_range(start_time, end_time, dt.timedelta(minutes=1)))
