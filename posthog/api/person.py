@@ -1110,13 +1110,21 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         from posthog.models.person.point_in_time_properties import build_person_properties_at_time
 
         distinct_id = request.GET.get("distinct_id")
+        person_id = request.GET.get("person_id")
         timestamp_str = request.GET.get("timestamp")
         include_set_once = request.GET.get("include_set_once", "false").lower() == "true"
         debug = request.GET.get("debug", "false").lower() == "true"
 
-        if not distinct_id:
+        # Validate parameters
+        if distinct_id and person_id:
             return response.Response(
-                {"error": "distinct_id parameter is required"},
+                {"error": "Cannot provide both distinct_id and person_id - choose one"},
+                status=400,
+            )
+
+        if not distinct_id and not person_id:
+            return response.Response(
+                {"error": "Must provide either distinct_id or person_id parameter"},
                 status=400,
             )
 
@@ -1135,7 +1143,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             else:
                 timestamp = datetime.fromisoformat(timestamp_str).replace(tzinfo=UTC)
         except ValueError as e:
-            logger.warning("Invalid timestamp format for distinct_id %s: %s", distinct_id, e)
+            identifier = distinct_id or person_id
+            logger.warning(
+                "Invalid timestamp format for %s %s: %s", "distinct_id" if distinct_id else "person_id", identifier, e
+            )
             return response.Response(
                 {"error": "Invalid timestamp format. Use ISO format like 2023-06-15T14:30:00Z"},
                 status=400,
@@ -1144,16 +1155,25 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         try:
             # Get the current person object
             try:
-                person = Person.objects.get(team_id=self.team_id, persondistinctid__distinct_id=distinct_id)
+                if distinct_id:
+                    person = Person.objects.get(team_id=self.team_id, persondistinctid__distinct_id=distinct_id)
+                else:
+                    person = Person.objects.get(team_id=self.team_id, id=person_id)
             except Person.DoesNotExist:
+                identifier = distinct_id or person_id
+                identifier_type = "distinct_id" if distinct_id else "person_id"
                 return response.Response(
-                    {"error": f"Person with distinct_id '{distinct_id}' not found"},
+                    {"error": f"Person with {identifier_type} '{identifier}' not found"},
                     status=404,
                 )
 
             # Build point-in-time properties
             point_in_time_properties = build_person_properties_at_time(
-                distinct_id=distinct_id, team_id=self.team_id, timestamp=timestamp, include_set_once=include_set_once
+                team_id=self.team_id,
+                timestamp=timestamp,
+                distinct_id=distinct_id,
+                person_id=person_id,
+                include_set_once=include_set_once,
             )
 
             # Serialize the person object
@@ -1167,11 +1187,27 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "queried_timestamp": timestamp.isoformat(),
                 "include_set_once": include_set_once,
                 "distinct_id_used": distinct_id,
+                "person_id_used": person_id,
+                "query_mode": "distinct_id" if distinct_id else "person_id",
             }
 
             # Add debug information if requested
             if debug:
                 from posthog.clickhouse.client import sync_execute
+
+                # Get distinct_ids for debug query (same logic as main function)
+                debug_distinct_ids = []
+                if distinct_id:
+                    debug_distinct_ids = [distinct_id]
+                else:
+                    # Get all distinct_ids for this person
+                    from posthog.models.person import PersonDistinctId
+
+                    debug_distinct_ids = list(
+                        PersonDistinctId.objects.filter(team_id=self.team_id, person_id=person_id).values_list(
+                            "distinct_id", flat=True
+                        )
+                    )
 
                 # Run the same query that the point-in-time function uses
                 if include_set_once:
@@ -1182,7 +1218,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         event
                     FROM events
                     WHERE team_id = %(team_id)s
-                        AND distinct_id = %(distinct_id)s
+                        AND distinct_id IN %(distinct_ids)s
                         AND event IN ('$set', '$set_once')
                         AND timestamp <= %(timestamp)s
                     ORDER BY timestamp ASC
@@ -1195,7 +1231,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         event
                     FROM events
                     WHERE team_id = %(team_id)s
-                        AND distinct_id = %(distinct_id)s
+                        AND distinct_id IN %(distinct_ids)s
                         AND timestamp <= %(timestamp)s
                         AND (
                             event = '$set'
@@ -1206,7 +1242,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
                 params = {
                     "team_id": self.team_id,
-                    "distinct_id": distinct_id,
+                    "distinct_ids": debug_distinct_ids,
                     "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
                 }
 
@@ -1215,6 +1251,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     person_data["debug"] = {
                         "query": query,
                         "params": params,
+                        "distinct_ids_queried": debug_distinct_ids,
                         "events_found": len(debug_rows),
                         "events": [
                             {"properties_json": row[0], "timestamp": str(row[1]), "event": row[2]} for row in debug_rows

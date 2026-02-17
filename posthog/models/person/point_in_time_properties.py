@@ -7,15 +7,16 @@ chronologically.
 """
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from posthog.clickhouse.client import sync_execute
 
 
 def build_person_properties_at_time(
-    distinct_id: str,
     team_id: int,
     timestamp: datetime,
+    distinct_id: Optional[str] = None,
+    person_id: Optional[Union[str, int]] = None,
     include_set_once: bool = False,
     timeout: Optional[int] = 30,
 ) -> dict[str, Any]:
@@ -24,11 +25,14 @@ def build_person_properties_at_time(
 
     This method queries ClickHouse events to find all person property updates
     up to the given timestamp and reconstructs the final person properties state.
+    When person_id is provided, it considers events from ALL distinct_ids associated
+    with that person.
 
     Args:
-        distinct_id: The distinct_id of the person to build properties for
         team_id: The team ID to filter events by
         timestamp: The point in time to build properties at (events after this are ignored)
+        distinct_id: The distinct_id to build properties for (mutually exclusive with person_id)
+        person_id: The person_id to build properties for, considers all distinct_ids (mutually exclusive with distinct_id)
         include_set_once: If True, also handles $set_once operations (default: False)
         timeout: Query timeout in seconds (default: 30)
 
@@ -36,18 +40,52 @@ def build_person_properties_at_time(
         Dictionary of person properties as they existed at the specified time
 
     Raises:
-        ValueError: If distinct_id or team_id are invalid
+        ValueError: If parameters are invalid or both distinct_id and person_id are provided
         Exception: If ClickHouse query fails
     """
-    if not distinct_id or not isinstance(distinct_id, str):
-        raise ValueError("distinct_id must be a non-empty string")
-
+    # Validation
     if not isinstance(team_id, int) or team_id <= 0:
         raise ValueError("team_id must be a positive integer")
 
     if not isinstance(timestamp, datetime):
         raise ValueError("timestamp must be a datetime object")
 
+    if distinct_id is not None and person_id is not None:
+        raise ValueError("Cannot provide both distinct_id and person_id - choose one")
+
+    if distinct_id is None and person_id is None:
+        raise ValueError("Must provide either distinct_id or person_id")
+
+    if distinct_id is not None and (not distinct_id or not isinstance(distinct_id, str)):
+        raise ValueError("distinct_id must be a non-empty string")
+
+    if person_id is not None and not person_id:
+        raise ValueError("person_id must be a non-empty value")
+
+    # Get distinct_ids to query
+    distinct_ids_to_query = []
+
+    if distinct_id is not None:
+        # Simple case - query for single distinct_id
+        distinct_ids_to_query = [distinct_id]
+    else:
+        # Complex case - get all distinct_ids for this person
+        from posthog.models.person import PersonDistinctId
+
+        try:
+            distinct_id_objects = PersonDistinctId.objects.filter(team_id=team_id, person_id=person_id).values_list(
+                "distinct_id", flat=True
+            )
+            distinct_ids_to_query = list(distinct_id_objects)
+
+            if not distinct_ids_to_query:
+                # No distinct_ids found for this person - return empty properties
+                return {}
+
+        except Exception as e:
+            raise Exception(f"Failed to query person distinct_ids: {str(e)}") from e
+
+    # Build the ClickHouse query for all distinct_ids
     if include_set_once:
         # Query to get all property update events ($set, $set_once) up to timestamp
         query = """
@@ -57,7 +95,7 @@ def build_person_properties_at_time(
             event
         FROM events
         WHERE team_id = %(team_id)s
-            AND distinct_id = %(distinct_id)s
+            AND distinct_id IN %(distinct_ids)s
             AND event IN ('$set', '$set_once')
             AND timestamp <= %(timestamp)s
         ORDER BY timestamp ASC
@@ -72,7 +110,7 @@ def build_person_properties_at_time(
             event
         FROM events
         WHERE team_id = %(team_id)s
-            AND distinct_id = %(distinct_id)s
+            AND distinct_id IN %(distinct_ids)s
             AND timestamp <= %(timestamp)s
             AND (
                 event = '$set'
@@ -81,7 +119,11 @@ def build_person_properties_at_time(
         ORDER BY timestamp ASC
         """
 
-    params = {"team_id": team_id, "distinct_id": distinct_id, "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S")}
+    params = {
+        "team_id": team_id,
+        "distinct_ids": distinct_ids_to_query,
+        "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+    }
 
     try:
         rows = sync_execute(query, params, settings={"max_execution_time": timeout})

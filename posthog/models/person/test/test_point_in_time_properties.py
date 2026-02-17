@@ -18,27 +18,43 @@ class TestPointInTimeProperties(TestCase):
         """Test input validation for build_person_properties_at_time."""
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
 
+        # Test missing both distinct_id and person_id
+        with self.assertRaises(ValueError) as cm:
+            build_person_properties_at_time(1, timestamp)
+        self.assertIn("Must provide either distinct_id or person_id", str(cm.exception))
+
+        # Test providing both distinct_id and person_id
+        with self.assertRaises(ValueError) as cm:
+            build_person_properties_at_time(1, timestamp, distinct_id="user123", person_id="123")
+        self.assertIn("Cannot provide both distinct_id and person_id", str(cm.exception))
+
         # Test invalid distinct_id
         with self.assertRaises(ValueError) as cm:
-            build_person_properties_at_time("", 1, timestamp)
+            build_person_properties_at_time(1, timestamp, distinct_id="")
         self.assertIn("distinct_id must be a non-empty string", str(cm.exception))
 
+        # Test None as distinct_id (this will trigger "Must provide either" error which is correct)
         with self.assertRaises(ValueError) as cm:
-            build_person_properties_at_time(cast(str, None), 1, timestamp)
-        self.assertIn("distinct_id must be a non-empty string", str(cm.exception))
+            build_person_properties_at_time(1, timestamp, distinct_id=cast(str, None))
+        self.assertIn("Must provide either distinct_id or person_id", str(cm.exception))
+
+        # Test invalid person_id
+        with self.assertRaises(ValueError) as cm:
+            build_person_properties_at_time(1, timestamp, person_id="")
+        self.assertIn("person_id must be a non-empty value", str(cm.exception))
 
         # Test invalid team_id
         with self.assertRaises(ValueError) as cm:
-            build_person_properties_at_time("user123", 0, timestamp)
+            build_person_properties_at_time(0, timestamp, distinct_id="user123")
         self.assertIn("team_id must be a positive integer", str(cm.exception))
 
         with self.assertRaises(ValueError) as cm:
-            build_person_properties_at_time("user123", -1, timestamp)
+            build_person_properties_at_time(-1, timestamp, distinct_id="user123")
         self.assertIn("team_id must be a positive integer", str(cm.exception))
 
         # Test invalid timestamp
         with self.assertRaises(ValueError) as cm:
-            build_person_properties_at_time("user123", 1, cast(datetime, "2023-01-01"))
+            build_person_properties_at_time(1, cast(datetime, "2023-01-01"), distinct_id="user123")
         self.assertIn("timestamp must be a datetime object", str(cm.exception))
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
@@ -47,7 +63,7 @@ class TestPointInTimeProperties(TestCase):
         mock_sync_execute.return_value = []
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        result = build_person_properties_at_time("user123", 1, timestamp)
+        result = build_person_properties_at_time(1, timestamp, distinct_id="user123")
 
         self.assertEqual(result, {})
         mock_sync_execute.assert_called_once()
@@ -62,7 +78,7 @@ class TestPointInTimeProperties(TestCase):
         mock_sync_execute.return_value = [(double_encoded_json, datetime(2023, 1, 1, 10, 0, 0), "$set")]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        result = build_person_properties_at_time("user123", 1, timestamp)
+        result = build_person_properties_at_time(1, timestamp, distinct_id="user123")
 
         expected = {"name": "John Doe", "email": "john@example.com"}
         self.assertEqual(result, expected)
@@ -83,7 +99,7 @@ class TestPointInTimeProperties(TestCase):
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        result = build_person_properties_at_time("user123", 1, timestamp)
+        result = build_person_properties_at_time(1, timestamp, distinct_id="user123")
 
         expected = {"name": "John Doe", "age": 26, "location": "SF"}
         self.assertEqual(result, expected)
@@ -99,7 +115,7 @@ class TestPointInTimeProperties(TestCase):
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        result = build_person_properties_at_time("user123", 1, timestamp)
+        result = build_person_properties_at_time(1, timestamp, distinct_id="user123")
 
         # Should only get the valid $set event
         expected = {"name": "John"}
@@ -113,7 +129,7 @@ class TestPointInTimeProperties(TestCase):
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
 
         with self.assertRaises(Exception) as cm:
-            build_person_properties_at_time("user123", 1, timestamp)
+            build_person_properties_at_time(1, timestamp, distinct_id="user123")
 
         self.assertIn("Failed to query ClickHouse events", str(cm.exception))
 
@@ -133,7 +149,7 @@ class TestPointInTimePropertiesWithSetOnce(TestCase):
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        result = build_person_properties_at_time("user123", 1, timestamp, include_set_once=True)
+        result = build_person_properties_at_time(1, timestamp, distinct_id="user123", include_set_once=True)
 
         # name should remain "John" (not overwritten by $set_once)
         # email should be set by $set_once since it didn't exist
@@ -154,7 +170,7 @@ class TestPointInTimePropertiesWithSetOnce(TestCase):
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        result = build_person_properties_at_time("user123", 1, timestamp, include_set_once=True)
+        result = build_person_properties_at_time(1, timestamp, distinct_id="user123", include_set_once=True)
 
         # $set_once sets name first, then $set overwrites it
         expected = {"name": "John", "email": "jane@example.com"}
@@ -178,7 +194,7 @@ class TestPointInTimePropertiesWithSetOnce(TestCase):
         ]
 
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        result = build_person_properties_at_time("user123", 1, timestamp, include_set_once=True)
+        result = build_person_properties_at_time(1, timestamp, distinct_id="user123", include_set_once=True)
 
         # First $set_once should win for name, second should set location
         expected = {"name": "First", "email": "first@example.com", "location": "SF"}

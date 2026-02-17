@@ -85,7 +85,7 @@ class TestPointInTimePropertiesIntegration(TestCase):
 
         # Test: What were Alice's properties at the end of Day 2?
         day_2_end = datetime(2023, 1, 2, 23, 59, 59, tzinfo=UTC)
-        properties_day_2 = build_person_properties_at_time("alice123", 1, day_2_end)
+        properties_day_2 = build_person_properties_at_time(1, day_2_end, distinct_id="alice123")
 
         expected_day_2 = {
             "email": "alice@example.com",
@@ -99,7 +99,7 @@ class TestPointInTimePropertiesIntegration(TestCase):
 
         # Test: What were Alice's properties at the end of Day 3?
         day_3_end = datetime(2023, 1, 3, 23, 59, 59, tzinfo=UTC)
-        properties_day_3 = build_person_properties_at_time("alice123", 1, day_3_end)
+        properties_day_3 = build_person_properties_at_time(1, day_3_end, distinct_id="alice123")
 
         expected_day_3 = {
             **expected_day_2,  # Everything from Day 2
@@ -175,7 +175,7 @@ class TestPointInTimePropertiesIntegration(TestCase):
 
         # Test the final state
         final_timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        properties = build_person_properties_at_time("bob123", 1, final_timestamp, include_set_once=True)
+        properties = build_person_properties_at_time(1, final_timestamp, distinct_id="bob123", include_set_once=True)
 
         expected = {
             "first_seen": "2023-01-01",
