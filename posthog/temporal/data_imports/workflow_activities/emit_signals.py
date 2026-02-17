@@ -2,7 +2,7 @@ import json
 import uuid
 import asyncio
 import dataclasses
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.conf import settings
@@ -13,6 +13,7 @@ from posthoganalytics.ai.gemini import AsyncClient, genai
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -134,7 +135,7 @@ def _query_new_records(
     # Continuous sync - need to analyze all that happened since the last one (based on the schema schedule)
     if last_synced_at is not None:
         where_parts.append(f"{config.partition_field} > {{last_synced_at}}")
-        placeholders["last_synced_at"] = last_synced_at
+        placeholders["last_synced_at"] = ast.Constant(value=datetime.fromisoformat(last_synced_at))
     # First ever sync - look back a limited window
     else:
         where_parts.append(f"{config.partition_field} > now() - interval {config.first_sync_lookback_days} day")
