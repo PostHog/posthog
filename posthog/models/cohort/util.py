@@ -560,8 +560,9 @@ def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int
 def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, team_id: int):
     """Remove a person from a static cohort in ClickHouse.
 
-    Uses DELETE FROM with mutations_sync=0 to avoid replica synchronization issues in production.
-    This is an exception to PostHog's usual pattern due to the table lacking an is_deleted and version columns.
+    Uses DELETE FROM with mutations_sync=0 and replication_alter_partitions_sync=0 to avoid replica 
+    synchronization issues when some replicas are inactive. This is an exception to PostHog's usual 
+    pattern due to the table lacking an is_deleted and version columns.
     """
     tag_queries(cohort_id=cohort_id, team_id=team_id, name="remove_person_from_static_cohort", feature=Feature.COHORT)
     sync_execute(
@@ -571,7 +572,10 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
             "cohort_id": cohort_id,
             "team_id": team_id,
         },
-        settings={"mutations_sync": "0"},
+        settings={
+            "mutations_sync": "0",
+            "replication_alter_partitions_sync": "0",
+        },
     )
 
 
