@@ -32,14 +32,8 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
 
     # Collect all texts to classify across all traces
     pending: list[PendingClassification] = []
-    gen_uuids_seen: list[str] = []
-
     for trace_id in input.trace_ids:
-        trace_pending, trace_gen_uuids = collect_pending(
-            rows_by_trace.get(trace_id, []), trace_id, MAX_TOTAL_CLASSIFICATIONS
-        )
-        pending.extend(trace_pending)
-        gen_uuids_seen.extend(trace_gen_uuids)
+        pending.extend(collect_pending(rows_by_trace.get(trace_id, []), trace_id, MAX_TOTAL_CLASSIFICATIONS))
 
     # Batch classify all texts across all traces in one call
     all_results = classify_batch([p.text for p in pending]) if pending else []
@@ -57,7 +51,7 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
     output: dict[str, dict[str, Any]] = {}
     offset = 0
     for trace_id in input.trace_ids:
-        trace_result, consumed = build_trace_result(trace_id, pending, gen_uuids_seen, all_results, offset)
+        trace_result, consumed = build_trace_result(trace_id, pending, all_results, offset)
         output[trace_id] = trace_result
         offset += consumed
 

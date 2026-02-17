@@ -25,7 +25,6 @@ def average_score_dicts(score_dicts: list[dict[str, float]]) -> dict[str, float]
 def build_trace_result(
     trace_id: str,
     pending: list[PendingClassification],
-    gen_uuids_seen: list[str],
     classification_results: list,
     pending_offset: int,
 ) -> tuple[dict[str, Any], int]:
@@ -53,9 +52,7 @@ def build_trace_result(
         all_scores.append(result.scores)
 
     generations: dict[str, Any] = {}
-    trace_gen_uuids = [u for u in gen_uuids_seen if u in gen_messages]
-    for gen_uuid in trace_gen_uuids:
-        msgs = gen_messages[gen_uuid]
+    for gen_uuid, msgs in gen_messages.items():
         gen_scores = average_scores(list(msgs.values()))
         gen_label = max(gen_scores, key=gen_scores.get)  # type: ignore
         generations[gen_uuid] = {
@@ -83,7 +80,7 @@ def collect_pending(
     generations: list[tuple[str, dict]],
     trace_id: str,
     cap: int,
-) -> tuple[list[PendingClassification], list[str]]:
+) -> list[PendingClassification]:
     """Parse generation rows and collect user messages for classification."""
     from posthog.temporal.llm_analytics.sentiment.extraction import (
         extract_user_messages_individually,
@@ -91,14 +88,11 @@ def collect_pending(
     )
 
     pending: list[PendingClassification] = []
-    gen_uuids_seen: list[str] = []
 
     for event_uuid, props in generations:
         user_messages = extract_user_messages_individually(props.get("$ai_input"))
         if not user_messages:
             continue
-
-        gen_uuids_seen.append(event_uuid)
 
         for original_index, msg_text in user_messages:
             if len(pending) >= cap:
@@ -115,7 +109,7 @@ def collect_pending(
         if len(pending) >= cap:
             break
 
-    return pending, gen_uuids_seen
+    return pending
 
 
 def resolve_date_bounds(date_from: str | None, date_to: str | None) -> tuple[str, str]:
