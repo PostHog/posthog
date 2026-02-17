@@ -29,11 +29,8 @@ function ElementEmptyState({ onClick }: { onClick: () => void }): JSX.Element {
 }
 
 function ElementSettings({ tourId }: StepSettingsPanelProps): JSX.Element | null {
-    const { productTourForm, selectedStepIndex } = useValues(productTourLogic({ id: tourId }))
+    const { selectedStep: step } = useValues(productTourLogic({ id: tourId }))
     const { updateSelectedStep, openToolbarModal } = useActions(productTourLogic({ id: tourId }))
-
-    const steps = productTourForm.content?.steps ?? []
-    const step = steps[selectedStepIndex]
 
     if (!step) {
         return null
@@ -246,54 +243,64 @@ function ElementSettings({ tourId }: StepSettingsPanelProps): JSX.Element | null
 }
 
 export function StepSettings({ tourId }: StepSettingsPanelProps): JSX.Element | null {
-    const { productTour, productTourForm, selectedStepIndex } = useValues(productTourLogic({ id: tourId }))
+    const {
+        productTour,
+        productTourForm,
+        selectedStep: step,
+        selectedStepIndex,
+    } = useValues(productTourLogic({ id: tourId }))
     const { updateSelectedStep } = useActions(productTourLogic({ id: tourId }))
 
     const isAnnouncementMode = productTour ? isAnnouncement(productTour) : false
-
     const steps = productTourForm.content?.steps ?? []
-    const step = steps[selectedStepIndex]
 
     if (!step) {
         return null
     }
 
     return (
-        <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Target element</label>
-                <ElementSettings tourId={tourId} />
+        <div className="border rounded overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-2 bg-surface-primary border-b font-semibold">
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted">Step settings</span>
             </div>
-
-            <div className="flex gap-5">
-                <div className="shrink-0 flex flex-col gap-3">
-                    <div>
-                        <label className="text-sm font-medium block mb-2">Position</label>
-                        <PositionSelector
-                            disabled={step.elementTargeting !== undefined}
-                            tooltip={
-                                step.elementTargeting !== undefined
-                                    ? 'This step will be positioned next to the element you choose.'
-                                    : undefined
-                            }
-                            value={step.modalPosition ?? SurveyPosition.MiddleCenter}
-                            onChange={(position: ScreenPosition) =>
-                                updateSelectedStep({
-                                    modalPosition: position,
-                                })
-                            }
-                        />
+            <div className="py-3 px-4">
+                <div className="flex flex-col gap-4">
+                    <div className="flex flex-col gap-2">
+                        <label className="text-sm font-medium">Target element</label>
+                        <ElementSettings tourId={tourId} />
                     </div>
-                </div>
-                <div className="flex-1 min-w-0">
-                    <StepButtonsEditor
-                        buttons={step.buttons}
-                        onChange={(buttons) => updateSelectedStep({ buttons })}
-                        isTourContext={!isAnnouncementMode}
-                        stepIndex={selectedStepIndex}
-                        totalSteps={steps.length}
-                        layout="stacked"
-                    />
+
+                    <div className="flex gap-5">
+                        <div className="shrink-0 flex flex-col gap-3">
+                            <div>
+                                <label className="text-sm font-medium block mb-2">Position</label>
+                                <PositionSelector
+                                    disabled={step.elementTargeting !== undefined}
+                                    tooltip={
+                                        step.elementTargeting !== undefined
+                                            ? 'This step will be positioned next to the element you choose.'
+                                            : undefined
+                                    }
+                                    value={step.modalPosition ?? SurveyPosition.MiddleCenter}
+                                    onChange={(position: ScreenPosition) =>
+                                        updateSelectedStep({
+                                            modalPosition: position,
+                                        })
+                                    }
+                                />
+                            </div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <StepButtonsEditor
+                                buttons={step.buttons}
+                                onChange={(buttons) => updateSelectedStep({ buttons })}
+                                isTourContext={!isAnnouncementMode}
+                                stepIndex={selectedStepIndex}
+                                totalSteps={steps.length}
+                                layout="stacked"
+                            />
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
