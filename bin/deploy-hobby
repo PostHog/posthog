@@ -164,6 +164,7 @@ cat > compose/start <<EOF
 #!/bin/bash
 ./compose/wait
 ./bin/migrate
+bash ./bin/migrate-persons-compat
 ./bin/docker-server
 EOF
 chmod +x compose/start

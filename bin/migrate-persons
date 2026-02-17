@@ -1,0 +1,31 @@
+#!/bin/bash
+set -euo pipefail
+
+python manage.py shell <<'PY'
+from django.db import connections
+from django.db.utils import DatabaseError
+
+
+aliases = ("persons_db_writer", "default")
+last_error = None
+
+for alias in aliases:
+    try:
+        connection = connections[alias]
+    except Exception as err:
+        last_error = err
+        continue
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "ALTER TABLE posthog_person "
+                "ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP WITH TIME ZONE"
+            )
+        print(f"[migrate-persons-compat] ensured posthog_person.last_seen_at on alias '{alias}'")
+        break
+    except DatabaseError as err:
+        last_error = err
+else:
+    raise RuntimeError(f"failed to ensure posthog_person.last_seen_at: {last_error}")
+PY
