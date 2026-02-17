@@ -40,7 +40,7 @@ export function EndpointQuery({ tabId }: EndpointQueryProps): JSX.Element {
     // Use the query from the viewed version if set, otherwise fall back to endpoint
     const effectiveQuery = viewingVersion?.query || endpoint?.query
 
-    if (endpointLoading) {
+    if (endpointLoading && !endpoint) {
         return (
             <div className="flex items-center justify-center h-60">
                 <Spinner />
