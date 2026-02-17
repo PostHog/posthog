@@ -467,22 +467,22 @@ class LLMAnalyticsTranslationDailyThrottle(PersonalApiKeyRateThrottle):
 
 class LLMAnalyticsSentimentBurstThrottle(PersonalApiKeyRateThrottle):
     scope = "llm_analytics_sentiment_burst"
-    rate = "30/minute"
+    rate = "60/minute"
 
 
 class LLMAnalyticsSentimentSustainedThrottle(PersonalApiKeyRateThrottle):
     scope = "llm_analytics_sentiment_sustained"
-    rate = "200/hour"
+    rate = "600/hour"
 
 
 class LLMAnalyticsSentimentBatchBurstThrottle(PersonalApiKeyRateThrottle):
     scope = "llm_analytics_sentiment_batch_burst"
-    rate = "10/minute"
+    rate = "60/minute"
 
 
 class LLMAnalyticsSentimentBatchSustainedThrottle(PersonalApiKeyRateThrottle):
     scope = "llm_analytics_sentiment_batch_sustained"
-    rate = "60/hour"
+    rate = "600/hour"
 
 
 class LLMAnalyticsSummarizationBurstThrottle(PersonalApiKeyRateThrottle):
