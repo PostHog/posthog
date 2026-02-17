@@ -566,7 +566,7 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
     lacking an is_deleted and version columns.
     """
     tag_queries(cohort_id=cohort_id, team_id=team_id, name="remove_person_from_static_cohort", feature=Feature.COHORT)
-    
+
     # Use synchronous mutations in tests for deterministic behavior
     if settings.TEST:
         ch_settings = {
@@ -579,7 +579,7 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
             "mutations_sync": "0",
             "lightweight_deletes_sync": "0",
         }
-    
+
     sync_execute(
         DELETE_PERSON_FROM_STATIC_COHORT,
         {
