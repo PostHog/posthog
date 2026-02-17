@@ -1530,7 +1530,7 @@ class TestPrinter(BaseTest):
     def test_select_limit_with_posthog_ai_context(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, limit_context=LimitContext.POSTHOG_AI)
         self.assertEqual(
-            self._select("select 1 limit 500", context=context),
+            self._select("select 1 limit 1000", context=context),
             f"SELECT 1 LIMIT {MAX_SELECT_POSTHOG_AI_LIMIT}",
         )
 
@@ -3006,6 +3006,26 @@ class TestPrinter(BaseTest):
                 HogQLContext(team_id=self.team.pk, enable_select_queries=True),
                 dialect="clickhouse",
             )
+
+    def test_fails_on_placeholder_macro_expansion_depth_limit(self):
+        query = parse_select(
+            """
+            SELECT date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', now())))))))))
+            """
+        )
+        with pytest.raises(QueryError, match="exceeded maximum placeholder macro depth"):
+            prepare_and_print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+            )
+
+    def test_date_part_macro_does_not_expand_exponentially(self):
+        sql = self._select("SELECT date_part('year', date_part('year', date_part('year', now())))")
+
+        assert "arrayMap((part, dt) -> multiIf" in sql
+        assert sql.count("now()") == 1
+        assert len(sql) < 3_000
 
     def test_team_id_guarding_events(self):
         sql = self._select(

@@ -12,18 +12,18 @@
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), ''), 1), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-16 00:10:59', 'UTC'))))))
      GROUP BY trace_id
      ORDER BY max(toTimeZone(events.timestamp, 'UTC')) DESC
-     LIMIT 101)
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+     LIMIT 2001)
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_field_mapping.1
@@ -50,7 +50,7 @@
   WHERE and(equals(events.team_id, 99999), and(in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-13 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 01:10:00', 'UTC'))))), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), tuple('trace1', 'trace2')))
   GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')
   ORDER BY first_timestamp DESC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -77,18 +77,18 @@
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), ''), 1), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-16 00:10:59', 'UTC'))))))
      GROUP BY trace_id
      ORDER BY max(toTimeZone(events.timestamp, 'UTC')) DESC
-     LIMIT 101)
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+     LIMIT 2001)
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_group_key_filter.1
@@ -115,7 +115,7 @@
   WHERE and(equals(events.team_id, 99999), and(in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-14 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 02:10:00', 'UTC'))))), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), tuple('trace_project_1', 'trace_org_b', 'trace_org_a')))
   GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')
   ORDER BY first_timestamp DESC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -142,18 +142,18 @@
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), ''), 1), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-16 00:10:59', 'UTC')))), equals(events.`$group_0`, 'org:acme')))
      GROUP BY trace_id
      ORDER BY max(toTimeZone(events.timestamp, 'UTC')) DESC
-     LIMIT 101)
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+     LIMIT 2001)
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_group_key_filter.3
@@ -180,7 +180,7 @@
   WHERE and(equals(events.team_id, 99999), and(in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-14 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:10:00', 'UTC'))))), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), tuple('trace_org_a')))
   GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')
   ORDER BY first_timestamp DESC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -207,18 +207,18 @@
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), ''), 1), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-16 00:10:59', 'UTC')))), equals(events.`$group_0`, 'org:widgets')))
      GROUP BY trace_id
      ORDER BY max(toTimeZone(events.timestamp, 'UTC')) DESC
-     LIMIT 101)
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+     LIMIT 2001)
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_group_key_filter.5
@@ -245,7 +245,7 @@
   WHERE and(equals(events.team_id, 99999), and(in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 00:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 01:10:00', 'UTC'))))), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), tuple('trace_org_b')))
   GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')
   ORDER BY first_timestamp DESC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -272,18 +272,18 @@
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), ''), 1), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-16 00:10:59', 'UTC')))), equals(events.`$group_1`, 'project:alpha')))
      GROUP BY trace_id
      ORDER BY max(toTimeZone(events.timestamp, 'UTC')) DESC
-     LIMIT 101)
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+     LIMIT 2001)
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_group_key_filter.7
@@ -310,7 +310,7 @@
   WHERE and(equals(events.team_id, 99999), and(in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 01:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 02:10:00', 'UTC'))))), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), tuple('trace_project_1')))
   GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')
   ORDER BY first_timestamp DESC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -337,18 +337,18 @@
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), ''), 1), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-16 00:10:59', 'UTC')))), equals(events.`$group_0`, 'nonexistent')))
      GROUP BY trace_id
      ORDER BY max(toTimeZone(events.timestamp, 'UTC')) DESC
-     LIMIT 101)
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+     LIMIT 2001)
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_pagination
@@ -365,17 +365,17 @@
      GROUP BY trace_id
      ORDER BY max(toTimeZone(events.timestamp, 'UTC')) DESC
      LIMIT 5)
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_pagination.1
@@ -430,17 +430,17 @@
      GROUP BY trace_id
      ORDER BY max(toTimeZone(events.timestamp, 'UTC')) DESC
      LIMIT 10)
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_pagination.3
@@ -495,17 +495,17 @@
      GROUP BY trace_id
      ORDER BY max(toTimeZone(events.timestamp, 'UTC')) DESC
      LIMIT 15)
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_pagination.5
@@ -559,18 +559,18 @@
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), ''), 1), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC')))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'foo'), ''), 'null'), '^"|"$', ''), 'bar'), 0)))
      GROUP BY trace_id
      ORDER BY max(toTimeZone(events.timestamp, 'UTC')) DESC
-     LIMIT 101)
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+     LIMIT 2001)
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_properties_filter_with_multiple_events_in_group.1
@@ -597,7 +597,7 @@
   WHERE and(equals(events.team_id, 99999), and(in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-12-01 00:10:00', 'UTC'))))), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), tuple('trace1')))
   GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')
   ORDER BY first_timestamp DESC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -624,18 +624,18 @@
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), ''), 1), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC')))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'foo'), ''), 'null'), '^"|"$', ''), 'baz'), 0)))
      GROUP BY trace_id
      ORDER BY max(toTimeZone(events.timestamp, 'UTC')) DESC
-     LIMIT 101)
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+     LIMIT 2001)
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_properties_filter_with_multiple_events_in_group.3
@@ -662,7 +662,7 @@
   WHERE and(equals(events.team_id, 99999), and(in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-12-01 00:10:00', 'UTC'))))), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), tuple('trace1')))
   GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')
   ORDER BY first_timestamp DESC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -689,18 +689,18 @@
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), ''), 1), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC')))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'foo'), ''), 'null'), '^"|"$', ''), 'barz'), 0)))
      GROUP BY trace_id
      ORDER BY max(toTimeZone(events.timestamp, 'UTC')) DESC
-     LIMIT 101)
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+     LIMIT 2001)
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_trace_property_filter_for_event_group
@@ -716,18 +716,18 @@
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), ''), 1), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC')))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), 'runnable'), 0)))
      GROUP BY trace_id
      ORDER BY max(toTimeZone(events.timestamp, 'UTC')) DESC
-     LIMIT 101)
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+     LIMIT 2001)
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_trace_property_filter_for_event_group.1
@@ -754,7 +754,7 @@
   WHERE and(equals(events.team_id, 99999), and(in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 23:55:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-12-01 00:15:00', 'UTC'))))), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), tuple('trace1')))
   GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')
   ORDER BY first_timestamp DESC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -781,18 +781,18 @@
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), ''), 1), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC')))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'foo'), ''), 'null'), '^"|"$', ''), 'bar'), 0)))
      GROUP BY trace_id
      ORDER BY max(toTimeZone(events.timestamp, 'UTC')) DESC
-     LIMIT 101)
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+     LIMIT 2001)
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
 # name: TestTracesQueryRunner.test_trace_property_filter_for_event_group.3
@@ -819,7 +819,7 @@
   WHERE and(equals(events.team_id, 99999), and(in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 23:52:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-12-01 00:12:00', 'UTC'))))), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), tuple('trace1')))
   GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')
   ORDER BY first_timestamp DESC
-  LIMIT 101
+  LIMIT 2001
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -846,17 +846,17 @@
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', ''), ''), 1), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC')))), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), 'runnable'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'foo'), ''), 'null'), '^"|"$', ''), 'bar'), 0))))
      GROUP BY trace_id
      ORDER BY max(toTimeZone(events.timestamp, 'UTC')) DESC
-     LIMIT 101)
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+     LIMIT 2001)
+  LIMIT 2000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1,
+                      use_hive_partitioning=0
   '''
 # ---
