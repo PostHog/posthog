@@ -156,6 +156,7 @@ def _query_new_records(
         where_parts.append(config.where_clause)
     where_sql = " AND ".join(where_parts)
     # Limiting can cause a data loss, as the missed records won't be picked in the next sync, but it's acceptable for the current use case
+    # None of the data comes externally (neither limits of table name), so it's safe to use f-string interpolation
     query = f"""
         SELECT *
         FROM {table_name}
