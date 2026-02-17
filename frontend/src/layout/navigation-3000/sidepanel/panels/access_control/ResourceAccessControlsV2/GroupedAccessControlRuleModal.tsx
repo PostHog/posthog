@@ -24,8 +24,8 @@ export function GroupedAccessControlRuleModal(props: {
     projectId: string
     canEdit: boolean
     memberIsOrgAdmin: boolean
-    memberHasAdminAccess: boolean
-    roleHasAdminAccess: boolean
+    memberHasRoleWithAdminAccess: boolean
+    projectHasDefaultAdminAccess: boolean
 }): JSX.Element | null {
     const logic = accessControlsLogic({ projectId: props.projectId })
     const { groupedRulesForm } = useValues(logic)
@@ -94,8 +94,8 @@ export function GroupedAccessControlRuleModal(props: {
                 getLevelOptionsForResource={props.getLevelOptionsForResource}
                 canEdit={props.canEdit}
                 memberIsOrgAdmin={props.memberIsOrgAdmin}
-                memberHasAdminAccess={props.memberHasAdminAccess}
-                roleHasAdminAccess={props.roleHasAdminAccess}
+                memberHasRoleWithAdminAccess={props.memberHasRoleWithAdminAccess}
+                projectHasDefaultAdminAccess={props.projectHasDefaultAdminAccess}
             />
         </LemonModal>
     )
@@ -145,8 +145,8 @@ function GroupedAccessControlRuleModalContent(props: {
     ) => { value: AccessControlLevel; label: string; disabledReason?: string }[]
     canEdit: boolean
     memberIsOrgAdmin: boolean
-    memberHasAdminAccess: boolean
-    roleHasAdminAccess: boolean
+    memberHasRoleWithAdminAccess: boolean
+    projectHasDefaultAdminAccess: boolean
 }): JSX.Element {
     const mappedLevels = props.groupedRuleForm.levels.reduce(
         (prev, mapping) => {
@@ -164,10 +164,24 @@ function GroupedAccessControlRuleModalContent(props: {
             return 'Cannot edit'
         }
 
-        if (props.memberHasAdminAccess || props.roleHasAdminAccess) {
-            return 'Feature overrides do not apply to admins'
+        if (props.memberIsOrgAdmin) {
+            return 'User is an organization admin and can access all features in the project'
         }
-    }, [props.loading, props.canEdit, props.memberHasAdminAccess, props.roleHasAdminAccess])
+
+        if (props.projectHasDefaultAdminAccess) {
+            return 'Project default access is set to Admin, so all features are accessible'
+        }
+
+        if (props.memberHasRoleWithAdminAccess) {
+            return 'User already has a role with Admin access and can access all features in the project'
+        }
+    }, [
+        props.loading,
+        props.canEdit,
+        props.projectHasDefaultAdminAccess,
+        props.memberIsOrgAdmin,
+        props.memberHasRoleWithAdminAccess,
+    ])
 
     const disabledReasonForProject = useMemo(() => {
         if (props.loading) {
@@ -179,9 +193,13 @@ function GroupedAccessControlRuleModalContent(props: {
         }
 
         if (props.memberIsOrgAdmin) {
-            return 'Project overrides do not apply to admins'
+            return 'User is an organization admin'
         }
-    }, [props.loading, props.canEdit, props.memberIsOrgAdmin])
+
+        if (props.memberHasRoleWithAdminAccess) {
+            return 'User already has a role with Admin access'
+        }
+    }, [props.loading, props.canEdit, props.memberIsOrgAdmin, props.memberHasRoleWithAdminAccess])
 
     return (
         <div className="space-y-4">

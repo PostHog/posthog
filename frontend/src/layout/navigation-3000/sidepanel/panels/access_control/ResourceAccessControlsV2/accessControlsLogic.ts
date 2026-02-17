@@ -173,6 +173,30 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             (accessControlDefault): AccessControlLevel => accessControlDefault?.access_level ?? AccessControlLevel.None,
         ],
 
+        roleProjectAccessOverrides: [
+            (s) => [s.allMembers, s.roles, s.accessControlRoles],
+            (allMembers, roles, accessControlRoles): Record<OrganizationMemberType['id'], AccessControlLevel[]> => {
+                const result: Record<OrganizationMemberType['id'], AccessControlLevel[]> = {}
+
+                for (const member of allMembers) {
+                    const levels: AccessControlLevel[] = []
+
+                    for (const role of roles ?? []) {
+                        const isMemberOfRole = role.members.some((rm) => rm.user.uuid === member.user.uuid)
+
+                        if (isMemberOfRole) {
+                            const projectOverride = accessControlRoles.find((o) => o.role === role.id)
+                            if (projectOverride?.access_level) {
+                                levels.push(projectOverride.access_level as AccessControlLevel)
+                            }
+                        }
+                    }
+                    result[member.id] = levels
+                }
+                return result
+            },
+        ],
+
         allRows: [
             (s) => [
                 s.canUseRoles,
@@ -184,6 +208,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 s.memberResourceAccessControls,
                 s.roleResourceAccessControls,
                 s.roles,
+                s.projectAvailableLevels,
+                s.roleProjectAccessOverrides,
             ],
             (
                 canUseRoles,
@@ -194,7 +220,9 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 accessControlRoles,
                 memberResourceAccessControls,
                 roleResourceAccessControls,
-                roles
+                roles,
+                projectAvailableLevels,
+                roleProjectAccessOverrides
             ): AccessControlRow[] => {
                 const resourcesList = defaultResourceAccessControls.accessControlByResource
                 const rows: AccessControlRow[] = []
@@ -270,14 +298,31 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     {} as Record<string, MemberResourceAccessControls>
                 )
 
+                // Helper to find highest access level
+                const getHighestLevel = (levels: AccessControlLevel[]): AccessControlLevel => {
+                    return levels.reduce((highest, current) => {
+                        const currentIndex = projectAvailableLevels.indexOf(current)
+                        const highestIndex = projectAvailableLevels.indexOf(highest)
+                        return currentIndex > highestIndex ? current : highest
+                    })
+                }
+
                 for (const member of allMembers) {
                     const levels: AccessControlLevelMapping[] = []
-                    const projectOverride = mappedAccessControlMembers[member.id]
+                    const memberProjectAccessOverride = mappedAccessControlMembers[member.id]
                     const isOrgAdmin = member.level >= OrganizationMembershipLevel.Admin
-                    // Org admins/owners always have admin access to the project
+
+                    const projectAccessOverrides = [
+                        projectDefaultLevel,
+                        memberProjectAccessOverride?.access_level as AccessControlLevel,
+                        ...(canUseRoles ? roleProjectAccessOverrides[member.id] : []),
+                    ].filter(Boolean) as AccessControlLevel[]
+
+                    // Effective = highest of org admin, member override, project default, role overrides
                     const effectiveProjectLevel = isOrgAdmin
                         ? AccessControlLevel.Admin
-                        : ((projectOverride?.access_level ?? projectDefaultLevel) as AccessControlLevel)
+                        : getHighestLevel(projectAccessOverrides)
+
                     levels.push({
                         resourceKey: 'project',
                         level: effectiveProjectLevel,
@@ -432,64 +477,28 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         ruleModalMemberIsOrgAdmin: [
             (s) => [s.ruleModalState],
             (ruleModalState): boolean => {
-                if (!ruleModalState) {
+                if (!ruleModalState?.row.member) {
                     return false
                 }
-
-                const row = ruleModalState.row
-                if (!row.member) {
-                    return false
-                }
-
-                return row.member.level >= OrganizationMembershipLevel.Admin
+                return ruleModalState.row.member.level >= OrganizationMembershipLevel.Admin
             },
         ],
 
-        ruleModalMemberHasAdminAccess: [
-            (s) => [s.ruleModalState, s.ruleModalMemberIsOrgAdmin],
-            (ruleModalState, ruleModalMemberIsOrgAdmin): boolean => {
-                if (!ruleModalState) {
+        ruleModalMemberHasRoleWithAdminAccess: [
+            (s) => [s.ruleModalState, s.roleProjectAccessOverrides],
+            (ruleModalState, roleProjectAccessOverrides): boolean => {
+                if (!ruleModalState?.row.member) {
                     return false
                 }
-
-                if (ruleModalMemberIsOrgAdmin) {
-                    return true
-                }
-
-                const row = ruleModalState.row
-                if (!row.member) {
-                    return false
-                }
-
-                // Check if member has project admin access
-                const projectLevel = row.levels.find((l) => l.resourceKey === 'project')
-                if (projectLevel?.level === AccessControlLevel.Admin) {
-                    return true
-                }
-
-                return false
+                const roleLevels = roleProjectAccessOverrides[ruleModalState.row.member.id] ?? []
+                return roleLevels.includes(AccessControlLevel.Admin)
             },
         ],
 
-        ruleModalRoleHasAdminAccess: [
-            (s) => [s.ruleModalState],
-            (ruleModalState): boolean => {
-                if (!ruleModalState) {
-                    return false
-                }
-
-                const row = ruleModalState.row
-                if (!row.role) {
-                    return false
-                }
-
-                // Check if row has project admin access
-                const projectLevel = row.levels.find((l) => l.resourceKey === 'project')
-                if (projectLevel?.level === AccessControlLevel.Admin) {
-                    return true
-                }
-
-                return false
+        ruleModalProjectHasDefaultAdminAccess: [
+            (s) => [s.projectDefaultLevel],
+            (projectDefaultLevel): boolean => {
+                return projectDefaultLevel === AccessControlLevel.Admin
             },
         ],
     }),
