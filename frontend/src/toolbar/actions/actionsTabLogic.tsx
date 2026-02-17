@@ -223,7 +223,6 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                     actionToSave.name = findUniqueActionName(values.newActionName)
                 }
 
-                let response: ActionType
                 const res =
                     selectedActionId && selectedActionId !== 'new'
                         ? await toolbarFetch(
@@ -232,7 +231,13 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                               actionToSave
                           )
                         : await toolbarFetch('/api/projects/@current/actions/', 'POST', actionToSave)
-                response = await res.json()
+
+                if (!res.ok) {
+                    const errorData = await res.json().catch(() => ({}))
+                    lemonToast.error(`Action save failed: ${errorData.detail || res.statusText}`)
+                    return
+                }
+                const response: ActionType = await res.json()
                 breakpoint()
 
                 actions.selectAction(null)

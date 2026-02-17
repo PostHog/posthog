@@ -184,33 +184,32 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
 
                 const { uiHost, selectedExperimentId } = values
 
-                let response: WebExperiment
-                try {
-                    const res =
-                        selectedExperimentId && selectedExperimentId !== 'new'
-                            ? await toolbarFetch(
-                                  `/api/projects/@current/web_experiments/${selectedExperimentId}/`,
-                                  'PATCH',
-                                  experimentToSave
-                              )
-                            : await toolbarFetch('/api/projects/@current/web_experiments/', 'POST', experimentToSave)
-                    response = await res.json()
+                const res =
+                    selectedExperimentId && selectedExperimentId !== 'new'
+                        ? await toolbarFetch(
+                              `/api/projects/@current/web_experiments/${selectedExperimentId}/`,
+                              'PATCH',
+                              experimentToSave
+                          )
+                        : await toolbarFetch('/api/projects/@current/web_experiments/', 'POST', experimentToSave)
 
-                    experimentsLogic.actions.updateExperiment({ experiment: response })
-                    actions.selectExperiment(null)
-
-                    lemonToast.success('Experiment saved', {
-                        button: {
-                            label: 'Open in PostHog',
-                            action: () => window.open(joinWithUiHost(uiHost, urls.experiment(response.id)), '_blank'),
-                        },
-                    })
-                    breakpoint()
-                } catch (e) {
-                    if (e && typeof e === 'object' && 'data' in e) {
-                        lemonToast.error(`Experiment save failed: ${(e as any).data.detail}`)
-                    }
+                if (!res.ok) {
+                    const errorData = await res.json().catch(() => ({}))
+                    lemonToast.error(`Experiment save failed: ${errorData.detail || res.statusText}`)
+                    return
                 }
+                const response: WebExperiment = await res.json()
+
+                experimentsLogic.actions.updateExperiment({ experiment: response })
+                actions.selectExperiment(null)
+
+                lemonToast.success('Experiment saved', {
+                    button: {
+                        label: 'Open in PostHog',
+                        action: () => window.open(joinWithUiHost(uiHost, urls.experiment(response.id)), '_blank'),
+                    },
+                })
+                breakpoint()
             },
 
             // whether we show errors after touch (true) or submit (false)
