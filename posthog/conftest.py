@@ -61,7 +61,7 @@ def create_clickhouse_tables():
     if dictionary_queries:
         run_clickhouse_statement_in_parallel(dictionary_queries)
 
-    data_queries = list(map(build_query, CREATE_DATA_QUERIES))
+    data_queries = list(map(build_query, CREATE_DATA_QUERIES()))
     run_clickhouse_statement_in_parallel(data_queries)
 
 
@@ -135,7 +135,7 @@ def reset_clickhouse_tables():
 
     from posthog.clickhouse.schema import CREATE_DATA_QUERIES
 
-    run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES))
+    run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES()))
 
 
 def run_persons_sqlx_migrations(keepdb: bool = False):

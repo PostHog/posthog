@@ -5191,6 +5191,7 @@ const api = {
             refresh?: RefreshType
             filtersOverride?: DashboardFilter | null
             variablesOverride?: Record<string, HogQLVariable> | null
+            limitContext?: 'posthog_ai'
         }
     ): Promise<
         T extends { [response: string]: any }
@@ -5207,6 +5208,7 @@ const api = {
                 refresh: queryOptions?.refresh,
                 filters_override: queryOptions?.filtersOverride,
                 variables_override: queryOptions?.variablesOverride,
+                limit_context: queryOptions?.limitContext,
             },
         })
     },

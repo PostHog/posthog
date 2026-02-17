@@ -5,7 +5,7 @@ from typing import Any, cast
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import models, transaction
 
-from posthog.models import Project, Team
+from posthog.models import Project, Team, User
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
 from posthog.models.resource_transfer.types import (
     ResourceKind,
@@ -25,12 +25,15 @@ def duplicate_resource_to_new_team(
     resource: Any,
     team: Team,
     substitutions: list[tuple[ResourceTransferKey, ResourceTransferKey]] | None = None,
+    *,
+    created_by: User,
 ) -> list[Any]:
     """
     Duplicate a resource and any relations it depends on to another team.
 
     :param resource: The resource to start the duplication with.
     :param team: The team to copy the resource to.
+    :param created_by: The user who initiated the transfer.
 
     :returns: A list of the newly created resources
     """
@@ -38,7 +41,9 @@ def duplicate_resource_to_new_team(
     with transaction.atomic():
         graph = list(build_resource_duplication_graph(resource, set()))
         dag = dag_sort_duplication_graph(graph)
-        return duplicate_resources_from_dag(dag, source_team, team, substitutions if substitutions is not None else [])
+        return duplicate_resources_from_dag(
+            dag, source_team, team, substitutions if substitutions is not None else [], created_by=created_by
+        )
 
 
 def duplicate_resources_from_dag(
@@ -46,6 +51,8 @@ def duplicate_resources_from_dag(
     source_team: Team,
     new_team: Team,
     substitutions: list[tuple[ResourceTransferKey, ResourceTransferKey]],
+    *,
+    created_by: User,
 ) -> list[Any]:
     """
     Given a DAG of vertices, execute the database operations to copy the resources described by each vertex into the new team.
@@ -55,6 +62,7 @@ def duplicate_resources_from_dag(
     :param source_team: The team the resources are being copied from.
     :param new_team: The team to copy the resources to.
     :param substitutions: A list of (source_key, destination_key) pairs representing substitutions to use.
+    :param created_by: The user who initiated the transfer.
 
     :returns: A list of the newly created resources
     """
@@ -88,6 +96,7 @@ def duplicate_resources_from_dag(
                 ResourceTransfer(
                     source_team=source_team,
                     destination_team=new_team,
+                    created_by=created_by,
                     resource_kind=visitor.kind,
                     resource_id=str(vertex.source_resource.pk),
                     duplicated_resource_id=str(vertex.duplicated_resource.pk),

@@ -1247,6 +1247,8 @@ jobs:
             oldest_supported_image: ${{ steps.read-versions.outputs.oldest_supported_image }}
             # All unique versions for compat tests
             all: ${{ steps.read-versions.outputs.all }}
+            # Whether to skip compat tests (all versions identical = no extra coverage)
+            skip_compat: ${{ steps.check-compat.outputs.skip }}
         steps:
             - uses: actions/checkout@v6
               with:
@@ -1274,6 +1276,18 @@ jobs:
                   echo "all=$all" >> $GITHUB_OUTPUT
                   echo "All versions for compat tests: $all"
 
+            - name: Check if compat tests are needed
+              id: check-compat
+              run: |
+                  UNIQUE=$(jq -r '[.[]] | unique | length' .github/clickhouse-versions.json)
+                  if [ "$UNIQUE" -eq 1 ]; then
+                    echo "skip=true" >> $GITHUB_OUTPUT
+                    echo "All CH versions identical — compat tests provide no additional coverage, skipping"
+                  else
+                    echo "skip=false" >> $GITHUB_OUTPUT
+                    echo "Multiple CH versions found — compat tests needed"
+                  fi
+
     clickhouse-compat:
         name: ClickHouse compat tests - ${{ matrix.clickhouse-server-image }}
         needs: [changes, turbo-discover, get_clickhouse_versions]
@@ -1281,6 +1295,7 @@ jobs:
         if: |
             always() &&
             needs.changes.outputs.backend == 'true' &&
+            needs.get_clickhouse_versions.outputs.skip_compat != 'true' &&
             (needs.changes.outputs.legacy == 'true' ||
              needs.turbo-discover.outputs.run_legacy == 'true' ||
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
