@@ -4,10 +4,10 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.temporal.llm_analytics.sentiment.classify import (
-    OnDemandSentimentBatchInput,
-    OnDemandSentimentInput,
+    ClassifySentimentBatchInput,
+    ClassifySentimentInput,
+    classify_sentiment_activity,
     classify_sentiment_batch_activity,
-    classify_sentiment_on_demand_activity,
 )
 from posthog.temporal.llm_analytics.sentiment.model import SentimentResult
 
@@ -51,7 +51,7 @@ class TestClassifySentimentOnDemandActivity:
     async def test_empty_query_returns_neutral(self, mock_hogql: MagicMock):
         mock_hogql.return_value = _mock_hogql_result([])
 
-        result = await classify_sentiment_on_demand_activity(OnDemandSentimentInput(team_id=1, trace_id="trace-1"))
+        result = await classify_sentiment_activity(ClassifySentimentInput(team_id=1, trace_id="trace-1"))
 
         assert result["label"] == "neutral"
         assert result["generation_count"] == 0
@@ -68,7 +68,7 @@ class TestClassifySentimentOnDemandActivity:
         )
         mock_classify.return_value = [_make_sentiment_result("positive", 0.9)]
 
-        result = await classify_sentiment_on_demand_activity(OnDemandSentimentInput(team_id=1, trace_id="trace-1"))
+        result = await classify_sentiment_activity(ClassifySentimentInput(team_id=1, trace_id="trace-1"))
 
         mock_classify.assert_called_once_with(["I love this product"])
         assert result["generation_count"] == 1
@@ -97,7 +97,7 @@ class TestClassifySentimentOnDemandActivity:
             _make_sentiment_result("neutral", 0.7),
         ]
 
-        result = await classify_sentiment_on_demand_activity(OnDemandSentimentInput(team_id=1, trace_id="trace-1"))
+        result = await classify_sentiment_activity(ClassifySentimentInput(team_id=1, trace_id="trace-1"))
 
         mock_classify.assert_called_once_with(["msg-a", "msg-b", "msg-c"])
         assert result["generation_count"] == 2
@@ -128,7 +128,7 @@ class TestClassifySentimentOnDemandActivity:
             _make_sentiment_result("negative", 0.8),
         ]
 
-        result = await classify_sentiment_on_demand_activity(OnDemandSentimentInput(team_id=1, trace_id="trace-1"))
+        result = await classify_sentiment_activity(ClassifySentimentInput(team_id=1, trace_id="trace-1"))
 
         texts_classified = mock_classify.call_args[0][0]
         assert len(texts_classified) == 3
@@ -147,7 +147,7 @@ class TestClassifySentimentOnDemandActivity:
         )
         mock_classify.return_value = [_make_sentiment_result("positive", 0.9)]
 
-        result = await classify_sentiment_on_demand_activity(OnDemandSentimentInput(team_id=1, trace_id="trace-1"))
+        result = await classify_sentiment_activity(ClassifySentimentInput(team_id=1, trace_id="trace-1"))
 
         mock_classify.assert_called_once_with(["a real message"])
         assert result["generation_count"] == 1
@@ -165,8 +165,8 @@ class TestClassifySentimentOnDemandActivity:
         )
         mock_classify.return_value = [_make_sentiment_result("positive", 0.9)]
 
-        await classify_sentiment_on_demand_activity(
-            OnDemandSentimentInput(
+        await classify_sentiment_activity(
+            ClassifySentimentInput(
                 team_id=1,
                 trace_id="trace-1",
                 date_from="2025-01-01",
@@ -190,8 +190,8 @@ class TestClassifySentimentOnDemandActivity:
         )
         mock_classify.return_value = [_make_sentiment_result("positive", 0.9)]
 
-        await classify_sentiment_on_demand_activity(
-            OnDemandSentimentInput(
+        await classify_sentiment_activity(
+            ClassifySentimentInput(
                 team_id=1,
                 trace_id="trace-1",
                 date_from="-1h",
@@ -213,7 +213,7 @@ class TestClassifySentimentBatchActivity:
     async def test_empty_query_returns_neutral_for_all(self, mock_hogql: MagicMock):
         mock_hogql.return_value = _mock_hogql_result([])
 
-        result = await classify_sentiment_batch_activity(OnDemandSentimentBatchInput(team_id=1, trace_ids=["t1", "t2"]))
+        result = await classify_sentiment_batch_activity(ClassifySentimentBatchInput(team_id=1, trace_ids=["t1", "t2"]))
 
         assert result["t1"]["label"] == "neutral"
         assert result["t2"]["label"] == "neutral"
@@ -233,7 +233,7 @@ class TestClassifySentimentBatchActivity:
             _make_sentiment_result("negative", 0.8),
         ]
 
-        result = await classify_sentiment_batch_activity(OnDemandSentimentBatchInput(team_id=1, trace_ids=["t1", "t2"]))
+        result = await classify_sentiment_batch_activity(ClassifySentimentBatchInput(team_id=1, trace_ids=["t1", "t2"]))
 
         # One classify_batch call with all texts
         mock_classify.assert_called_once_with(["hello from t1", "hello from t2"])
@@ -256,7 +256,7 @@ class TestClassifySentimentBatchActivity:
         )
         mock_classify.return_value = [_make_sentiment_result("positive", 0.9)]
 
-        result = await classify_sentiment_batch_activity(OnDemandSentimentBatchInput(team_id=1, trace_ids=["t1", "t2"]))
+        result = await classify_sentiment_batch_activity(ClassifySentimentBatchInput(team_id=1, trace_ids=["t1", "t2"]))
 
         assert result["t1"]["label"] == "positive"
         assert result["t2"]["label"] == "neutral"

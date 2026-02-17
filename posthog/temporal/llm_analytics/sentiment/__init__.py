@@ -1,13 +1,13 @@
 from posthog.temporal.llm_analytics.sentiment.classify import (
-    OnDemandSentimentBatchWorkflow,
-    OnDemandSentimentWorkflow,
+    ClassifySentimentBatchWorkflow,
+    ClassifySentimentWorkflow,
+    classify_sentiment_activity,
     classify_sentiment_batch_activity,
-    classify_sentiment_on_demand_activity,
 )
 
 __all__ = [
-    "OnDemandSentimentBatchWorkflow",
-    "OnDemandSentimentWorkflow",
+    "ClassifySentimentBatchWorkflow",
+    "ClassifySentimentWorkflow",
     "classify_sentiment_batch_activity",
-    "classify_sentiment_on_demand_activity",
+    "classify_sentiment_activity",
 ]

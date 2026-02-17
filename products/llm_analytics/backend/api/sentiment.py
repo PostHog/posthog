@@ -28,7 +28,7 @@ from posthog.rate_limit import (
     LLMAnalyticsSentimentSustainedThrottle,
 )
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.llm_analytics.sentiment.classify import OnDemandSentimentBatchInput, OnDemandSentimentInput
+from posthog.temporal.llm_analytics.sentiment.classify import ClassifySentimentBatchInput, ClassifySentimentInput
 
 from products.llm_analytics.backend.api.metrics import llma_track_latency
 
@@ -82,7 +82,7 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         date_from: str | None = None,
         date_to: str | None = None,
     ) -> dict:
-        workflow_input = OnDemandSentimentInput(
+        workflow_input = ClassifySentimentInput(
             team_id=self.team_id,
             trace_id=trace_id,
             date_from=date_from,
@@ -181,7 +181,7 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         if misses:
             try:
                 client = sync_connect()
-                workflow_input = OnDemandSentimentBatchInput(
+                workflow_input = ClassifySentimentBatchInput(
                     team_id=self.team_id,
                     trace_ids=misses,
                     date_from=date_from,

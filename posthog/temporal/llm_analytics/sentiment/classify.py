@@ -1,8 +1,8 @@
-"""On-demand sentiment classification workflow.
+"""Sentiment classification workflows and activities.
 
-Computes sentiment for a single trace and returns the result directly
-(does NOT emit events). Used by the trace detail view to show sentiment
-on-the-fly.
+Computes sentiment for traces by fetching $ai_generation events,
+extracting user messages, and classifying via the ONNX model.
+Supports single-trace and batched multi-trace classification.
 """
 
 import json
@@ -20,7 +20,7 @@ logger = structlog.get_logger(__name__)
 
 
 @dataclass
-class OnDemandSentimentInput:
+class ClassifySentimentInput:
     team_id: int
     trace_id: str
     date_from: str | None = None
@@ -28,7 +28,7 @@ class OnDemandSentimentInput:
 
 
 @dataclass
-class OnDemandSentimentBatchInput:
+class ClassifySentimentBatchInput:
     team_id: int
     trace_ids: list[str]
     date_from: str | None = None
@@ -109,7 +109,7 @@ def _resolve_date_bounds(date_from: str | None, date_to: str | None) -> tuple[st
 
 
 @temporalio.activity.defn
-async def classify_sentiment_on_demand_activity(input: OnDemandSentimentInput) -> dict[str, Any]:
+async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str, Any]:
     """Fetch $ai_generation events for a trace and classify sentiment on each user message."""
     from posthog.hogql import ast
     from posthog.hogql.constants import LimitContext
@@ -325,7 +325,7 @@ def _build_trace_result(
 
 
 @temporalio.activity.defn
-async def classify_sentiment_batch_activity(input: OnDemandSentimentBatchInput) -> dict[str, dict[str, Any]]:
+async def classify_sentiment_batch_activity(input: ClassifySentimentBatchInput) -> dict[str, dict[str, Any]]:
     """Fetch $ai_generation events for multiple traces in one query and classify sentiment."""
     from posthog.hogql import ast
     from posthog.hogql.constants import LimitContext
@@ -412,16 +412,16 @@ async def classify_sentiment_batch_activity(input: OnDemandSentimentBatchInput) 
 
 
 @temporalio.workflow.defn(name="llma-sentiment-on-demand-batch")
-class OnDemandSentimentBatchWorkflow(PostHogWorkflow):
+class ClassifySentimentBatchWorkflow(PostHogWorkflow):
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> OnDemandSentimentBatchInput:
-        return OnDemandSentimentBatchInput(
+    def parse_inputs(inputs: list[str]) -> ClassifySentimentBatchInput:
+        return ClassifySentimentBatchInput(
             team_id=int(inputs[0]),
             trace_ids=inputs[1:],
         )
 
     @temporalio.workflow.run
-    async def run(self, input: OnDemandSentimentBatchInput) -> dict[str, dict[str, Any]]:
+    async def run(self, input: ClassifySentimentBatchInput) -> dict[str, dict[str, Any]]:
         return await temporalio.workflow.execute_activity(
             classify_sentiment_batch_activity,
             input,
@@ -431,18 +431,18 @@ class OnDemandSentimentBatchWorkflow(PostHogWorkflow):
 
 
 @temporalio.workflow.defn(name="llma-sentiment-on-demand")
-class OnDemandSentimentWorkflow(PostHogWorkflow):
+class ClassifySentimentWorkflow(PostHogWorkflow):
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> OnDemandSentimentInput:
-        return OnDemandSentimentInput(
+    def parse_inputs(inputs: list[str]) -> ClassifySentimentInput:
+        return ClassifySentimentInput(
             team_id=int(inputs[0]),
             trace_id=inputs[1],
         )
 
     @temporalio.workflow.run
-    async def run(self, input: OnDemandSentimentInput) -> dict[str, Any]:
+    async def run(self, input: ClassifySentimentInput) -> dict[str, Any]:
         return await temporalio.workflow.execute_activity(
-            classify_sentiment_on_demand_activity,
+            classify_sentiment_activity,
             input,
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=2),
