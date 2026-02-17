@@ -395,6 +395,9 @@ async def generate_test_data(
     if events_table:
         table = events_table
     elif data_interval_start and data_interval_start > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=6)):
+        # Insert directly into the local sharded table to avoid async writes
+        # through the Distributed engine (events_recent), which can cause
+        # data leakage between tests.
         table = "sharded_events_recent"
     else:
         table = "sharded_events"
