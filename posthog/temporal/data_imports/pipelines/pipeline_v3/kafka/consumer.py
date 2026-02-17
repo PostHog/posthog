@@ -16,7 +16,7 @@ from confluent_kafka import (
 )
 
 from posthog.exceptions_capture import capture_exception
-from posthog.kafka_client.client import _confluent_sasl_params, _KafkaProducer, _KafkaSecurityProtocol
+from posthog.kafka_client.client import _KafkaProducer, _KafkaSecurityProtocol
 from posthog.temporal.data_imports.pipelines.pipeline_v3.load.config import ConsumerConfig
 
 logger = structlog.get_logger(__name__)
@@ -76,7 +76,6 @@ class KafkaConsumerService:
             "auto.offset.reset": "earliest",
             "enable.auto.commit": False,
             "security.protocol": self._kafka_security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
-            **_confluent_sasl_params(),
         }
         consumer = ConfluentConsumer(config)
         consumer.subscribe([self._config.input_topic])
@@ -149,14 +148,16 @@ class KafkaConsumerService:
 
                 messages: list[Any] = []
                 for msg in raw_messages:
-                    if msg is None:
-                        continue
-                    if msg.error():
-                        if msg.error().code() == KafkaError._PARTITION_EOF:
+                    err = msg.error()
+                    if err is not None:
+                        if err.code() == KafkaError._PARTITION_EOF:  # type: ignore[attr-defined]
                             continue
-                        logger.error("kafka_message_error", error=msg.error())
+                        logger.error("kafka_message_error", error=err)
                         continue
-                    messages.append(json.loads(msg.value().decode("utf-8")))
+                    raw = msg.value()
+                    if raw is None:
+                        continue
+                    messages.append(json.loads(raw.decode("utf-8")))
 
                 if not messages:
                     continue
