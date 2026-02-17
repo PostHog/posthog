@@ -18,6 +18,7 @@ from posthog.schema import (
     EventsQuery,
     FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
+    FunnelDataWarehouseNode,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     FunnelsActorsQuery,
@@ -214,7 +215,9 @@ class QueryEventsExtractor:
 
         return []
 
-    def _get_series_events(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode]) -> list[str]:
+    def _get_series_events(
+        self, series: Union[EventsNode, ActionsNode, DataWarehouseNode, FunnelDataWarehouseNode, GroupNode]
+    ) -> list[str]:
         if isinstance(series, EventsNode):
             return [series.event] if series.event else []
         if isinstance(series, ActionsNode):

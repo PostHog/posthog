@@ -7,7 +7,7 @@ from django.core.cache import cache
 
 from dateutil.relativedelta import MO, SU, relativedelta
 
-from posthog.schema import ActionsNode, DataWarehouseNode, EventsNode, GroupNode
+from posthog.schema import ActionsNode, DataWarehouseNode, EventsNode, FunnelDataWarehouseNode, GroupNode
 
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
@@ -24,11 +24,11 @@ EARLIEST_TIMESTAMP_CACHE_TTL = 24 * 60 * 60
 EARLIEST_EVENT_TIMESTAMP = datetime.fromisoformat("1980-01-01T00:00:00Z")
 
 
-def _get_data_warehouse_earliest_timestamp_query(node: DataWarehouseNode) -> SelectQuery:
+def _get_data_warehouse_earliest_timestamp_query(node: DataWarehouseNode | FunnelDataWarehouseNode) -> SelectQuery:
     """
-    Get the select query for the earliest timestamp from a DataWarehouseNode.
+    Get the select query for the earliest timestamp from a DataWarehouseNode or FunnelDataWarehouseNode.
 
-    :param node: The DataWarehouseNode
+    :param node: The DataWarehouseNode or FunnelDataWarehouseNode
     :return: A SelectQuery object that retrieves the earliest timestamp from the specified data warehouse table.
     """
     return ast.SelectQuery(
@@ -81,7 +81,7 @@ def _get_event_earliest_timestamp_query(team: Team, node: Union[EventsNode, Acti
 
 
 def _get_earliest_timestamp_cache_key(
-    team: Team, node: Union[EventsNode, ActionsNode, DataWarehouseNode, None] = None
+    team: Team, node: Union[EventsNode, ActionsNode, DataWarehouseNode, FunnelDataWarehouseNode, None] = None
 ) -> str:
     """
     Generate a cache key for the earliest timestamp
@@ -95,6 +95,8 @@ def _get_earliest_timestamp_cache_key(
         return f"earliest_timestamp_event_{team.pk}"
     elif isinstance(node, DataWarehouseNode):
         return f"earliest_timestamp_data_warehouse_{team.pk}_{node.table_name}_{node.timestamp_field}"
+    elif isinstance(node, FunnelDataWarehouseNode):
+        return f"earliest_timestamp_funnel_data_warehouse_{team.pk}_{node.table_name}_{node.timestamp_field}"
     elif isinstance(node, ActionsNode):
         return f"earliest_timestamp_action_{team.pk}_{node.id}"
     elif isinstance(node, EventsNode):
@@ -107,7 +109,9 @@ def _get_earliest_timestamp_cache_key(
         raise ValueError(f"Unsupported node type: {type(node)}")
 
 
-def _get_earliest_timestamp_from_node(team: Team, node: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> datetime:
+def _get_earliest_timestamp_from_node(
+    team: Team, node: Union[EventsNode, ActionsNode, DataWarehouseNode, FunnelDataWarehouseNode]
+) -> datetime:
     """
     Get the earliest timestamp from a single series node
 
@@ -120,7 +124,7 @@ def _get_earliest_timestamp_from_node(team: Team, node: Union[EventsNode, Action
     if cached_result is not None:
         return cached_result
 
-    if isinstance(node, DataWarehouseNode):
+    if isinstance(node, DataWarehouseNode) or isinstance(node, FunnelDataWarehouseNode):
         query = _get_data_warehouse_earliest_timestamp_query(node)
     else:
         query = _get_event_earliest_timestamp_query(team, node)
@@ -135,7 +139,7 @@ def _get_earliest_timestamp_from_node(team: Team, node: Union[EventsNode, Action
 
 
 def get_earliest_timestamp_from_series(
-    team: Team, series: list[Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode]]
+    team: Team, series: list[Union[EventsNode, ActionsNode, DataWarehouseNode, FunnelDataWarehouseNode, GroupNode]]
 ) -> datetime:
     """
     Get the earliest timestamp for specific events/actions in a series.
@@ -147,7 +151,7 @@ def get_earliest_timestamp_from_series(
     :return: The earliest timestamp across all series
     """
     # Expand GroupNode nodes into individual nodes
-    nodes: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = []
+    nodes: list[Union[EventsNode, ActionsNode, DataWarehouseNode, FunnelDataWarehouseNode]] = []
     for node in series:
         if isinstance(node, GroupNode):
             nodes.extend(node.nodes)

@@ -40,6 +40,7 @@ import {
     isDataTableNode,
     isDataWarehouseNode,
     isEventsNode,
+    isFunnelDataWarehouseNode,
     isGroupNode,
     isInsightVizNode,
 } from '~/queries/utils'
@@ -135,13 +136,14 @@ export const getDisplayNameFromEntityNode = (
         name = 'All events'
     }
 
-    const id = isDataWarehouseNode(node)
-        ? node.table_name
-        : isEventsNode(node)
-          ? node.event
-          : isGroupNode(node)
-            ? undefined
-            : node.id
+    const id =
+        isDataWarehouseNode(node) || isFunnelDataWarehouseNode(node)
+            ? node.table_name
+            : isEventsNode(node)
+              ? node.event
+              : isGroupNode(node)
+                ? undefined
+                : node.id
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
     return (isCustom ? customName : null) ?? name ?? (id ? `${id}` : null)

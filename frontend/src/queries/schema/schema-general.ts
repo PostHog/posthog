@@ -80,6 +80,7 @@ export enum NodeKind {
     GroupNode = 'GroupNode',
     ActionsNode = 'ActionsNode',
     DataWarehouseNode = 'DataWarehouseNode',
+    FunnelDataWarehouseNode = 'FunnelDataWarehouseNode',
     EventsQuery = 'EventsQuery',
     SessionsQuery = 'SessionsQuery',
     PersonsNode = 'PersonsNode',
@@ -243,6 +244,7 @@ export type QuerySchema =
     | ActionsNode // old actions API endpoint
     | PersonsNode // old persons API endpoint
     | DataWarehouseNode
+    | FunnelDataWarehouseNode
     | EventsQuery
     | SessionsQuery
     | ActorsQuery
@@ -756,12 +758,20 @@ export interface DataWarehouseNode extends EntityNode {
     dw_source_type?: string
 }
 
+export interface FunnelDataWarehouseNode extends EntityNode {
+    kind: NodeKind.FunnelDataWarehouseNode
+    table_name: string
+    id_field?: string
+    timestamp_field: string
+    aggregation_target_field: string
+}
+
 export interface ActionsNode extends EntityNode {
     kind: NodeKind.ActionsNode
     id: integer
 }
 
-export type AnyEntityNode = EventsNode | ActionsNode | DataWarehouseNode
+export type AnyEntityNode = EventsNode | ActionsNode
 
 export interface GroupNode extends EntityNode {
     kind: NodeKind.GroupNode
@@ -1369,7 +1379,7 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
      */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (AnyEntityNode | GroupNode)[]
+    series: (EventsNode | ActionsNode | DataWarehouseNode | GroupNode)[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
@@ -1486,7 +1496,7 @@ export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: AnyEntityNode[]
+    series: (EventsNode | ActionsNode | FunnelDataWarehouseNode)[]
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */

@@ -6,6 +6,7 @@ from posthog.schema import (
     DataWarehouseNode,
     EmptyPropertyFilter,
     EventsNode,
+    FunnelDataWarehouseNode,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     HogQLPropertyFilter,
@@ -21,6 +22,8 @@ def is_equal_type(a: EntityNode, b: EntityNode | ExclusionEntityNode) -> bool:
         return isinstance(b, ActionsNode) or isinstance(b, FunnelExclusionActionsNode)
     if isinstance(a, DataWarehouseNode):
         return isinstance(b, DataWarehouseNode)
+    if isinstance(a, FunnelDataWarehouseNode):
+        return isinstance(b, FunnelDataWarehouseNode)
     raise ValueError(detail=f"Type comparison for {type(a)} and {type(b)} not implemented.")
 
 
@@ -51,7 +54,25 @@ def is_equal(a: EntityNode, b: EntityNode | ExclusionEntityNode, compare_propert
     if (
         isinstance(a, DataWarehouseNode)
         and isinstance(b, DataWarehouseNode)
-        and (a.id != b.id or a.id_field != b.id_field)
+        and (
+            a.table_name != b.table_name
+            or a.timestamp_field != b.timestamp_field
+            or a.distinct_id_field != b.distinct_id_field
+            or a.id_field != b.id_field
+        )
+    ):
+        return False
+
+    # different funnel data source
+    if (
+        isinstance(a, FunnelDataWarehouseNode)
+        and isinstance(b, FunnelDataWarehouseNode)
+        and (
+            a.table_name != b.table_name
+            or a.timestamp_field != b.timestamp_field
+            or a.aggregation_target_field != b.aggregation_target_field
+            or a.id_field != b.id_field
+        )
     ):
         return False
 

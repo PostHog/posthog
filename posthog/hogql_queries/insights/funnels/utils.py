@@ -7,6 +7,7 @@ from posthog.schema import (
     DataWarehouseNode,
     EventsNode,
     FunnelConversionWindowTimeUnit,
+    FunnelDataWarehouseNode,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
 )
@@ -92,23 +93,23 @@ def is_data_warehouse_entity(entity: EntityNode | ExclusionEntityNode) -> TypeGu
     return isinstance(entity, DataWarehouseNode)
 
 
-def data_warehouse_config_key(node: DataWarehouseNode) -> tuple[str, str, str, str]:
+def data_warehouse_config_key(node: FunnelDataWarehouseNode) -> tuple[str, str | None, str, str]:
     return (
         node.table_name,
         node.id_field,
-        node.distinct_id_field,
+        node.aggregation_target_field,
         node.timestamp_field,
     )
 
 
 def entity_config_mismatch(step_entity: EntityNode, table_entity: EntityNode | None) -> bool:
-    if isinstance(step_entity, DataWarehouseNode) != isinstance(table_entity, DataWarehouseNode):
+    if isinstance(step_entity, FunnelDataWarehouseNode) != isinstance(table_entity, FunnelDataWarehouseNode):
         return True
 
-    if not isinstance(step_entity, DataWarehouseNode):
+    if not isinstance(step_entity, FunnelDataWarehouseNode):
         return False
 
-    assert isinstance(table_entity, DataWarehouseNode)
+    assert isinstance(table_entity, FunnelDataWarehouseNode)
     return data_warehouse_config_key(step_entity) != data_warehouse_config_key(table_entity)
 
 

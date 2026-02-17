@@ -66,6 +66,7 @@ import {
     isActionsNode,
     isDataWarehouseNode,
     isEventsNode,
+    isFunnelDataWarehouseNode,
     isFunnelsQuery,
     isInsightQueryNode,
     isInsightVizNode,
@@ -365,7 +366,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 return (
                     (isTrends || isFunnels) &&
                     (series || []).length > 0 &&
-                    !!series?.some((node) => isDataWarehouseNode(node))
+                    !!series?.some((node) => isDataWarehouseNode(node) || isFunnelDataWarehouseNode(node))
                 )
             },
         ],
@@ -391,7 +392,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     return []
                 }
 
-                const dataWarehouseSeries = series!.filter(isDataWarehouseNode)
+                const dataWarehouseSeries = series!.filter(
+                    (s) => isDataWarehouseNode(s) || isFunnelDataWarehouseNode(s)
+                )
                 const dataWarehouseTableNames = Array.from(new Set(dataWarehouseSeries.map((node) => node.table_name)))
                 return dataWarehouseTableNames.flatMap((tableName) =>
                     Object.values(dataWarehouseTablesMap[tableName]?.fields ?? {})
@@ -580,7 +583,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             if (isInsightVizNode(query)) {
                 if (query.source.kind === NodeKind.TrendsQuery) {
                     // Disable filter test account when using a data warehouse series
-                    const hasWarehouseSeries = query.source.series?.some((node) => isDataWarehouseNode(node))
+                    const hasWarehouseSeries = query.source.series?.some(
+                        (node) => isDataWarehouseNode(node) || isFunnelDataWarehouseNode(node)
+                    )
                     const filterTestAccountsEnabled = query.source.filterTestAccounts ?? false
                     if (hasWarehouseSeries && filterTestAccountsEnabled) {
                         query.source.filterTestAccounts = false
@@ -875,7 +880,9 @@ const handleQuerySourceUpdateSideEffects = (
     if (
         kind === NodeKind.TrendsQuery &&
         (mergedUpdate as TrendsQuery).series?.length >= 0 &&
-        (mergedUpdate as TrendsQuery).series.some((series) => isDataWarehouseNode(series)) &&
+        (mergedUpdate as TrendsQuery).series.some(
+            (series) => isDataWarehouseNode(series) || isFunnelDataWarehouseNode(series)
+        ) &&
         (mergedUpdate as TrendsQuery).series.some((series) => isActionsNode(series) || isEventsNode(series))
     ) {
         mergedUpdate['breakdownFilter'] = null

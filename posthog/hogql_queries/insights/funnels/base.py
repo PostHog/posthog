@@ -9,8 +9,8 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     ActionsNode,
     BreakdownType,
-    DataWarehouseNode,
     EventsNode,
+    FunnelDataWarehouseNode,
     FunnelTimeToConvertResults,
     FunnelVizType,
     StepOrderValue,
@@ -209,7 +209,7 @@ class FunnelBase(ABC):
 
     def _serialize_step(
         self,
-        step: ActionsNode | EventsNode | DataWarehouseNode,
+        step: ActionsNode | EventsNode | FunnelDataWarehouseNode,
         count: int,
         index: int,
         people: Optional[list[uuid.UUID]] = None,
@@ -219,7 +219,7 @@ class FunnelBase(ABC):
             step_type = "events"
         elif isinstance(step, ActionsNode):
             step_type = "actions"
-        elif isinstance(step, DataWarehouseNode):
+        elif isinstance(step, FunnelDataWarehouseNode):
             step_type = "data_warehouse"
         else:
             raise TypeError(f"Unsupported step type {type(step)}")
@@ -239,8 +239,8 @@ class FunnelBase(ABC):
         if isinstance(step, EventsNode):
             name = step.event
             action_id = step.event
-        elif isinstance(step, DataWarehouseNode):
-            name = f"{step.table_name}.{step.distinct_id_field}"
+        elif isinstance(step, FunnelDataWarehouseNode):
+            name = f"{step.table_name}.{step.aggregation_target_field}"
             action_id = None
         else:
             action = Action.objects.get(pk=step.id, team__project_id=self.context.team.project_id)

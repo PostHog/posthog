@@ -166,6 +166,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconTableChart,
         inMenu: true,
     },
+    [NodeKind.FunnelDataWarehouseNode]: {
+        name: 'Funnel Data Warehouse',
+        description: 'List and explore funnel data warehouse tables.',
+        icon: IconTableChart,
+        inMenu: true,
+    },
     [NodeKind.GroupNode]: {
         name: 'Groups',
         description: 'List and explore grouped events.',

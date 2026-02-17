@@ -8,6 +8,7 @@ import {
     CompareFilter,
     DataWarehouseNode,
     EventsNode,
+    FunnelDataWarehouseNode,
     FunnelsFilterLegacy,
     GroupNode,
     InsightQueryNode,
@@ -22,6 +23,7 @@ import {
     isActionsNode,
     isDataWarehouseNode,
     isEventsNode,
+    isFunnelDataWarehouseNode,
     isFunnelsQuery,
     isGroupNode,
     isLifecycleQuery,
@@ -37,16 +39,17 @@ type FilterTypeActionsAndEvents = {
     events?: ActionFilter[]
     actions?: ActionFilter[]
     data_warehouse?: ActionFilter[]
+    funnel_data_warehouse?: ActionFilter[]
     new_entity?: ActionFilter[]
     groups?: ActionFilter[]
 }
 
-const getFilterId = (node: EventsNode | ActionsNode | DataWarehouseNode | GroupNode): any => {
+const getFilterId = (node: EventsNode | ActionsNode | DataWarehouseNode | FunnelDataWarehouseNode | GroupNode): any => {
     if (isGroupNode(node)) {
         return undefined
     }
 
-    if (isDataWarehouseNode(node)) {
+    if (isDataWarehouseNode(node) || isFunnelDataWarehouseNode(node)) {
         return node.table_name
     }
 
@@ -58,7 +61,7 @@ const getFilterId = (node: EventsNode | ActionsNode | DataWarehouseNode | GroupN
 }
 
 export const seriesNodeToFilter = (
-    node: EventsNode | ActionsNode | DataWarehouseNode | GroupNode,
+    node: EventsNode | ActionsNode | DataWarehouseNode | FunnelDataWarehouseNode | GroupNode,
     index?: number
 ): ActionFilter => {
     const entity: ActionFilter = objectClean({
@@ -89,6 +92,14 @@ export const seriesNodeToFilter = (
                   distinct_id_field: node.distinct_id_field,
               }
             : {}),
+        ...(isFunnelDataWarehouseNode(node)
+            ? {
+                  table_name: node.table_name,
+                  id_field: node.id_field,
+                  timestamp_field: node.timestamp_field,
+                  aggregation_target_field: node.aggregation_target_field,
+              }
+            : {}),
         ...(isGroupNode(node)
             ? {
                   operator: node.operator,
@@ -106,6 +117,7 @@ export const seriesToActionsAndEvents = (
     const actions: ActionFilter[] = []
     const events: ActionFilter[] = []
     const data_warehouse: ActionFilter[] = []
+    const funnel_data_warehouse: ActionFilter[] = []
     const new_entity: ActionFilter[] = []
     const groups: ActionFilter[] = []
     series.forEach((node, index) => {
@@ -116,6 +128,8 @@ export const seriesToActionsAndEvents = (
             actions.push(entity)
         } else if (isDataWarehouseNode(node)) {
             data_warehouse.push(entity)
+        } else if (isFunnelDataWarehouseNode(node)) {
+            funnel_data_warehouse.push(entity)
         } else if (isGroupNode(node)) {
             groups.push(entity)
         } else {
@@ -123,7 +137,7 @@ export const seriesToActionsAndEvents = (
         }
     })
 
-    return { actions, events, data_warehouse, new_entity, groups }
+    return { actions, events, data_warehouse, funnel_data_warehouse, new_entity, groups }
 }
 
 /**
