@@ -598,10 +598,6 @@ export class CdpApi {
                 return res.status(httpResponse.status).send('')
             }
 
-            if (result.error) {
-                return res.status(500).json({ error: 'Internal error' })
-            }
-
             return await onSuccess(result)
         } catch (error) {
             if (error instanceof SourceWebhookError) {
@@ -617,6 +613,9 @@ export class CdpApi {
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             const { webhook_id } = req.params
             return this.processAndRespondToWebhook(webhook_id, req, res, (result) => {
+                if (result.error) {
+                    return res.status(500).json({ status: 'Unhandled error' })
+                }
                 if (!result.finished) {
                     return res.status(201).json({ status: 'queued' })
                 }
@@ -629,6 +628,9 @@ export class CdpApi {
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             const { webhook_id } = req.params
             return this.processAndRespondToWebhook(webhook_id, req, res, async (result) => {
+                if (result.error) {
+                    return res.status(500).json({ error: 'Internal error' })
+                }
                 if (!result.execResult || typeof result.execResult !== 'object') {
                     return res.status(500).json({ error: 'Template did not return a payload' })
                 }
