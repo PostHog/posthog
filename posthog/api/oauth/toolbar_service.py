@@ -63,20 +63,15 @@ class ToolbarOAuthStateCache:
         Uses the same external error for all failure modes to avoid leaking
         whether a nonce exists or was already consumed.
         """
-        invalid_state_error = ToolbarOAuthError("invalid_state", "OAuth state is invalid", 400)
-
         used_key = self._key(self._used_prefix, nonce)
         pending_key = self._key(self._pending_prefix, nonce)
         if cache.get(used_key):
-            logger.warning("toolbar_oauth_state_claim_failed", reason="replay")
-            raise invalid_state_error
+            raise ToolbarOAuthError("state_replay", "OAuth state nonce already used", 400)
         if not cache.get(pending_key):
-            logger.warning("toolbar_oauth_state_claim_failed", reason="not_found_or_expired")
-            raise invalid_state_error
+            raise ToolbarOAuthError("state_not_found", "OAuth state nonce not found or expired", 400)
         # cache.add is atomic: only one concurrent request can claim this nonce
         if not cache.add(used_key, True, timeout=self._timeout):
-            logger.warning("toolbar_oauth_state_claim_failed", reason="concurrent_replay")
-            raise invalid_state_error
+            raise ToolbarOAuthError("state_replay", "OAuth state nonce already used", 400)
         cache.delete(pending_key)
 
 
@@ -239,7 +234,11 @@ def validate_and_consume_toolbar_oauth_state(
         logger.warning("toolbar_oauth_state_validation_failed", code="invalid_state", reason="missing_nonce")
         raise ToolbarOAuthError("invalid_state", "OAuth state is missing nonce", 400)
 
-    toolbar_oauth_state_cache.claim_or_raise(nonce)
+    try:
+        toolbar_oauth_state_cache.claim_or_raise(nonce)
+    except ToolbarOAuthError as exc:
+        logger.warning("toolbar_oauth_state_validation_failed", code="invalid_state", reason=exc.code)
+        raise ToolbarOAuthError("invalid_state", "OAuth state is invalid", 400) from exc
 
     if payload.get("user_id") != request_user.pk:
         logger.warning("toolbar_oauth_state_validation_failed", code="state_user_mismatch")
