@@ -149,7 +149,7 @@ function findEventWithParents(
 }
 
 export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
-    path(['scenes', 'llm-analytics', 'llmAnalyticsTraceLogic']),
+    path(['scenes', 'llm-analytics', 'llmAnalyticsTraceDataLogic']),
     props({} as TraceDataLogicProps),
     key((props) => props.traceId),
     connect((props: TraceDataLogicProps) => ({
