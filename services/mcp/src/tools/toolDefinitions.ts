@@ -59,6 +59,7 @@ export function getToolDefinition(toolName: string, version?: number): ToolDefin
 export interface ToolFilterOptions {
     features?: string[] | undefined
     version?: number | undefined
+    excludeTools?: string[] | undefined
 }
 
 export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
