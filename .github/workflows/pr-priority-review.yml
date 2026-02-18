@@ -12,6 +12,7 @@ env:
 permissions:
     contents: read
     pull-requests: read
+    models: read
 
 jobs:
     # When a PR is labeled "priority-review", post to #dev-stamp-exchange
@@ -21,6 +22,39 @@ jobs:
             github.event.action == 'labeled'
             && github.event.label.name == 'priority-review'
         steps:
+            - name: Get author display name
+              id: author
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              with:
+                  script: |
+                      const { data: user } = await github.rest.users.getByUsername({
+                        username: context.payload.pull_request.user.login,
+                      });
+                      const name = user.name || context.payload.pull_request.user.login;
+                      core.setOutput('name', name.split(' ')[0]);
+
+            - name: Summarize PR
+              id: summary
+              uses: actions/ai-inference@v1
+              with:
+                  model: openai/gpt-4o-mini
+                  max-tokens: 80
+                  prompt: |
+                      You write ultra-short casual Slack summaries for code review requests.
+                      Given a PR title and author first name, produce a one-liner like:
+                      "$NAME wants a stamp for fixing the broken cohort queries"
+                      "$NAME wants a stamp for adding dark mode to the dashboard"
+
+                      Rules:
+                      - Start with "$NAME wants a stamp for ..."
+                      - Use plain English, no jargon, no quotes, no markdown
+                      - Strip conventional commit prefixes (feat, fix, chore, etc.)
+                      - Keep it under 15 words total
+                      - Just output the line, nothing else
+
+                      Author first name: ${{ steps.author.outputs.name }}
+                      PR title: ${{ github.event.pull_request.title }}
+
             - name: Escape PR title
               id: pr
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
@@ -37,7 +71,19 @@ jobs:
                         .replace(/"/g, '\\"');
                       core.setOutput('title', escaped);
 
+            # TODO: remove dry-run gate after testing
+            - name: Dry run — print Slack message
+              if: github.event.pull_request.head.ref == 'chore/priority-review-summary'
+              run: |
+                  echo "=== DRY RUN — would post to Slack ==="
+                  echo ""
+                  echo ":eyes: #${{ github.event.pull_request.number }} ${{ steps.pr.outputs.title }}"
+                  echo "${{ steps.summary.outputs.response }}"
+                  echo ""
+                  echo "Author display name: ${{ steps.author.outputs.name }}"
+
             - name: Post to Slack
+              if: github.event.pull_request.head.ref != 'chore/priority-review-summary'
               id: slack
               uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
               with:
@@ -52,9 +98,10 @@ jobs:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: ":eyes: <${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }} ${{ steps.pr.outputs.title }}> by ${{ github.event.pull_request.user.login }}"
+                            text: ":eyes: <${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }} ${{ steps.pr.outputs.title }}>\n${{ steps.summary.outputs.response }}"
 
             - name: Save Slack message info
+              if: github.event.pull_request.head.ref != 'chore/priority-review-summary'
               run: |
                   echo '{}' | jq \
                     --arg channel "${{ steps.slack.outputs.channel_id }}" \
@@ -62,6 +109,7 @@ jobs:
                     '{channel: $channel, ts: $ts}' > .priority-review-slack
 
             - name: Cache Slack message info
+              if: github.event.pull_request.head.ref != 'chore/priority-review-summary'
               uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
                   path: .priority-review-slack
@@ -132,45 +180,9 @@ jobs:
                   payload: |
                       channel: "${{ steps.slack_msg.outputs.channel }}"
                       ts: "${{ steps.slack_msg.outputs.ts }}"
-                      text: "Approved: ${{ steps.pr.outputs.title }}"
+                      text: "Reviewed and approved: ${{ steps.pr.outputs.title }}"
                       blocks:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: ":white_check_mark: <${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }} ${{ steps.pr.outputs.title }}> by ${{ github.event.pull_request.user.login }} — approved by ${{ github.event.review.user.login }}"
-
-            - name: Build approval message
-              if: steps.slack_msg.outputs.found == 'true'
-              id: review
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
-              with:
-                  script: |
-                      const reviewer = context.payload.review.user.login;
-                      const body = (context.payload.review.body || '').trim();
-                      let text = `:white_check_mark: Reviewed and approved by *${reviewer}*`;
-                      if (body) {
-                        const truncated = body.length > 500
-                          ? body.substring(0, 500) + '...'
-                          : body;
-                        const quoted = truncated.split('\n').map(l => `> ${l}`).join('\n');
-                        text += '\n\n' + quoted;
-                      }
-                      // Escape for embedding in a YAML double-quoted string
-                      const escaped = text
-                        .replace(/\\/g, '\\\\')
-                        .replace(/"/g, '\\"')
-                        .replace(/\n/g, '\\n');
-                      core.setOutput('text', escaped);
-
-            - name: Thread reply with approval
-              if: steps.slack_msg.outputs.found == 'true'
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
-              with:
-                  method: chat.postMessage
-                  token: ${{ secrets.SLACK_BOT_TOKEN }}
-                  errors: true
-                  payload: |
-                      channel: "${{ steps.slack_msg.outputs.channel }}"
-                      thread_ts: "${{ steps.slack_msg.outputs.ts }}"
-                      text: "${{ steps.review.outputs.text }}"
-                      unfurl_links: false
+                            text: ":white_check_mark: <${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }} ${{ steps.pr.outputs.title }}> by ${{ github.event.pull_request.user.login }} — reviewed and approved by ${{ github.event.review.user.login }}"
