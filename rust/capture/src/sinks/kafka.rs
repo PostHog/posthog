@@ -220,7 +220,26 @@ impl KafkaSink {
                 "queue.buffering.max.kbytes",
                 (config.kafka_producer_queue_mib * 1024).to_string(),
             )
-            .set("acks", &config.kafka_producer_acks);
+            .set("acks", &config.kafka_producer_acks)
+            .set(
+                "batch.num.messages",
+                config.kafka_producer_batch_num_messages.to_string(),
+            )
+            .set("batch.size", config.kafka_producer_batch_size.to_string())
+            .set(
+                "max.in.flight.requests.per.connection",
+                config.kafka_producer_max_in_flight_requests.to_string(),
+            )
+            .set(
+                "sticky.partitioning.linger.ms",
+                config
+                    .kafka_producer_sticky_partitioning_linger_ms
+                    .to_string(),
+            )
+            .set(
+                "enable.idempotence",
+                config.kafka_producer_enable_idempotence.to_string(),
+            );
 
         if !&config.kafka_client_id.is_empty() {
             client_config.set("client.id", &config.kafka_client_id);
@@ -543,6 +562,11 @@ mod tests {
             kafka_producer_max_retries: 2,
             kafka_producer_acks: "all".to_string(),
             kafka_socket_timeout_ms: 60000,
+            kafka_producer_batch_num_messages: 10000,
+            kafka_producer_batch_size: 1000000,
+            kafka_producer_max_in_flight_requests: 1000000,
+            kafka_producer_sticky_partitioning_linger_ms: 10,
+            kafka_producer_enable_idempotence: false,
         };
         let sink = KafkaSink::new(config, handle, limiter, None)
             .await

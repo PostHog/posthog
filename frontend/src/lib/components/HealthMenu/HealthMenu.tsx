@@ -79,6 +79,7 @@ const LegacyHealthMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.Ele
                         tooltip={postHogStatusTooltip}
                         tooltipPlacement="right"
                         tooltipCloseDelayMs={0}
+                        data-attr="health-menu-posthog-status-button"
                     >
                         <IconWithBadge
                             content={postHogStatusBadgeContent}
@@ -102,6 +103,7 @@ const LegacyHealthMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.Ele
                         tooltip={sdkDoctorTooltip}
                         tooltipPlacement="right"
                         tooltipCloseDelayMs={0}
+                        data-attr="health-menu-sdk-doctor-button"
                     >
                         <IconWithBadge size="xsmall" content={needsUpdatingCount > 0 ? '!' : '✓'} status={sdkHealth}>
                             <IconCode className="size-5" />
@@ -119,6 +121,7 @@ const LegacyHealthMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.Ele
                         tooltip={pipelineStatusTooltip}
                         tooltipPlacement="right"
                         tooltipCloseDelayMs={0}
+                        data-attr="health-menu-pipeline-status-button"
                     >
                         <IconWithBadge
                             size="xsmall"
@@ -133,7 +136,12 @@ const LegacyHealthMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.Ele
             />
             <Menu.Item
                 render={(props) => (
-                    <Link {...props} to={urls.ingestionWarnings()} buttonProps={{ menuItem: true }}>
+                    <Link
+                        {...props}
+                        to={urls.ingestionWarnings()}
+                        buttonProps={{ menuItem: true }}
+                        data-attr="health-menu-ingestion-warnings-button"
+                    >
                         <IconWarning className="size-5" />
                         Ingestion warnings
                     </Link>
@@ -176,6 +184,7 @@ const UnifiedHealthMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.El
                         tooltip={postHogStatusTooltip}
                         tooltipPlacement="right"
                         tooltipCloseDelayMs={0}
+                        data-attr="health-menu-posthog-status-button"
                     >
                         <IconWithBadge
                             content={postHogStatusBadgeContent}
@@ -212,7 +221,12 @@ const UnifiedHealthMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.El
             />
             <Menu.Item
                 render={(props) => (
-                    <Link {...props} to={urls.sdkDoctor()} buttonProps={{ menuItem: true }}>
+                    <Link
+                        {...props}
+                        to={urls.sdkDoctor()}
+                        buttonProps={{ menuItem: true }}
+                        data-attr="health-menu-sdk-doctor-button"
+                    >
                         <IconCode className="size-5" />
                         SDK Doctor
                     </Link>
@@ -220,7 +234,12 @@ const UnifiedHealthMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.El
             />
             <Menu.Item
                 render={(props) => (
-                    <Link {...props} to={urls.pipelineStatus()} buttonProps={{ menuItem: true }}>
+                    <Link
+                        {...props}
+                        to={urls.pipelineStatus()}
+                        buttonProps={{ menuItem: true }}
+                        data-attr="health-menu-pipeline-status-button"
+                    >
                         <IconDatabase className="size-5" />
                         Pipeline status
                     </Link>
@@ -228,7 +247,12 @@ const UnifiedHealthMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.El
             />
             <Menu.Item
                 render={(props) => (
-                    <Link {...props} to={urls.ingestionWarnings()} buttonProps={{ menuItem: true }}>
+                    <Link
+                        {...props}
+                        to={urls.ingestionWarnings()}
+                        buttonProps={{ menuItem: true }}
+                        data-attr="health-menu-ingestion-warnings-button"
+                    >
                         <IconWarning className="size-5" />
                         Ingestion warnings
                     </Link>
@@ -271,6 +295,7 @@ const HealthMenuShell = ({
                         iconOnly={iconOnly}
                         className="group"
                         menuItem={!iconOnly}
+                        data-attr="health-menu-button"
                     >
                         <span className="flex text-secondary group-hover:text-primary">
                             <IconWithBadge size="xsmall" content={triggerBadgeContent} status={triggerBadgeStatus}>
@@ -314,6 +339,7 @@ const HealthMenuShell = ({
                                                 className:
                                                     'flex flex-col gap-1 p-2 border border-primary rounded h-32 items-center justify-center shadow hover:border-accent transition-colors',
                                             }}
+                                            data-attr="health-menu-view-health-overview-button"
                                         >
                                             <IconStethoscope className="size-5" />
                                             <span className="text-sm font-medium">View health overview</span>
