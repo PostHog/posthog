@@ -2,12 +2,12 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconMessage } from '@posthog/icons'
-import { LemonBanner, LemonDivider, LemonInput, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/TestAccountFilter'
 import { urls } from 'scenes/urls'
 
@@ -50,8 +50,15 @@ function buildProperties(surveyId: string | null | 'any', completedResponsesOnly
 function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
     const config = node.data.config as EventTriggerConfig
-    const { allSurveys, filteredSurveys, searchTerm, surveysLoading, moreSurveysLoading, hasMoreSurveys, responseCounts } =
-        useValues(surveyTriggerLogic)
+    const {
+        allSurveys,
+        filteredSurveys,
+        searchTerm,
+        surveysLoading,
+        moreSurveysLoading,
+        hasMoreSurveys,
+        responseCounts,
+    } = useValues(surveyTriggerLogic)
     const { loadSurveys, loadMoreSurveys, setSearchTerm } = useActions(surveyTriggerLogic)
     const selectedSurveyId = getSelectedSurveyId(config)
     const completedOnly = getCompletedResponsesOnly(config)
