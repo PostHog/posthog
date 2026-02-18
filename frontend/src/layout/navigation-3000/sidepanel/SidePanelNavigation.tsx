@@ -56,6 +56,7 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
                                         {...props}
                                         onClick={() => openSidePanel(tab as SidePanelTab)}
                                         tooltip={label}
+                                        data-attr={`context-panel-tab-${tab}`}
                                         className="size-[33px] @[600px]/side-panel:w-auto hover:bg-transparent group justify-center @[600px]/side-panel:justify-normal"
                                     >
                                         {tab === SidePanelTab.Max ? (
@@ -87,6 +88,7 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
                     onClick={() => {
                         closeSidePanel()
                     }}
+                    data-attr="context-panel-close-button"
                     tooltip={
                         <>
                             Close scene panel{' '}

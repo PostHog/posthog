@@ -140,7 +140,7 @@ const renderItemContents = ({
             {isUnusedEventProperty && unusedIndicator(eventNames)}
         </>
     ) : (
-        <div className="taxonomic-list-row-contents">
+        <div className="taxonomic-list-row-contents min-w-0">
             {listGroupType === TaxonomicFilterGroupType.Elements ? (
                 <PropertyKeyInfo value={item.name ?? ''} disablePopover className="w-full" type={listGroupType} />
             ) : (
@@ -184,6 +184,12 @@ const selectedItemHasPopover = (
             TaxonomicFilterGroupType.Metadata,
             TaxonomicFilterGroupType.SessionProperties,
             TaxonomicFilterGroupType.ErrorTrackingProperties,
+            TaxonomicFilterGroupType.PageviewUrls,
+            TaxonomicFilterGroupType.PageviewEvents,
+            TaxonomicFilterGroupType.Screens,
+            TaxonomicFilterGroupType.ScreenEvents,
+            TaxonomicFilterGroupType.EmailAddresses,
+            TaxonomicFilterGroupType.AutocaptureEvents,
         ].includes(listGroupType) ||
             listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
     )
@@ -360,7 +366,7 @@ const InfiniteListRow = ({
                             itemGroup,
                             itemValue ?? null,
                             item,
-                            isExactMatchItem ? trimmedSearchQuery : items.originalQuery
+                            isExactMatchItem ? undefined : items.originalQuery
                         )
                     )
                 }}
@@ -429,6 +435,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         taxonomicGroups,
         selectedProperties,
         dataWarehousePopoverFields,
+        anyGroupLoading,
     } = useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
     const {
@@ -469,15 +476,18 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     // 2. We're not currently loading
     // 3. We have a search query (otherwise if hasRemoteDataSource=true, we're just waiting for data)
     // 4. We're not showing the non-captured event option
+    const isSuggestedFilters = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
     const showEmptyState =
-        totalListCount === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource) && !showNonCapturedEventOption
-
-    const rowCount = showNonCapturedEventOption
-        ? 1
-        : Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0)
+        totalListCount === 0 &&
+        !isLoading &&
+        !(isSuggestedFilters && anyGroupLoading) &&
+        (!!searchQuery || !hasRemoteDataSource) &&
+        !showNonCapturedEventOption
+    const showLoadingState =
+        (isLoading || (isSuggestedFilters && anyGroupLoading)) && (!results || results.length === 0)
 
     useEffect(() => {
-        if (index >= 0 && index < rowCount && listRef.current) {
+        if (index >= 0 && listRef.current) {
             listRef.current.scrollToRow({ index, align: 'smart' })
         }
     }, [index, listRef])
@@ -488,15 +498,13 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         <div className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list', 'h-full')}>
             {showEmptyState ? (
                 <div className="no-infinite-results flex flex-col deprecated-space-y-1 items-center">
-                    {listGroupType === TaxonomicFilterGroupType.SuggestedFilters && !searchQuery ? (
+                    {isSuggestedFilters ? (
                         <>
                             <IconSearch className="text-5xl text-tertiary" />
                             <span className="text-secondary text-center">
                                 Start searching and we'll suggest filters...
                             </span>
-                            <span className="text-secondary text-center">
-                                Try pasting an email, URL, screen name, or element text
-                            </span>
+                            <span className="text-secondary text-center">Try pasting an email, URL, or hostname</span>
                         </>
                     ) : (
                         <>
@@ -513,7 +521,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                         </>
                     )}
                 </div>
-            ) : isLoading && (!results || results.length === 0) ? (
+            ) : showLoadingState ? (
                 <div className="flex items-center justify-center h-full">
                     <Spinner className="text-3xl" />
                 </div>
@@ -524,7 +532,11 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                             <List<InfiniteListRowProps>
                                 listRef={listRef}
                                 style={{ width, height }}
-                                rowCount={rowCount}
+                                rowCount={
+                                    showNonCapturedEventOption
+                                        ? 1
+                                        : Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0)
+                                }
                                 overscanCount={100}
                                 rowHeight={36}
                                 rowComponent={InfiniteListRow}
@@ -569,7 +581,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                 />
             )}
             {isActiveTab &&
-            selectedItemHasPopover(selectedItem, listGroupType, selectedItemGroup) &&
+            selectedItemHasPopover(selectedItem, selectedItemGroup?.type ?? listGroupType, selectedItemGroup) &&
             showPopover &&
             selectedItem ? (
                 <BindLogic

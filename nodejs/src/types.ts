@@ -495,6 +495,9 @@ export interface PluginsServerConfig
     POSTHOG_API_KEY: string
     POSTHOG_HOST_URL: string
 
+    // Super properties for internal analytics (matching Python posthoganalytics.super_properties)
+    OTEL_SERVICE_NAME: string | null
+    OTEL_SERVICE_ENVIRONMENT: string | null
     // Internal API authentication
     INTERNAL_API_SECRET: string
 
@@ -1248,7 +1251,6 @@ export enum OrganizationMembershipLevel {
 
 export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
     team_id?: number | null
-    token?: string
 }
 
 export interface EventHeaders {

@@ -15421,7 +15421,109 @@
                 "Shopify",
                 "Attio",
                 "SnapchatAds",
-                "Linear"
+                "Linear",
+                "Intercom",
+                "Amplitude",
+                "Mixpanel",
+                "Jira",
+                "ActiveCampaign",
+                "Marketo",
+                "Adjust",
+                "AppsFlyer",
+                "Freshdesk",
+                "GoogleAnalytics",
+                "Pipedrive",
+                "SendGrid",
+                "Slack",
+                "PagerDuty",
+                "Asana",
+                "Notion",
+                "Airtable",
+                "Greenhouse",
+                "BambooHR",
+                "Lever",
+                "GitLab",
+                "Datadog",
+                "Sentry",
+                "Pendo",
+                "FullStory",
+                "AmazonAds",
+                "PinterestAds",
+                "AppleSearchAds",
+                "QuickBooks",
+                "Xero",
+                "NetSuite",
+                "WooCommerce",
+                "BigCommerce",
+                "PayPal",
+                "Square",
+                "Zoom",
+                "Trello",
+                "Monday",
+                "ClickUp",
+                "Confluence",
+                "Recurly",
+                "SalesLoft",
+                "Outreach",
+                "Gong",
+                "Calendly",
+                "Typeform",
+                "Iterable",
+                "ZohoCRM",
+                "Close",
+                "Oracle",
+                "DynamoDB",
+                "Elasticsearch",
+                "Kafka",
+                "LaunchDarkly",
+                "Braintree",
+                "Recharge",
+                "HelpScout",
+                "Gorgias",
+                "Instagram",
+                "YouTubeAnalytics",
+                "FacebookPages",
+                "TwitterAds",
+                "Workday",
+                "ServiceNow",
+                "Pardot",
+                "Copper",
+                "Front",
+                "ChartMogul",
+                "Zuora",
+                "Paddle",
+                "CircleCI",
+                "CockroachDB",
+                "Firebase",
+                "AzureBlob",
+                "GoogleDrive",
+                "OneDrive",
+                "SharePoint",
+                "Box",
+                "SFTP",
+                "MicrosoftTeams",
+                "Aircall",
+                "Webflow",
+                "Okta",
+                "Auth0",
+                "Productboard",
+                "Smartsheet",
+                "Wrike",
+                "Plaid",
+                "SurveyMonkey",
+                "Eventbrite",
+                "RingCentral",
+                "Twilio",
+                "Freshsales",
+                "Shortcut",
+                "ConvertKit",
+                "Drip",
+                "CampaignMonitor",
+                "MailerLite",
+                "Omnisend",
+                "Brevo",
+                "Postmark",
+                "Granola"
             ],
             "type": "string"
         },
@@ -17040,8 +17142,33 @@
             },
             "type": "object"
         },
-        "HedgehogColorOptions": {
-            "enum": ["green", "red", "blue", "purple", "dark", "light", "sepia", "invert", "invert-hue", "greyscale"],
+        "HedgehogActorAccessoryOption": {
+            "enum": [
+                "beret",
+                "cap",
+                "chef",
+                "cowboy",
+                "eyepatch",
+                "flag",
+                "glasses",
+                "graduation",
+                "parrot",
+                "party",
+                "pineapple",
+                "sunglasses",
+                "tophat",
+                "xmas-hat",
+                "xmas-antlers",
+                "xmas-scarf"
+            ],
+            "type": "string"
+        },
+        "HedgehogActorColorOption": {
+            "enum": ["green", "red", "blue", "purple", "dark", "light", "greyscale", "sepia", "invert", "rainbow"],
+            "type": "string"
+        },
+        "HedgehogActorSkinOption": {
+            "enum": ["default", "spiderhog", "robohog", "hogzilla", "ghost"],
             "type": "string"
         },
         "HogCompileResponse": {
@@ -21521,14 +21648,24 @@
             "properties": {
                 "accessories": {
                     "items": {
-                        "type": "string"
+                        "$ref": "#/definitions/HedgehogActorAccessoryOption"
                     },
                     "type": "array"
                 },
                 "color": {
                     "anyOf": [
                         {
-                            "$ref": "#/definitions/HedgehogColorOptions"
+                            "$ref": "#/definitions/HedgehogActorColorOption"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "skin": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/HedgehogActorSkinOption"
                         },
                         {
                             "type": "null"
@@ -21539,7 +21676,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["use_as_profile", "color", "accessories"],
+            "required": ["use_as_profile"],
             "type": "object"
         },
         "ModeContext": {
@@ -31650,7 +31787,11 @@
                 "numerical_event_properties",
                 "person_properties",
                 "pageview_urls",
+                "pageview_events",
                 "screens",
+                "screen_events",
+                "email_addresses",
+                "autocapture_events",
                 "custom_events",
                 "wildcard",
                 "groups",

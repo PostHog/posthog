@@ -14,8 +14,8 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
-import { multitabEditorLogic } from './multitabEditorLogic'
 import { queryHistoryLogic } from './queryHistoryLogic'
+import { sqlEditorLogic } from './sqlEditorLogic'
 
 function QueryHistoryLogRow({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(false)
@@ -138,9 +138,9 @@ function QueryHistoryLog({ id }: { id?: number | string }): JSX.Element {
 }
 
 export function QueryHistoryModal(): JSX.Element {
-    const { isHistoryModalOpen } = useValues(multitabEditorLogic)
-    const { closeHistoryModal } = useActions(multitabEditorLogic)
-    const { editingView } = useValues(multitabEditorLogic)
+    const { isHistoryModalOpen } = useValues(sqlEditorLogic)
+    const { closeHistoryModal } = useActions(sqlEditorLogic)
+    const { editingView } = useValues(sqlEditorLogic)
 
     return (
         <LemonModal title="View history" isOpen={isHistoryModalOpen} onClose={closeHistoryModal} width={800}>
