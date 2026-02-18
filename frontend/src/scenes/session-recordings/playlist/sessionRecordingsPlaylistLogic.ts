@@ -335,6 +335,8 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
                     having_predicates.push(f)
                 } else if (f.key === 'comment_text') {
                     comment_text = f
+                } else {
+                    having_predicates.push(f)
                 }
             } else {
                 // Normalize filter value to ensure multi-select operators have array values
