@@ -7,7 +7,7 @@ use crate::{
     symbol_store::{chunk_id::OrChunkId, proguard::ProguardRef},
     types::{operator::TeamId, Exception},
 };
-
+use tracing::warn;
 pub mod local;
 
 #[async_trait]
@@ -73,6 +73,10 @@ pub trait SymbolResolver: Send + Sync + 'static {
                 exception.exception_type = new_type
             }
             Err(ResolveError::ResolutionError(frame_error)) => {
+                warn!(
+                    "Failed to resolve Java exception module and type: {}",
+                    frame_error
+                );
                 // Handle resolution error
                 metrics::counter!(JAVA_EXCEPTION_REMAP_FAILED, "reason" => frame_error.to_string())
                     .increment(1)

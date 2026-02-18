@@ -144,24 +144,6 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
 @activity.defn
 async def get_proactive_tasks_enabled_team_ids_activity() -> list[int]:
     enabled_team_ids: list[int] = []
-    async for team in Team.objects.filter(proactive_tasks_enabled=True).only("id", "organization_id", "uuid"):
-        feature_flag_enabled = posthoganalytics.feature_enabled(
-            "product-autonomy",
-            str(team.uuid),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
-            },
-            group_properties={
-                "organization": {
-                    "id": str(team.organization_id),
-                },
-                "project": {
-                    "id": str(team.id),
-                },
-            },
-            send_feature_flag_events=False,
-        )
-        if feature_flag_enabled:
-            enabled_team_ids.append(team.id)
+    async for team in Team.objects.filter(proactive_tasks_enabled=True).only("id"):
+        enabled_team_ids.append(team.id)
     return enabled_team_ids

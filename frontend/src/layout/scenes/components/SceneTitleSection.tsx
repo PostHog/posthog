@@ -87,6 +87,7 @@ export function SceneTitlePanelButton({
                     tooltipPlacement="bottom-end"
                     tooltipCloseDelayMs={0}
                     iconOnly
+                    data-attr="open-context-panel-ai-button"
                 >
                     <div className="relative">
                         <IconSparkles className="text-ai group-hover/button-primitive:animate-hue-rotate" />
@@ -106,13 +107,14 @@ export function SceneTitlePanelButton({
                     }}
                     tooltip={
                         <>
-                            {sidePanelOpen ? 'Close scene panel' : 'Open scene panel'}{' '}
+                            Open context panel
                             <RenderKeybind className="relative -top-px" keybind={[keyBinds.toggleRightNav]} />
                         </>
                     }
                     tooltipPlacement="bottom-end"
                     tooltipCloseDelayMs={0}
                     iconOnly
+                    data-attr="open-context-panel-button"
                 >
                     <IconSidePanel className="text-primary group-hover:text-primary z-10" />
                 </ButtonPrimitive>
@@ -459,7 +461,8 @@ function SceneName({
                             value={name || ''}
                             onChange={(e) => {
                                 setName(e.target.value)
-                                if (!saveOnBlur) {
+                                if (!saveOnBlur || forceEdit) {
+                                    // Call onChange immediately if not using saveOnBlur, or if in forceEdit mode
                                     debouncedOnChange(e.target.value)
                                 }
                             }}
@@ -613,7 +616,8 @@ function SceneDescription({
                         value={description || ''}
                         onChange={(e) => {
                             setDescription(e.target.value)
-                            if (!saveOnBlur) {
+                            if (!saveOnBlur || forceEdit) {
+                                // Call onChange immediately if not using saveOnBlur, or if in forceEdit mode
                                 debouncedOnDescriptionChange(e.target.value)
                             }
                         }}

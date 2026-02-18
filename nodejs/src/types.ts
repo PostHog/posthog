@@ -375,6 +375,8 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: number
     /** TTL in milliseconds for the in-memory session filter cache */
     SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: number
+    /** Rate (0.0–1.0) at which to verify encrypt→decrypt round-trip integrity during ingestion */
+    SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: number
 
     // Kafka consumer config (overrides hardcoded defaults when set)
     INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: string
@@ -493,6 +495,9 @@ export interface PluginsServerConfig
     POSTHOG_API_KEY: string
     POSTHOG_HOST_URL: string
 
+    // Super properties for internal analytics (matching Python posthoganalytics.super_properties)
+    OTEL_SERVICE_NAME: string | null
+    OTEL_SERVICE_ENVIRONMENT: string | null
     // Internal API authentication
     INTERNAL_API_SECRET: string
 
@@ -1246,7 +1251,6 @@ export enum OrganizationMembershipLevel {
 
 export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
     team_id?: number | null
-    token?: string
 }
 
 export interface EventHeaders {
