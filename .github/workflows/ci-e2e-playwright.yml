@@ -550,16 +550,19 @@ jobs:
                       const passed = '${{ job.status }}' === 'success';
                       const icon = passed ? '✅' : '❌';
 
-                      // Collect flaky tests from JSON report
-                      let flakyLines = '';
+                      // Collect failed and flaky tests from JSON report
+                      let extraLines = '';
                       try {
                           const results = JSON.parse(fs.readFileSync('playwright/results.json', 'utf8'));
+                          const failed = [];
                           const flaky = [];
                           function collect(suites) {
                               for (const suite of suites || []) {
                                   for (const spec of suite.specs || []) {
                                       for (const test of spec.tests || []) {
-                                          if (test.status === 'flaky') {
+                                          if (test.status === 'unexpected') {
+                                              failed.push(`- ${spec.title} (${test.projectName})`);
+                                          } else if (test.status === 'flaky') {
                                               flaky.push(`- ${spec.title} (${test.projectName})`);
                                           }
                                       }
@@ -568,12 +571,15 @@ jobs:
                               }
                           }
                           collect(results.suites);
+                          if (failed.length > 0) {
+                              extraLines += `\n\n❌ **${failed.length} failed test${failed.length > 1 ? 's' : ''}:**\n${failed.join('\n')}`;
+                          }
                           if (flaky.length > 0) {
-                              flakyLines = `\n\n⚠️ **${flaky.length} flaky test${flaky.length > 1 ? 's' : ''}:**\n${flaky.join('\n')}`;
+                              extraLines += `\n\n⚠️ **${flaky.length} flaky test${flaky.length > 1 ? 's' : ''}:**\n${flaky.join('\n')}`;
                           }
                       } catch {}
 
-                      const body = `${marker}\n${icon} Playwright report: [view report](${reportUrl})${flakyLines}`;
+                      const body = `${marker}\n${icon} Playwright report: [view report](${reportUrl})${extraLines}`;
 
                       const { data: comments } = await github.rest.issues.listComments({
                           owner: context.repo.owner,
