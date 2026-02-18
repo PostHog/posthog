@@ -21,7 +21,7 @@ describe('handleClientIngestionWarningStep', () => {
     })
 
     const baseInput: HandleClientIngestionWarningStepInput = {
-        event: baseEvent,
+        event: baseEvent
     }
 
     const handleStep = createHandleClientIngestionWarningStep()

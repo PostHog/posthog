@@ -12,7 +12,7 @@ import {
     EventPipelineRunnerOptions,
 } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
+import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { PipelineResult, isOkResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
@@ -23,7 +23,6 @@ export interface EventPipelineRunnerInput {
     timestamp: DateTime
     team: Team
     headers: EventHeaders
-    groupStoreForBatch: GroupStoreForBatch
     processPerson: boolean
     forceDisablePersonProcessing: boolean
 }
@@ -38,7 +37,8 @@ export function createEventPipelineRunnerV1Step(
     kafkaProducer: KafkaProducerWrapper,
     teamManager: TeamManager,
     groupTypeManager: GroupTypeManager,
-    personsStore: PersonsStore
+    personsStore: PersonsStore,
+    groupStore: BatchWritingGroupStore
 ): ProcessingStep<EventPipelineRunnerInput, EventPipelineRunnerStepResult> {
     return async function eventPipelineRunnerV1Step(
         input: EventPipelineRunnerInput
@@ -49,7 +49,6 @@ export function createEventPipelineRunnerV1Step(
             team,
             headers: inputHeaders,
             message: inputMessage,
-            groupStoreForBatch,
             processPerson,
             forceDisablePersonProcessing,
         } = input
@@ -61,7 +60,7 @@ export function createEventPipelineRunnerV1Step(
             groupTypeManager,
             normalizedEvent,
             personsStore,
-            groupStoreForBatch,
+            groupStore,
             inputHeaders
         )
         const result = await runner.runEventPipeline(
