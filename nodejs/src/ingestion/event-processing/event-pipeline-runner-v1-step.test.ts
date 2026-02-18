@@ -151,7 +151,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
-                forceDisablePersonProcessing: false,
             }
 
             const result = await step(input)
@@ -170,7 +169,7 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockTimestamp,
                 mockTeam,
                 true,
-                false
+                undefined
             )
             expect(result.type).toBe(PipelineResultType.OK)
             expect(result.sideEffects).toEqual([ackPromise])
@@ -200,7 +199,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
-                forceDisablePersonProcessing: false,
             }
 
             await expect(step(input)).rejects.toThrow('Retriable error')
@@ -226,7 +224,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
-                forceDisablePersonProcessing: false,
             }
 
             await expect(step(input)).rejects.toThrow('Non-retriable error')
@@ -251,7 +248,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
-                forceDisablePersonProcessing: false,
             }
 
             await expect(step(input)).rejects.toThrow('Error without isRetriable')
@@ -281,7 +277,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
-                forceDisablePersonProcessing: false,
             }
 
             const result = await step(input)
@@ -313,7 +308,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
-                forceDisablePersonProcessing: false,
             }
 
             const result = await step(input)
@@ -345,7 +339,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
-                forceDisablePersonProcessing: false,
             }
 
             await step(input)
@@ -382,7 +375,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
-                forceDisablePersonProcessing: false,
             }
 
             await step(input)
@@ -392,131 +384,7 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockTimestamp,
                 mockTeam,
                 true,
-                false
-            )
-        })
-    })
-
-    describe('processPerson and forceDisablePersonProcessing flags', () => {
-        beforeEach(() => {
-            const mockResult = createTestEventPipelineResult()
-            const mockPipelineResult: PipelineResult<EventPipelineResult> = ok(mockResult)
-            mockEventPipelineRunner.runEventPipeline.mockResolvedValue(mockPipelineResult)
-        })
-
-        it('should pass processPerson=false and forceDisablePersonProcessing=true to runEventPipeline', async () => {
-            const step = createEventPipelineRunnerV1Step(
-                mockConfig,
-                mockKafkaProducer,
-                mockTeamManager,
-                mockGroupTypeManager,
-                mockPersonsStore,
-                mockGroupStore
-            )
-            const input: EventPipelineRunnerInput = {
-                message: mockMessage,
-                normalizedEvent: mockEvent,
-                timestamp: mockTimestamp,
-                team: mockTeam,
-                headers: mockHeaders,
-                processPerson: false,
-                forceDisablePersonProcessing: true,
-            }
-
-            await step(input)
-            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(
-                mockEvent,
-                mockTimestamp,
-                mockTeam,
-                false,
-                true
-            )
-        })
-
-        it('should pass processPerson=true and forceDisablePersonProcessing=false to runEventPipeline', async () => {
-            const step = createEventPipelineRunnerV1Step(
-                mockConfig,
-                mockKafkaProducer,
-                mockTeamManager,
-                mockGroupTypeManager,
-                mockPersonsStore,
-                mockGroupStore
-            )
-            const input: EventPipelineRunnerInput = {
-                message: mockMessage,
-                normalizedEvent: mockEvent,
-                timestamp: mockTimestamp,
-                team: mockTeam,
-                headers: mockHeaders,
-                processPerson: true,
-                forceDisablePersonProcessing: false,
-            }
-
-            await step(input)
-            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(
-                mockEvent,
-                mockTimestamp,
-                mockTeam,
-                true,
-                false
-            )
-        })
-
-        it('should pass processPerson=false and forceDisablePersonProcessing=false to runEventPipeline', async () => {
-            const step = createEventPipelineRunnerV1Step(
-                mockConfig,
-                mockKafkaProducer,
-                mockTeamManager,
-                mockGroupTypeManager,
-                mockPersonsStore,
-                mockGroupStore
-            )
-            const input: EventPipelineRunnerInput = {
-                message: mockMessage,
-                normalizedEvent: mockEvent,
-                timestamp: mockTimestamp,
-                team: mockTeam,
-                headers: mockHeaders,
-                processPerson: false,
-                forceDisablePersonProcessing: false,
-            }
-
-            await step(input)
-            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(
-                mockEvent,
-                mockTimestamp,
-                mockTeam,
-                false,
-                false
-            )
-        })
-
-        it('should pass processPerson=true and forceDisablePersonProcessing=true to runEventPipeline', async () => {
-            const step = createEventPipelineRunnerV1Step(
-                mockConfig,
-                mockKafkaProducer,
-                mockTeamManager,
-                mockGroupTypeManager,
-                mockPersonsStore,
-                mockGroupStore
-            )
-            const input: EventPipelineRunnerInput = {
-                message: mockMessage,
-                normalizedEvent: mockEvent,
-                timestamp: mockTimestamp,
-                team: mockTeam,
-                headers: mockHeaders,
-                processPerson: true,
-                forceDisablePersonProcessing: true,
-            }
-
-            await step(input)
-            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(
-                mockEvent,
-                mockTimestamp,
-                mockTeam,
-                true,
-                true
+                undefined
             )
         })
     })
