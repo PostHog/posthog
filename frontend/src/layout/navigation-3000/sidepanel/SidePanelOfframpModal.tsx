@@ -77,7 +77,7 @@ export function SidePanelOfframpModal(): JSX.Element {
             open={shouldShowOfframpModal}
             onOpenChange={(open) => {
                 if (!open) {
-                    hideOfframpModal()
+                    hideOfframpModal('close')
                 }
             }}
             className="group bg-surface-popover w-[300px] md:w-[640px] max-h-[none]"

@@ -1,4 +1,5 @@
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -9,7 +10,7 @@ export const sidePanelOfframpLogic = kea<sidePanelOfframpLogicType>([
     path(['layout', 'navigation-3000', 'sidepanel', 'sidePanelOfframpLogic']),
     actions({
         showOfframpModal: true,
-        hideOfframpModal: true,
+        hideOfframpModal: (action: 'close' | 'dismiss') => ({ action }),
         dismissOfframpModal: true,
     }),
     reducers({
@@ -35,5 +36,16 @@ export const sidePanelOfframpLogic = kea<sidePanelOfframpLogicType>([
             (isOfframpModalVisible, featureFlags): boolean =>
                 isOfframpModalVisible && !!featureFlags[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL],
         ],
+    }),
+    listeners({
+        showOfframpModal: () => {
+            posthog.capture('offramp modal shown')
+        },
+        hideOfframpModal: ({ action }) => {
+            posthog.capture('offramp modal hidden', { action })
+        },
+        dismissOfframpModal: () => {
+            posthog.capture('offramp modal hidden', { action: 'dismiss' })
+        },
     }),
 ])
