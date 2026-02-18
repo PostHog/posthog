@@ -134,9 +134,9 @@ if settings.ADMIN_PORTAL_ENABLED:
             name="radar-bypass-api-list",
         ),
         path(
-            "api/admin/radar-bypass/remove/",
-            RadarBypassViewSet.as_view({"post": "remove"}),
-            name="radar-bypass-api-remove",
+            "api/admin/radar-bypass/<str:email>/",
+            RadarBypassViewSet.as_view({"delete": "destroy"}),
+            name="radar-bypass-api-detail",
         ),
         path(
             "admin/resave-cohorts/",

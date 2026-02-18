@@ -34,7 +34,9 @@ WORKOS_RADAR_BYPASS_REDIS_KEY = "workos_radar_bypass_emails"
 
 class SuspiciousAttemptBlocked(APIException):
     status_code = 403
-    default_detail = "Your account has been flagged for suspicious activity. Please contact support to resolve this."
+    default_detail = (
+        "Your account has been flagged for suspicious activity. Please contact support@posthog.com to resolve this."
+    )
     default_code = "suspicious_attempt_blocked"
     default_type = "authentication_error"
 

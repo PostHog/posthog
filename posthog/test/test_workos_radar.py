@@ -485,11 +485,7 @@ class TestRadarBypassViewSet(TestCase):
     def test_remove_bypass_email(self):
         add_radar_bypass_email("remove-me@example.com")
         self.client.force_login(self.staff_user)
-        response = self.client.post(
-            "/api/admin/radar-bypass/remove/",
-            {"email": "remove-me@example.com"},
-            content_type="application/json",
-        )
+        response = self.client.delete("/api/admin/radar-bypass/remove-me@example.com/")
         assert response.status_code == 204
         assert is_radar_bypass_email("remove-me@example.com") is False
 

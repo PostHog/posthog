@@ -3,8 +3,8 @@
 
 {% block extrastyle %}
 {{ super }}
-<style>
-    .form-row { margin-bottom: 15px; }
+<style nonce="{{ request.csp_nonce }}">
+    .form-row { margin-bottom: 15px; margin-top: 15px; }
     .help { font-size: 11px; color: #666; }
     .submit-row { margin-top: 20px; }
     .email-list { margin-top: 20px; }
@@ -39,7 +39,7 @@
                 <tr data-email="{{ email }}">
                     <td>{{ email }}</td>
                     <td>
-                        <button type="button" class="remove-btn" onclick="removeEmail('{{ email }}')">Remove</button>
+                        <button type="button" class="remove-btn">Remove</button>
                     </td>
                 </tr>
                 {% endfor %}
@@ -49,7 +49,8 @@
     </fieldset>
 </div>
 
-<form id="add-form" style="margin-top: 30px;" onsubmit="return addEmail(event)">
+<form id="add-form" style="margin-top: 30px;">
+    {% csrf_token %}
     <fieldset class="module aligned">
         <h2>Add email</h2>
 
@@ -65,12 +66,11 @@
     </div>
 </form>
 
-<script>
+<script nonce="{{ request.csp_nonce }}">
 const API_BASE = '/api/admin/radar-bypass/';
 
-function getCookie(name) {
-    const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
-    return match ? match[2] : null;
+function getCSRFToken() {
+    return document.querySelector('[name=csrfmiddlewaretoken]').value;
 }
 
 function showMessage(text, isError) {
@@ -90,15 +90,33 @@ function updateCount() {
     document.getElementById('empty-state').style.display = rows.length ? 'none' : '';
 }
 
+function removeEmail(email) {
+    if (!confirm('Remove ' + email + ' from bypass list?')) return;
+
+    fetch(API_BASE + encodeURIComponent(email) + '/', {
+        method: 'DELETE',
+        headers: {'X-CSRFToken': getCSRFToken()},
+    }).then(r => {
+        if (r.ok || r.status === 204) {
+            const row = document.querySelector('[data-email="' + CSS.escape(email) + '"]');
+            if (row) row.remove();
+            updateCount();
+            showMessage('Removed ' + email + ' from bypass list.', false);
+        } else {
+            showMessage('Failed to remove email.', true);
+        }
+    });
+}
+
 function addEmail(e) {
     e.preventDefault();
     const input = document.getElementById('id_email');
     const email = input.value.trim();
-    if (!email) return false;
+    if (!email) return;
 
     fetch(API_BASE, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken')},
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken()},
         body: JSON.stringify({email: email})
     }).then(r => {
         if (r.ok) {
@@ -112,7 +130,6 @@ function addEmail(e) {
             btn.type = 'button';
             btn.className = 'remove-btn';
             btn.textContent = 'Remove';
-            btn.onclick = () => removeEmail(email);
             td2.appendChild(btn);
             tr.appendChild(td1);
             tr.appendChild(td2);
@@ -124,26 +141,15 @@ function addEmail(e) {
             r.json().then(d => showMessage(d.email ? d.email[0] : 'Failed to add email.', true));
         }
     });
-    return false;
 }
 
-function removeEmail(email) {
-    if (!confirm('Remove ' + email + ' from bypass list?')) return;
+document.getElementById('add-form').addEventListener('submit', addEmail);
 
-    fetch(API_BASE + 'remove/', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken')},
-        body: JSON.stringify({email: email})
-    }).then(r => {
-        if (r.ok || r.status === 204) {
-            const row = document.querySelector('tr[data-email="' + email + '"]');
-            if (row) row.remove();
-            updateCount();
-            showMessage('Removed ' + email + ' from bypass list.', false);
-        } else {
-            showMessage('Failed to remove email.', true);
-        }
-    });
-}
+document.getElementById('email-list-body').addEventListener('click', function(e) {
+    const btn = e.target.closest('.remove-btn');
+    if (!btn) return;
+    const row = btn.closest('tr');
+    if (row) removeEmail(row.dataset.email);
+});
 </script>
 {% endblock %}

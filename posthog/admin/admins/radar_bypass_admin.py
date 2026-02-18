@@ -2,7 +2,6 @@ from django.contrib import admin
 from django.shortcuts import render
 
 from rest_framework import serializers, status, viewsets
-from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -32,11 +31,7 @@ class RadarBypassViewSet(viewsets.ViewSet):
         add_radar_bypass_email(email)
         return Response({"email": email}, status=status.HTTP_201_CREATED)
 
-    @action(methods=["post"], detail=False, url_path="remove")
-    def remove(self, request: Request) -> Response:
-        serializer = RadarBypassEmailSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        email = serializer.validated_data["email"]
+    def destroy(self, request: Request, email: str) -> Response:
         remove_radar_bypass_email(email)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
