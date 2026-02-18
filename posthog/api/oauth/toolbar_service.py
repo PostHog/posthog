@@ -46,9 +46,12 @@ class ToolbarOAuthStateCache:
     """
 
     def __init__(self) -> None:
-        self._timeout = settings.TOOLBAR_OAUTH_STATE_TTL_SECONDS
         self._pending_prefix = "toolbar_oauth_state"
         self._used_prefix = "toolbar_oauth_state_used"
+
+    @property
+    def _timeout(self) -> int:
+        return settings.TOOLBAR_OAUTH_STATE_TTL_SECONDS
 
     def _key(self, prefix: str, nonce: str) -> str:
         return f"{prefix}:{nonce}"

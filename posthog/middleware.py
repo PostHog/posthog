@@ -685,14 +685,15 @@ class ToolbarOAuthCoopMiddleware:
     OAuth popup flow so the opener reference is preserved.
     """
 
-    _COOP_PATHS = ("/toolbar_oauth/", "/oauth/authorize")
-
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
         response = self.get_response(request)
-        if any(request.path.startswith(p) for p in self._COOP_PATHS):
+        is_toolbar_flow = request.path.startswith("/toolbar_oauth/") or (
+            request.path.startswith("/oauth/authorize") and request.session.get("toolbar_oauth_code_verifier")
+        )
+        if is_toolbar_flow:
             response["Cross-Origin-Opener-Policy"] = "unsafe-none"
         return response
 
