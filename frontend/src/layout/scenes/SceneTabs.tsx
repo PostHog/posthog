@@ -152,7 +152,7 @@ export function SceneTabs(): JSX.Element {
                                 onClick={() => {
                                     showOfframpModal()
                                 }}
-                                className="p-1 flex items-center gap-1 cursor-pointer rounded border-b z-20 ml-auto"
+                                className="ml-auto text-tertiary hover:text-primary"
                             >
                                 Where's the panel? 🤔
                             </ButtonPrimitive>
