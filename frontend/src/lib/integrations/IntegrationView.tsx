@@ -5,8 +5,10 @@ import { IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { TeamMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
 import { IconBranch, IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -25,6 +27,10 @@ export function IntegrationView({
     schema?: CyclotronJobInputSchemaType
 }): JSX.Element {
     const { deleteIntegration } = useActions(integrationsLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const errors = (integration.errors && integration.errors?.split(',')) || []
     const { githubRepositoriesLoading, getGitHubRepositories } = useValues(integrationsLogic)
@@ -47,6 +53,7 @@ export function IntegrationView({
                 status="danger"
                 onClick={() => deleteIntegration(integration.id)}
                 icon={<IconTrash />}
+                disabledReason={restrictedReason}
             >
                 Disconnect
             </LemonButton>
