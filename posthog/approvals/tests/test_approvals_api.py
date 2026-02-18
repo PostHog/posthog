@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.approvals.models import (
@@ -20,27 +21,30 @@ from posthog.models import User
 
 
 class TestApprovalsFeatureGating(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = 8  # Admin, required for approval_policies
+        self.organization_membership.save()
+
+    @parameterized.expand(["change_requests", "approval_policies"])
     @patch("posthog.permissions.is_cloud", return_value=True)
-    def test_change_requests_require_approvals_feature_on_cloud(self, _mock_is_cloud):
-        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/")
+    def test_requires_approvals_feature_on_cloud(self, endpoint, _mock_is_cloud):
+        response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
         assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
 
+    @parameterized.expand(["change_requests", "approval_policies"])
     @patch("posthog.permissions.is_cloud", return_value=True)
-    def test_approval_policies_require_approvals_feature_on_cloud(self, _mock_is_cloud):
-        response = self.client.get(f"/api/environments/{self.team.id}/approval_policies/")
-        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
-
-    @patch("posthog.permissions.is_cloud", return_value=True)
-    def test_change_requests_accessible_with_approvals_feature_on_cloud(self, _mock_is_cloud):
+    def test_accessible_with_approvals_feature_on_cloud(self, endpoint, _mock_is_cloud):
         self.organization.available_product_features = [
             {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
         ]
         self.organization.save()
-        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/")
+        response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
         assert response.status_code == status.HTTP_200_OK
 
-    def test_change_requests_accessible_without_feature_when_not_cloud(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/")
+    @parameterized.expand(["change_requests", "approval_policies"])
+    def test_accessible_without_feature_when_not_cloud(self, endpoint):
+        response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
         assert response.status_code == status.HTTP_200_OK
 
 

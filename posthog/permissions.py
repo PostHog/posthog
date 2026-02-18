@@ -293,8 +293,8 @@ class PremiumFeaturePermission(BasePermission):
         cloud_only_feature = getattr(view, "premium_feature_on_cloud", None)
         always_feature = getattr(view, "premium_feature", None)
 
-        assert cloud_only_feature or always_feature, (
-            "this permission class requires `premium_feature` or `premium_feature_on_cloud` to be set in the view."
+        assert bool(cloud_only_feature) != bool(always_feature), (
+            "this permission class requires exactly one of `premium_feature` or `premium_feature_on_cloud` to be set in the view."
         )
 
         if cloud_only_feature:
