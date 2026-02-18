@@ -1,7 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronRight, IconExpand, IconGear } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonSkeleton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconBug, IconExpand, IconGear, IconSearch } from '@posthog/icons'
+import {
+    LemonBadge,
+    LemonBanner,
+    LemonButton,
+    LemonInput,
+    LemonSkeleton,
+    LemonTag,
+    Link,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
@@ -9,17 +19,111 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { InboxSetup } from './InboxSetup'
+import { SourcesModal } from './InboxSetup'
 import { inboxSceneLogic } from './inboxSceneLogic'
-import { SignalReport, SignalReportArtefact, SignalSourceConfig } from './types'
+import { SignalReport, SignalReportArtefact } from './types'
 
 export const scene: SceneExport = {
     component: InboxScene,
     logic: inboxSceneLogic,
+}
+
+function ReportListItem({ report }: { report: SignalReport }): JSX.Element {
+    const { selectedReportId } = useValues(inboxSceneLogic)
+
+    const isSelected = selectedReportId === report.id
+
+    return (
+        <Link
+            to={urls.inbox(report.id)}
+            className={`w-full text-left px-3 py-2.5 flex items-start gap-2 cursor-pointer rounded border border-primary ${
+                isSelected ? 'bg-surface-primary' : 'bg-surface-secondary hover:bg-surface-tertiary'
+            }`}
+        >
+            <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                    <h4 className="text-sm font-medium m-0 truncate flex-1">{report.title || 'Untitled report'}</h4>
+                    <span className="text-xs text-tertiary whitespace-nowrap flex-shrink-0">
+                        <TZLabel time={report.updated_at} />
+                    </span>
+                </div>
+                {report.summary && <p className="text-xs text-secondary m-0 line-clamp-2">{report.summary}</p>}
+                <div className="flex items-center gap-2 mt-1">
+                    <LemonTag size="small">{report.total_weight.toFixed(1)}</LemonTag>
+                    {report.relevant_user_count !== null && report.relevant_user_count > 0 && (
+                        <span className="text-xs text-tertiary">
+                            {report.relevant_user_count} {report.relevant_user_count === 1 ? 'user' : 'users'}
+                        </span>
+                    )}
+                    {report.signal_count > 0 && (
+                        <span className="text-xs text-tertiary">
+                            {report.signal_count} {report.signal_count === 1 ? 'signal' : 'signals'}
+                        </span>
+                    )}
+                    {report.artefact_count > 0 && (
+                        <LemonBadge.Number count={report.artefact_count} maxDigits={3} size="small" />
+                    )}
+                </div>
+            </div>
+        </Link>
+    )
+}
+
+function ReportListSkeleton(): JSX.Element {
+    return (
+        <div className="divide-y">
+            {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="px-3 py-2.5">
+                    <div className="flex items-center gap-2 mb-1">
+                        <LemonSkeleton className="flex-1 h-4" />
+                        <LemonSkeleton className="w-12 h-3" />
+                    </div>
+                    <LemonSkeleton className="w-4/5 h-3 mb-1" />
+                    <LemonSkeleton className="w-16 h-4" />
+                </div>
+            ))}
+        </div>
+    )
+}
+
+function ReportListPane(): JSX.Element {
+    const { filteredReports, reportsLoading, searchQuery, reports } = useValues(inboxSceneLogic)
+    const { setSearchQuery } = useActions(inboxSceneLogic)
+
+    return (
+        <div className="w-120 flex-shrink-0 h-full p-3 overflow-y-auto">
+            <div className="pb-2">
+                <LemonInput
+                    type="search"
+                    placeholder="Search reports..."
+                    prefix={<IconSearch />}
+                    className="bg-transparent"
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    size="small"
+                    fullWidth
+                />
+            </div>
+            <div className="flex flex-col gap-2">
+                {reportsLoading && reports.length === 0 ? (
+                    <ReportListSkeleton />
+                ) : filteredReports.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-center px-4">
+                        <p className="text-sm text-secondary m-0">
+                            {searchQuery ? 'No reports match your search.' : 'No reports yet.'}
+                        </p>
+                    </div>
+                ) : (
+                    filteredReports.map((report: SignalReport) => <ReportListItem key={report.id} report={report} />)
+                )}
+            </div>
+        </div>
+    )
 }
 
 function ArtefactCard({ artefact }: { artefact: SignalReportArtefact }): JSX.Element {
@@ -49,166 +153,85 @@ function ArtefactCard({ artefact }: { artefact: SignalReportArtefact }): JSX.Ele
     )
 }
 
-function ReportRow({ report }: { report: SignalReport }): JSX.Element {
-    const { expandedReportId, artefacts, artefactsLoading } = useValues(inboxSceneLogic)
-    const { setExpandedReportId, loadArtefacts } = useActions(inboxSceneLogic)
+function ReportDetailPane(): JSX.Element {
+    const { selectedReport, artefacts, artefactsLoading } = useValues(inboxSceneLogic)
 
-    const isExpanded = expandedReportId === report.id
-    const reportArtefacts = artefacts[report.id]
+    const stickyClasses = 'flex-1 min-w-0 h-full self-start bg-surface-primary overflow-y-auto flex flex-col'
 
-    const handleToggle = (): void => {
-        if (isExpanded) {
-            setExpandedReportId(null)
-        } else {
-            setExpandedReportId(report.id)
-            if (!artefacts[report.id]) {
-                loadArtefacts({ reportId: report.id })
-            }
-        }
-    }
-
-    return (
-        <div className="border rounded-lg bg-surface-primary overflow-hidden">
-            <button
-                type="button"
-                className="w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-surface-secondary transition-colors cursor-pointer bg-transparent border-none"
-                onClick={handleToggle}
-            >
-                <div className="flex-shrink-0 mt-0.5">
-                    <IconChevronRight
-                        className={`size-4 text-tertiary transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                    />
-                </div>
-
-                <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                        <LemonTag size="small">Weight: {report.total_weight.toFixed(2)}</LemonTag>
-                        <h3 className="text-sm font-semibold m-0 truncate flex-1">
-                            {report.title || 'Untitled report'}
-                        </h3>
-                    </div>
-                    {report.summary && <p className="text-sm text-secondary m-0 mt-1 line-clamp-2">{report.summary}</p>}
-                </div>
-
-                <div className="flex items-center gap-4 flex-shrink-0 text-xs text-tertiary">
-                    {report.relevant_user_count !== null && report.relevant_user_count > 0 && (
-                        <span title="Affected users">
-                            {report.relevant_user_count} {report.relevant_user_count === 1 ? 'user' : 'users'}
-                        </span>
-                    )}
-                    {report.signal_count > 0 && (
-                        <span title="Number of signals">
-                            {report.signal_count} {report.signal_count === 1 ? 'signal' : 'signals'}
-                        </span>
-                    )}
-                    {report.artefact_count > 0 && (
-                        <LemonBadge.Number count={report.artefact_count} maxDigits={3} size="small" />
-                    )}
-                    <TZLabel time={report.updated_at} />
-                </div>
-            </button>
-
-            {isExpanded && (
-                <div className="border-t px-4 py-3 bg-surface-secondary">
-                    <div className="flex items-center justify-between mb-3">
-                        <div className="text-xs text-tertiary space-x-4">
-                            <span>
-                                Weight: <strong>{report.total_weight.toFixed(2)}</strong>
-                            </span>
-                            <span>Created {humanFriendlyDetailedTime(report.created_at)}</span>
-                        </div>
-                    </div>
-
-                    <div>
-                        <h4 className="text-xs font-semibold text-tertiary uppercase tracking-wide mb-2">Artefacts</h4>
-                        {artefactsLoading && !reportArtefacts ? (
-                            <div className="flex items-center gap-2 text-sm text-tertiary py-2">
-                                <Spinner className="size-4" />
-                                Loading artefacts...
-                            </div>
-                        ) : reportArtefacts && reportArtefacts.length > 0 ? (
-                            <div className="space-y-2">
-                                {reportArtefacts.map((artefact) => (
-                                    <ArtefactCard key={artefact.id} artefact={artefact} />
-                                ))}
-                            </div>
-                        ) : (
-                            <p className="text-sm text-tertiary m-0">No artefacts yet.</p>
-                        )}
-                    </div>
-                </div>
-            )}
-        </div>
-    )
-}
-
-function ConfigSummaryCard({ config }: { config: SignalSourceConfig }): JSX.Element {
-    const { toggleSetupMode } = useActions(inboxSceneLogic)
-    const filters = config.config?.recording_filters
-
-    return (
-        <div className="border rounded-lg bg-surface-primary px-4 py-3 mb-4 flex items-center justify-between">
-            <div>
-                <div className="flex items-center gap-2 mb-0.5">
-                    <LemonTag type="success" size="small">
-                        Active
-                    </LemonTag>
-                    <span className="text-sm font-medium">Session analysis</span>
-                </div>
-                <p className="text-xs text-secondary m-0">
-                    {filters ? 'Custom filters configured' : 'Analyzing all sessions'}
+    if (!selectedReport) {
+        return (
+            <div className={`${stickyClasses} items-center justify-center text-center p-8`}>
+                <IconExpand className="size-12 text-tertiary mb-4" />
+                <h3 className="text-lg font-semibold mb-1">Welcome to Inbox</h3>
+                <p className="text-sm text-secondary max-w-md mb-4">
+                    PostHog automatically analyzes user sessions and surfaces actionable reports here. Select a report
+                    from the list to view its details, including relevant artefacts like session recordings and
+                    summaries.
+                </p>
+                <p className="text-xs text-tertiary max-w-sm">
+                    Reports are generated as patterns are detected across your product's sessions. Configure signal
+                    sources to customize what gets analyzed.
                 </p>
             </div>
-            <LemonButton type="secondary" size="small" icon={<IconGear />} onClick={toggleSetupMode}>
-                Edit
-            </LemonButton>
-        </div>
-    )
-}
+        )
+    }
 
-function EmptyInbox(): JSX.Element {
-    return (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-            <IconExpand className="size-12 text-tertiary mb-4" />
-            <h3 className="text-lg font-semibold mb-1">Your inbox is empty</h3>
-            <p className="text-sm text-secondary max-w-md">
-                PostHog automatically analyzes user sessions and surfaces actionable reports here. Reports will appear
-                as patterns are detected.
-            </p>
-        </div>
-    )
-}
+    const reportArtefacts = artefacts[selectedReport.id]
 
-function InboxSkeleton(): JSX.Element {
     return (
-        <div className="space-y-2">
-            {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="border rounded-lg px-4 py-3 bg-surface-primary">
-                    <div className="flex items-center gap-3">
-                        <LemonSkeleton className="w-4 h-4" />
-                        <div className="flex-1">
-                            <LemonSkeleton className="w-1/3 h-4 mb-2" />
-                            <LemonSkeleton className="w-2/3 h-3" />
-                        </div>
-                        <LemonSkeleton className="w-16 h-3" />
+        <div className={stickyClasses} style={{ height: 'calc(100vh - 11rem)' }}>
+            <div className="flex-1 overflow-y-auto py-8 px-4 mx-auto max-w-240">
+                <div className="mb-4">
+                    <div className="flex items-center gap-2 mb-1">
+                        <h2 className="text-lg font-semibold m-0 flex-1">
+                            {selectedReport.title || 'Untitled report'}
+                        </h2>
+                        <LemonTag size="small">Weight: {selectedReport.total_weight.toFixed(2)}</LemonTag>
+                    </div>
+                    {selectedReport.summary && (
+                        <p className="text-sm text-secondary m-0 mt-2">{selectedReport.summary}</p>
+                    )}
+                    <div className="flex items-center gap-4 mt-2 text-xs text-tertiary">
+                        {selectedReport.relevant_user_count !== null && selectedReport.relevant_user_count > 0 && (
+                            <span>
+                                {selectedReport.relevant_user_count}{' '}
+                                {selectedReport.relevant_user_count === 1 ? 'user' : 'users'}
+                            </span>
+                        )}
+                        {selectedReport.signal_count > 0 && (
+                            <span>
+                                {selectedReport.signal_count} {selectedReport.signal_count === 1 ? 'signal' : 'signals'}
+                            </span>
+                        )}
+                        <span>Created {humanFriendlyDetailedTime(selectedReport.created_at)}</span>
                     </div>
                 </div>
-            ))}
+
+                <div>
+                    <h4 className="text-xs font-semibold text-tertiary uppercase tracking-wide mb-2">Artefacts</h4>
+                    {artefactsLoading && !reportArtefacts ? (
+                        <div className="flex items-center gap-2 text-sm text-tertiary py-2">
+                            <Spinner className="size-4" />
+                            Loading artefacts...
+                        </div>
+                    ) : reportArtefacts && reportArtefacts.length > 0 ? (
+                        <div className="space-y-2">
+                            {reportArtefacts.map((artefact: SignalReportArtefact) => (
+                                <ArtefactCard key={artefact.id} artefact={artefact} />
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="text-sm text-tertiary m-0">No artefacts yet.</p>
+                    )}
+                </div>
+            </div>
         </div>
     )
 }
 
 export function InboxScene(): JSX.Element {
-    const {
-        reports,
-        reportsLoading,
-        isRunningSessionAnalysis,
-        sourceConfigsLoading,
-        hasSessionAnalysisSource,
-        sessionAnalysisConfig,
-        setupMode,
-    } = useValues(inboxSceneLogic)
-    const { loadReports, runSessionAnalysis, toggleSetupMode } = useActions(inboxSceneLogic)
+    const { hasSessionAnalysisSource, isRunningSessionAnalysis } = useValues(inboxSceneLogic)
+    const { runSessionAnalysis, openSourcesModal } = useActions(inboxSceneLogic)
     const { isDev } = useValues(preflightLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
 
@@ -216,33 +239,12 @@ export function InboxScene(): JSX.Element {
         return <></>
     }
 
-    const showSetup = setupMode || (!hasSessionAnalysisSource && !sourceConfigsLoading)
-
-    if (showSetup) {
-        return (
-            <SceneContent>
-                <SceneTitleSection
-                    name="Inbox"
-                    description="Set up automatic session analysis to get actionable reports."
-                    resourceType={{ type: 'inbox' }}
-                    actions={
-                        hasSessionAnalysisSource ? (
-                            <LemonButton type="secondary" size="small" onClick={toggleSetupMode}>
-                                Back to reports
-                            </LemonButton>
-                        ) : undefined
-                    }
-                />
-                <InboxSetup />
-            </SceneContent>
-        )
-    }
-
     return (
-        <SceneContent>
+        <SceneContent className="gap-y-0 border-b-0">
+            <SourcesModal />
             <SceneTitleSection
                 name="Inbox"
-                description="Actionable reports surfaced from automatic analysis of your product."
+                description={null}
                 resourceType={{ type: 'inbox' }}
                 actions={
                     <div className="flex items-center gap-2">
@@ -254,36 +256,30 @@ export function InboxScene(): JSX.Element {
                                     loading={isRunningSessionAnalysis}
                                     size="small"
                                     data-attr="run-session-analysis-button"
+                                    tooltip="DEBUG-only"
+                                    icon={<IconBug />}
                                 >
                                     Run session analysis
                                 </LemonButton>
                             </Tooltip>
                         )}
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => loadReports()}
-                            loading={reportsLoading}
-                            size="small"
-                        >
-                            Refresh
+                        <LemonButton type="secondary" icon={<IconGear />} size="small" onClick={openSourcesModal}>
+                            Configure sources
                         </LemonButton>
                     </div>
                 }
             />
 
-            {sessionAnalysisConfig && <ConfigSummaryCard config={sessionAnalysisConfig} />}
-
-            {reportsLoading && reports.length === 0 ? (
-                <InboxSkeleton />
-            ) : reports.length === 0 ? (
-                <EmptyInbox />
-            ) : (
-                <div className="space-y-2">
-                    {reports.map((report) => (
-                        <ReportRow key={report.id} report={report} />
-                    ))}
-                </div>
+            {!hasSessionAnalysisSource && (
+                <LemonBanner type="info" action={{ children: 'Set up sources', onClick: openSourcesModal }}>
+                    No signal sources are enabled. Set up sources to get new reports automatically.
+                </LemonBanner>
             )}
+
+            <div className="flex items-start divide-x -mx-4 h-[calc(100vh-6.375rem)]">
+                <ReportListPane />
+                <ReportDetailPane />
+            </div>
         </SceneContent>
     )
 }
