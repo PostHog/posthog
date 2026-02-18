@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
-import { useState } from 'react'
 
 import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTabs, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
@@ -18,22 +17,12 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    AnyPropertyFilter,
-    LLMPrompt,
-    PropertyFilterType,
-    PropertyOperator,
-} from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType, LLMPrompt } from '~/types'
 
 import { useTracesQueryContext } from '../LLMAnalyticsTracesScene'
-import { PromptLogicProps, PromptMode, isPrompt, llmPromptLogic } from './llmPromptLogic'
+import { PromptLogicProps, PromptMode, PromptViewTab, isPrompt, llmPromptLogic } from './llmPromptLogic'
 import { openDeletePromptDialog } from './utils'
-
-const PROMPT_FETCHED_EVENT = '$llm_prompt_fetched'
 
 export const scene: SceneExport<PromptLogicProps> = {
     component: LLMPromptScene,
@@ -55,11 +44,11 @@ export function LLMPromptScene(): JSX.Element {
         promptForm,
         isViewMode,
         prompt,
+        activeViewTab,
     } = useValues(llmPromptLogic)
     const { searchParams } = useValues(router)
-    const [activeViewTab, setActiveViewTab] = useState('overview')
 
-    const { submitPromptForm, deletePrompt, setMode } = useActions(llmPromptLogic)
+    const { submitPromptForm, deletePrompt, setMode, setActiveViewTab } = useActions(llmPromptLogic)
 
     if (isPromptMissing) {
         return <NotFound object="prompt" />
@@ -121,10 +110,10 @@ export function LLMPromptScene(): JSX.Element {
                 {prompt && isPrompt(prompt) ? (
                     <LemonTabs
                         activeKey={activeViewTab}
-                        onChange={(tab) => setActiveViewTab(tab)}
+                        onChange={(tab) => setActiveViewTab(tab as PromptViewTab)}
                         tabs={[
                             {
-                                key: 'overview',
+                                key: PromptViewTab.Overview,
                                 label: 'Overview',
                                 content: (
                                     <>
@@ -134,7 +123,7 @@ export function LLMPromptScene(): JSX.Element {
                                 ),
                             },
                             {
-                                key: 'usage',
+                                key: PromptViewTab.Usage,
                                 label: 'Usage',
                                 content: <PromptUsage prompt={prompt} />,
                             },
@@ -298,14 +287,7 @@ function PromptRelatedTraces(): JSX.Element {
 }
 
 function PromptUsage({ prompt }: { prompt: LLMPrompt }): JSX.Element {
-    const propertyFilter: AnyPropertyFilter[] = [
-        {
-            key: 'prompt_id',
-            type: PropertyFilterType.Event,
-            value: prompt.id,
-            operator: PropertyOperator.Exact,
-        },
-    ]
+    const { promptUsageLogQuery, promptUsageTrendQuery } = useValues(llmPromptLogic)
 
     return (
         <div data-attr="prompt-usage-container">
@@ -322,47 +304,13 @@ function PromptUsage({ prompt }: { prompt: LLMPrompt }): JSX.Element {
                 <b>Trend</b>
                 <div className="text-secondary">{`Prompt fetches for "${prompt.name}" over time`}</div>
             </div>
-            <Query
-                query={{
-                    kind: NodeKind.InsightVizNode,
-                    source: {
-                        kind: NodeKind.TrendsQuery,
-                        series: [
-                            { kind: NodeKind.EventsNode, event: PROMPT_FETCHED_EVENT, name: PROMPT_FETCHED_EVENT },
-                        ],
-                        properties: {
-                            type: 'AND',
-                            values: [{ type: 'AND', values: propertyFilter }],
-                        },
-                        dateRange: { date_from: '-30d', explicitDate: false },
-                        interval: 'day',
-                        trendsFilter: { display: 'ActionsLineGraph' },
-                    },
-                    full: false,
-                    showLastComputation: true,
-                    showLastComputationRefresh: true,
-                }}
-            />
+            <Query query={promptUsageTrendQuery} />
 
             <div className="mt-6 mb-4">
                 <b>Log</b>
                 <div className="text-secondary">{`Prompt fetch events for "${prompt.name}"`}</div>
             </div>
-            <Query
-                query={{
-                    kind: NodeKind.DataTableNode,
-                    source: {
-                        kind: NodeKind.EventsQuery,
-                        select: [...defaultDataTableColumns(NodeKind.EventsQuery), 'properties.prompt_name'],
-                        event: PROMPT_FETCHED_EVENT,
-                        properties: propertyFilter,
-                        after: '-30d',
-                    },
-                    full: false,
-                    showDateRange: true,
-                    showReload: true,
-                }}
-            />
+            <Query query={promptUsageLogQuery} />
         </div>
     )
 }

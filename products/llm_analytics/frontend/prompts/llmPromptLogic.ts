@@ -18,10 +18,17 @@ import { combineUrl, router, urlToAction } from 'kea-router'
 
 import api from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
-import { DataTableNode, NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import {
+    DataTableNode,
+    InsightVizNode,
+    NodeKind,
+    ProductIntentContext,
+    ProductKey,
+} from '~/queries/schema/schema-general'
 import { teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
-import { Breadcrumb, LLMPrompt, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, Breadcrumb, LLMPrompt, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { llmPromptLogicType } from './llmPromptLogicType'
 import { llmPromptsLogic } from './llmPromptsLogic'
@@ -29,6 +36,11 @@ import { llmPromptsLogic } from './llmPromptsLogic'
 export enum PromptMode {
     View = 'view',
     Edit = 'edit',
+}
+
+export enum PromptViewTab {
+    Overview = 'overview',
+    Usage = 'usage',
 }
 
 export interface PromptLogicProps {
@@ -50,6 +62,8 @@ const DEFAULT_PROMPT_FORM_VALUES: PromptFormValues = {
     prompt: '',
 }
 
+const PROMPT_FETCHED_EVENT = '$llm_prompt_fetched'
+
 export const llmPromptLogic = kea<llmPromptLogicType>([
     path(['scenes', 'llm-analytics', 'llmPromptLogic']),
     props({ promptName: 'new' } as PromptLogicProps),
@@ -62,6 +76,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         setPrompt: (prompt: LLMPrompt | PromptFormValues) => ({ prompt }),
         deletePrompt: true,
         setMode: (mode: PromptMode) => ({ mode }),
+        setActiveViewTab: (activeViewTab: PromptViewTab) => ({ activeViewTab }),
     }),
 
     reducers(({ props }) => ({
@@ -76,6 +91,12 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             props.mode ?? PromptMode.View,
             {
                 setMode: (_, { mode }) => mode,
+            },
+        ],
+        activeViewTab: [
+            PromptViewTab.Overview,
+            {
+                setActiveViewTab: (_, { activeViewTab }) => activeViewTab,
             },
         ],
     })),
@@ -278,6 +299,62 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 return `${urls.llmAnalyticsTraces()}?filters=${encodeURIComponent(JSON.stringify(filters))}`
             },
         ],
+
+        promptUsagePropertyFilter: [
+            (s) => [s.prompt],
+            (prompt): AnyPropertyFilter[] => {
+                if (!isPrompt(prompt)) {
+                    return []
+                }
+
+                return [
+                    {
+                        key: 'prompt_id',
+                        type: PropertyFilterType.Event,
+                        value: prompt.id,
+                        operator: PropertyOperator.Exact,
+                    },
+                ]
+            },
+        ],
+
+        promptUsageTrendQuery: [
+            (s) => [s.promptUsagePropertyFilter],
+            (promptUsagePropertyFilter): InsightVizNode => ({
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [{ kind: NodeKind.EventsNode, event: PROMPT_FETCHED_EVENT, name: PROMPT_FETCHED_EVENT }],
+                    properties: {
+                        type: 'AND',
+                        values: [{ type: 'AND', values: promptUsagePropertyFilter }],
+                    },
+                    dateRange: { date_from: '-30d', explicitDate: false },
+                    interval: 'day',
+                    trendsFilter: { display: 'ActionsLineGraph' },
+                },
+                full: false,
+                showLastComputation: true,
+                showLastComputationRefresh: true,
+            }),
+        ],
+
+        promptUsageLogQuery: [
+            (s) => [s.promptUsagePropertyFilter],
+            (promptUsagePropertyFilter): DataTableNode => ({
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    event: PROMPT_FETCHED_EVENT,
+                    properties: promptUsagePropertyFilter,
+                    select: [...defaultDataTableColumns(NodeKind.EventsQuery), 'properties.prompt_name'],
+                    after: '-30d',
+                },
+                full: false,
+                showDateRange: true,
+                showReload: true,
+            }),
+        ],
     }),
 
     listeners(({ actions, props, values }) => ({
@@ -307,11 +384,13 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         }): {
             prompt: PromptFormValues | LLMPrompt | null
             promptForm: PromptFormValues
+            activeViewTab: PromptViewTab
         } => {
             if (props.promptName === 'new') {
                 return {
                     prompt: DEFAULT_PROMPT_FORM_VALUES,
                     promptForm: DEFAULT_PROMPT_FORM_VALUES,
+                    activeViewTab: PromptViewTab.Overview,
                 }
             }
 
@@ -321,12 +400,14 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 return {
                     prompt: existingPrompt,
                     promptForm: getPromptFormDefaults(existingPrompt),
+                    activeViewTab: PromptViewTab.Overview,
                 }
             }
 
             return {
                 prompt: null,
                 promptForm: DEFAULT_PROMPT_FORM_VALUES,
+                activeViewTab: PromptViewTab.Overview,
             }
         }
     ),
