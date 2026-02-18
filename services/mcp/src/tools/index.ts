@@ -177,7 +177,8 @@ export const getToolsFromContext = async (
     context: Context,
     options?: ToolFilterOptions
 ): Promise<Tool<ZodObjectAny>[]> => {
-    const allowedToolNames = getFilteredToolNames(options)
+    const excludeTools = options?.excludeTools ?? []
+    const allowedToolNames = getFilteredToolNames(options).filter((name) => !excludeTools.includes(name))
     const toolBases: ToolBase<ZodObjectAny>[] = []
 
     for (const toolName of allowedToolNames) {

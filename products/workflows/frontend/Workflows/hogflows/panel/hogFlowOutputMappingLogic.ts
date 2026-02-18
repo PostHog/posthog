@@ -191,7 +191,7 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
             },
             runOutputTest: async () => {
                 const { selectedNode, workflow, hogFunctionTemplatesById } = values
-                if (!selectedNode || workflow.id === 'new') {
+                if (!selectedNode) {
                     return
                 }
 
@@ -221,6 +221,14 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
 
                     const config = sanitizeWorkflow(JSON.parse(JSON.stringify(workflow)), hogFunctionTemplatesById)
 
+                    // Strip output_variable from the current action so the backend
+                    // only executes the step and returns the raw result without
+                    // trying to store it in variables (which can hit the 5KB limit).
+                    const currentAction = config.actions?.find((a: any) => a.id === selectedNode.data.id)
+                    if (currentAction) {
+                        delete currentAction.output_variable
+                    }
+
                     const result: HogflowTestResult = await api.hogFlows.createTestInvocation(workflow.id, {
                         configuration: config,
                         globals,
@@ -238,10 +246,10 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                         actions.setTestError('Test succeeded but no response data was returned.')
                     }
                 } catch (e: any) {
-                    if (e.data) {
+                    if (e?.data) {
                         actions.setTestError(JSON.stringify(e.data, null, 2))
                     } else {
-                        actions.setTestError(e.detail || e.message || 'Failed to run test')
+                        actions.setTestError(e?.detail || e?.message || 'Failed to run test')
                     }
                 } finally {
                     actions.setTestLoading(false)

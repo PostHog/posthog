@@ -32,7 +32,7 @@ import { ConfigurePinnedTabsModal } from './ConfigurePinnedTabsModal'
 
 export function SceneTabs(): JSX.Element {
     const { tabs } = useValues(sceneLogic)
-    const { newTab, reorderTabs } = useActions(sceneLogic)
+    const { newTab, reorderTabs, clearFrozenWidths } = useActions(sceneLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
@@ -93,7 +93,10 @@ export function SceneTabs(): JSX.Element {
                     items={[...tabs.map((tab, index) => getSortableId(tab, index)), 'new']}
                     strategy={horizontalListSortingStrategy}
                 >
-                    <div className="scene-tab-row gap-1 flex-1 min-w-0 items-center flex h-[var(--scene-layout-header-height)] lg:h-auto pr-2">
+                    <div
+                        className="scene-tab-row gap-1 flex-1 min-w-0 items-center flex h-[var(--scene-layout-header-height)] lg:h-auto pr-2"
+                        onMouseLeave={clearFrozenWidths}
+                    >
                         {tabs.map((tab, index) => {
                             const sortableId = getSortableId(tab, index)
                             const isLastPinned =
@@ -168,14 +171,17 @@ function SortableSceneTab({
     containerClassName,
     onConfigurePinnedTabs,
 }: SortableSceneTabProps): JSX.Element {
+    const { frozenWidths } = useValues(sceneLogic)
     const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
         id: sortableId,
         data: { index },
     })
+    const frozenWidth = frozenWidths?.[tab.id]
     const style: React.CSSProperties = {
         transform: CSS.Translate.toString(transform),
         transition,
         opacity: isDragging ? 0.5 : undefined,
+        ...(frozenWidth != null ? { width: frozenWidth, flex: '0 0 auto', minWidth: 0, maxWidth: 'none' } : {}),
     }
 
     const isPinned = !!tab.pinned
@@ -186,7 +192,9 @@ function SortableSceneTab({
             style={style}
             {...attributes}
             {...listeners}
-            className={cn(isPinned ? 'shrink-0' : 'w-full flex-1 min-w-[100px] max-w-[250px]')}
+            className={cn(
+                isPinned ? 'shrink-0' : frozenWidth != null ? '' : 'w-full flex-1 min-w-[100px] max-w-[250px]'
+            )}
             data-tab-id={tab.id}
         >
             <SceneTabContextMenu tab={tab} onConfigurePinnedTabs={onConfigurePinnedTabs}>
@@ -212,7 +220,7 @@ interface SceneTabProps {
 function SceneTabComponent({ tab, className, isDragging, containerClassName, index }: SceneTabProps): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
     const isPinned = !!tab.pinned
-    const { clickOnTab, removeTab, startTabEdit, endTabEdit, saveTabEdit } = useActions(sceneLogic)
+    const { clickOnTab, removeTab, freezeTabWidths, startTabEdit, endTabEdit, saveTabEdit } = useActions(sceneLogic)
     const { editingTabId, tabs } = useValues(sceneLogic)
     const [editValue, setEditValue] = useState('')
     const isEditing = editingTabId === tab.id
@@ -254,6 +262,9 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                                 e.stopPropagation()
                                 e.preventDefault()
                                 const source = e.detail === 0 ? 'keyboard_shortcut' : 'close_button'
+                                if (e.detail !== 0) {
+                                    freezeTabWidths()
+                                }
                                 removeTab(tab, { source })
                             }}
                             tooltip={!tab.active ? 'Close tab' : 'Close active tab'}
@@ -280,6 +291,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                         e.stopPropagation()
                         e.preventDefault()
                         if (e.button === 1 && !isDragging && canRemoveTab) {
+                            freezeTabWidths()
                             removeTab(tab, { source: 'middle_click' })
                         }
                     }}

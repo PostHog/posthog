@@ -17,7 +17,6 @@ class HealthIssue(UUIDModel):
     class Status(models.TextChoices):
         ACTIVE = "active", "Active"
         RESOLVED = "resolved", "Resolved"
-        DISMISSED = "dismissed", "Dismissed"
 
     team = models.ForeignKey(
         "posthog.Team",
@@ -39,6 +38,8 @@ class HealthIssue(UUIDModel):
     )
 
     payload = models.JSONField(default=dict)
+
+    dismissed = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
@@ -93,15 +94,8 @@ class HealthIssue(UUIDModel):
         return issue, created
 
     def resolve(self) -> None:
+        if self.status != self.Status.ACTIVE:
+            raise ValueError(f"Cannot resolve a health issue with status '{self.status}'.")
         self.status = self.Status.RESOLVED
         self.resolved_at = timezone.now()
-        self.save(update_fields=["status", "resolved_at", "updated_at"])
-
-    def dismiss(self) -> None:
-        self.status = self.Status.DISMISSED
-        self.save(update_fields=["status", "updated_at"])
-
-    def reactivate(self) -> None:
-        self.status = self.Status.ACTIVE
-        self.resolved_at = None
         self.save(update_fields=["status", "resolved_at", "updated_at"])

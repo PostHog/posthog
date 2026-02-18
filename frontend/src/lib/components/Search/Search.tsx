@@ -14,6 +14,7 @@ import {
     useRef,
     useState,
 } from 'react'
+import { TextMorph } from 'torph/react'
 
 import { IconSearch, IconX } from '@posthog/icons'
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
@@ -66,36 +67,23 @@ const PLACEHOLDER_CYCLE_INTERVAL = 3000
 // Hooks
 // ============================================================================
 
-const useRotatingPlaceholder = (isActive: boolean): { text: string; isVisible: boolean } => {
+const useRotatingPlaceholder = (isActive: boolean): string => {
     const [index, setIndex] = useState(0)
-    const [isVisible, setIsVisible] = useState(true)
 
     useEffect(() => {
         if (!isActive) {
             setIndex(0)
-            setIsVisible(true)
             return
         }
 
-        let timeoutId: ReturnType<typeof setTimeout> | undefined
-
         const interval = setInterval(() => {
-            setIsVisible(false)
-            timeoutId = setTimeout(() => {
-                setIndex((prev) => (prev + 1) % PLACEHOLDER_OPTIONS.length)
-                setIsVisible(true)
-            }, 200)
+            setIndex((prev) => (prev + 1) % PLACEHOLDER_OPTIONS.length)
         }, PLACEHOLDER_CYCLE_INTERVAL)
 
-        return () => {
-            clearInterval(interval)
-            if (timeoutId !== undefined) {
-                clearTimeout(timeoutId)
-            }
-        }
+        return () => clearInterval(interval)
     }, [isActive])
 
-    return { text: PLACEHOLDER_OPTIONS[index], isVisible }
+    return PLACEHOLDER_OPTIONS[index]
 }
 
 // ============================================================================
@@ -424,7 +412,7 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
     const { searchValue, setSearchValue, isActive, inputRef, showAskAiLink, onAskAiClick, highlightedItemRef } =
         useSearchContext()
 
-    const { text: placeholderText, isVisible: placeholderVisible } = useRotatingPlaceholder(isActive && !searchValue)
+    const placeholderText = useRotatingPlaceholder(isActive && !searchValue)
 
     const handleInputChange = useCallback(
         (value: string) => {
@@ -471,12 +459,7 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
                 {searchValue ? null : (
                     <span className="text-tertiary pointer-events-none absolute left-8 top-1/2 -translate-y-1/2 ">
                         <span className="text-tertiary">Search for </span>
-                        <span
-                            className="transition-opacity duration-200"
-                            style={{ opacity: placeholderVisible ? 1 : 0 }}
-                        >
-                            {placeholderText}
-                        </span>
+                        <TextMorph as="span">{placeholderText}</TextMorph>
                     </span>
                 )}
                 <Autocomplete.Input
