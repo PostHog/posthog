@@ -109,7 +109,7 @@ export function RetentionAggregationSelector(): JSX.Element {
                 <TaxonomicStringPopover
                     groupType={TaxonomicFilterGroupType.NumericalEventProperties}
                     groupTypes={[TaxonomicFilterGroupType.NumericalEventProperties]}
-                    value={aggregationProperty}
+                    value={aggregationProperty || ''}
                     onChange={(val) => updateInsightFilter({ aggregationProperty: val })}
                     placeholder="Select property"
                     data-attr="retention-aggregation-property-selector"

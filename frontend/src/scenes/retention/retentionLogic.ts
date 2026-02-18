@@ -152,8 +152,18 @@ export const retentionLogic = kea<retentionLogicType>([
                 retentionFilter?.aggregationType === 'sum' || retentionFilter?.aggregationType === 'avg',
         ],
         results: [
-            (s) => [s.insightQuery, s.insightData, s.retentionFilter, s.timezone],
-            (insightQuery, insightData, retentionFilter, timezone): ProcessedRetentionPayload[] => {
+            (s) => [s.insightQuery, s.insightData, s.retentionFilter, s.timezone, s.isPropertyValueAggregation],
+            (
+                insightQuery,
+                insightData,
+                retentionFilter,
+                timezone,
+                isPropertyValueAggregation
+            ): ProcessedRetentionPayload[] => {
+                if (isPropertyValueAggregation && !retentionFilter?.aggregationProperty) {
+                    return []
+                }
+
                 const rawResults = isRetentionQuery(insightQuery) ? (insightData?.result ?? []) : []
 
                 const results: ProcessedRetentionPayload[] = rawResults.map((result: RetentionResult) => ({
