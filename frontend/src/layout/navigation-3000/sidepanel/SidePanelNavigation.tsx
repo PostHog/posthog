@@ -89,7 +89,7 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
                     }}
                     tooltip={
                         <>
-                            Close scene panel{' '}
+                            Close context panel{' '}
                             <RenderKeybind className="relative -top-px" keybind={[keyBinds.toggleRightNav]} />
                         </>
                     }
