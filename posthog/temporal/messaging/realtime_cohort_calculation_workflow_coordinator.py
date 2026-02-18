@@ -1,6 +1,6 @@
 import math
+import random
 import asyncio
-import hashlib
 import datetime as dt
 import dataclasses
 from typing import Any, Optional, TypedDict
@@ -187,26 +187,11 @@ async def get_realtime_cohort_selection_activity(
                 )
 
             if other_teams_cohort_ids:
-                # Apply global percentage with fair rotation
+                # Apply global percentage with random sampling
                 num_to_include = int(len(other_teams_cohort_ids) * inputs.global_percentage)
                 if num_to_include > 0:
-                    # Use date-based rotation to ensure all cohorts get a chance
-                    # Hash each cohort ID with today's date to create fair rotation
-                    today = dt.date.today().isoformat()  # e.g., "2026-02-17"
-
-                    # Create list of (hash_value, cohort_id) tuples for sorting
-                    cohort_hash_pairs = []
-                    for cohort_id in other_teams_cohort_ids:
-                        # Create a deterministic but rotating hash based on cohort ID and date
-                        hash_input = f"{cohort_id}:{today}".encode()
-                        hash_value = hashlib.md5(hash_input).hexdigest()
-                        cohort_hash_pairs.append((hash_value, cohort_id))
-
-                    # Sort by hash to get pseudo-random but deterministic order for today
-                    cohort_hash_pairs.sort(key=lambda x: x[0])
-
-                    # Take the first N cohorts from the rotated order
-                    selected_other_cohort_ids = [cohort_id for _, cohort_id in cohort_hash_pairs[:num_to_include]]
+                    # Randomly sample cohorts to ensure fair distribution over time
+                    selected_other_cohort_ids = random.sample(other_teams_cohort_ids, num_to_include)
                     selected_cohort_ids.extend(selected_other_cohort_ids)
 
         # Step 3: Remove duplicates while preserving order

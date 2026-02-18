@@ -610,7 +610,7 @@ class TestRealtimeCohortSelectionActivity:
 
             result = await get_realtime_cohort_selection_activity(inputs)
 
-            # Should select 50% = 3 cohorts (rotated based on date, but always 3 total)
+            # Should select 50% = 3 cohorts (random sampling, but always 3 total)
             assert len(result.cohort_ids) == 3
             # All selected IDs should be from the available set
             assert all(cohort_id in [1, 2, 3, 4, 5, 6] for cohort_id in result.cohort_ids)
@@ -689,15 +689,24 @@ class TestRealtimeCohortSelectionActivity:
             result = await get_realtime_cohort_selection_activity(inputs)
 
             # Should include forced teams cohorts: [10, 30, 20]
-            # Plus 50% of other teams' [1, 2, 10] = 1 cohort (with rotation)
-            # After deduplication and sorting: should have all forced cohorts plus 1 other
-            assert len(result.cohort_ids) == 4
-            # Should include all forced team cohorts
+            # Plus 50% of other teams' [1, 2, 10] = 1 cohort (random sampling)
+            # After deduplication: depends on which cohort was randomly selected
+
+            # Should always include all forced team cohorts
             assert all(cohort_id in result.cohort_ids for cohort_id in [10, 20, 30])
-            # Should include one additional cohort from the percentage selection
+
+            # Check what was randomly selected from other teams
             other_cohorts = [id for id in result.cohort_ids if id not in [10, 20, 30]]
-            assert len(other_cohorts) == 1
-            assert other_cohorts[0] in [1, 2]  # Rotation picks one of these
+
+            if len(other_cohorts) == 1:
+                # Selected a unique cohort (1 or 2)
+                assert len(result.cohort_ids) == 4
+                assert other_cohorts[0] in [1, 2]
+            else:
+                # Selected cohort 10 (duplicate), so deduplicated to 3 total
+                assert len(result.cohort_ids) == 3
+                assert len(other_cohorts) == 0
+
             # Should be sorted
             assert result.cohort_ids == sorted(result.cohort_ids)
 
@@ -724,8 +733,8 @@ class TestRealtimeCohortSelectionActivity:
             assert mock_cohort.objects.filter.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_selection_activity_fair_rotation(self):
-        """Should select cohorts using fair rotation based on date, not always lowest IDs."""
+    async def test_selection_activity_random_sampling(self):
+        """Should select cohorts using random sampling for fair distribution over time."""
 
         inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(team_ids=set(), global_percentage=0.6)
 
@@ -737,7 +746,7 @@ class TestRealtimeCohortSelectionActivity:
 
             result = await get_realtime_cohort_selection_activity(inputs)
 
-            # Should select 60% = 3 cohorts, rotated based on date hash
+            # Should select 60% = 3 cohorts, randomly sampled
             assert len(result.cohort_ids) == 3
             # All selected IDs should be from available set
             assert all(cohort_id in [50, 10, 30, 20, 40] for cohort_id in result.cohort_ids)
@@ -747,8 +756,8 @@ class TestRealtimeCohortSelectionActivity:
             assert result.cohort_ids == sorted(result.cohort_ids)
 
     @pytest.mark.asyncio
-    async def test_selection_activity_rotation_changes_over_time(self):
-        """Should select different cohorts on different dates for fair rotation."""
+    async def test_selection_activity_random_variability(self):
+        """Should select different cohorts on different runs due to randomness."""
 
         inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(team_ids=set(), global_percentage=0.5)
 
@@ -758,21 +767,16 @@ class TestRealtimeCohortSelectionActivity:
             queryset.order_by.return_value.values_list.return_value = [1, 2, 3, 4, 5, 6]
             mock_cohort.objects.filter.return_value = queryset
 
-            # Mock different dates to verify rotation
-            with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.dt") as mock_dt:
-                # Test with date 1
-                mock_dt.date.today.return_value.isoformat.return_value = "2026-01-01"
-                result1 = await get_realtime_cohort_selection_activity(inputs)
+            # Run multiple times to verify randomness
+            results = []
+            for _ in range(10):  # Run 10 times to get some variability
+                result = await get_realtime_cohort_selection_activity(inputs)
+                results.append(set(result.cohort_ids))
 
-                # Test with date 2
-                mock_dt.date.today.return_value.isoformat.return_value = "2026-01-02"
-                result2 = await get_realtime_cohort_selection_activity(inputs)
+            # All should select 50% = 3 cohorts
+            assert all(len(result) == 3 for result in results)
 
-                # Both should select 50% = 3 cohorts
-                assert len(result1.cohort_ids) == 3
-                assert len(result2.cohort_ids) == 3
-
-                # Selection should be different (rotation working)
-                # Note: It's theoretically possible they could be the same by chance,
-                # but with MD5 hash and 6 cohorts, it's extremely unlikely
-                assert set(result1.cohort_ids) != set(result2.cohort_ids)
+            # With random sampling, we should see some variability in selections
+            # (It's theoretically possible all runs select the same cohorts, but extremely unlikely)
+            unique_selections = {frozenset(result) for result in results}
+            assert len(unique_selections) > 1, "Random sampling should produce different selections"
