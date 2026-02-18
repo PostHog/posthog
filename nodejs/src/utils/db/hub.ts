@@ -4,12 +4,13 @@ import { types as pgTypes } from 'pg'
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
 import { InternalCaptureService } from '~/common/services/internal-capture'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { KafkaConfigTarget } from '~/kafka/config'
 
 import { EncryptedFields } from '../../cdp/utils/encryption-utils'
 import { defaultConfig } from '../../config/config'
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { Hub, PluginsServerConfig } from '../../types'
+import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../../types'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { ClickhouseGroupRepository } from '../../worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
@@ -48,7 +49,18 @@ export function createEventsToDropByToken(eventsToDropByTokenStr?: string): Map<
     return eventsToDropByToken
 }
 
-export async function createHub(config: Partial<PluginsServerConfig> = {}): Promise<Hub> {
+function getKafkaTarget(capabilities: PluginServerCapabilities): KafkaConfigTarget {
+    if (capabilities.cdpWarehouseSourceWebhooks) {
+        return 'WAREHOUSE_PRODUCER'
+    }
+
+    return 'PRODUCER'
+}
+
+export async function createHub(
+    config: Partial<PluginsServerConfig> = {},
+    capabilities: PluginServerCapabilities
+): Promise<Hub> {
     logger.info('ℹ️', `Connecting to all services:`)
 
     const serverConfig: PluginsServerConfig = {
@@ -56,9 +68,11 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         ...config,
     }
 
-    logger.info('🤔', `Connecting to Kafka...`)
+    const kafkaTarget = getKafkaTarget(capabilities)
 
-    const kafkaProducer = await KafkaProducerWrapper.create(serverConfig.KAFKA_CLIENT_RACK)
+    logger.info('🤔', `Connecting to Kafka [target=${kafkaTarget}]...`)
+
+    const kafkaProducer = await KafkaProducerWrapper.create(serverConfig.KAFKA_CLIENT_RACK, kafkaTarget)
     logger.info('👍', `Kafka ready`)
 
     const postgres = new PostgresRouter(serverConfig)

@@ -96,7 +96,7 @@ export class PluginServer {
         this.nodeInstrumentation.setupThreadPerformanceInterval()
 
         const capabilities = getPluginServerCapabilities(this.config)
-        const hub = (this.hub = await createHub(this.config))
+        const hub = (this.hub = await createHub(this.config, capabilities))
 
         try {
             const serviceLoaders: (() => Promise<PluginServerService>)[] = []
@@ -142,7 +142,7 @@ export class PluginServer {
 
             if (capabilities.sessionRecordingBlobIngestionV2) {
                 serviceLoaders.push(async () => {
-                    const actualHub = hub ?? (await createHub(this.config))
+                    const actualHub = hub ?? (await createHub(this.config, capabilities))
                     const postgres = actualHub.postgres
                     const kafkaMetadataProducer = actualHub.kafkaProducer
                     const kafkaMessageProducer = await KafkaProducerWrapper.create(
@@ -164,7 +164,7 @@ export class PluginServer {
 
             if (capabilities.sessionRecordingBlobIngestionV2Overflow) {
                 serviceLoaders.push(async () => {
-                    const actualHub = hub ?? (await createHub(this.config))
+                    const actualHub = hub ?? (await createHub(this.config, capabilities))
                     const postgres = actualHub.postgres
                     const kafkaMetadataProducer = actualHub.kafkaProducer
                     const kafkaMessageProducer = await KafkaProducerWrapper.create(
@@ -224,7 +224,7 @@ export class PluginServer {
                 })
             }
 
-            if (capabilities.cdpApi) {
+            if (capabilities.cdpApi || capabilities.cdpWarehouseSourceWebhooks) {
                 serviceLoaders.push(async () => {
                     const api = new CdpApi(hub)
                     this.expressApp.use('/', api.router())

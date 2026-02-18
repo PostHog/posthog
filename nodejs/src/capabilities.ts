@@ -14,6 +14,7 @@ export const CAPABILITIES_CDP: PluginServerCapabilities = {
     cdpCyclotronShadowWorker: true,
     cdpApi: true,
     appManagementSingleton: true,
+    cdpWarehouseSourceWebhooks: true,
     cdpDataWarehouseEvents: false, // Not yet fully developed - enable when ready
     cdpLegacyOnEvent: false, // most of the times not needed
 }
@@ -213,6 +214,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.recording_api:
             return {
                 recordingApi: true,
+            }
+        case PluginServerMode.cdp_warehouse_source_webhooks:
+            return {
+                cdpWarehouseSourceWebhooks: true,
             }
     }
 }
