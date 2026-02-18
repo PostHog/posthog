@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { TextMorph } from 'torph/react'
 
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
@@ -42,7 +43,9 @@ function HedgehogStatus(): JSX.Element {
     return (
         <div className="flex items-center gap-2 py-2 text-muted">
             <Spinner className="text-xs" />
-            <span className="text-xs">{HEDGEHOG_STATUSES[statusIndex]}</span>
+            <TextMorph as="span" className="text-xs">
+                {HEDGEHOG_STATUSES[statusIndex]}
+            </TextMorph>
         </div>
     )
 }
