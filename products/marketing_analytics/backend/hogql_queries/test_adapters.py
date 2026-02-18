@@ -1834,7 +1834,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         adapter = BigQueryAdapter(config=config, context=self.context)
         result = adapter._resolve_field_expr(expression)
         assert result is not None
-        assert isinstance(result, (ast.Field, ast.Call))
+        assert isinstance(result, (ast.Field, ast.Call, ast.ArrayAccess))
 
     @parameterized.expand(
         [
