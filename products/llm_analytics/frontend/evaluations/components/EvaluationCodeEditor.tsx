@@ -81,6 +81,52 @@ if (typeof(messages) == 'array') {
 return true`,
     },
     {
+        label: 'Conversation length',
+        source: `// Check that the conversation isn't too long
+let max_turns := 10
+let messages := input
+if (typeof(messages) == 'string' and startsWith(trim(messages), '[')) {
+    messages := jsonParse(messages)
+}
+if (typeof(messages) != 'array') {
+    print('Input is not a message array, skipping')
+    return true
+}
+let turns := length(messages)
+print(concat(toString(turns), ' turns in conversation'))
+if (turns > max_turns) {
+    print(concat('Exceeds limit of ', toString(max_turns), ' turns'))
+    return false
+}
+return true`,
+    },
+    {
+        label: 'Error detection',
+        source: `// Detect error patterns in the output and show the matching line
+let patterns := [
+    'error', 'exception', 'traceback',
+    'failed', 'fatal', 'panic'
+]
+let lines := splitByString('\\n', output)
+let found := []
+for (let i, line in lines) {
+    for (let j, pattern in patterns) {
+        if (line ilike concat('%', pattern, '%') and not has(found, pattern)) {
+            found := arrayPushBack(found, pattern)
+            let trimmed := trim(line)
+            if (length(trimmed) > 120) {
+                trimmed := concat(substring(trimmed, 1, 120), '...')
+            }
+            print(concat('Found "', pattern, '": ', trimmed))
+        }
+    }
+}
+if (length(found) > 0) {
+    return false
+}
+return true`,
+    },
+    {
         label: 'Output quality',
         source: `// Rate output quality based on length
 let len := length(output)
@@ -120,13 +166,102 @@ if (length(missing) > 0) {
 return true`,
     },
     {
-        label: 'No PII in output',
-        source: `// Check that the output does not contain email addresses
-let result := not (output =~ '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+[.][a-zA-Z]{2,}')
-if (not result) {
-    print('Output contains an email address')
+        label: 'Regex safety checks',
+        source: `// Run multiple regex safety checks and show matches
+let checks := [
+    ['No emails', '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+[.][a-zA-Z]{2,}'],
+    ['No URLs', 'https?://[a-zA-Z0-9.-]+[.][a-zA-Z]{2,}'],
+    ['No phone numbers', '[0-9]{3}[-. ][0-9]{3}[-. ][0-9]{4}'],
+    ['No credit cards', '[0-9]{4}[- ]?[0-9]{4}[- ]?[0-9]{4}[- ]?[0-9]{4}']
+]
+let failed := []
+for (let i, check in checks) {
+    if (output =~ check.2) {
+        failed := arrayPushBack(failed, check.1)
+        let words := splitByString(' ', output)
+        for (let j, word in words) {
+            if (match(word, check.2)) {
+                print(concat('  ', check.1, ': found "', word, '"'))
+            }
+        }
+    }
 }
-return result`,
+if (length(failed) > 0) {
+    print(concat('Failed ', toString(length(failed)), ' of ', toString(length(checks)), ' checks'))
+    return false
+}
+print('All', length(checks), 'checks passed')
+return true`,
+    },
+    {
+        label: 'Cost & latency guard',
+        source: `// Check that cost and latency are within budget
+let max_cost := 0.05
+let max_latency := 10
+
+let cost := properties.$ai_total_cost_usd
+let latency := properties.$ai_latency
+
+if (cost > max_cost) {
+    print(concat('Cost $', toString(cost), ' exceeds budget $', toString(max_cost)))
+    return false
+}
+if (latency > max_latency) {
+    print(concat('Latency ', toString(latency), 's exceeds limit ', toString(max_latency), 's'))
+    return false
+}
+print(concat('OK — cost: $', toString(cost), ', latency: ', toString(latency), 's'))
+return true`,
+    },
+    {
+        label: 'Refusal detection',
+        source: `// Detect when the model refuses to answer
+let phrases := [
+    'I cannot', 'I can\\'t', 'I\\'m unable',
+    'I am unable', 'I\\'m sorry, but I',
+    'I must decline', 'I\\'m not able'
+]
+for (let i, phrase in phrases) {
+    if (output ilike concat('%', phrase, '%')) {
+        print(concat('Refusal detected: "', phrase, '"'))
+        return false
+    }
+}
+return true`,
+    },
+    {
+        label: 'Input relevance',
+        source: `// Check that key terms from the input appear in the output
+let words := splitByString(' ', input)
+let key_terms := []
+for (let i, word in words) {
+    if (length(word) >= 5) {
+        key_terms := arrayPushBack(key_terms, word)
+    }
+}
+if (length(key_terms) == 0) {
+    print('No key terms found in input (words >= 5 chars)')
+    return true
+}
+let found := 0
+let missing := []
+for (let i, term in key_terms) {
+    if (output ilike concat('%', term, '%')) {
+        found := found + 1
+    } else {
+        missing := arrayPushBack(missing, term)
+    }
+}
+let ratio := found / length(key_terms)
+print(concat(toString(found), '/', toString(length(key_terms)), ' key terms found'))
+if (length(missing) > 0) {
+    print('Missing:', missing)
+}
+if (ratio < 0.3) {
+    print('Output may not be relevant to the input')
+    return false
+}
+return true`,
     },
 ]
 
@@ -317,7 +452,10 @@ export function EvaluationCodeEditor(): JSX.Element {
 
             <div className="bg-bg-light border rounded p-3">
                 <div className="flex items-center justify-between mb-2">
-                    <h4 className="text-sm font-semibold m-0">Examples</h4>
+                    <div>
+                        <h4 className="text-sm font-semibold m-0">Examples</h4>
+                        <p className="text-xs text-muted m-0">Starter examples to play with</p>
+                    </div>
                     <Link to="https://posthog.com/docs/hog" target="_blank" className="text-sm">
                         Hog language reference <IconExternal className="inline text-xs" />
                     </Link>
@@ -343,7 +481,8 @@ export function EvaluationCodeEditor(): JSX.Element {
                         <code>output</code> — the output from the LLM (response / choices)
                     </div>
                     <div>
-                        <code>properties</code> — all event properties (e.g. <code>properties.$ai_model</code>)
+                        <code>properties</code> — all event properties (e.g. <code>properties.$ai_model</code>,{' '}
+                        <code>properties.$ai_total_cost_usd</code> etc)
                     </div>
                     <div>
                         <code>event.uuid</code>, <code>event.event</code>, <code>event.distinct_id</code>
@@ -357,7 +496,6 @@ export function EvaluationCodeEditor(): JSX.Element {
                     <li>
                         Use <code>print()</code> to add reasoning (visible in evaluation runs)
                     </li>
-                    <li>Deterministic — runs instantly with no LLM cost</li>
                 </ul>
             </div>
         </div>

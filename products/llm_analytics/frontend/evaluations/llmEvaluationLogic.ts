@@ -367,15 +367,16 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     ? defaultEvaluationTemplates.find((t) => t.key === props.templateKey)
                     : undefined
 
+                const isHogTemplate = template?.evaluation_type === 'hog'
                 const newEvaluation: EvaluationConfig = {
                     id: '',
                     name: template?.name || '',
                     description: template?.description || '',
                     enabled: true,
-                    evaluation_type: 'llm_judge',
-                    evaluation_config: {
-                        prompt: template?.prompt || '',
-                    },
+                    evaluation_type: isHogTemplate ? 'hog' : 'llm_judge',
+                    evaluation_config: isHogTemplate
+                        ? { source: template.source, bytecode: [] }
+                        : { prompt: template && 'prompt' in template ? template.prompt : '' },
                     output_type: 'boolean',
                     output_config: {},
                     conditions: [

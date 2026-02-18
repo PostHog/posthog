@@ -109,15 +109,30 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
             sorter: (a, b) => Number(b.enabled) - Number(a.enabled),
         },
         {
-            title: 'Prompt',
-            key: 'prompt',
+            title: 'Type',
+            key: 'type',
             render: (_, evaluation) => (
-                <div className="max-w-md">
-                    <div className="text-sm font-mono bg-bg-light border rounded px-2 py-1 truncate">
-                        {evaluation.evaluation_config.prompt || '(No prompt)'}
-                    </div>
-                </div>
+                <LemonTag type={evaluation.evaluation_type === 'hog' ? 'highlight' : 'default'}>
+                    {evaluation.evaluation_type === 'hog' ? 'Hog' : 'LLM judge'}
+                </LemonTag>
             ),
+        },
+        {
+            title: 'Config',
+            key: 'config',
+            render: (_, evaluation) => {
+                const preview =
+                    evaluation.evaluation_type === 'hog'
+                        ? evaluation.evaluation_config.source
+                        : evaluation.evaluation_config.prompt
+                return (
+                    <div className="max-w-md">
+                        <div className="text-sm font-mono bg-bg-light border rounded px-2 py-1 truncate">
+                            {preview || '(empty)'}
+                        </div>
+                    </div>
+                )
+            },
         },
         {
             title: 'Triggers',
