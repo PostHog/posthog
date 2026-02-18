@@ -1335,6 +1335,25 @@ class TestAccessControlDefaultsEndpoint(BaseAccessControlTest):
         assert "feature_flag" in data["resource_access_levels"]
         assert "insight" in data["resource_access_levels"]
 
+    def test_only_returns_current_team_defaults(self):
+        """Access controls from other teams are not included."""
+        from ee.models.rbac.access_control import AccessControl
+
+        # Set defaults on current team
+        self._put_project_access_control({"access_level": "member"})
+        self._put_global_access_control({"resource": "dashboard", "access_level": "viewer"})
+
+        # Create another team and set different defaults directly in DB
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        AccessControl.objects.create(team=other_team, resource="project", access_level="admin")
+        AccessControl.objects.create(team=other_team, resource="dashboard", access_level="editor")
+
+        # Request should only return current team's defaults
+        res = self.client.get("/api/projects/@current/access_control_defaults")
+        data = res.json()
+        assert data["project_access_level"] == "member"
+        assert data["resource_access_levels"]["dashboard"]["access_level"] == "viewer"
+
 
 class TestAccessControlRolesEndpoint(BaseAccessControlTest):
     def setUp(self):
@@ -1403,6 +1422,22 @@ class TestAccessControlRolesEndpoint(BaseAccessControlTest):
         assert role_data["project"]["access_level"] is None
         for entry in role_data["resources"].values():
             assert entry["access_level"] is None
+
+    def test_only_returns_current_team_role_overrides(self):
+        """Role overrides from other teams are not included."""
+        from ee.models.rbac.access_control import AccessControl
+
+        # Set role override on current team
+        self._put_project_access_control({"role": str(self.role.id), "access_level": "member"})
+
+        # Create another team and set different role override directly in DB
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        AccessControl.objects.create(team=other_team, resource="project", role=self.role, access_level="admin")
+
+        # Request should only return current team's role overrides
+        res = self.client.get("/api/projects/@current/access_control_roles")
+        role_data = self._find_role(res.json()["results"], self.role.id)
+        assert role_data["project"]["access_level"] == "member"
 
 
 class TestAccessControlMembersEndpoint(BaseAccessControlTest):
@@ -1495,3 +1530,23 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         assert member_data["project"]["access_level"] is None
         assert member_data["project"]["effective_access_level"] == "admin"
         assert member_data["project"]["effective_access_level_reason"] == "role_override"
+
+    def test_only_returns_current_team_member_overrides(self):
+        """Member overrides from other teams are not included."""
+        from ee.models.rbac.access_control import AccessControl
+
+        # Set member override on current team
+        self._put_project_access_control(
+            {"organization_member": str(self.user2_membership.id), "access_level": "member"}
+        )
+
+        # Create another team and set different member override directly in DB
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        AccessControl.objects.create(
+            team=other_team, resource="project", organization_member=self.user2_membership, access_level="admin"
+        )
+
+        # Request should only return current team's member overrides
+        res = self.client.get("/api/projects/@current/access_control_members")
+        member_data = self._find_member(res.json()["results"], self.user2_membership.id)
+        assert member_data["project"]["access_level"] == "member"
