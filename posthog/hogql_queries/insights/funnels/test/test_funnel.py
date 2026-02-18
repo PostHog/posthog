@@ -5289,7 +5289,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["count"], 2)
         self.assertEqual(result[0]["name"], "$pageview, $pageleave")
         self.assertEqual(result[0]["action_id"], "$pageview, $pageleave")
-        self.assertEqual(result[0]["type"], "events")
+        self.assertEqual(result[0]["type"], "group")
         self.assertEqual(result[1]["count"], 2)
         self.assertEqual(result[1]["name"], "$checkout")
 
@@ -5347,7 +5347,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(result[0]["count"], 2)
         self.assertEqual(result[0]["name"], "Page Action, sign up")
-        self.assertEqual(result[0]["type"], "events")
+        self.assertEqual(result[0]["type"], "group")
         self.assertEqual(result[1]["count"], 2)
 
     def test_group_node_with_child_property_filters(self):
