@@ -9,8 +9,6 @@ import httpx
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-from posthog.schema import RecordingsQuery
-
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.models import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
@@ -24,6 +22,7 @@ from posthog.temporal.delete_recordings.types import (
     BulkDeleteResult,
     DeleteFailure,
     LoadRecordingError,
+    LoadRecordingsPage,
     PurgeDeletedMetadataInput,
     PurgeDeletedMetadataResult,
     RecordingsWithPersonInput,
@@ -49,17 +48,19 @@ def _parse_session_recording_list_response(raw_response: bytes) -> list[str]:
 
 
 @activity.defn(name="load-recordings-with-person")
-async def load_recordings_with_person(input: RecordingsWithPersonInput) -> list[str]:
+async def load_recordings_with_person(input: RecordingsWithPersonInput) -> LoadRecordingsPage:
     bind_contextvars(distinct_ids=input.distinct_ids, team_id=input.team_id)
     tag_queries(product=Product.REPLAY, team_id=input.team_id)
     logger = LOGGER.bind()
-    logger.info("Loading all sessions for distinct IDs", distinct_id_count=len(input.distinct_ids))
+    logger.info("Loading sessions for distinct IDs", distinct_id_count=len(input.distinct_ids), cursor=input.cursor)
 
-    query: str = SessionReplayEvents.get_sessions_from_distinct_id_query(format="JSON")
-    parameters = {
+    query: str = SessionReplayEvents.get_sessions_from_distinct_id_query(format="JSON", paginated=True)
+    parameters: dict = {
         "team_id": input.team_id,
         "distinct_ids": input.distinct_ids,
         "python_now": datetime.now(UTC),
+        "cursor": input.cursor or "",
+        "page_size": input.page_size,
     }
 
     ch_query_id = str(uuid4())
@@ -70,21 +71,24 @@ async def load_recordings_with_person(input: RecordingsWithPersonInput) -> list[
             raw_response = await ch_response.content.read()
 
     session_ids: list[str] = _parse_session_recording_list_response(raw_response)
-    logger.info("Successfully loaded session IDs", session_count=len(session_ids))
-    return session_ids
+    next_cursor = session_ids[-1] if len(session_ids) == input.page_size else None
+    logger.info("Loaded session IDs page", session_count=len(session_ids), has_more=next_cursor is not None)
+    return LoadRecordingsPage(session_ids=session_ids, next_cursor=next_cursor)
 
 
 @activity.defn(name="load-recordings-with-team-id")
-async def load_recordings_with_team_id(input: RecordingsWithTeamInput) -> list[str]:
+async def load_recordings_with_team_id(input: RecordingsWithTeamInput) -> LoadRecordingsPage:
     bind_contextvars(team_id=input.team_id)
     tag_queries(product=Product.REPLAY, team_id=input.team_id)
     logger = LOGGER.bind()
-    logger.info("Loading all sessions for team")
+    logger.info("Loading sessions for team", cursor=input.cursor)
 
-    query: str = SessionReplayEvents.get_sessions_from_team_id_query(format="JSON")
-    parameters = {
+    query: str = SessionReplayEvents.get_sessions_from_team_id_query(format="JSON", paginated=True)
+    parameters: dict = {
         "team_id": input.team_id,
         "python_now": datetime.now(UTC),
+        "cursor": input.cursor or "",
+        "page_size": input.page_size,
     }
 
     ch_query_id = str(uuid4())
@@ -95,21 +99,25 @@ async def load_recordings_with_team_id(input: RecordingsWithTeamInput) -> list[s
             raw_response = await ch_response.content.read()
 
     session_ids: list[str] = _parse_session_recording_list_response(raw_response)
-    logger.info("Successfully loaded session IDs", session_count=len(session_ids))
-    return session_ids
+    next_cursor = session_ids[-1] if len(session_ids) == input.page_size else None
+    logger.info("Loaded session IDs page", session_count=len(session_ids), has_more=next_cursor is not None)
+    return LoadRecordingsPage(session_ids=session_ids, next_cursor=next_cursor)
 
 
 @activity.defn(name="load-recordings-with-query")
-async def load_recordings_with_query(input: RecordingsWithQueryInput) -> list[str]:
+async def load_recordings_with_query(input: RecordingsWithQueryInput) -> LoadRecordingsPage:
     bind_contextvars(team_id=input.team_id)
     tag_queries(product=Product.REPLAY, team_id=input.team_id)
     logger = LOGGER.bind()
-    logger.info("Loading all sessions matching query")
+    logger.info("Loading sessions matching query", cursor=input.cursor)
 
     query_dict = dict(parse.parse_qsl(input.query))
     query_dict.pop("add_events_to_property_queries", None)
     parsed_query = filter_from_params_to_query(query_dict)
     parsed_query.limit = input.query_limit
+
+    if input.cursor:
+        parsed_query.after = input.cursor
 
     team = (
         await Team.objects.select_related("organization")
@@ -117,34 +125,17 @@ async def load_recordings_with_query(input: RecordingsWithQueryInput) -> list[st
         .aget(id=input.team_id)
     )
 
-    session_ids: list[str] = []
+    query_instance = SessionRecordingListFromQuery(
+        query=parsed_query,
+        team=team,
+        hogql_query_modifiers=None,
+    )
+    query_results = await database_sync_to_async(query_instance.run)()
+    session_ids = [session["session_id"] for session in query_results.results]
+    next_cursor = query_results.next_cursor if query_results.has_more_recording else None
 
-    async def get_session_ids(query: RecordingsQuery, batch_count: int) -> tuple[bool, str | None]:
-        query_instance = SessionRecordingListFromQuery(
-            query=query,
-            team=team,
-            hogql_query_modifiers=None,
-        )
-        query_results = await database_sync_to_async(query_instance.run)()
-        new_sessions = [session["session_id"] for session in query_results.results]
-        session_ids.extend(new_sessions)
-
-        logger.info("Loaded recording batch", batch=batch_count, session_count=len(new_sessions))
-
-        return query_results.has_more_recording, query_results.next_cursor
-
-    batch_count = 1
-    has_more_recording, next_cursor = await get_session_ids(parsed_query, batch_count)
-    while has_more_recording:
-        if next_cursor is None:
-            break
-
-        batch_count += 1
-        parsed_query.after = next_cursor
-        has_more_recording, next_cursor = await get_session_ids(parsed_query, batch_count)
-
-    logger.info("Finished loading sessions to be deleted", session_count=len(session_ids))
-    return session_ids
+    logger.info("Loaded session IDs page", session_count=len(session_ids), has_more=next_cursor is not None)
+    return LoadRecordingsPage(session_ids=session_ids, next_cursor=next_cursor)
 
 
 @activity.defn(name="purge-deleted-metadata")
