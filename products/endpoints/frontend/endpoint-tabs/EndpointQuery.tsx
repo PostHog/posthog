@@ -120,7 +120,7 @@ function EndpointHogQLQuery({
             query: queryInput,
             variables: query.variables,
         } as HogQLQuery)
-    }, [query.query, query.variables, queryInput, setLocalQuery])
+    }, [query.query, query.variables, queryInput]) // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="flex gap-4">
