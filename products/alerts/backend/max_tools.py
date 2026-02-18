@@ -310,6 +310,9 @@ class UpsertAlertTool(MaxTool):
                     }
                 alert.insight = insight
                 update_fields.append("insight")
+                if alert.threshold is not None:
+                    alert.threshold.insight = insight
+                    await sync_to_async(alert.threshold.save)(update_fields=["insight"])
 
             has_threshold_changes = (
                 action.upper_threshold is not None
