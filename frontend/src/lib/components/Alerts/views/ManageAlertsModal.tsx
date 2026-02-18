@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconNotification } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -9,13 +8,12 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
 import { pluralize } from 'lib/utils'
-import { useMaxTool } from 'scenes/max/useMaxTool'
 import { urls } from 'scenes/urls'
 
 import { AlertState, InsightThresholdType } from '~/queries/schema/schema-general'
 import { InsightShortId } from '~/types'
 
-import { InsightAlertsLogicProps, areAlertsSupportedForInsight, insightAlertsLogic } from '../insightAlertsLogic'
+import { InsightAlertsLogicProps, insightAlertsLogic } from '../insightAlertsLogic'
 import { AlertType } from '../types'
 
 export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Element {
@@ -77,26 +75,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
     const { push } = useActions(router)
     const logic = insightAlertsLogic(props)
 
-    const { alerts, insight } = useValues(logic)
-
-    useMaxTool({
-        identifier: 'create_alert',
-        context: {
-            insight_id: props.insightId,
-            insight_name: insight?.name,
-            insight_short_id: props.insightShortId,
-        },
-        contextDescription: {
-            text: insight?.name || 'Current insight',
-            icon: <IconNotification />,
-        },
-        active: props.canCreateAlertForInsight && areAlertsSupportedForInsight(insight?.query),
-        suggestions: [
-            'Create an alert when the value drops below the current average',
-            'Alert me if daily values increase by more than 50%',
-            'Set up a weekly check for this metric',
-        ],
-    })
+    const { alerts } = useValues(logic)
 
     return (
         <LemonModal onClose={props.onClose} isOpen={props.isOpen} width={600} simple title="">

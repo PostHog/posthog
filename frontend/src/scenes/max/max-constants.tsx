@@ -938,17 +938,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Creating a document...'
         },
     },
-    create_alert: {
-        name: 'Create alerts',
-        description: 'Create alerts to monitor insight metrics',
+    upsert_alert: {
+        name: 'Manage alerts',
+        description: 'Create or edit alerts to monitor insight metrics',
         icon: <IconNotification />,
         product: Scene.Insight,
         modes: [AgentMode.ProductAnalytics],
         displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Created alert'
+            const action = toolCall.args?.action?.action
+            if (action === 'update') {
+                return toolCall.status === 'completed' ? 'Updated alert' : 'Updating alert...'
             }
-            return 'Creating alert...'
+            return toolCall.status === 'completed' ? 'Created alert' : 'Creating alert...'
         },
     },
     finalize_plan: {
