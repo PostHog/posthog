@@ -8,7 +8,7 @@ import { EventHeaders, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
+import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { createCreateEventStep } from '../event-processing/create-event-step'
 import { createEmitEventStep } from '../event-processing/emit-event-step'
@@ -26,7 +26,6 @@ export interface EventSubpipelineInput {
     event: PluginEvent
     team: Team
     headers: EventHeaders
-    groupStoreForBatch: GroupStoreForBatch
 }
 
 export interface EventSubpipelineConfig {
@@ -38,6 +37,7 @@ export interface EventSubpipelineConfig {
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
     personsStore: PersonsStore
+    groupStore: BatchWritingGroupStore
     kafkaProducer: KafkaProducerWrapper
     groupId: string
 }
@@ -46,7 +46,8 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
     builder: StartPipelineBuilder<TInput, TContext>,
     config: EventSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { options, teamManager, groupTypeManager, hogTransformer, personsStore, kafkaProducer, groupId } = config
+    const { options, teamManager, groupTypeManager, hogTransformer, personsStore, groupStore, kafkaProducer, groupId } =
+        config
 
     return builder
         .pipe(createNormalizeProcessPersonFlagStep())
@@ -54,7 +55,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
         .pipe(createNormalizeEventStep())
         .pipe(createProcessPersonlessStep(personsStore))
         .pipe(createProcessPersonsStep(options, kafkaProducer, personsStore))
-        .pipe(createEventPipelineRunnerV1Step(options, kafkaProducer, teamManager, groupTypeManager))
+        .pipe(createEventPipelineRunnerV1Step(options, kafkaProducer, teamManager, groupTypeManager, groupStore))
         .pipe(
             createExtractHeatmapDataStep({
                 kafkaProducer,

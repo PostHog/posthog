@@ -17,7 +17,7 @@ import {
     EventPipelineRunnerOptions,
 } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
+import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PipelineResult, PipelineResultType, ok } from '../pipelines/results'
 import { EventPipelineRunnerInput, createEventPipelineRunnerV1Step } from './event-pipeline-runner-v1-step'
 
@@ -66,7 +66,7 @@ describe('event-pipeline-runner-v1-step', () => {
     let mockKafkaProducer: KafkaProducerWrapper
     let mockTeamManager: TeamManager
     let mockGroupTypeManager: GroupTypeManager
-    let mockGroupStore: GroupStoreForBatch
+    let mockGroupStore: BatchWritingGroupStore
     let mockPerson: Person
     let mockEventPipelineRunner: jest.Mocked<EventPipelineRunner>
     let mockMessage: Message
@@ -92,7 +92,7 @@ describe('event-pipeline-runner-v1-step', () => {
         mockKafkaProducer = {} as KafkaProducerWrapper
         mockTeamManager = {} as TeamManager
         mockGroupTypeManager = {} as GroupTypeManager
-        mockGroupStore = {} as GroupStoreForBatch
+        mockGroupStore = {} as BatchWritingGroupStore
         mockPerson = createTestPerson()
 
         mockMessage = createTestMessage({
@@ -140,7 +140,8 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockConfig,
                 mockKafkaProducer,
                 mockTeamManager,
-                mockGroupTypeManager
+                mockGroupTypeManager,
+                mockGroupStore
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
@@ -148,7 +149,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
-                groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 person: mockPerson,
             }
@@ -187,7 +187,8 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockConfig,
                 mockKafkaProducer,
                 mockTeamManager,
-                mockGroupTypeManager
+                mockGroupTypeManager,
+                mockGroupStore
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
@@ -195,7 +196,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
-                groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 person: mockPerson,
             }
@@ -212,7 +212,8 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockConfig,
                 mockKafkaProducer,
                 mockTeamManager,
-                mockGroupTypeManager
+                mockGroupTypeManager,
+                mockGroupStore
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
@@ -220,7 +221,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
-                groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 person: mockPerson,
             }
@@ -236,7 +236,8 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockConfig,
                 mockKafkaProducer,
                 mockTeamManager,
-                mockGroupTypeManager
+                mockGroupTypeManager,
+                mockGroupStore
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
@@ -244,7 +245,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
-                groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 person: mockPerson,
             }
@@ -265,7 +265,8 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockConfig,
                 mockKafkaProducer,
                 mockTeamManager,
-                mockGroupTypeManager
+                mockGroupTypeManager,
+                mockGroupStore
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
@@ -273,7 +274,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
-                groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 person: mockPerson,
             }
@@ -296,7 +296,8 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockConfig,
                 mockKafkaProducer,
                 mockTeamManager,
-                mockGroupTypeManager
+                mockGroupTypeManager,
+                mockGroupStore
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
@@ -304,7 +305,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
-                groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 person: mockPerson,
             }
@@ -327,7 +327,8 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockConfig,
                 mockKafkaProducer,
                 mockTeamManager,
-                mockGroupTypeManager
+                mockGroupTypeManager,
+                mockGroupStore
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
@@ -335,7 +336,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
-                groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 person: mockPerson,
             }
@@ -362,7 +362,8 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockConfig,
                 mockKafkaProducer,
                 mockTeamManager,
-                mockGroupTypeManager
+                mockGroupTypeManager,
+                mockGroupStore
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
@@ -370,7 +371,6 @@ describe('event-pipeline-runner-v1-step', () => {
                 timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
-                groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 person: mockPerson,
             }

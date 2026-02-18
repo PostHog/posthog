@@ -14,7 +14,7 @@ import { KAFKA_GROUPS } from '~/config/kafka-topics'
 import { createRedisFromConfig } from '~/utils/db/redis'
 import { parseRawClickHouseEvent } from '~/utils/event'
 import { captureTeamEvent } from '~/utils/posthog'
-import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
+import { BatchWritingGroupStore } from '~/worker/ingestion/groups/batch-writing-group-store'
 import { BatchWritingPersonsStore } from '~/worker/ingestion/persons/batch-writing-person-store'
 import { PersonsStore } from '~/worker/ingestion/persons/persons-store'
 
@@ -112,13 +112,14 @@ describe('processEvent', () => {
             new PostgresPersonRepository(hub.postgres),
             hub.kafkaProducer
         )
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
-            hub.kafkaProducer,
-            hub.groupRepository,
-            hub.clickhouseGroupRepository
-        )
+
         const person = createTestPerson({ team_id: teamId })
 
+        const groupStoreForBatch = new BatchWritingGroupStore({
+            kafkaProducer: hub.kafkaProducer,
+            groupRepository: hub.groupRepository,
+            clickhouseGroupRepository: hub.clickhouseGroupRepository,
+        })
         const runner = new EventPipelineRunner(
             {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,

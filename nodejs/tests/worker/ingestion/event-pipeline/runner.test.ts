@@ -5,7 +5,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { PipelineResult, isOkResult } from '~/ingestion/pipelines/results'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
+import { BatchWritingGroupStore } from '~/worker/ingestion/groups/batch-writing-group-store'
 
 import { KafkaProducerWrapper } from '../../../../src/kafka/producer'
 import { ISOTimestamp, Person, PipelineEvent, PreIngestionEvent, ProjectId, Team } from '../../../../src/types'
@@ -142,7 +142,7 @@ const person: Person = {
 describe('EventPipelineRunner', () => {
     let runner: TestEventPipelineRunner
     let hub: any
-    let groupStoreForBatch: BatchWritingGroupStoreForBatch
+    let groupStoreForBatch: BatchWritingGroupStore
 
     const mockProducer: jest.Mocked<KafkaProducerWrapper> = {
         queueMessages: jest.fn() as any,
@@ -176,11 +176,11 @@ describe('EventPipelineRunner', () => {
             PERSON_PROPERTIES_UPDATE_ALL: false,
         }
 
-        groupStoreForBatch = new BatchWritingGroupStoreForBatch(
-            hub.kafkaProducer,
-            hub.groupRepository,
-            hub.clickhouseGroupRepository
-        )
+        groupStoreForBatch = new BatchWritingGroupStore({
+            kafkaProducer: hub.kafkaProducer,
+            groupRepository: hub.groupRepository,
+            clickhouseGroupRepository: hub.clickhouseGroupRepository,
+        })
         const options: EventPipelineRunnerOptions = {
             SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
             TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE,
@@ -261,11 +261,11 @@ describe('EventPipelineRunner', () => {
 
                 // setup just enough mocks that the right pipeline runs
 
-                const heatmapGroupStoreForBatch = new BatchWritingGroupStoreForBatch(
-                    hub.kafkaProducer,
-                    hub.groupRepository,
-                    hub.clickhouseGroupRepository
-                )
+                const heatmapGroupStoreForBatch = new BatchWritingGroupStore({
+                    kafkaProducer: hub.kafkaProducer,
+                    groupRepository: hub.groupRepository,
+                    clickhouseGroupRepository: hub.clickhouseGroupRepository,
+                })
                 const heatmapOptions: EventPipelineRunnerOptions = {
                     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
                     TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE,
