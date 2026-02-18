@@ -13,7 +13,6 @@ class DeletionProgress(BaseModel):
     total_found: int = 0
     total_deleted: int = 0
     total_failed: int = 0
-    failed: list["DeleteFailure"] = []
     started_at: datetime | None = None
 
 
@@ -64,14 +63,9 @@ class BulkDeleteInput(BaseModel):
     dry_run: bool = False
 
 
-class DeleteFailure(BaseModel):
-    session_id: str
-    error: str
-
-
 class BulkDeleteResult(BaseModel):
     deleted: list[str]
-    failed: list[DeleteFailure]
+    failed_count: int = 0
 
 
 class LoadRecordingsPage(BaseModel):
@@ -99,9 +93,6 @@ class DeletionCertificate(BaseModel):
     total_recordings_found: int
     total_deleted: int
     total_failed: int
-
-    # Detailed records
-    failed: list[DeleteFailure]
 
 
 class LoadRecordingError(Exception):

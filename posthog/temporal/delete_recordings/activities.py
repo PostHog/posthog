@@ -20,7 +20,6 @@ from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.delete_recordings.types import (
     BulkDeleteInput,
     BulkDeleteResult,
-    DeleteFailure,
     LoadRecordingError,
     LoadRecordingsPage,
     PurgeDeletedMetadataInput,
@@ -195,7 +194,7 @@ async def bulk_delete_recordings(input: BulkDeleteInput) -> BulkDeleteResult:
 
     if input.dry_run:
         logger.info("Dry run: skipping deletion")
-        return BulkDeleteResult(deleted=[], failed=[])
+        return BulkDeleteResult(deleted=[])
 
     logger.info("Deleting recordings via recording API")
 
@@ -215,12 +214,12 @@ async def bulk_delete_recordings(input: BulkDeleteInput) -> BulkDeleteResult:
         data = response.json()
 
     deleted: list[str] = data.get("deleted", [])
-    failed = [DeleteFailure(**entry) for entry in data.get("failed", [])]
+    failed_count = len(data.get("failed", []))
 
     logger.info(
         "Delete batch completed",
         deleted_count=len(deleted),
-        failed_count=len(failed),
+        failed_count=failed_count,
     )
 
-    return BulkDeleteResult(deleted=deleted, failed=failed)
+    return BulkDeleteResult(deleted=deleted, failed_count=failed_count)

@@ -1,20 +1,26 @@
+import json
+
 import pytest
 from unittest.mock import AsyncMock, patch
 
 import httpx
 
-from posthog.temporal.delete_recordings.activities import bulk_delete_recordings, purge_deleted_metadata
-from posthog.temporal.delete_recordings.types import BulkDeleteInput, DeleteFailure, PurgeDeletedMetadataInput
+from posthog.temporal.delete_recordings.activities import (
+    _parse_session_recording_list_response,
+    bulk_delete_recordings,
+    purge_deleted_metadata,
+)
+from posthog.temporal.delete_recordings.types import BulkDeleteInput, LoadRecordingError, PurgeDeletedMetadataInput
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "response_json, expected_deleted, expected_failed",
+    "response_json, expected_deleted, expected_failed_count",
     [
         pytest.param(
             {"deleted": ["s1", "s2"], "failed": []},
             ["s1", "s2"],
-            [],
+            0,
             id="all_deleted",
         ),
         pytest.param(
@@ -23,18 +29,18 @@ from posthog.temporal.delete_recordings.types import BulkDeleteInput, DeleteFail
                 "failed": [{"session_id": "s2", "error": "Key not found"}],
             },
             ["s1"],
-            [DeleteFailure(session_id="s2", error="Key not found")],
+            1,
             id="mixed_results",
         ),
         pytest.param(
             {"deleted": [], "failed": []},
             [],
-            [],
+            0,
             id="empty_results",
         ),
     ],
 )
-async def test_bulk_delete_recordings_parses_response(response_json, expected_deleted, expected_failed):
+async def test_bulk_delete_recordings_parses_response(response_json, expected_deleted, expected_failed_count):
     mock_response = httpx.Response(200, json=response_json, request=httpx.Request("POST", "http://test"))
 
     with (
@@ -53,7 +59,7 @@ async def test_bulk_delete_recordings_parses_response(response_json, expected_de
         result = await bulk_delete_recordings(BulkDeleteInput(team_id=123, session_ids=["s1", "s2"]))
 
     assert result.deleted == expected_deleted
-    assert result.failed == expected_failed
+    assert result.failed_count == expected_failed_count
 
 
 @pytest.mark.asyncio
@@ -212,3 +218,35 @@ async def test_purge_deleted_metadata_parameterizes_grace_period(grace_period_da
 async def test_purge_deleted_metadata_rejects_invalid_grace_period(invalid_days):
     with pytest.raises(ValueError, match="grace_period_days must be between 1 and 365"):
         await purge_deleted_metadata(PurgeDeletedMetadataInput(grace_period_days=invalid_days))
+
+
+@pytest.mark.parametrize(
+    "raw_response, expected",
+    [
+        pytest.param(
+            json.dumps({"data": [{"session_id": "s1"}, {"session_id": "s2"}]}).encode(),
+            ["s1", "s2"],
+            id="valid_response",
+        ),
+        pytest.param(
+            json.dumps({"data": []}).encode(),
+            [],
+            id="empty_data",
+        ),
+    ],
+)
+def test_parse_session_recording_list_response(raw_response, expected):
+    assert _parse_session_recording_list_response(raw_response) == expected
+
+
+@pytest.mark.parametrize(
+    "raw_response, error_match",
+    [
+        pytest.param(b"", "Got empty response", id="empty_bytes"),
+        pytest.param(b"not json", "Unable to parse JSON", id="malformed_json"),
+        pytest.param(json.dumps({"rows": []}).encode(), "Got malformed JSON", id="missing_data_key"),
+    ],
+)
+def test_parse_session_recording_list_response_errors(raw_response, error_match):
+    with pytest.raises(LoadRecordingError, match=error_match):
+        _parse_session_recording_list_response(raw_response)
