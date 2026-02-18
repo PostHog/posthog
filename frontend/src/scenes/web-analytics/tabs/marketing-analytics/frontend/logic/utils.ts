@@ -409,53 +409,6 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
             return null
         },
     },
-    SnapchatAds: {
-        idField: 'id',
-        timestampField: 'start_time',
-        columnMappings: {
-            cost: 'spend',
-            impressions: 'impressions',
-            clicks: 'swipes',
-            reportedConversion: 'conversion_purchases',
-            reportedConversionValue: 'conversion_purchases_value',
-            costNeedsDivision: true,
-            currencyColumn: 'currency',
-        },
-        specialConversionLogic: (table, tileColumnSelection) => {
-            // Use conversion fields from centralized config
-            const { conversionFields, conversionValueFields } = MARKETING_INTEGRATION_CONFIGS.SnapchatAds
-
-            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
-                const availableFields = conversionFields.filter((field) => table.fields && field in table.fields)
-                if (availableFields.length > 0) {
-                    const sumExpr = availableFields.map((field) => `ifNull(toFloat(${field}), 0)`).join(' + ')
-                    return {
-                        math: 'hogql' as any,
-                        math_hogql: `SUM(${sumExpr})`,
-                    }
-                }
-                return {
-                    math: 'hogql' as any,
-                    math_hogql: '0',
-                }
-            }
-            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
-                const availableFields = conversionValueFields.filter((field) => table.fields && field in table.fields)
-                if (availableFields.length > 0) {
-                    const sumExpr = availableFields.map((field) => `ifNull(toFloat(${field}), 0)`).join(' + ')
-                    return {
-                        math: 'hogql' as any,
-                        math_hogql: `SUM(${sumExpr})`,
-                    }
-                }
-                return {
-                    math: 'hogql' as any,
-                    math_hogql: '0',
-                }
-            }
-            return null
-        },
-    },
 }
 
 function createColumnConfig(columnName: string, type: 'float' | 'integer', needsDivision = false): ColumnConfig {
