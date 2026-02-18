@@ -18,39 +18,41 @@ jobs:
     notify-priority-review:
         runs-on: ubuntu-latest
         if: >-
-            (
-              github.event.action == 'labeled'
-              && github.event.label.name == 'priority-review'
-              && github.event.pull_request.draft == false
-            ) || (
-              github.event.action == 'ready_for_review'
-              && contains(github.event.pull_request.labels.*.name, 'priority-review')
+            github.event.pull_request.head.repo.full_name == github.repository
+            && contains(fromJSON('["MEMBER","OWNER"]'), github.event.pull_request.author_association)
+            && (
+              (
+                github.event.action == 'labeled'
+                && github.event.label.name == 'priority-review'
+                && github.event.pull_request.draft == false
+              ) || (
+                github.event.action == 'ready_for_review'
+                && contains(github.event.pull_request.labels.*.name, 'priority-review')
+              )
             )
         steps:
-            - name: Get author display name
-              id: author
+            - name: Get author display name and escape PR title
+              id: meta
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               with:
                   script: |
                       const { data: user } = await github.rest.users.getByUsername({
                         username: context.payload.pull_request.user.login,
                       });
-                      core.setOutput('name', user.name || context.payload.pull_request.user.login);
+                      const name = user.name || context.payload.pull_request.user.login;
 
-            - name: Escape PR title
-              id: pr
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
-              with:
-                  script: |
-                      const title = context.payload.pull_request.title;
-                      const escaped = title
-                        .replace(/&/g, '&amp;')
-                        .replace(/</g, '&lt;')
-                        .replace(/>/g, '&gt;')
-                        .replace(/\|/g, '-')
-                        .replace(/\\/g, '\\\\')
-                        .replace(/"/g, '\\"');
-                      core.setOutput('title', escaped);
+                      function escapeSlack(str) {
+                        return str
+                          .replace(/&/g, '&amp;')
+                          .replace(/</g, '&lt;')
+                          .replace(/>/g, '&gt;')
+                          .replace(/\|/g, '-')
+                          .replace(/\\/g, '\\\\')
+                          .replace(/"/g, '\\"');
+                      }
+
+                      core.setOutput('author', escapeSlack(name));
+                      core.setOutput('title', escapeSlack(context.payload.pull_request.title));
 
             - name: Post to Slack
               id: slack
@@ -61,13 +63,13 @@ jobs:
                   errors: true
                   payload: |
                       channel: "${{ env.SLACK_CHANNEL }}"
-                      text: "Priority review requested: ${{ steps.pr.outputs.title }}"
+                      text: "Priority review requested: ${{ steps.meta.outputs.title }}"
                       unfurl_links: false
                       blocks:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: ":eyes: <${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }} ${{ steps.pr.outputs.title }}> by ${{ steps.author.outputs.name }}"
+                            text: ":eyes: <${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }} ${{ steps.meta.outputs.title }}> by ${{ steps.meta.outputs.author }}"
 
             - name: Save Slack message info
               run: |
@@ -82,7 +84,7 @@ jobs:
                   path: .priority-review-slack
                   key: priority-review-slack-pr-${{ github.event.pull_request.number }}
 
-    # When a priority-review PR is closed, strikethrough the Slack message
+    # When a priority-review PR is closed or merged, update the Slack message
     cleanup-closed:
         runs-on: ubuntu-latest
         if: >-
@@ -106,23 +108,28 @@ jobs:
                     echo "found=false" >> $GITHUB_OUTPUT
                   fi
 
-            - name: Escape PR title
+            - name: Escape PR title and determine status
               if: steps.slack_msg.outputs.found == 'true'
-              id: pr
+              id: meta
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               with:
                   script: |
-                      const title = context.payload.pull_request.title;
-                      const escaped = title
-                        .replace(/&/g, '&amp;')
-                        .replace(/</g, '&lt;')
-                        .replace(/>/g, '&gt;')
-                        .replace(/\|/g, '-')
-                        .replace(/\\/g, '\\\\')
-                        .replace(/"/g, '\\"');
-                      core.setOutput('title', escaped);
+                      function escapeSlack(str) {
+                        return str
+                          .replace(/&/g, '&amp;')
+                          .replace(/</g, '&lt;')
+                          .replace(/>/g, '&gt;')
+                          .replace(/\|/g, '-')
+                          .replace(/\\/g, '\\\\')
+                          .replace(/"/g, '\\"');
+                      }
 
-            - name: Strikethrough Slack message
+                      const merged = context.payload.pull_request.merged;
+                      core.setOutput('title', escapeSlack(context.payload.pull_request.title));
+                      core.setOutput('emoji', merged ? ':merged:' : ':closed:');
+                      core.setOutput('status', merged ? 'merged' : 'closed');
+
+            - name: Update Slack message
               if: steps.slack_msg.outputs.found == 'true'
               continue-on-error: true
               uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
@@ -133,12 +140,12 @@ jobs:
                   payload: |
                       channel: "${{ steps.slack_msg.outputs.channel }}"
                       ts: "${{ steps.slack_msg.outputs.ts }}"
-                      text: "Closed: ${{ steps.pr.outputs.title }}"
+                      text: "${{ steps.meta.outputs.status }}: ${{ steps.meta.outputs.title }}"
                       blocks:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: "~<${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }} ${{ steps.pr.outputs.title }}>~ (closed)"
+                            text: "${{ steps.meta.outputs.emoji }} ~<${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }} ${{ steps.meta.outputs.title }}>~ (${{ steps.meta.outputs.status }})"
 
     # When a priority-review PR is approved, update the Slack message
     notify-reviewed:
@@ -165,34 +172,30 @@ jobs:
                     echo "found=false" >> $GITHUB_OUTPUT
                   fi
 
-            - name: Get display names
+            - name: Get display names and escape PR title
               if: steps.slack_msg.outputs.found == 'true'
-              id: names
+              id: meta
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               with:
                   script: |
+                      function escapeSlack(str) {
+                        return str
+                          .replace(/&/g, '&amp;')
+                          .replace(/</g, '&lt;')
+                          .replace(/>/g, '&gt;')
+                          .replace(/\|/g, '-')
+                          .replace(/\\/g, '\\\\')
+                          .replace(/"/g, '\\"');
+                      }
+
                       const [author, reviewer] = await Promise.all([
                         github.rest.users.getByUsername({ username: context.payload.pull_request.user.login }),
                         github.rest.users.getByUsername({ username: context.payload.review.user.login }),
                       ]);
-                      core.setOutput('author', author.data.name || context.payload.pull_request.user.login);
-                      core.setOutput('reviewer', reviewer.data.name || context.payload.review.user.login);
 
-            - name: Escape PR title
-              if: steps.slack_msg.outputs.found == 'true'
-              id: pr
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
-              with:
-                  script: |
-                      const title = context.payload.pull_request.title;
-                      const escaped = title
-                        .replace(/&/g, '&amp;')
-                        .replace(/</g, '&lt;')
-                        .replace(/>/g, '&gt;')
-                        .replace(/\|/g, '-')
-                        .replace(/\\/g, '\\\\')
-                        .replace(/"/g, '\\"');
-                      core.setOutput('title', escaped);
+                      core.setOutput('author', escapeSlack(author.data.name || context.payload.pull_request.user.login));
+                      core.setOutput('reviewer', escapeSlack(reviewer.data.name || context.payload.review.user.login));
+                      core.setOutput('title', escapeSlack(context.payload.pull_request.title));
 
             - name: Add checkmark reaction
               if: steps.slack_msg.outputs.found == 'true'
@@ -218,9 +221,9 @@ jobs:
                   payload: |
                       channel: "${{ steps.slack_msg.outputs.channel }}"
                       ts: "${{ steps.slack_msg.outputs.ts }}"
-                      text: "Reviewed and approved: ${{ steps.pr.outputs.title }}"
+                      text: "Reviewed and approved: ${{ steps.meta.outputs.title }}"
                       blocks:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: ":white_check_mark: <${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }} ${{ steps.pr.outputs.title }}> by ${{ steps.names.outputs.author }} — reviewed and approved by ${{ steps.names.outputs.reviewer }}"
+                            text: ":white_check_mark: <${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }} ${{ steps.meta.outputs.title }}> by ${{ steps.meta.outputs.author }} — reviewed and approved by ${{ steps.meta.outputs.reviewer }}"
