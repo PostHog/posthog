@@ -154,10 +154,12 @@ async def _handle_streaming_request(
             raise
         except TimeoutError:
             status_code = "504"
+            PROVIDER_ERRORS.labels(provider=provider_config.name, error_type="timeout", product=product).inc()
             logger.error(f"Streaming timeout for {provider_config.endpoint_name}")
             raise
         except Exception as e:
             status_code = str(getattr(e, "status_code", 500))
+            PROVIDER_ERRORS.labels(provider=provider_config.name, error_type=type(e).__name__, product=product).inc()
             capture_exception(e, {"provider": provider_config.name, "model": model, "streaming": True})
             logger.exception(f"Streaming error in {provider_config.endpoint_name} endpoint: {e}")
             raise
@@ -196,26 +198,29 @@ async def _handle_non_streaming_request(
     timeout: float,
     product: str = "llm_gateway",
 ) -> dict[str, Any]:
+    status_code = "200"
     try:
         response = await asyncio.wait_for(llm_call(**request_data), timeout=timeout)
         response_dict = response.model_dump() if hasattr(response, "model_dump") else response
-
+        return response_dict
+    except TimeoutError:
+        status_code = "504"
+        raise
+    except Exception as e:
+        status_code = str(getattr(e, "status_code", 500))
+        raise
+    finally:
         REQUEST_COUNT.labels(
             endpoint=provider_config.endpoint_name,
             provider=provider_config.name,
             model=model,
-            status_code="200",
+            status_code=status_code,
             auth_method=user.auth_method,
             product=product,
         ).inc()
-
         REQUEST_LATENCY.labels(
             endpoint=provider_config.endpoint_name,
             provider=provider_config.name,
             streaming="false",
             product=product,
         ).observe(time.monotonic() - start_time)
-
-        return response_dict
-    except Exception:
-        raise

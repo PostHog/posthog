@@ -7,3 +7,4 @@ __pycache__/
 dist/
 .coverage
 htmlcov/
+junit.xml
