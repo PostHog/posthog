@@ -119,6 +119,11 @@ capabilities:
         requires: [flag_evaluation]
         docker_profiles: []
 
+    nodejs_ingestion:
+        description: 'Node.js Ingestion - Kafka event ingestion consumers'
+        requires: [event_ingestion]
+        docker_profiles: []
+
     batch_imports:
         description: 'Batch data import worker'
         requires: [event_ingestion]
@@ -148,15 +153,23 @@ capabilities:
 intents:
     product_analytics:
         description: 'Core product analytics - insights, funnels, trends'
-        capabilities: [event_ingestion, property_definitions, celery_workers, nodejs_cdp]
+        capabilities: [event_ingestion, property_definitions, celery_workers, nodejs_cdp, nodejs_ingestion]
 
     error_tracking:
         description: 'Track and analyze application errors'
-        capabilities: [event_ingestion, error_symbolication, property_definitions, nodejs_cdp]
+        capabilities: [event_ingestion, error_symbolication, property_definitions, nodejs_cdp, nodejs_ingestion]
 
     session_replay:
         description: 'Record and replay user sessions'
-        capabilities: [event_ingestion, replay_storage, property_definitions, celery_workers, nodejs_session_replay]
+        capabilities:
+            [
+                event_ingestion,
+                replay_storage,
+                property_definitions,
+                celery_workers,
+                nodejs_session_replay,
+                nodejs_ingestion,
+            ]
 
     feature_flags:
         description: 'Feature flag management and evaluation'
@@ -171,45 +184,80 @@ intents:
                 property_definitions,
                 celery_workers,
                 nodejs_feature_flags,
+                nodejs_ingestion,
                 dagster_pipelines,
             ]
 
     llm_analytics:
         description: 'LLM/AI observability and analytics'
-        capabilities: [event_ingestion, ai_capture, llm_gateway, property_definitions, temporal_workflows]
+        capabilities:
+            [event_ingestion, ai_capture, llm_gateway, property_definitions, temporal_workflows, nodejs_ingestion]
 
     web_analytics:
         description: 'Web analytics, traffic analysis, and heatmaps'
-        capabilities: [event_ingestion, replay_storage, property_definitions]
+        capabilities: [event_ingestion, replay_storage, property_definitions, nodejs_ingestion]
 
     surveys:
         description: 'User surveys and feedback collection'
-        capabilities: [event_ingestion, property_definitions, celery_workers, celery_scheduler, nodejs_cdp]
+        capabilities:
+            [event_ingestion, property_definitions, celery_workers, celery_scheduler, nodejs_cdp, nodejs_ingestion]
 
     data_warehouse:
         description: 'Data warehouse queries and saved queries'
-        capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows]
+        capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows, nodejs_ingestion]
 
     cohorts:
         description: 'User cohort management'
-        capabilities: [event_ingestion, property_definitions, celery_workers, celery_scheduler, nodejs_realtime_cohorts]
+        capabilities:
+            [
+                event_ingestion,
+                property_definitions,
+                celery_workers,
+                celery_scheduler,
+                nodejs_realtime_cohorts,
+                nodejs_ingestion,
+            ]
 
     pipelines:
         description: 'Data pipeline transformations and destinations'
         capabilities:
-            [event_ingestion, property_definitions, celery_workers, temporal_workflows, nodejs_cdp_workflows, cyclotron]
+            [
+                event_ingestion,
+                property_definitions,
+                celery_workers,
+                temporal_workflows,
+                nodejs_cdp_workflows,
+                cyclotron,
+                nodejs_ingestion,
+            ]
 
     ai_features:
         description: 'AI features'
-        capabilities: [event_ingestion, llm_gateway, embedding_service, property_definitions, temporal_workflows]
+        capabilities:
+            [
+                event_ingestion,
+                llm_gateway,
+                embedding_service,
+                property_definitions,
+                temporal_workflows,
+                nodejs_ingestion,
+            ]
 
     logs:
         description: 'Log aggregation and viewing'
-        capabilities: [event_ingestion, property_definitions, nodejs_logs]
+        capabilities: [event_ingestion, property_definitions, nodejs_logs, nodejs_ingestion]
 
     workflows:
         description: 'Workflow automation and orchestration'
-        capabilities: [event_ingestion, property_definitions, temporal_workflows, nodejs_cdp_workflows, cyclotron]
+        capabilities:
+            [
+                event_ingestion,
+                property_definitions,
+                temporal_workflows,
+                nodejs_cdp_workflows,
+                cyclotron,
+                nodejs_ingestion,
+            ]
 
     tracing:
         description: 'OpenTelemetry tracing with Jaeger UI'

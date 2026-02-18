@@ -26,8 +26,12 @@ procs:
         capability: event_ingestion
         # Node.js capabilities are controlled via NODEJS_CAPABILITY_GROUPS env var
         # Set by hogli dev:generate based on selected nodejs_* capabilities
-        # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, feature_flags
+        # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, feature_flags, ingestion
         # Example: NODEJS_CAPABILITY_GROUPS=cdp_workflows,session_replay
+
+    nodejs-ingestion:
+        shell: 'bin/wait-for-docker && bin/check_ducklake_up && NODEJS_CAPABILITY_GROUPS=ingestion ./bin/posthog-node'
+        capability: nodejs_ingestion
 
     frontend:
         shell: './bin/start-frontend'

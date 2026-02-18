@@ -224,9 +224,20 @@ class MprocsGenerator(ConfigGenerator):
 
         Strips 'nodejs_' prefix from capability names to get the group name.
         e.g. nodejs_cdp -> cdp, nodejs_session_replay -> session_replay
+
+        Excludes nodejs_* capabilities that have their own dedicated process
+        (i.e., a process other than 'nodejs' declares that capability).
         """
         prefix = "nodejs_"
-        enabled_groups = [cap.removeprefix(prefix) for cap in resolved.capabilities if cap.startswith(prefix)]
+        enabled_groups = []
+        for cap in resolved.capabilities:
+            if not cap.startswith(prefix):
+                continue
+            # Skip capabilities served by a dedicated process
+            providers = self.registry.get_capability_units(cap)
+            if any(p != "nodejs" for p in providers):
+                continue
+            enabled_groups.append(cap.removeprefix(prefix))
 
         # If no specific groups are enabled, don't set the env var (use default behavior)
         if not enabled_groups:

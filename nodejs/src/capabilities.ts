@@ -75,6 +75,7 @@ function mergeCapabilities(...groups: PluginServerCapabilities[]): PluginServerC
 
 /** Map of capability group names to their capabilities */
 const CAPABILITY_GROUP_MAP: Record<string, PluginServerCapabilities> = {
+    ingestion: CAPABILITIES_INGESTION_ONLY,
     cdp: CAPABILITIES_CDP,
     cdp_workflows: CAPABILITIES_CDP_WORKFLOWS,
     realtime_cohorts: CAPABILITIES_REALTIME_COHORTS,
@@ -113,8 +114,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                     })
                 }
 
-                // Always include ingestion - it's required for all local dev scenarios
-                return mergeCapabilities(CAPABILITIES_INGESTION_ONLY, ...capabilities)
+                return mergeCapabilities(...capabilities)
             }
 
             // Default local dev: run everything for full functionality
