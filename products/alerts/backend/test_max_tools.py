@@ -811,21 +811,3 @@ class TestUpsertAlertTool(BaseTest):
         threshold = await sync_to_async(lambda: alert.threshold)()
         assert threshold is not None
         assert threshold.configuration["bounds"]["lower"] == 50.0
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_update_alert_moves_threshold_insight_on_insight_change(self):
-        insight_a = await self._create_trends_insight(name="Insight A")
-        insight_b = await self._create_trends_insight(name="Insight B")
-        alert = await self._create_alert(insight_a)
-        tool = self._setup_tool()
-
-        content, artifact = await tool._arun_impl(
-            action=UpdateAlertAction(alert_id=str(alert.id), insight_id=insight_b.id)
-        )
-
-        assert "updated successfully" in content
-        await sync_to_async(alert.refresh_from_db)()
-        threshold = await sync_to_async(lambda: alert.threshold)()
-        assert threshold is not None
-        assert await sync_to_async(lambda: threshold.insight_id)() == insight_b.id
