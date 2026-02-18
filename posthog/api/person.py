@@ -79,17 +79,20 @@ logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 DEFAULT_PAGE_LIMIT = 100
-# Sync with .../lib/constants.tsx and .../ingestion/webhook-formatter.ts
-# and make sure that they are materialized on prod!
+# Sync with .../lib/constants.tsx and .../cdp/utils.ts
+# It's almost certainly wrong to add more properties to this list, instead convince the user to send data to use with
+# these properties, or use e.g. a CDP transformation to rewrite their events.
+#
+# If you do want to add new columns
+# * add it to the places linked above
+# * ensure it is materialized on US and EU prod
+# * ensure the materialized columns have case-insensitive skip indexes
+# * ensure that the text box search in the Persons scene is searching this column (using the Actors query)
+
 PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     "email",
-    "Email",
-    "$email",
     "name",
-    "Name",
     "username",
-    "Username",
-    "UserName",
 ]
 
 API_PERSON_LIST_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
@@ -174,8 +177,9 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             "properties",
             "created_at",
             "uuid",
+            "last_seen_at",
         ]
-        read_only_fields = ("id", "name", "distinct_ids", "created_at", "uuid")
+        read_only_fields = ("id", "name", "distinct_ids", "created_at", "uuid", "last_seen_at")
 
     def get_name(self, person: Person) -> str:
         team = self.context["get_team"]()
@@ -194,6 +198,7 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
                 "properties": instance.properties,
                 "created_at": None,
                 "uuid": instance.uuid,
+                "last_seen_at": None,
             }
 
 

@@ -23,7 +23,8 @@ import {
     ArtifactSource,
     VisualizationArtifactContent,
 } from '~/queries/schema/schema-assistant-messages'
-import { DataTableNode, DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
@@ -65,6 +66,8 @@ function InsightSuggestionButton({ tabId }: { tabId: string }): JSX.Element {
         </>
     )
 }
+
+const QUERY_CONTEXT_POSTHOG_AI: QueryContext = { limitContext: 'posthog_ai' } as const
 
 export const VisualizationArtifactAnswer = React.memo(function VisualizationArtifactAnswer({
     message,
@@ -115,7 +118,7 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
         <MessageTemplate type="ai" className="w-full" wrapperClassName="w-full" boxClassName="flex flex-col w-full">
             {!isCollapsed && (
                 <div className={clsx('flex flex-col overflow-auto', isFunnelsQuery(rawQuery) ? 'h-[580px]' : 'h-96')}>
-                    <Query query={query} readOnly embedded />
+                    <Query query={query} readOnly embedded context={QUERY_CONTEXT_POSTHOG_AI} />
                 </div>
             )}
             <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
@@ -148,7 +151,7 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
                                 isSavedInsight
                                     ? urls.insightView(message.artifact_id as InsightShortId)
                                     : urls.insightNew({
-                                          query: query as InsightVizNode | DataVisualizationNode | DataTableNode,
+                                          query: query as InsightVizNode | DataVisualizationNode,
                                       })
                             }
                             icon={<IconOpenInNew />}

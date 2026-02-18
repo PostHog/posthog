@@ -10,8 +10,8 @@ from products.llm_analytics.backend.summarization.models import OpenAIModel, Sum
 DEFAULT_MAX_ITEMS_PER_WINDOW = (
     15  # Max items to process per window (targets ~2500 summaries in 7-day clustering window)
 )
-DEFAULT_BATCH_SIZE = 5  # Number of generations to process in parallel
-DEFAULT_TRACE_BATCH_SIZE = 4  # Traces processed in small parallel batches
+DEFAULT_BATCH_SIZE = 10  # Number of generations to process in parallel
+DEFAULT_TRACE_BATCH_SIZE = 6  # Traces processed in small parallel batches
 DEFAULT_MODE = SummarizationMode.DETAILED
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
 DEFAULT_WINDOW_OFFSET_MINUTES = 30  # Offset window into the past so traces have time to fully complete
@@ -61,7 +61,7 @@ TRACE_CAPTURE_RANGE = timedelta(minutes=10)
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
 
 # Coordinator concurrency settings
-DEFAULT_MAX_CONCURRENT_TEAMS = 5  # Max teams to process in parallel
+DEFAULT_MAX_CONCURRENT_TEAMS = 20  # Max teams to process in parallel
 
 # Timeout configuration (in seconds)
 SAMPLE_TIMEOUT_SECONDS = 900  # 15 minutes for sampling query (buffer above QUERY_ASYNC 600s ClickHouse timeout)

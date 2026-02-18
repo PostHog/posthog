@@ -2,9 +2,15 @@
 
 const LONG_FRAME_THRESHOLD_MS = 50
 const CAPTURE_INTERVAL_MS = 30_000
+const EXPECTED_FRAME_TIME_MS = 1000 / 60
 
 interface Capturable {
     capture: (event: string, properties?: Record<string, unknown>) => void
+}
+
+/** Estimate how many frames the browser skipped during a single rAF gap, assuming 60 fps. */
+export function droppedFramesForDelta(deltaMs: number): number {
+    return Math.max(0, Math.round(deltaMs / EXPECTED_FRAME_TIME_MS) - 1)
 }
 
 export function startFramerateTracking(posthog: Capturable): void {
@@ -16,6 +22,7 @@ export function startFramerateTracking(posthog: Capturable): void {
     let shortestFrame = Infinity
     let longestFrame = 0
     let longFrameCount = 0
+    let droppedFrameCount = 0
     let measurementStart = 0
 
     function reset(): void {
@@ -25,6 +32,7 @@ export function startFramerateTracking(posthog: Capturable): void {
         shortestFrame = Infinity
         longestFrame = 0
         longFrameCount = 0
+        droppedFrameCount = 0
         measurementStart = performance.now()
     }
 
@@ -39,6 +47,7 @@ export function startFramerateTracking(posthog: Capturable): void {
             min_frame_time_ms: Math.round(shortestFrame * 100) / 100,
             max_frame_time_ms: Math.round(longestFrame * 100) / 100,
             long_frame_count: longFrameCount,
+            dropped_frames: droppedFrameCount,
             total_frames: frameCount,
             measurement_duration_ms: Math.round(elapsed),
         })
@@ -59,6 +68,7 @@ export function startFramerateTracking(posthog: Capturable): void {
             if (delta > LONG_FRAME_THRESHOLD_MS) {
                 longFrameCount++
             }
+            droppedFrameCount += droppedFramesForDelta(delta)
         }
         previousTimestamp = timestamp
         rafId = requestAnimationFrame(onFrame)

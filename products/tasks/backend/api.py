@@ -25,9 +25,12 @@ from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.storage import object_storage
 
 from .models import Task, TaskRun
+from .repository_readiness import compute_repository_readiness
 from .serializers import (
     ConnectionTokenResponseSerializer,
     ErrorResponseSerializer,
+    RepositoryReadinessQuerySerializer,
+    RepositoryReadinessResponseSerializer,
     TaskListQuerySerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
@@ -41,7 +44,7 @@ from .serializers import (
     TaskSerializer,
 )
 from .services.connection_token import create_sandbox_connection_token
-from .temporal.client import execute_task_processing_workflow, execute_video_segment_clustering_workflow
+from .temporal.client import execute_task_processing_workflow
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +69,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "partial_update",
             "destroy",
             "run",
-            "cluster_video_segments",
+            "repository_readiness",
         ]
     }
 
@@ -80,6 +83,30 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
+
+    @validated_request(
+        query_serializer=RepositoryReadinessQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=RepositoryReadinessResponseSerializer, description="Repository readiness status"
+            ),
+        },
+        summary="Get repository readiness",
+        description="Get autonomy readiness details for a specific repository in the current project.",
+    )
+    @action(detail=False, methods=["get"], url_path="repository_readiness", required_scopes=["task:read"])
+    def repository_readiness(self, request, **kwargs):
+        repository = request.validated_query_data["repository"]
+        window_days = request.validated_query_data["window_days"]
+        refresh = request.validated_query_data["refresh"]
+
+        result = compute_repository_readiness(
+            team=self.team,
+            repository=repository,
+            window_days=window_days,
+            refresh=refresh,
+        )
+        return Response(result)
 
     def safely_get_queryset(self, queryset):
         qs = queryset.filter(team=self.team, deleted=False).order_by("-created_at")
@@ -179,58 +206,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task.refresh_from_db()
 
         return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
-
-    @validated_request(
-        request_serializer=None,
-        responses={
-            200: OpenApiResponse(description="Clustering workflow completed"),
-            500: OpenApiResponse(description="Clustering workflow failed"),
-        },
-        summary="Run video segment clustering",
-        description="Run the video segment clustering workflow for this team. DEBUG only. Blocks until workflow completes.",
-    )
-    @action(detail=False, methods=["post"], url_path="cluster_video_segments", required_scopes=["task:write"])
-    def cluster_video_segments(self, request, **kwargs):
-        """Run video segment clustering workflow for the current team.
-
-        This is a DEBUG endpoint for manually triggering the clustering workflow.
-        Blocks until the workflow completes and returns the result.
-        """
-        from django.conf import settings
-
-        if not settings.DEBUG:
-            return Response(
-                {"error": "This endpoint is only available in DEBUG mode"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        try:
-            # Use 7 days lookback for manual debug runs (vs watermark-based for scheduled runs)
-            lookback_hours = 7 * 24  # 7 days
-            result = execute_video_segment_clustering_workflow(team_id=self.team.id, lookback_hours=lookback_hours)
-
-            response_status = status.HTTP_200_OK if result.get("success") else status.HTTP_500_INTERNAL_SERVER_ERROR
-
-            return Response(
-                {
-                    "workflow_id": result["workflow_id"],
-                    "lookback_hours": lookback_hours,
-                    "success": result.get("success"),
-                    "error": result.get("error"),
-                    "segments_processed": result.get("segments_processed"),
-                    "clusters_found": result.get("clusters_found"),
-                    "reports_created": result.get("reports_created"),
-                    "reports_updated": result.get("reports_updated"),
-                    "artefacts_created": result.get("artefacts_created"),
-                },
-                status=response_status,
-            )
-        except Exception:
-            logger.exception(f"Failed to run video segment clustering workflow for team {self.team.id}")
-            return Response(
-                {"error": "Failed to run video segment clustering workflow"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
 
 
 @extend_schema(tags=["task-runs"])
@@ -542,7 +517,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = TaskRunArtifactPresignResponseSerializer({"url": url, "expires_in": expires_in})
         return Response(serializer.data)
 
-    @validated_request(
+    @extend_schema(
         responses={
             200: OpenApiResponse(description="Log content in JSONL format"),
             404: OpenApiResponse(description="Task run not found"),

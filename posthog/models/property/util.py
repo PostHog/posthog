@@ -994,6 +994,7 @@ def property_to_django_filter(queryset: QuerySet, property: ErrorTrackingIssueFi
         in [
             PropertyOperator.IS_NOT,
             PropertyOperator.NOT_ICONTAINS,
+            PropertyOperator.NOT_ICONTAINS_MULTI,
             PropertyOperator.NOT_REGEX,
             PropertyOperator.IS_SET,
             PropertyOperator.NOT_IN,
@@ -1011,6 +1012,8 @@ def property_to_django_filter(queryset: QuerySet, property: ErrorTrackingIssueFi
         query += "__isnull"
         value = True
     elif operator == PropertyOperator.ICONTAINS or operator == PropertyOperator.NOT_ICONTAINS:
+        query += "__icontains"
+    elif operator == PropertyOperator.ICONTAINS_MULTI or operator == PropertyOperator.NOT_ICONTAINS_MULTI:
         query += "__icontains"
     elif operator == PropertyOperator.REGEX:
         query += "__regex"

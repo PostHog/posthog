@@ -97,40 +97,44 @@ impl<E> DeduplicationResult<E> {
 }
 
 /// Labels for deduplication result metrics.
-pub struct DeduplicationResultLabels {
+pub struct DeduplicationResultLabels<'a> {
     pub result_type: &'static str,
     pub reason: Option<&'static str>,
+    pub lib: Option<&'a str>,
 }
 
-/// Get metric labels for a deduplication result.
-pub fn get_result_labels<E>(result: &DeduplicationResult<E>) -> DeduplicationResultLabels {
-    match result {
-        DeduplicationResult::New => DeduplicationResultLabels {
-            result_type: "new",
-            reason: None,
-        },
-        DeduplicationResult::ConfirmedDuplicate(info) => DeduplicationResultLabels {
-            result_type: "confirmed_duplicate",
-            reason: Some(match info.reason {
+/// Get metric labels for a deduplication result with optional library info.
+pub fn get_result_labels<'a, E>(
+    result: &DeduplicationResult<E>,
+    lib: Option<&'a str>,
+) -> DeduplicationResultLabels<'a> {
+    let (result_type, reason) = match result {
+        DeduplicationResult::New => ("new", None),
+        DeduplicationResult::ConfirmedDuplicate(info) => (
+            "confirmed_duplicate",
+            Some(match info.reason {
                 DuplicateReason::SameEvent => "same_event",
                 DuplicateReason::SameUuid => "same_uuid",
                 DuplicateReason::OnlyUuidDifferent => "only_uuid_different",
                 DuplicateReason::ContentDiffers => "content_differs",
             }),
-        },
-        DeduplicationResult::PotentialDuplicate(info) => DeduplicationResultLabels {
-            result_type: "potential_duplicate",
-            reason: Some(match info.reason {
+        ),
+        DeduplicationResult::PotentialDuplicate(info) => (
+            "potential_duplicate",
+            Some(match info.reason {
                 DuplicateReason::SameEvent => "same_event",
                 DuplicateReason::SameUuid => "same_uuid",
                 DuplicateReason::OnlyUuidDifferent => "only_uuid_different",
                 DuplicateReason::ContentDiffers => "content_differs",
             }),
-        },
-        DeduplicationResult::Skipped => DeduplicationResultLabels {
-            result_type: "skipped",
-            reason: None,
-        },
+        ),
+        DeduplicationResult::Skipped => ("skipped", None),
+    };
+
+    DeduplicationResultLabels {
+        result_type,
+        reason,
+        lib,
     }
 }
 
@@ -141,16 +145,19 @@ pub fn emit_deduplication_result_metrics(
     topic: &str,
     partition: i32,
     pipeline: &str,
-    labels: DeduplicationResultLabels,
+    labels: DeduplicationResultLabels<'_>,
 ) {
     let mut counter = MetricsHelper::with_partition(topic, partition)
-        .with_label("service", "kafka-deduplicator")
         .with_label("pipeline", pipeline)
         .counter(DEDUPLICATION_RESULT_COUNTER)
         .with_label("result_type", labels.result_type);
 
     if let Some(reason) = labels.reason {
         counter = counter.with_label("reason", reason);
+    }
+
+    if let Some(lib) = labels.lib {
+        counter = counter.with_label("lib", lib);
     }
 
     counter.increment(1);
