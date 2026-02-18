@@ -302,6 +302,7 @@ class UpsertAlertTool(MaxTool):
                     return "Insight not found. Provide a valid insight ID or short ID.", {
                         "error": "insight_not_found",
                     }
+                await self.check_object_access(insight, "editor", resource="insight", action="move alert to")
                 is_supported = await sync_to_async(are_alerts_supported_for_insight)(insight)
                 if not is_supported:
                     return "Alerts are only supported for TrendsQuery insights. This insight type is not supported.", {
@@ -316,7 +317,10 @@ class UpsertAlertTool(MaxTool):
                 or action.threshold_type is not None
             )
             if has_threshold_changes:
-                await self._update_threshold(alert, action)
+                try:
+                    await self._update_threshold(alert, action)
+                except ValidationError as e:
+                    return str(e), {"error": "validation_failed"}
                 conditions_or_threshold_changed = True
 
             if not update_fields and not has_threshold_changes:
@@ -373,10 +377,10 @@ class UpsertAlertTool(MaxTool):
 
             insight = await sync_to_async(lambda: alert.insight)()
             team = await sync_to_async(lambda: alert.team)()
-            threshold = await sync_to_async(Threshold.objects.create)(
-                team=team, insight=insight, name=alert.name, configuration=config
-            )
-            alert.threshold = threshold
+            new_threshold = Threshold(team=team, insight=insight, name=alert.name, configuration=config)
+            await sync_to_async(new_threshold.clean)()
+            await sync_to_async(new_threshold.save)()
+            alert.threshold = new_threshold
             return
 
         config = dict(threshold.configuration)
@@ -389,6 +393,7 @@ class UpsertAlertTool(MaxTool):
             bounds["upper"] = action.upper_threshold
         config["bounds"] = bounds
         threshold.configuration = config
+        await sync_to_async(threshold.clean)()
         await sync_to_async(threshold.save)(update_fields=["configuration"])
 
     # -- Shared helpers --
