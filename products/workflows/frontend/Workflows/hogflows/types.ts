@@ -50,6 +50,8 @@ export const HogFlowSchema = z.object({
     variables: z.array(CyclotronJobInputSchemaTypeSchema).optional().nullable(),
     updated_at: z.string(),
     created_at: z.string(),
+    draft: z.record(z.any()).nullable().optional(),
+    draft_updated_at: z.string().nullable().optional(),
 })
 
 export const HogFlowTemplateSchema = HogFlowSchema.omit({ status: true }).extend({

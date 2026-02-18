@@ -2,6 +2,7 @@ import json
 from typing import Optional, cast
 
 from django.db.models import QuerySet
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -207,6 +208,8 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
             "abort_action",
             "variables",
             "billable_action_types",
+            "draft",
+            "draft_updated_at",
         ]
         read_only_fields = fields
 
@@ -244,6 +247,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "abort_action",
             "variables",
             "billable_action_types",
+            "draft",
+            "draft_updated_at",
         ]
         read_only_fields = [
             "id",
@@ -252,6 +257,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "created_by",
             "abort_action",
             "billable_action_types",  # Computed field, not user-editable
+            "draft",
+            "draft_updated_at",
         ]
 
     def validate(self, data):
@@ -290,8 +297,36 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
         return super().create(validated_data=validated_data)
 
+    # Fields that represent workflow config edits (clearing draft on save)
+    # name/description are metadata and don't affect the live workflow config
+    CONTENT_FIELDS = {
+        "trigger_masking",
+        "conversion",
+        "exit_condition",
+        "edges",
+        "actions",
+        "variables",
+    }
+
     def update(self, instance, validated_data):
+        # Clear draft when content fields are saved directly (not status-only updates)
+        if validated_data.keys() & self.CONTENT_FIELDS:
+            validated_data["draft"] = None
+            validated_data["draft_updated_at"] = None
         return super().update(instance, validated_data)
+
+
+class HogFlowDraftSerializer(serializers.Serializer):
+    """Accepts all editable workflow fields, all optional, for draft saves."""
+
+    name = serializers.CharField(max_length=400, required=False)
+    description = serializers.CharField(required=False, allow_blank=True)
+    trigger_masking = serializers.JSONField(required=False, allow_null=True)
+    conversion = serializers.JSONField(required=False, allow_null=True)
+    exit_condition = serializers.CharField(max_length=100, required=False)
+    edges = serializers.JSONField(required=False)
+    actions = serializers.JSONField(required=False)
+    variables = serializers.JSONField(required=False, allow_null=True)
 
 
 class HogFlowInvocationSerializer(serializers.Serializer):
@@ -466,3 +501,51 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             batch_jobs = HogFlowBatchJob.objects.filter(hog_flow=hog_flow, team=self.team).order_by("-created_at")
             serializer = HogFlowBatchJobSerializer(batch_jobs, many=True)
             return Response(serializer.data)
+
+    @action(detail=True, methods=["PATCH"], url_path="draft")
+    def save_draft(self, request: Request, *args, **kwargs):
+        hog_flow = self.get_object()
+
+        serializer = HogFlowDraftSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        now = timezone.now()
+        existing_draft = hog_flow.draft or {}
+        merged_draft = {**existing_draft, **serializer.validated_data}
+
+        # Bypass post_save signal so draft edits don't affect live workers
+        HogFlow.objects.filter(pk=hog_flow.pk).update(draft=merged_draft, draft_updated_at=now)
+
+        hog_flow.refresh_from_db()
+        return Response(HogFlowSerializer(hog_flow, context=self.get_serializer_context()).data)
+
+    @action(detail=True, methods=["POST"], url_path="publish")
+    def publish(self, request: Request, *args, **kwargs):
+        hog_flow = self.get_object()
+
+        if not hog_flow.draft:
+            raise exceptions.ValidationError("No draft to publish.")
+
+        # Apply draft data through the full serializer with strict (active) validation
+        update_data = {**hog_flow.draft, "status": "active"}
+        serializer = HogFlowSerializer(
+            instance=hog_flow,
+            data=update_data,
+            partial=True,
+            context=self.get_serializer_context(),
+        )
+        serializer.is_valid(raise_exception=True)
+        # serializer.save() triggers post_save signal for worker reload
+        serializer.save()
+
+        return Response(HogFlowSerializer(hog_flow, context=self.get_serializer_context()).data)
+
+    @action(detail=True, methods=["POST"], url_path="discard_draft")
+    def discard_draft(self, request: Request, *args, **kwargs):
+        hog_flow = self.get_object()
+
+        # Bypass post_save signal - clearing draft doesn't affect live config
+        HogFlow.objects.filter(pk=hog_flow.pk).update(draft=None, draft_updated_at=None)
+
+        hog_flow.refresh_from_db()
+        return Response(HogFlowSerializer(hog_flow, context=self.get_serializer_context()).data)

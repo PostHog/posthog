@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { lazyLoaders, loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -112,6 +112,45 @@ export function sanitizeWorkflow(
     return workflow
 }
 
+// Fields added by the server during validation (not part of user edits)
+const SERVER_ADDED_KEYS = new Set(['bytecode', 'order'])
+
+function isEmptyValue(v: unknown): boolean {
+    if (v === null || v === undefined || v === false || v === '') {
+        return true
+    }
+    if (Array.isArray(v) && v.length === 0) {
+        return true
+    }
+    return false
+}
+
+function normalizeForComparison(obj: unknown): unknown {
+    if (Array.isArray(obj)) {
+        return obj.map(normalizeForComparison)
+    }
+    if (obj !== null && typeof obj === 'object') {
+        const sorted: Record<string, unknown> = {}
+        for (const key of Object.keys(obj as Record<string, unknown>).sort()) {
+            if (SERVER_ADDED_KEYS.has(key)) {
+                continue
+            }
+            const val = (obj as Record<string, unknown>)[key]
+            // Skip empty values that may be server defaults not present in frontend state
+            if (isEmptyValue(val)) {
+                continue
+            }
+            sorted[key] = normalizeForComparison(val)
+        }
+        return sorted
+    }
+    return obj
+}
+
+function configsEqual(a: unknown, b: unknown): boolean {
+    return JSON.stringify(normalizeForComparison(a)) === JSON.stringify(normalizeForComparison(b))
+}
+
 export const workflowLogic = kea<workflowLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic']),
     props({ id: 'new', tabId: 'default' } as WorkflowLogicProps),
@@ -130,6 +169,7 @@ export const workflowLogic = kea<workflowLogicType>([
         setWorkflowActionEdges: (actionId: string, edges: HogFlow['edges']) => ({ actionId, edges }),
         // NOTE: This is a wrapper for setWorkflowValues, to get around some weird typegen issues
         setWorkflowInfo: (workflow: Partial<HogFlow>) => ({ workflow }),
+        saveMetadataField: (field: 'name' | 'description', value: string) => ({ field, value }),
         saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
         triggerManualWorkflow: (variables: Record<string, any>, scheduledAt?: string | null) => ({
             variables,
@@ -146,6 +186,10 @@ export const workflowLogic = kea<workflowLogicType>([
         }),
         discardChanges: true,
         duplicate: true,
+        saveDraftNow: true,
+        publishWorkflow: true,
+        discardDraft: true,
+        metadataSaved: (updates: Partial<HogFlow>) => ({ updates }),
     }),
     loaders(({ props, values }) => ({
         originalWorkflow: [
@@ -202,6 +246,54 @@ export const workflowLogic = kea<workflowLogicType>([
                 },
             },
         ],
+        draftSaveResult: [
+            null as HogFlow | null,
+            {
+                saveDraftToServer: async () => {
+                    if (!props.id || props.id === 'new') {
+                        return null
+                    }
+                    const workflow = sanitizeWorkflow({ ...values.workflow }, values.hogFunctionTemplatesById)
+                    const draftData: Partial<HogFlow> = {}
+                    const draftFields: (keyof HogFlow)[] = [
+                        'name',
+                        'description',
+                        'trigger_masking',
+                        'conversion',
+                        'exit_condition',
+                        'edges',
+                        'actions',
+                        'variables',
+                    ]
+                    for (const field of draftFields) {
+                        ;(draftData as any)[field] = workflow[field]
+                    }
+                    return api.hogFlows.saveDraft(props.id, draftData)
+                },
+            },
+        ],
+        publishResult: [
+            null as HogFlow | null,
+            {
+                publishDraftToServer: async () => {
+                    if (!props.id || props.id === 'new') {
+                        return null
+                    }
+                    return api.hogFlows.publishDraft(props.id)
+                },
+            },
+        ],
+        discardDraftResult: [
+            null as HogFlow | null,
+            {
+                discardDraftOnServer: async () => {
+                    if (!props.id || props.id === 'new') {
+                        return null
+                    }
+                    return api.hogFlows.discardDraft(props.id)
+                },
+            },
+        ],
     })),
     lazyLoaders(() => ({
         hogFunctionTemplatesById: [
@@ -249,6 +341,40 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         },
     })),
+    reducers({
+        originalWorkflow: {
+            metadataSaved: (state: HogFlow | null, { updates }: { updates: Partial<HogFlow> }) =>
+                state ? { ...state, ...updates } : state,
+        },
+        draftSavedAt: [
+            null as string | null,
+            {
+                loadWorkflowSuccess: (_, { originalWorkflow }) => originalWorkflow?.draft_updated_at ?? null,
+                saveDraftToServerSuccess: (_, { draftSaveResult }) => draftSaveResult?.draft_updated_at ?? null,
+                publishDraftToServerSuccess: () => null,
+                discardDraftOnServerSuccess: () => null,
+            },
+        ],
+        hydratedFromDraft: [
+            false,
+            {
+                loadWorkflowSuccess: (_, { originalWorkflow }) => !!originalWorkflow?.draft,
+                saveWorkflowSuccess: () => false,
+                publishDraftToServerSuccess: () => false,
+                discardDraftOnServerSuccess: () => false,
+            },
+        ],
+        draftExistsOnServer: [
+            false,
+            {
+                loadWorkflowSuccess: (_, { originalWorkflow }) => !!originalWorkflow?.draft,
+                saveDraftToServerSuccess: () => true,
+                publishDraftToServerSuccess: () => false,
+                discardDraftOnServerSuccess: () => false,
+                saveWorkflowSuccess: () => false,
+            },
+        ],
+    }),
     selectors({
         logicProps: [() => [(_, props: WorkflowLogicProps) => props], (props): WorkflowLogicProps => props],
         workflowLoading: [(s) => [s.originalWorkflowLoading], (originalWorkflowLoading) => originalWorkflowLoading],
@@ -410,6 +536,74 @@ export const workflowLogic = kea<workflowLogicType>([
                 return sanitizeWorkflow(workflow, hogFunctionTemplatesById)
             },
         ],
+
+        workflowContentChanged: [
+            (s) => [s.workflow, s.originalWorkflow],
+            (workflow, originalWorkflow): boolean => {
+                if (!originalWorkflow) {
+                    return false
+                }
+                const contentFields: (keyof HogFlow)[] = [
+                    'trigger_masking',
+                    'conversion',
+                    'exit_condition',
+                    'edges',
+                    'actions',
+                    'variables',
+                ]
+                return contentFields.some(
+                    (field) =>
+                        JSON.stringify(normalizeForComparison(workflow[field])) !==
+                        JSON.stringify(normalizeForComparison(originalWorkflow[field]))
+                )
+            },
+        ],
+
+        hasPendingDraft: [(s) => [s.draftExistsOnServer], (draftExistsOnServer): boolean => draftExistsOnServer],
+
+        isDraftSaving: [(s) => [s.draftSaveResultLoading], (loading): boolean => loading],
+
+        isDraftPublishing: [(s) => [s.publishResultLoading], (loading): boolean => loading],
+
+        canPublish: [
+            (s) => [s.draftExistsOnServer, s.workflowHasActionErrors],
+            (draftExistsOnServer, hasErrors): boolean => draftExistsOnServer && !hasErrors,
+        ],
+
+        draftChangedActionIds: [
+            (s) => [s.workflow, s.originalWorkflow],
+            (workflow, originalWorkflow): Set<string> => {
+                if (!originalWorkflow || originalWorkflow.status !== 'active') {
+                    return new Set()
+                }
+                const changed = new Set<string>()
+                const liveActions = originalWorkflow.actions
+                const liveActionsById = new Map(liveActions.map((a) => [a.id, a]))
+                const currentActionsById = new Map(workflow.actions.map((a) => [a.id, a]))
+
+                for (const action of workflow.actions) {
+                    if (action.type === 'trigger' || action.type === 'exit') {
+                        continue
+                    }
+                    const liveAction = liveActionsById.get(action.id)
+                    if (!liveAction) {
+                        changed.add(action.id)
+                    } else if (!configsEqual(liveAction.config, action.config)) {
+                        changed.add(action.id)
+                    }
+                }
+                // Actions removed in draft
+                for (const action of liveActions) {
+                    if (action.type === 'trigger' || action.type === 'exit') {
+                        continue
+                    }
+                    if (!currentActionsById.has(action.id)) {
+                        changed.add(action.id)
+                    }
+                }
+                return changed
+            },
+        ],
     }),
     listeners(({ actions, values, props }) => ({
         saveWorkflowPartial: async ({ workflow }) => {
@@ -421,7 +615,25 @@ export const workflowLogic = kea<workflowLogicType>([
             actions.saveWorkflow(merged)
         },
         loadWorkflowSuccess: async ({ originalWorkflow }) => {
-            actions.resetWorkflow(originalWorkflow)
+            if (originalWorkflow?.draft) {
+                // Hydrate form with draft data, keeping identity fields from live record
+                const hydrated = {
+                    ...originalWorkflow,
+                    ...originalWorkflow.draft,
+                    id: originalWorkflow.id,
+                    status: originalWorkflow.status,
+                    version: originalWorkflow.version,
+                    team_id: originalWorkflow.team_id,
+                    created_at: originalWorkflow.created_at,
+                    updated_at: originalWorkflow.updated_at,
+                    created_by: originalWorkflow.created_by,
+                    draft: originalWorkflow.draft,
+                    draft_updated_at: originalWorkflow.draft_updated_at,
+                }
+                actions.resetWorkflow(hydrated)
+            } else {
+                actions.resetWorkflow(originalWorkflow)
+            }
         },
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
             const tasksToMarkAsCompleted: SetupTaskId[] = []
@@ -604,7 +816,110 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
         },
+        saveDraftNow: async () => {
+            if (props.id === 'new' || !props.id) {
+                // Auto-create workflow on server as draft
+                if (!values.workflow.name) {
+                    return
+                }
+                const toCreate = sanitizeWorkflow({ ...values.workflow }, values.hogFunctionTemplatesById)
+                toCreate.status = 'draft'
+                delete (toCreate as any).id
+                delete (toCreate as any).team_id
+                delete (toCreate as any).created_at
+                delete (toCreate as any).updated_at
+                try {
+                    const created = await api.hogFlows.createHogFlow(toCreate)
+                    lemonToast.success('Workflow auto-saved')
+                    router.actions.replace(
+                        urls.workflow(created.id, workflowSceneLogic.findMounted()?.values.currentTab || 'workflow')
+                    )
+                } catch (e) {
+                    // Silently fail - user can still manually save
+                    console.error('Auto-create workflow failed:', e)
+                }
+                return
+            }
+            if (values.workflowContentChanged) {
+                if (values.workflow.status === 'active') {
+                    actions.saveDraftToServer()
+                } else {
+                    // Draft-status workflows save directly - no live version to protect
+                    actions.saveWorkflow(sanitizeWorkflow({ ...values.workflow }, values.hogFunctionTemplatesById))
+                }
+            }
+        },
+        saveDraftToServerSuccess: () => {
+            lemonToast.success('Draft saved')
+        },
+        publishWorkflow: () => {
+            actions.publishDraftToServer()
+        },
+        publishDraftToServerSuccess: () => {
+            lemonToast.success('Workflow published')
+            actions.loadWorkflow()
+        },
+        discardDraft: () => {
+            LemonDialog.open({
+                title: 'Discard changes',
+                description: 'Are you sure you want to discard all changes? The live workflow will not be affected.',
+                primaryButton: {
+                    children: 'Discard',
+                    onClick: () => {
+                        if (values.draftExistsOnServer) {
+                            actions.discardDraftOnServer()
+                        } else {
+                            actions.loadWorkflow()
+                        }
+                    },
+                },
+                secondaryButton: {
+                    children: 'Cancel',
+                },
+            })
+        },
+        discardDraftOnServerSuccess: () => {
+            lemonToast.success('Draft discarded')
+            actions.loadWorkflow()
+        },
+        saveMetadataField: ({ field, value }) => {
+            if (!props.id || props.id === 'new') {
+                return
+            }
+            if ((window as any).__workflowMetadataTimer) {
+                clearTimeout((window as any).__workflowMetadataTimer)
+            }
+            ;(window as any).__workflowMetadataTimer = setTimeout(async () => {
+                try {
+                    const updates = { [field]: value } as Partial<HogFlow>
+                    await api.hogFlows.updateHogFlow(props.id!, updates)
+                    actions.metadataSaved(updates)
+                    lemonToast.success('Saved')
+                } catch (e) {
+                    console.error('Metadata save failed:', e)
+                }
+            }, 2000)
+        },
+        // Autosave: debounce 10s after changes
+        setWorkflowValues: () => {
+            if ((window as any).__workflowAutosaveTimer) {
+                clearTimeout((window as any).__workflowAutosaveTimer)
+            }
+            ;(window as any).__workflowAutosaveTimer = setTimeout(() => {
+                actions.saveDraftNow()
+            }, 10000)
+        },
     })),
+    beforeUnmount(() => {
+        if ((window as any).__workflowAutosaveTimer) {
+            clearTimeout((window as any).__workflowAutosaveTimer)
+            delete (window as any).__workflowAutosaveTimer
+        }
+        if ((window as any).__workflowMetadataTimer) {
+            clearTimeout((window as any).__workflowMetadataTimer)
+            delete (window as any).__workflowMetadataTimer
+        }
+    }),
     afterMount(({ actions }) => {
         actions.loadWorkflow()
         actions.loadHogFunctionTemplatesById()

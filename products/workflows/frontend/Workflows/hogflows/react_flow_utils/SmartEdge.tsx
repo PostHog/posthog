@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
+import { workflowLogic } from '../../workflowLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowEdge } from '../types'
 import { MINIMUM_EDGE_SPACING } from './constants'
@@ -236,8 +237,10 @@ export function SmartEdge({
 }: EdgeProps): JSX.Element {
     const edges = useEdges()
     const { animatingEdgePair, mode } = useValues(hogFlowEditorLogic)
+    const { draftChangedActionIds } = useValues(workflowLogic)
 
     const isAnimating = mode === 'test' && animatingEdgePair === `${source}->${target}`
+    const connectsToDraft = draftChangedActionIds.has(source) || draftChangedActionIds.has(target)
     const animPathRef = useRef<SVGPathElement>(null)
 
     // Use the programmatic function to get the smart step path
@@ -269,7 +272,9 @@ export function SmartEdge({
 
     return (
         <>
-            <BaseEdge {...props} path={edgePath} markerEnd={markerEnd} markerStart={markerStart} />
+            <g style={{ opacity: connectsToDraft ? 0.5 : 1 }}>
+                <BaseEdge {...props} path={edgePath} markerEnd={markerEnd} markerStart={markerStart} />
+            </g>
             {isAnimating && (
                 <path
                     ref={animPathRef}

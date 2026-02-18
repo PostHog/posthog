@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconClock } from '@posthog/icons'
-import { SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
@@ -23,6 +23,15 @@ import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
+
+function formatDateTime(isoString: string): string {
+    return new Date(isoString).toLocaleString([], {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    })
+}
 
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
     component: WorkflowScene,
@@ -45,7 +54,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const { futureJobs } = useValues(batchJobsLogic)
 
     const logic = workflowLogic({ id: props.id, tabId: props.tabId, templateId, editTemplateId })
-    const { workflowLoading, originalWorkflow } = useValues(logic)
+    const { workflowLoading, originalWorkflow, hasPendingDraft, isDraftSaving, draftSavedAt } = useValues(logic)
 
     // Attach child logics to the scene logic so they persist across tab switches
     useAttachedLogic(batchJobsLogic, sceneLogic)
@@ -105,6 +114,16 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     return (
         <SceneContent className="h-full flex flex-col grow">
             <WorkflowSceneHeader {...props} />
+            {hasPendingDraft && originalWorkflow.status === 'active' && (
+                <LemonBanner type="info" className="mx-4 mt-2">
+                    Unpublished changes.
+                    {isDraftSaving
+                        ? ' Saving...'
+                        : draftSavedAt
+                          ? ` Last autosaved ${formatDateTime(draftSavedAt)}.`
+                          : ''}
+                </LemonBanner>
+            )}
             {/* Only show Logs and Metrics tabs if the workflow has already been created */}
             {!props.id || props.id === 'new' ? (
                 <Workflow {...props} />

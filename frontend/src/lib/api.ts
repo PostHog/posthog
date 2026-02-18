@@ -5134,6 +5134,15 @@ const api = {
         async getHogFlowBatchJobs(hogFlowId: HogFlow['id']): Promise<HogFlowBatchJob[]> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('batch_jobs').get()
         },
+        async saveDraft(hogFlowId: HogFlow['id'], data: Partial<HogFlow>): Promise<HogFlow> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('draft').update({ data })
+        },
+        async publishDraft(hogFlowId: HogFlow['id']): Promise<HogFlow> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('publish').create()
+        },
+        async discardDraft(hogFlowId: HogFlow['id']): Promise<HogFlow> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('discard_draft').create()
+        },
     },
     hogFlowTemplates: {
         async getHogFlowTemplates(): Promise<PaginatedResponse<HogFlowTemplate>> {

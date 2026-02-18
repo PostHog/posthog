@@ -27,7 +27,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
         animatingEdgePair,
     } = useValues(hogFlowEditorLogic)
     const { setSelectedNodeId, startCopyingNode, startMovingNode } = useActions(hogFlowEditorLogic)
-    const { actionValidationErrorsById, logicProps } = useValues(workflowLogic)
+    const { actionValidationErrorsById, logicProps, draftChangedActionIds } = useValues(workflowLogic)
     const { deleteElements } = useReactFlow()
 
     const isSelected = selectedNode?.id === action.id
@@ -67,6 +67,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
     }, [action, isSelected, Step])
 
     const hasValidationError = actionValidationErrorsById[action.id]?.valid === false
+    const hasDraftChanges = draftChangedActionIds.has(action.id)
     const isAnimationTarget = mode === 'test' && animatingEdgePair?.endsWith(`->${action.id}`)
 
     return (
@@ -76,8 +77,10 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                 width: NODE_WIDTH,
                 height,
                 borderWidth: 1,
-                borderColor: isAnimationTarget ? 'var(--success)' : selectedColor,
+                borderStyle: hasDraftChanges ? 'dashed' : 'solid',
+                borderColor: isAnimationTarget ? 'var(--success)' : hasDraftChanges ? 'var(--warning)' : selectedColor,
                 boxShadow: `0px 2px 0px 0px ${colorLight}`,
+                opacity: hasDraftChanges ? 0.5 : 1,
                 zIndex: 0,
             }}
         >
