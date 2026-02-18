@@ -15,7 +15,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext, get_breakdown_limit_for_context
+from posthog.hogql.constants import MAX_BREAKDOWN_VALUES_LIMIT, LimitContext, get_breakdown_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
@@ -604,9 +604,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         if self._trends_display.display_type == ChartDisplayType.WORLD_MAP:
             return 250
 
-        return (
+        limit = (
             self.query.breakdownFilter and self.query.breakdownFilter.breakdown_limit
         ) or get_breakdown_limit_for_context(self.limit_context)
+        return min(limit, MAX_BREAKDOWN_VALUES_LIMIT)
 
     def _inner_breakdown_subquery(self, query: ast.SelectQuery, breakdown: Breakdown) -> ast.SelectQuery:
         assert self.query.breakdownFilter is not None  # type checking
