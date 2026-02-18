@@ -465,6 +465,26 @@ class LLMAnalyticsTranslationDailyThrottle(PersonalApiKeyRateThrottle):
     rate = "500/day"
 
 
+class LLMAnalyticsSentimentBurstThrottle(PersonalApiKeyRateThrottle):
+    scope = "llm_analytics_sentiment_burst"
+    rate = "60/minute"
+
+
+class LLMAnalyticsSentimentSustainedThrottle(PersonalApiKeyRateThrottle):
+    scope = "llm_analytics_sentiment_sustained"
+    rate = "600/hour"
+
+
+class LLMAnalyticsSentimentBatchBurstThrottle(PersonalApiKeyRateThrottle):
+    scope = "llm_analytics_sentiment_batch_burst"
+    rate = "60/minute"
+
+
+class LLMAnalyticsSentimentBatchSustainedThrottle(PersonalApiKeyRateThrottle):
+    scope = "llm_analytics_sentiment_batch_sustained"
+    rate = "600/hour"
+
+
 class LLMAnalyticsSummarizationBurstThrottle(PersonalApiKeyRateThrottle):
     # Rate limit for LLM-powered summarization endpoint
     # Conservative limits to control OpenAI API costs
@@ -609,7 +629,7 @@ class WidgetTeamThrottle(SimpleRateThrottle):
     """Rate limit per team token."""
 
     scope = "widget_team"
-    rate = "3600/hour"
+    rate = "1000/hour"
 
     def get_cache_key(self, request, view):
         # Throttle by team token if available, otherwise by IP
