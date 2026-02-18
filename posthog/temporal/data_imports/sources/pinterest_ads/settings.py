@@ -16,6 +16,8 @@ DEFAULT_LOOKBACK_DAYS = 89
 # Full column reference: https://developers.pinterest.com/docs/api/v5/ads-analytics/
 ANALYTICS_COLUMNS = [
     # Spend
+    # DOLLAR metrics use the advertiser's profile currency, not necessarily USD.
+    # See https://developers.pinterest.com/docs/api/v5/ads-analytics/
     "SPEND_IN_DOLLAR",
     "SPEND_IN_MICRO_DOLLAR",
     # Impressions
