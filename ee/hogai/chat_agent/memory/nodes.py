@@ -416,7 +416,7 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
         try:
             response = await chain.ainvoke(
                 {
-                    "core_memory": await self._aget_core_memory_text(),
+                    "core_memory": await self._aget_core_memory_text(force_enabled=True),
                     "date": timezone.now().strftime("%Y-%m-%d"),
                 },
                 config=config,

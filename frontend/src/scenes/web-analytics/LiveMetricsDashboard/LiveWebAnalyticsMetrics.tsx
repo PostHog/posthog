@@ -77,6 +77,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                     getLabel={(d) => d.device}
                     emptyMessage="No device data"
                     statLabel="unique devices"
+                    isLoading={isLoading}
                 />
                 <BreakdownLiveCard<BrowserBreakdownItem>
                     title="Browsers"
@@ -90,6 +91,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                     emptyMessage="No browser data"
                     statLabel="unique browsers"
                     totalCount={totalBrowsers}
+                    isLoading={isLoading}
                 />
             </div>
         </div>

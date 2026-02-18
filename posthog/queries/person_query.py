@@ -242,7 +242,9 @@ class PersonQuery:
         # The same property might be present for both querying and filtering, and hence the Counter.
         properties_to_query = self._column_optimizer.used_properties_with_type("person")
         if self._inner_person_properties:
-            properties_to_query -= extract_tables_and_properties(self._inner_person_properties.flat)
+            properties_to_query -= extract_tables_and_properties(
+                self._inner_person_properties.flat, team_id=self._team_id
+            )
 
         columns = self._column_optimizer.columns_to_query("person", set(properties_to_query)) | set(self._extra_fields)
 
@@ -301,7 +303,7 @@ class PersonQuery:
             # TODO: doesn't support non-caclculated cohorts
             for index, property in enumerate(self._cohort_filters):
                 try:
-                    cohort = Cohort.objects.get(pk=property.value)
+                    cohort = Cohort.objects.get(pk=property.value, team_id=self._team_id)
                     if property.type == "static-cohort":
                         subquery, subquery_params = format_static_cohort_query(cohort, index, prepend)
                     else:

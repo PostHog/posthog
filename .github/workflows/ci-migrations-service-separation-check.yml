@@ -6,6 +6,7 @@ on:
 
 permissions:
     contents: read
+    pull-requests: read
 
 jobs:
     check-migration-service-separation:

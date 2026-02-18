@@ -11,9 +11,11 @@ import { IconPlus, IconX } from '@posthog/icons'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconMenu } from 'lib/lemon-ui/icons'
+import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { SceneTab } from 'scenes/sceneTypes'
@@ -30,12 +32,14 @@ import { ConfigurePinnedTabsModal } from './ConfigurePinnedTabsModal'
 
 export function SceneTabs(): JSX.Element {
     const { tabs } = useValues(sceneLogic)
-    const { newTab, reorderTabs } = useActions(sceneLogic)
+    const { newTab, reorderTabs, clearFrozenWidths } = useActions(sceneLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
+    const { sqlEditorNewTabPreference } = useValues(userPreferencesLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {
@@ -76,7 +80,11 @@ export function SceneTabs(): JSX.Element {
             )}
 
             {/* Line below tabs to to complete border on <main> element */}
-            <div className="absolute bottom-0 w-full lg:pl-[5px] lg:pr-3">
+            <div
+                className={cn('absolute bottom-0 w-full lg:px-[5px] ', {
+                    'lg:pr-3': isRemovingSidePanelFlag,
+                })}
+            >
                 <div className="w-full bottom-0 h-px border-b border-primary z-10" />
             </div>
 
@@ -85,7 +93,10 @@ export function SceneTabs(): JSX.Element {
                     items={[...tabs.map((tab, index) => getSortableId(tab, index)), 'new']}
                     strategy={horizontalListSortingStrategy}
                 >
-                    <div className="scene-tab-row gap-1 flex-1 min-w-0 items-center flex h-[var(--scene-layout-header-height)] lg:h-auto pr-2">
+                    <div
+                        className="scene-tab-row gap-1 flex-1 min-w-0 items-center flex h-[var(--scene-layout-header-height)] lg:h-auto pr-2"
+                        onMouseLeave={clearFrozenWidths}
+                    >
                         {tabs.map((tab, index) => {
                             const sortableId = getSortableId(tab, index)
                             const isLastPinned =
@@ -117,9 +128,10 @@ export function SceneTabs(): JSX.Element {
                                 onClick={(e) => {
                                     e.preventDefault()
                                     const currentPath = router.values.location.pathname
-                                    // If on /sql route, open a new /sql tab, otherwise default to /search
                                     const isSqlRoute = currentPath.endsWith('/sql')
-                                    newTab(isSqlRoute ? '/sql' : null)
+                                    const openSqlTab = isSqlRoute && sqlEditorNewTabPreference === 'editor'
+                                    const source = e.detail === 0 ? 'keyboard_shortcut' : 'new_tab_button'
+                                    newTab(openSqlTab ? '/sql' : null, { source })
                                 }}
                                 tooltip="New tab"
                                 tooltipCloseDelayMs={0}
@@ -159,14 +171,17 @@ function SortableSceneTab({
     containerClassName,
     onConfigurePinnedTabs,
 }: SortableSceneTabProps): JSX.Element {
+    const { frozenWidths } = useValues(sceneLogic)
     const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
         id: sortableId,
         data: { index },
     })
+    const frozenWidth = frozenWidths?.[tab.id]
     const style: React.CSSProperties = {
         transform: CSS.Translate.toString(transform),
         transition,
         opacity: isDragging ? 0.5 : undefined,
+        ...(frozenWidth != null ? { width: frozenWidth, flex: '0 0 auto', minWidth: 0, maxWidth: 'none' } : {}),
     }
 
     const isPinned = !!tab.pinned
@@ -177,7 +192,9 @@ function SortableSceneTab({
             style={style}
             {...attributes}
             {...listeners}
-            className={cn(isPinned ? 'shrink-0' : 'w-full flex-1 min-w-[100px] max-w-[250px]')}
+            className={cn(
+                isPinned ? 'shrink-0' : frozenWidth != null ? '' : 'w-full flex-1 min-w-[100px] max-w-[250px]'
+            )}
             data-tab-id={tab.id}
         >
             <SceneTabContextMenu tab={tab} onConfigurePinnedTabs={onConfigurePinnedTabs}>
@@ -203,7 +220,7 @@ interface SceneTabProps {
 function SceneTabComponent({ tab, className, isDragging, containerClassName, index }: SceneTabProps): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
     const isPinned = !!tab.pinned
-    const { clickOnTab, removeTab, startTabEdit, endTabEdit, saveTabEdit } = useActions(sceneLogic)
+    const { clickOnTab, removeTab, freezeTabWidths, startTabEdit, endTabEdit, saveTabEdit } = useActions(sceneLogic)
     const { editingTabId, tabs } = useValues(sceneLogic)
     const [editValue, setEditValue] = useState('')
     const isEditing = editingTabId === tab.id
@@ -244,7 +261,11 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                             onClick={(e) => {
                                 e.stopPropagation()
                                 e.preventDefault()
-                                removeTab(tab)
+                                const source = e.detail === 0 ? 'keyboard_shortcut' : 'close_button'
+                                if (e.detail !== 0) {
+                                    freezeTabWidths()
+                                }
+                                removeTab(tab, { source })
                             }}
                             tooltip={!tab.active ? 'Close tab' : 'Close active tab'}
                             tooltipCloseDelayMs={0}
@@ -270,7 +291,8 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                         e.stopPropagation()
                         e.preventDefault()
                         if (e.button === 1 && !isDragging && canRemoveTab) {
-                            removeTab(tab)
+                            freezeTabWidths()
+                            removeTab(tab, { source: 'middle_click' })
                         }
                     }}
                     onDoubleClick={(e) => {

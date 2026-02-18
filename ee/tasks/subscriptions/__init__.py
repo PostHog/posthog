@@ -74,6 +74,9 @@ def get_subscription_failure_metric(
     )
 
 
+SUPPORTED_TARGET_TYPES = frozenset(["email", "slack"])
+
+
 async def deliver_subscription_report_async(
     subscription_id: int,
     previous_value: Optional[str] = None,
@@ -95,6 +98,15 @@ async def deliver_subscription_report_async(
         has_dashboard=bool(subscription.dashboard_id),
         has_insight=bool(subscription.insight_id),
     )
+
+    # Skip unsupported target types before generating assets
+    if subscription.target_type not in SUPPORTED_TARGET_TYPES:
+        logger.error(
+            "deliver_subscription_report_async.unsupported_target",
+            subscription_id=subscription_id,
+            target_type=subscription.target_type,
+        )
+        return
 
     is_new_subscription_target = False
     if previous_value is not None:
@@ -235,13 +247,6 @@ async def deliver_subscription_report_async(
                 exc_info=True,
             )
             capture_exception(e)
-    else:
-        logger.error(
-            "deliver_subscription_report_async.unsupported_target",
-            subscription_id=subscription_id,
-            target_type=subscription.target_type,
-        )
-        raise NotImplementedError(f"{subscription.target_type} is not supported")
 
     if not is_new_subscription_target:
         logger.info("deliver_subscription_report_async.updating_next_delivery", subscription_id=subscription_id)

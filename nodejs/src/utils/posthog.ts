@@ -22,6 +22,10 @@ export function initSuperProperties(): void {
             plugin_server_mode: defaultConfig.PLUGIN_SERVER_MODE,
             deployment: defaultConfig.CLOUD_DEPLOYMENT,
             plugin_server_events_ingestion_pipeline: defaultConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE,
+            // Super properties matching Python posthoganalytics.super_properties (posthog/apps.py)
+            region: defaultConfig.CLOUD_DEPLOYMENT,
+            service: defaultConfig.OTEL_SERVICE_NAME,
+            environment: defaultConfig.OTEL_SERVICE_ENVIRONMENT,
         }
 
         try {
@@ -57,6 +61,36 @@ export function captureTeamEvent(
                 instance: defaultConfig.SITE_URL,
             },
         })
+    }
+}
+
+export async function isFeatureFlagEnabled(
+    key: string,
+    distinctId: string,
+    options?: {
+        groups?: Record<string, string>
+        personProperties?: Record<string, string>
+        groupProperties?: Record<string, Record<string, string>>
+        onlyEvaluateLocally?: boolean
+        sendFeatureFlagEvents?: boolean
+    }
+): Promise<boolean> {
+    if (!posthog) {
+        return false
+    }
+
+    try {
+        const isEnabled = await posthog.isFeatureEnabled(key, distinctId, options)
+        return isEnabled ?? false
+    } catch (error) {
+        // Log errors to aid debugging of feature flag evaluation issues (e.g. SES v1 vs v2 gating).
+        console.error('Error evaluating PostHog feature flag', {
+            key,
+            distinctId,
+            options,
+            error,
+        })
+        return false
     }
 }
 

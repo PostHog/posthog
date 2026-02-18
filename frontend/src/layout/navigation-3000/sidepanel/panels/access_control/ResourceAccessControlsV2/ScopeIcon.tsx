@@ -8,6 +8,7 @@ import {
     IconFlask,
     IconHome,
     IconLive,
+    IconLlmAnalytics,
     IconMessage,
     IconNotebook,
     IconNotification,
@@ -49,6 +50,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconToggle />
         case 'insight':
             return <IconTrends />
+        case 'llm_analytics':
+            return <IconLlmAnalytics />
         case 'live_debugger':
             return <IconBug />
         case 'logs':

@@ -4,9 +4,12 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { TriggerExportProps, downloadBlob, downloadExportedAsset } from 'lib/components/ExportButton/exporter'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { delay } from 'lib/utils'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
@@ -60,6 +63,7 @@ export const exportsLogic = kea<exportsLogicType>([
     }),
 
     connect(() => ({
+        values: [featureFlagLogic, ['featureFlags']],
         actions: [sidePanelStateLogic, ['openSidePanel']],
     })),
 
@@ -110,8 +114,18 @@ export const exportsLogic = kea<exportsLogicType>([
             actions.createExport({ exportData })
         },
         createExportSuccess: () => {
-            actions.openSidePanel(SidePanelTab.Exports)
-            lemonToast.info('Export starting...')
+            if (featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL]) {
+                lemonToast.info('Export starting...', {
+                    button: {
+                        label: 'View exports',
+                        action: () => newInternalTab(urls.exports()),
+                    },
+                    autoClose: false,
+                })
+            } else {
+                actions.openSidePanel(SidePanelTab.Exports)
+                lemonToast.info('Export starting...')
+            }
             actions.loadExports()
         },
         loadExportsSuccess: async (_, breakpoint) => {
@@ -235,6 +249,7 @@ export const exportsLogic = kea<exportsLogicType>([
                             if (apiError?.data?.attr === 'export_limit_exceeded') {
                                 actions.setHasReachedExportFullVideoLimit(true)
                                 lemonToast.error(apiError?.data?.detail || 'You reached your export limit.', {
+                                    autoClose: false,
                                     button: {
                                         label: 'I want more',
                                         className: 'replay-export-limit-reached-button',

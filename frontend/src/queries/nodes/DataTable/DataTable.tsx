@@ -166,6 +166,7 @@ export function DataTable({
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
         refresh: context?.refresh,
         maxPaginationLimit: context?.dataTableMaxPaginationLimit,
+        limitContext: context?.limitContext,
     }
     const {
         response,
@@ -249,7 +250,7 @@ export function DataTable({
 
     const contextRowPropsFn = context?.rowProps
     const onRow = useCallback(
-        (record) => {
+        (record: DataTableRow) => {
             const rowProps = contextRowPropsFn?.(record)
             const rowFillFraction =
                 rowFillFractionIndex >= 0 && Array.isArray(record.result)
@@ -297,8 +298,8 @@ export function DataTable({
                         return { props: { colSpan: 0 } }
                     } else if (result) {
                         const value = sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)
-                            ? result[index]
-                            : result[key]
+                            ? (result as any[])[index]
+                            : (result as Record<string, any>)[key]
                         return renderColumn(key, value, result, recordIndex, rowCount, query, setQuery, context)
                     }
                 },
@@ -313,8 +314,8 @@ export function DataTable({
                                   return null
                               }
                               const value = sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)
-                                  ? record.result[index]
-                                  : record.result[key]
+                                  ? (record.result as any[])[index]
+                                  : (record.result as Record<string, any>)[key]
                               return <NonIntegratedConversionsCellActions columnName={key} value={value} />
                           }
                         : undefined,
@@ -609,7 +610,7 @@ export function DataTable({
                               return { props: { colSpan: 0 } }
                           }
                           if (result && columnsInResponse?.includes('*')) {
-                              const event = result[columnsInResponse.indexOf('*')]
+                              const event = (result as any[])[columnsInResponse.indexOf('*')]
                               return (
                                   <ViewRecordingButton
                                       sessionId={event?.properties?.$session_id}
@@ -915,8 +916,8 @@ export function DataTable({
                                         'border border-x-danger-dark bg-danger-highlight':
                                             sourceFeatures.has(QueryFeature.highlightExceptionEventRows) &&
                                             result &&
-                                            result[0] &&
-                                            result[0]['event'] === '$exception',
+                                            (result as any[])[0] &&
+                                            (result as any[])[0]['event'] === '$exception',
                                         DataTable__has_pinned_columns: (query.pinnedColumns ?? []).length > 0,
                                     })
                                 }
@@ -935,7 +936,9 @@ export function DataTable({
                                                   return null
                                               }
                                               if (result && columnsInResponse?.includes('*')) {
-                                                  return eventRowActionsContent(result[columnsInResponse.indexOf('*')])
+                                                  return eventRowActionsContent(
+                                                      (result as any[])[columnsInResponse.indexOf('*')]
+                                                  )
                                               }
                                               return null
                                           }

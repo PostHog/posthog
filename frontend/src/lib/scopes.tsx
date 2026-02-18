@@ -35,6 +35,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'export', objectName: 'Export', objectPlural: 'exports' },
     { key: 'feature_flag', objectName: 'Feature flag', objectPlural: 'feature flags' },
     { key: 'group', objectName: 'Group', objectPlural: 'groups' },
+    { key: 'health_issue', objectName: 'Health issue', objectPlural: 'health issues' },
     { key: 'hog_function', objectName: 'Hog function', objectPlural: 'hog functions' },
     { key: 'insight', objectName: 'Insight', objectPlural: 'insights' },
     { key: 'insight_variable', objectName: 'Insight variable', objectPlural: 'insight variables' },
@@ -149,7 +150,7 @@ export const API_KEY_SCOPE_PRESETS: {
         value: 'mcp_server',
         label: 'MCP Server',
         scopes: API_SCOPES.filter(({ key }) => !key.includes('llm_gateway')).map(({ key }) =>
-            ['feature_flag', 'insight', 'dashboard', 'survey', 'experiment'].includes(key)
+            ['feature_flag', 'insight', 'dashboard', 'survey', 'experiment', 'event_definition'].includes(key)
                 ? `${key}:write`
                 : `${key}:read`
         ),
@@ -186,6 +187,8 @@ export const MCP_SERVER_OAUTH_SCOPES = [
     'query:read',
     'survey:read',
     'survey:write',
+    'event_definition:read',
+    'event_definition:write',
     'error_tracking:read',
     'logs:read',
 ]

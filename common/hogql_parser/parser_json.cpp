@@ -4,6 +4,7 @@
 
 #include <sstream>
 #include <string>
+#include <unordered_map>
 
 #include "HogQLLexer.h"
 #include "HogQLParser.h"
@@ -1475,6 +1476,18 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     return json;
   }
 
+  VISIT(ColumnExprTypeCast) {
+    Json expr_json = visitAsJSON(ctx->columnExpr());
+    string type_name = to_lower_copy(visitAsString(ctx->identifier()));
+
+    Json json = Json::object();
+    json["node"] = "TypeCast";
+    if (!is_internal) addPositionInfo(json, ctx);
+    json["expr"] = expr_json;
+    json["type_name"] = type_name;
+    return json;
+  }
+
   VISIT(ColumnExprBetween) {
     Json json = Json::object();
     json["node"] = "BetweenExpr";
@@ -1752,13 +1765,11 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(WithExprList) {
-    // Build a JSON object (dictionary) mapping CTE names to CTE objects
-    Json json = Json::object();
+    // Emit CTEs as an array to preserve declaration order.
+    Json json = Json::array();
 
     for (auto with_expr_ctx : ctx->withExpr()) {
-      Json cte_json = visitAsJSON(with_expr_ctx);
-      auto name = cte_json.getObject().at("name").getString();
-      json[name] = std::move(cte_json);
+      json.pushBack(visitAsJSON(with_expr_ctx));
     }
 
     return json;

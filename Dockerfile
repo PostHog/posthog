@@ -94,6 +94,17 @@ ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 COPY nodejs/src/scripts/ nodejs/src/scripts/
 RUN cd nodejs/src/scripts && npm install --omit=dev
 
+# Build plugin transpiler for site destinations/apps
+COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+COPY bin/turbo bin/turbo
+COPY patches/ patches/
+COPY common/esbuilder/ common/esbuilder/
+COPY common/plugin_transpiler/ common/plugin_transpiler/
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
+    corepack enable && \
+    NODE_OPTIONS="--max-old-space-size=4096" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
+    NODE_OPTIONS="--max-old-space-size=4096" bin/turbo --filter=@posthog/plugin-transpiler build
+
 
 #
 # ---------------------------------------------------------
@@ -292,6 +303,13 @@ COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmd
 
 # Copy standalone Node.js scripts and their dependencies.
 COPY --from=node-scripts-build --chown=posthog:posthog /code/nodejs/src/scripts /code/nodejs/src/scripts
+
+# Copy plugin transpiler (used by Django for site destinations/apps).
+# pnpm stores packages in node_modules/.pnpm/, workspace node_modules contain symlinks there.
+COPY --from=node-scripts-build --chown=posthog:posthog /code/node_modules /code/node_modules
+COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/dist /code/common/plugin_transpiler/dist
+COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/node_modules /code/common/plugin_transpiler/node_modules
+COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/package.json /code/common/plugin_transpiler/package.json
 
 # Add in custom bin files and Django deps.
 COPY --chown=posthog:posthog ./bin ./bin/

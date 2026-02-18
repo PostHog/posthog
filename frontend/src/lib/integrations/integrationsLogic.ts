@@ -5,6 +5,7 @@ import { router, urlToAction } from 'kea-router'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api, { getCookie } from 'lib/api'
+import { globalSetupLogic } from 'lib/components/ProductSetup'
 import { fromParamsGivenUrl } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -20,6 +21,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
     path(['lib', 'integrations', 'integrationsLogic']),
     connect(() => ({
         values: [preflightLogic, ['siteUrlMisconfigured', 'preflight']],
+        actions: [globalSetupLogic, ['markTaskAsCompleted']],
     })),
 
     actions({

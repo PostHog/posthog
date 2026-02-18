@@ -13,7 +13,7 @@ import { flagTriggerLogic } from './flagTriggerLogic'
 
 export const FlagTriggerSelector = (): JSX.Element => {
     const { resourceType } = useValues(ingestionControlsLogic)
-    const { flag, loading } = useValues(flagTriggerLogic)
+    const { flag, featureFlagLoading } = useValues(flagTriggerLogic)
     const { onChange } = useActions(flagTriggerLogic)
 
     return (
@@ -25,8 +25,8 @@ export const FlagTriggerSelector = (): JSX.Element => {
                         onChange={(id, key) => {
                             onChange({ id, key, variant: null })
                         }}
-                        disabledReason={(disabledReason ?? loading) ? 'Loading...' : undefined}
-                        readOnly={!!disabledReason || loading}
+                        disabledReason={(disabledReason ?? featureFlagLoading) ? 'Loading...' : undefined}
+                        readOnly={!!disabledReason || featureFlagLoading}
                     />
                 )}
             </AccessControlAction>
@@ -39,7 +39,7 @@ export const FlagTriggerSelector = (): JSX.Element => {
                         type="secondary"
                         onClick={() => onChange(null)}
                         title="Clear selected flag"
-                        loading={loading}
+                        loading={featureFlagLoading}
                     />
                 </AccessControlAction>
             )}

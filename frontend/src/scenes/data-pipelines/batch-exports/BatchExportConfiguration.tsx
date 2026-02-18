@@ -44,6 +44,8 @@ export function BatchExportConfiguration(): JSX.Element {
         batchExportConfig,
         selectedModel,
         runningStep,
+        isDatabaseDestination,
+        service,
     } = useValues(batchExportConfigurationLogic)
     const { setSelectedModel, setConfigurationValue, runBatchExportConfigTestStep } =
         useActions(batchExportConfigurationLogic)
@@ -233,6 +235,19 @@ export function BatchExportConfiguration(): JSX.Element {
                                         header: 'View model schema',
                                         content: (
                                             <div className="flex-1">
+                                                {/* TODO: display the data types that will be used in the destination */}
+                                                {isDatabaseDestination && (
+                                                    <LemonBanner type="info" className="mb-4">
+                                                        This schema is just for reference and does not reflect the
+                                                        actual data types that will be used in {service}.
+                                                        <br />
+                                                        <br />
+                                                        <b>
+                                                            It is recommended to allow the batch export to create the
+                                                            destination table automatically.
+                                                        </b>
+                                                    </LemonBanner>
+                                                )}
                                                 <DatabaseTable
                                                     table={selectedModel ? selectedModel : 'events'}
                                                     tables={tables}

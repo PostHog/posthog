@@ -49,3 +49,4 @@ moka = { workspace = true }
 
 [dev-dependencies]
 httpmock = { workspace = true }
+flate2 = { workspace = true }

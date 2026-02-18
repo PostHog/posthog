@@ -336,6 +336,8 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
         data_interval_start_dt = data_interval_end_dt - dt.timedelta(hours=1)
     elif interval == "day":
         data_interval_start_dt = data_interval_end_dt - dt.timedelta(days=1)
+    elif interval == "week":
+        data_interval_start_dt = data_interval_end_dt - dt.timedelta(weeks=1)
     elif interval.startswith("every"):
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}
@@ -903,7 +905,8 @@ async def execute_batch_export_insert_activity(
         initial_retry_interval_seconds: When retrying, seconds until the first retry.
         maximum_retry_interval_seconds: Maximum interval in seconds between retries.
     """
-    get_export_started_metric().add(1)
+    model_name = inputs.batch_export_model.name if inputs.batch_export_model else "events"
+    get_export_started_metric(model=model_name).add(1)
 
     if TEST:
         maximum_attempts = 1
@@ -915,6 +918,8 @@ async def execute_batch_export_insert_activity(
         start_to_close_timeout = dt.timedelta(hours=2)
     elif interval == "day":
         start_to_close_timeout = dt.timedelta(days=1)
+    elif interval == "week":
+        start_to_close_timeout = dt.timedelta(days=3)
     elif interval.startswith("every"):
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}
@@ -958,7 +963,7 @@ async def execute_batch_export_insert_activity(
         raise
 
     finally:
-        get_export_finished_metric(status=finish_inputs.status.lower()).add(1)
+        get_export_finished_metric(status=finish_inputs.status.lower(), model=model_name).add(1)
 
         await workflow.execute_activity(
             finish_batch_export_run,

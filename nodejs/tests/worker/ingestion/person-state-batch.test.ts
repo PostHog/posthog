@@ -1050,6 +1050,7 @@ describe('PersonState.processEvent()', () => {
                 uuid: uuidFromDistinctId(teamId, 'deleted-user'),
                 properties_last_updated_at: {},
                 properties_last_operation: null,
+                last_seen_at: null,
             }
             await createPerson(
                 hub,
@@ -4364,6 +4365,7 @@ describe('PersonState.processEvent()', () => {
                             is_user_id: null,
                             properties_last_updated_at: {},
                             properties_last_operation: {},
+                            last_seen_at: timestamp.startOf('hour'),
                         }
                         jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockResolvedValue({
                             success: true,

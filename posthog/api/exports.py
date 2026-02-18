@@ -203,11 +203,13 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                     client = await async_connect()
                     await client.execute_workflow(
                         VideoExportWorkflow.run,
-                        VideoExportInputs(exported_asset_id=instance.id),
+                        VideoExportInputs(exported_asset_id=instance.id, use_puppeteer=False),
                         id=f"export-video-{instance.id}",
                         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                        # Keep hard limit to avoid hanging workflows
+                        execution_timeout=timedelta(hours=3),
                     )
 
                 with VIDEO_EXPORT_SEMAPHORE:
@@ -249,6 +251,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         dashboard_id = instance.dashboard_id
         if insight_id and not dashboard_id:  # we don't log dashboard activity ¯\_(ツ)_/¯
             try:
+                # nosemgrep: idor-lookup-without-team (insight_id validated as team-owned in validate())
                 insight: Insight = Insight.objects.select_related("team__organization").get(id=insight_id)
                 log_activity(
                     organization_id=insight.team.organization.id,

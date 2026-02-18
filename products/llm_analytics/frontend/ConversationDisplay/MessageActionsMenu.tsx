@@ -6,11 +6,12 @@ import { LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { ActivityScope, SidePanelTab } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ActivityScope, SidePanelTab } from '~/types'
 
 import { llmAnalyticsTraceLogic } from '../llmAnalyticsTraceLogic'
 import { TranslatePopover } from './TranslatePopover'
@@ -74,6 +75,11 @@ export const MessageActionsMenu = ({ content }: MessageActionsMenuProps): JSX.El
     const showDiscussions = isEarlyAdopter || !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS]
     const showTranslation = isEarlyAdopter || !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRANSLATION]
 
+    const accessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.LlmAnalytics,
+        AccessControlLevel.Editor
+    )
+
     const menuItems: LemonMenuItems = [
         ...(showDiscussions
             ? [
@@ -88,6 +94,7 @@ export const MessageActionsMenu = ({ content }: MessageActionsMenuProps): JSX.El
             ? [
                   {
                       label: 'Translate',
+                      disabledReason: accessControlDisabledReason ?? undefined,
                       onClick: () => {
                           if (dataProcessingAccepted) {
                               setShowTranslatePopover(true)

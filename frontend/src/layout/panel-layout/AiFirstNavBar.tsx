@@ -104,7 +104,7 @@ export function AiFirstNavBar(): JSX.Element {
                             />
                             <ProjectMenu
                                 buttonProps={{
-                                    className: 'max-w-[175px]',
+                                    className: 'max-w-full flex-1',
                                     variant: 'panel',
                                     tooltipCloseDelayMs: 0,
                                     iconOnly: isLayoutNavCollapsed,

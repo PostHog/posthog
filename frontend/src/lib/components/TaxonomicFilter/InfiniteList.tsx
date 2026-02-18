@@ -6,7 +6,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { CSSProperties, useEffect, useState } from 'react'
 import { List, useListRef } from 'react-window'
 
-import { IconArchive, IconCheck, IconPlus } from '@posthog/icons'
+import { IconArchive, IconCheck, IconPlus, IconSearch } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
@@ -140,7 +140,7 @@ const renderItemContents = ({
             {isUnusedEventProperty && unusedIndicator(eventNames)}
         </>
     ) : (
-        <div className="taxonomic-list-row-contents">
+        <div className="taxonomic-list-row-contents min-w-0">
             {listGroupType === TaxonomicFilterGroupType.Elements ? (
                 <PropertyKeyInfo value={item.name ?? ''} disablePopover className="w-full" type={listGroupType} />
             ) : (
@@ -184,6 +184,12 @@ const selectedItemHasPopover = (
             TaxonomicFilterGroupType.Metadata,
             TaxonomicFilterGroupType.SessionProperties,
             TaxonomicFilterGroupType.ErrorTrackingProperties,
+            TaxonomicFilterGroupType.PageviewUrls,
+            TaxonomicFilterGroupType.PageviewEvents,
+            TaxonomicFilterGroupType.Screens,
+            TaxonomicFilterGroupType.ScreenEvents,
+            TaxonomicFilterGroupType.EmailAddresses,
+            TaxonomicFilterGroupType.AutocaptureEvents,
         ].includes(listGroupType) ||
             listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
     )
@@ -337,24 +343,46 @@ const InfiniteListRow = ({
     }
 
     if (item && itemGroup) {
+        const isDisabledItem = itemGroup?.getIsDisabled?.(item) ?? false
+        const isExactMatchItem =
+            listGroupType === TaxonomicFilterGroupType.SuggestedFilters && itemGroup.type !== listGroupType
+
         return (
             <div
                 {...commonDivProps}
+                className={clsx(commonDivProps.className, isDisabledItem && 'cursor-not-allowed opacity-60')}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
-                onClick={() => {
+                role="button"
+                aria-disabled={isDisabledItem}
+                onClick={(event) => {
+                    if (isDisabledItem) {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        return
+                    }
                     return (
                         canSelectItem(listGroupType, dataWarehousePopoverFields) &&
-                        selectItem(itemGroup, itemValue ?? null, item, items.originalQuery)
+                        selectItem(
+                            itemGroup,
+                            itemValue ?? null,
+                            item,
+                            isExactMatchItem ? undefined : items.originalQuery
+                        )
                     )
                 }}
             >
                 {renderItemContents({
                     item,
-                    listGroupType,
+                    listGroupType: isExactMatchItem ? itemGroup.type : listGroupType,
                     itemGroup,
                     eventNames,
                     isActive,
                 })}
+                {isExactMatchItem && (
+                    <LemonTag size="small" type="highlight">
+                        {itemGroup.name}
+                    </LemonTag>
+                )}
             </div>
         )
     }
@@ -407,6 +435,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         taxonomicGroups,
         selectedProperties,
         dataWarehousePopoverFields,
+        anyGroupLoading,
     } = useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
     const {
@@ -447,8 +476,15 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     // 2. We're not currently loading
     // 3. We have a search query (otherwise if hasRemoteDataSource=true, we're just waiting for data)
     // 4. We're not showing the non-captured event option
+    const isSuggestedFilters = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
     const showEmptyState =
-        totalListCount === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource) && !showNonCapturedEventOption
+        totalListCount === 0 &&
+        !isLoading &&
+        !(isSuggestedFilters && anyGroupLoading) &&
+        (!!searchQuery || !hasRemoteDataSource) &&
+        !showNonCapturedEventOption
+    const showLoadingState =
+        (isLoading || (isSuggestedFilters && anyGroupLoading)) && (!results || results.length === 0)
 
     useEffect(() => {
         if (index >= 0 && listRef.current) {
@@ -462,18 +498,30 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         <div className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list', 'h-full')}>
             {showEmptyState ? (
                 <div className="no-infinite-results flex flex-col deprecated-space-y-1 items-center">
-                    <IconArchive className="text-5xl text-tertiary" />
-                    <span>
-                        {searchQuery ? (
-                            <>
-                                No results for "<strong>{searchQuery}</strong>"
-                            </>
-                        ) : (
-                            'No results'
-                        )}
-                    </span>
+                    {isSuggestedFilters ? (
+                        <>
+                            <IconSearch className="text-5xl text-tertiary" />
+                            <span className="text-secondary text-center">
+                                Start searching and we'll suggest filters...
+                            </span>
+                            <span className="text-secondary text-center">Try pasting an email, URL, or hostname</span>
+                        </>
+                    ) : (
+                        <>
+                            <IconArchive className="text-5xl text-tertiary" />
+                            <span>
+                                {searchQuery ? (
+                                    <>
+                                        No results for "<strong>{searchQuery}</strong>"
+                                    </>
+                                ) : (
+                                    'No results'
+                                )}
+                            </span>
+                        </>
+                    )}
                 </div>
-            ) : isLoading && (!results || results.length === 0) ? (
+            ) : showLoadingState ? (
                 <div className="flex items-center justify-center h-full">
                     <Spinner className="text-3xl" />
                 </div>
@@ -533,7 +581,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                 />
             )}
             {isActiveTab &&
-            selectedItemHasPopover(selectedItem, listGroupType, selectedItemGroup) &&
+            selectedItemHasPopover(selectedItem, selectedItemGroup?.type ?? listGroupType, selectedItemGroup) &&
             showPopover &&
             selectedItem ? (
                 <BindLogic

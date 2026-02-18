@@ -1,19 +1,30 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
 
 import type { clusterDetailLogicType } from './clusterDetailLogicType'
-import { NOISE_CLUSTER_ID, TRACES_PER_PAGE } from './constants'
+import { loadClusterMetrics } from './clusterMetricsLoader'
+import { NOISE_CLUSTER_ID, OUTLIER_COLOR, TRACES_PER_PAGE } from './constants'
 import { loadTraceSummaries } from './traceSummaryLoader'
-import { Cluster, ClusterItemInfo, ClusteringLevel, TraceSummary, getTimestampBoundsFromRunId } from './types'
+import {
+    Cluster,
+    ClusterItemInfo,
+    ClusterMetrics,
+    ClusteringLevel,
+    TraceSummary,
+    getTimestampBoundsFromRunId,
+} from './types'
 
 export interface ClusterDetailLogicProps {
     runId: string
@@ -45,18 +56,22 @@ export interface ScatterDataset {
     pointStyle?: 'circle' | 'crossRot'
 }
 
-const OUTLIER_COLOR = '#888888'
-
 export const clusterDetailLogic = kea<clusterDetailLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'clusters', 'clusterDetailLogic']),
     props({} as ClusterDetailLogicProps),
     key((props) => `${props.runId}:${props.clusterId}`),
+    connect(() => ({
+        actions: [teamLogic, ['addProductIntent']],
+    })),
 
     actions({
         setPage: (page: number) => ({ page }),
         loadMoreTraces: true,
         setTraceSummaries: (summaries: Record<string, TraceSummary>) => ({ summaries }),
         setTraceSummariesLoading: (loading: boolean) => ({ loading }),
+        setClusterMetrics: (metrics: ClusterMetrics | null) => ({ metrics }),
+        setClusterMetricsLoading: (loading: boolean) => ({ loading }),
+        loadClusterMetricsForCluster: true,
     }),
 
     reducers({
@@ -76,6 +91,18 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
             false,
             {
                 setTraceSummariesLoading: (_, { loading }) => loading,
+            },
+        ],
+        clusterMetrics: [
+            null as ClusterMetrics | null,
+            {
+                setClusterMetrics: (_, { metrics }) => metrics,
+            },
+        ],
+        clusterMetricsLoading: [
+            false,
+            {
+                setClusterMetricsLoading: (_, { loading }) => loading,
             },
         ],
     }),
@@ -271,11 +298,6 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
             (s, p) => [s.cluster, p.runId],
             (cluster: Cluster | null, runId: string): Breadcrumb[] => [
                 {
-                    key: 'LLMAnalytics',
-                    name: 'LLM analytics',
-                    path: urls.llmAnalyticsDashboard(),
-                },
-                {
                     key: 'LLMAnalyticsClusters',
                     name: 'Clusters',
                     path: urls.llmAnalyticsClusters(),
@@ -295,13 +317,40 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
-        loadClusterDataSuccess: async () => {
-            // Load summaries for the first page of traces
-            await actions.setPage(1)
+    listeners(({ actions, values, props }) => ({
+        loadClusterDataSuccess: () => {
+            actions.setPage(1)
+            actions.loadClusterMetricsForCluster()
+
+            void actions.addProductIntent({
+                product_type: ProductKey.LLM_CLUSTERS,
+                intent_context: ProductIntentContext.LLM_CLUSTER_EXPLORED,
+            })
         },
 
-        setPage: async () => {
+        loadClusterMetricsForCluster: async () => {
+            const { cluster, windowStart, windowEnd, clusteringLevel } = values
+            if (!cluster || !windowStart || !windowEnd) {
+                return
+            }
+
+            actions.setClusterMetricsLoading(true)
+            try {
+                const metricsMap = await loadClusterMetrics([cluster], windowStart, windowEnd, clusteringLevel)
+                actions.setClusterMetrics(metricsMap[cluster.cluster_id] || null)
+            } catch (error) {
+                console.error('Failed to load cluster metrics:', error)
+            } finally {
+                actions.setClusterMetricsLoading(false)
+            }
+        },
+
+        setPage: async ({ page }) => {
+            posthog.capture('llma clusters page changed', {
+                page,
+                cluster_id: props.clusterId,
+                run_id: props.runId,
+            })
             // Load trace summaries for the current page
             const traceIds = values.paginatedTraceIds
             const { windowStart, windowEnd, clusteringLevel } = values

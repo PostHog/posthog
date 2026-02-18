@@ -6,6 +6,7 @@ from asgiref.sync import sync_to_async
 from parameterized import parameterized_class
 
 from posthog.models import PropertyDefinition
+from posthog.models.event_property import EventProperty
 from posthog.temporal.cleanup_property_definitions.activities import (
     delete_property_definitions_from_clickhouse,
     delete_property_definitions_from_postgres,
@@ -83,7 +84,7 @@ class TestDeletePropertyDefinitionsFromPostgres:
             ),
         )
 
-        assert result == 3
+        assert result["property_definitions_deleted"] == 3
 
         @sync_to_async
         def verify_deleted():
@@ -126,7 +127,7 @@ class TestDeletePropertyDefinitionsFromPostgres:
         )
 
         # Should only delete the target property type
-        assert result == 1
+        assert result["property_definitions_deleted"] == 1
 
         @sync_to_async
         def verify_other_remains():
@@ -149,7 +150,8 @@ class TestDeletePropertyDefinitionsFromPostgres:
             ),
         )
 
-        assert result == 0
+        assert result["property_definitions_deleted"] == 0
+        assert result["event_properties_deleted"] == 0
 
     @pytest.mark.asyncio
     async def test_raises_error_for_invalid_team(self):
@@ -192,7 +194,7 @@ class TestDeletePropertyDefinitionsFromPostgres:
             ),
         )
 
-        assert result == 1
+        assert result["property_definitions_deleted"] == 1
 
         @sync_to_async
         def verify_other_team_property():
@@ -210,6 +212,154 @@ class TestDeletePropertyDefinitionsFromPostgres:
             other_team.delete()
 
         await cleanup()
+
+    @pytest.mark.asyncio
+    async def test_deletes_in_batches(self):
+        prop_names = [f"{self.prefix}_batch_prop_{i}" for i in range(5)]
+        self.created_property_names.extend(prop_names)
+
+        @sync_to_async
+        def create_properties():
+            for name in prop_names:
+                create_property_definition(self.team, name, self.property_type)
+
+        await create_properties()
+
+        result = await self.activity_environment.run(
+            delete_property_definitions_from_postgres,
+            DeletePostgresPropertyDefinitionsInput(
+                team_id=self.team.id,
+                pattern=f"^{self.prefix}_batch_.*",
+                property_type=self.property_type,
+                batch_size=2,
+            ),
+        )
+
+        assert result["property_definitions_deleted"] == 2
+
+        @sync_to_async
+        def count_remaining():
+            return PropertyDefinition.objects.filter(
+                team=self.team,
+                name__startswith=f"{self.prefix}_batch_",
+                type=self.property_type,
+            ).count()
+
+        remaining = await count_remaining()
+        assert remaining == 3
+
+
+@pytest.mark.django_db(transaction=True)
+class TestDeleteEventPropertiesFromPostgres:
+    @pytest.fixture(autouse=True)
+    def setup(self, team, test_prefix, activity_environment):
+        self.team = team
+        self.prefix = test_prefix
+        self.activity_environment = activity_environment
+
+        yield
+
+        PropertyDefinition.objects.filter(team=self.team, name__startswith=self.prefix).delete()
+        EventProperty.objects.filter(team=self.team, property__startswith=self.prefix).delete()
+
+    @pytest.mark.asyncio
+    async def test_deletes_event_properties_for_event_type(self):
+        prop_names = [f"{self.prefix}_temp_prop_{i}" for i in range(3)]
+
+        @sync_to_async
+        def create_data():
+            for name in prop_names:
+                create_property_definition(self.team, name, PropertyDefinition.Type.EVENT)
+                EventProperty.objects.create(team=self.team, event="$pageview", property=name)
+                EventProperty.objects.create(team=self.team, event="$autocapture", property=name)
+
+        await create_data()
+
+        result = await self.activity_environment.run(
+            delete_property_definitions_from_postgres,
+            DeletePostgresPropertyDefinitionsInput(
+                team_id=self.team.id,
+                pattern=f"^{self.prefix}_temp_.*",
+                property_type=PropertyDefinition.Type.EVENT,
+            ),
+        )
+
+        assert result["property_definitions_deleted"] == 3
+        assert result["event_properties_deleted"] == 6
+
+        @sync_to_async
+        def verify_deleted():
+            return EventProperty.objects.filter(team=self.team, property__startswith=self.prefix).count()
+
+        assert await verify_deleted() == 0
+
+    @pytest.mark.asyncio
+    async def test_deletes_event_properties_for_person_type(self):
+        prop_name = f"{self.prefix}_person_prop"
+
+        @sync_to_async
+        def create_data():
+            create_property_definition(self.team, prop_name, PropertyDefinition.Type.PERSON)
+            EventProperty.objects.create(team=self.team, event="$pageview", property=prop_name)
+
+        await create_data()
+
+        result = await self.activity_environment.run(
+            delete_property_definitions_from_postgres,
+            DeletePostgresPropertyDefinitionsInput(
+                team_id=self.team.id,
+                pattern=f"^{self.prefix}_person_.*",
+                property_type=PropertyDefinition.Type.PERSON,
+            ),
+        )
+
+        assert result["property_definitions_deleted"] == 1
+        assert result["event_properties_deleted"] == 1
+
+        @sync_to_async
+        def verify_event_property_deleted():
+            return EventProperty.objects.filter(team=self.team, property=prop_name).exists()
+
+        assert not await verify_event_property_deleted()
+
+    @pytest.mark.asyncio
+    async def test_deletes_in_batches_with_corresponding_event_properties(self):
+        prop_names = [f"{self.prefix}_batch_prop_{i}" for i in range(5)]
+
+        @sync_to_async
+        def create_data():
+            for name in prop_names:
+                create_property_definition(self.team, name, PropertyDefinition.Type.EVENT)
+                EventProperty.objects.create(team=self.team, event="$pageview", property=name)
+
+        await create_data()
+
+        result = await self.activity_environment.run(
+            delete_property_definitions_from_postgres,
+            DeletePostgresPropertyDefinitionsInput(
+                team_id=self.team.id,
+                pattern=f"^{self.prefix}_batch_.*",
+                property_type=PropertyDefinition.Type.EVENT,
+                batch_size=2,
+            ),
+        )
+
+        assert result["property_definitions_deleted"] == 2
+        assert result["event_properties_deleted"] == 2
+
+        @sync_to_async
+        def count_remaining():
+            prop_defs = PropertyDefinition.objects.filter(
+                team=self.team, name__startswith=f"{self.prefix}_batch_", type=PropertyDefinition.Type.EVENT
+            ).count()
+            event_props = EventProperty.objects.filter(
+                team=self.team, property__startswith=f"{self.prefix}_batch_"
+            ).count()
+            return prop_defs, event_props
+
+        remaining_defs, remaining_event_props = await count_remaining()
+        assert remaining_defs == 3
+        assert remaining_event_props == 3
 
 
 @parameterized_class(

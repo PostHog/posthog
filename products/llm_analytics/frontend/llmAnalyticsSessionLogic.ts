@@ -40,9 +40,9 @@ export function getDataNodeLogicProps({
 export const llmAnalyticsSessionLogic = kea<llmAnalyticsSessionLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsSessionLogic']),
 
-    connect({
+    connect(() => ({
         values: [llmAnalyticsSharedLogic, ['dateFilter']],
-    }),
+    })),
 
     actions({
         setSessionId: (sessionId: string) => ({ sessionId }),

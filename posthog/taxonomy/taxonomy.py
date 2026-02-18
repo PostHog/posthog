@@ -376,6 +376,23 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "used_for_debug": True,
         },
+        "$sdk_debug_replay_full_snapshots": {
+            "label": "Replay full snapshots debug info",
+            "description": "Debug information about full snapshots in the replay session.",
+            "used_for_debug": True,
+        },
+        "$debug_first_full_snapshot_timestamp": {
+            "label": "First full snapshot timestamp",
+            "description": "The timestamp of the first full snapshot in the replay session.",
+            "type": "Numeric",
+            "used_for_debug": True,
+        },
+        "$product_tours_enabled_server_side": {
+            "label": "Product tours enabled server side",
+            "description": "Whether product tours are enabled server-side.",
+            "type": "Boolean",
+            "used_for_debug": True,
+        },
         "$sess_rec_flush_size": {
             "label": "Estimated bytes flushed",
             "description": "Estimated size in bytes of flushed recording data so far in this session. Added to events as a debug property.",
@@ -445,16 +462,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "ignored_in_assistant": True,
             "used_for_debug": True,
         },
-        "sdk_debug_extensions_init_method": {
+        "$sdk_debug_extensions_init_method": {
             "label": "PostHog.js extensions init method",
             "description": "The method used to initialize PostHog.js extensions.",
             "examples": ["deferred", "synchronous"],
+            "type": "String",
             "used_for_debug": True,
         },
-        "sdk_debug_extensions_init_time_ms": {
+        "$sdk_debug_extensions_init_time_ms": {
             "label": "PostHog.js extensions init time (ms)",
             "description": "The time taken to initialize PostHog.js extensions in milliseconds.",
             "examples": ["150"],
+            "type": "Numeric",
             "used_for_debug": True,
         },
         "$sdk_debug_retry_queue_size": {

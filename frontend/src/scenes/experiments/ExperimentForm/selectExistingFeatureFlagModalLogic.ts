@@ -34,7 +34,7 @@ const DEFAULT_FILTERS: FeatureFlagModalFilters = {
 export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlagModalLogicType>([
     path(['scenes', 'experiments', 'create', 'selectExistingFeatureFlagModalLogic']),
 
-    connect({
+    connect(() => ({
         actions: [
             eventUsageLogic,
             ['reportExperimentFeatureFlagModalOpened'],
@@ -42,7 +42,7 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
             ['loadCurrentTeamSuccess', 'updateCurrentTeamSuccess'],
         ],
         values: [teamLogic, ['currentTeam']],
-    }),
+    })),
 
     actions({
         openSelectExistingFeatureFlagModal: true,

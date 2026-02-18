@@ -1,6 +1,6 @@
 .ImpersonationNotice {
     display: flex;
-    width: 320px;
+    width: 26rem;
     background-color: var(--color-bg-surface-primary);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -129,7 +129,6 @@
         color: var(--text-primary);
         text-transform: uppercase;
         letter-spacing: 0.025em;
-        white-space: nowrap;
     }
 
     &__content {

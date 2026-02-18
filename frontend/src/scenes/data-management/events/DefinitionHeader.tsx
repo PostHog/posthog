@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { IconBadge, IconBolt, IconCursor, IconEye, IconLeave, IconList, IconLogomark } from '@posthog/icons'
+import { IconBadge, IconBolt, IconCursor, IconEye, IconLeave, IconList, IconLogomark, IconPlay } from '@posthog/icons'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -118,6 +118,17 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
                 hidden={definition.hidden}
                 tooltipTitle="All events"
                 className="taxonomy-icon taxonomy-icon-built-in"
+            />
+        )
+    }
+    if (definition.is_action) {
+        return (
+            <IconWithBadge
+                icon={<IconPlay />}
+                verified={definition.verified}
+                hidden={definition.hidden}
+                tooltipTitle="Custom action"
+                className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-muted"
             />
         )
     }

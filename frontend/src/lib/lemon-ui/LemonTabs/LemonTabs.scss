@@ -72,21 +72,42 @@
     }
 
     .LemonTabs__tab {
+        .reduce-visual-noise & {
+            color: var(--color-text-tertiary) !important;
+        }
+
         .LemonTabs--transitioning & {
             transition: color 150ms ease;
         }
 
         &:hover {
             color: var(--color-accent);
+
+            .reduce-visual-noise & {
+                color: var(--color-text-primary) !important;
+            }
         }
 
         &:active {
             color: var(--color-accent);
+
+            .reduce-visual-noise & {
+                color: var(--color-text-primary) !important;
+            }
         }
 
         &.LemonTabs__tab--active {
             color: var(--color-accent);
             text-shadow: 0 0 0.25px currentColor; // Simulate increased weight without affecting width
+
+            .reduce-visual-noise & {
+                color: var(--color-accent) !important;
+            }
+
+            .LemonTag {
+                color: var(--color-accent);
+                border-color: var(--color-accent);
+            }
         }
 
         a {
@@ -95,6 +116,17 @@
             // Make tab labels that are links the same colors as regular tab labels
             text-decoration: none;
             transition: none;
+        }
+
+        &[aria-selected='true'] {
+            color: var(--color-accent);
+
+            .reduce-visual-noise & {
+                div,
+                a {
+                    color: var(--color-accent);
+                }
+            }
         }
 
         .LemonTabs__tab-content {

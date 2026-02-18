@@ -158,18 +158,20 @@ pub async fn process_events<'a>(
     // Apply event restrictions if service is configured
     if let Some(ref service) = restriction_service {
         let mut filtered_events = Vec::with_capacity(events.len());
+        let now_ts = context.now.timestamp();
 
         for e in events {
+            let uuid_str = e.event.uuid.to_string();
             let event_ctx = RestrictionEventContext {
-                distinct_id: Some(e.event.distinct_id.clone()),
-                session_id: e.event.session_id.clone(),
-                event_name: Some(e.event.event.clone()),
-                event_uuid: Some(e.event.uuid.to_string()),
+                distinct_id: Some(&e.event.distinct_id),
+                session_id: e.event.session_id.as_deref(),
+                event_name: Some(&e.event.event),
+                event_uuid: Some(&uuid_str),
+                now_ts,
             };
 
             let restrictions = service.get_restrictions(&e.event.token, &event_ctx).await;
-            let applied =
-                AppliedRestrictions::from_restrictions(&restrictions, CaptureMode::Events);
+            let applied = AppliedRestrictions::from_restrictions(restrictions, CaptureMode::Events);
 
             if applied.should_drop {
                 report_dropped_events("event_restriction_drop", 1);

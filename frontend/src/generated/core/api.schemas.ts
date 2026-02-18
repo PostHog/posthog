@@ -2408,6 +2408,7 @@ export interface EnterpriseEventDefinitionApi {
     readonly created_by: UserBasicApi
     post_to_slack?: boolean
     default_columns?: string[]
+    readonly media_preview_urls: readonly string[]
 }
 
 export interface PaginatedEnterpriseEventDefinitionListApi {
@@ -2451,6 +2452,15 @@ export interface PatchedEnterpriseEventDefinitionApi {
     readonly created_by?: UserBasicApi
     post_to_slack?: boolean
     default_columns?: string[]
+    readonly media_preview_urls?: readonly string[]
+}
+
+export type EventDefinitionApiProperties = { [key: string]: unknown }
+
+export interface EventDefinitionApi {
+    elements: unknown[]
+    event: string
+    properties: EventDefinitionApiProperties
 }
 
 /**
@@ -3022,6 +3032,10 @@ export type List2Params = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
 }
 
 export type RolesListParams = {
@@ -3077,6 +3091,13 @@ export type EventDefinitionsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type EventDefinitionsByNameRetrieveParams = {
+    /**
+     * The exact event name to look up
+     */
+    name: string
 }
 
 export type ExportsList2Params = {

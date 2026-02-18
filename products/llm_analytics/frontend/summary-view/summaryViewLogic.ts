@@ -39,9 +39,9 @@ export interface SummaryViewLogicProps {
 export const summaryViewLogic = kea<summaryViewLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'summary-view', 'summaryViewLogic']),
     props({} as SummaryViewLogicProps),
-    connect({
+    connect(() => ({
         values: [maxGlobalLogic, ['dataProcessingAccepted'], teamLogic, ['currentTeamId']],
-    }),
+    })),
     key((props) => {
         // Use trace ID or event ID as the key
         if (props.trace) {

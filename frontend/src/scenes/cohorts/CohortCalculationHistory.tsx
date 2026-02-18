@@ -182,6 +182,14 @@ export function CohortCalculationHistory(props: CohortCalculationHistoryProps): 
                                                             {query.written_rows?.toLocaleString()}
                                                         </div>
                                                     </div>
+                                                    {query.query_id && (
+                                                        <div className="mt-2 text-xs">
+                                                            <strong>Query ID:</strong>{' '}
+                                                            <code className="bg-bg-3000 px-1 py-0.5 rounded font-mono select-all">
+                                                                {query.query_id}
+                                                            </code>
+                                                        </div>
+                                                    )}
                                                     {query.query && (
                                                         <details className="mt-2">
                                                             <summary className="cursor-pointer text-primary">
