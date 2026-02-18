@@ -11,11 +11,11 @@ use crate::{
 };
 
 pub async fn do_exception_handling(
-    mut events: Vec<PipelineResult>,
+    events: Vec<PipelineResult>,
     context: Arc<AppContext>,
 ) -> Result<Vec<PipelineResult>, PipelineFailure> {
     let pipeline = ConsumerEventPipeline::new(context);
-    let cloned_events = events.clone();
+    let mut result = events.clone();
 
     let id_to_indices: HashMap<Uuid, usize> =
         events
@@ -30,9 +30,16 @@ pub async fn do_exception_handling(
 
     // We filter out events that errored in previous stages
     let input_batch_events: Batch<ClickHouseEvent> = Batch::from(
-        cloned_events
+        events
             .into_iter()
-            .filter_map(|item| item.ok())
+            .enumerate()
+            .filter_map(|(index, item)| match item {
+                Ok(event) => Some(event),
+                Err(err) => {
+                    result[index] = Err(err);
+                    None
+                }
+            })
             .collect::<Vec<_>>(),
     );
 
@@ -42,15 +49,15 @@ pub async fn do_exception_handling(
     for event in output_batch_events.into_iter() {
         match event {
             Ok(evt) => {
-                let index = id_to_indices.get(&evt.uuid).unwrap();
-                events[*index] = Ok(evt);
+                let index = id_to_indices.get(&evt.uuid).expect("Event UUID not found");
+                result[*index] = Ok(evt);
             }
             Err(err) => {
-                let index = id_to_indices.get(&err.uuid).unwrap();
-                events[*index] = Err(err.error);
+                let index = id_to_indices.get(&err.uuid).expect("Error UUID not found");
+                result[*index] = Err(err.error);
             }
         }
     }
 
-    Ok(events)
+    Ok(result)
 }
