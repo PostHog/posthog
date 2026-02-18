@@ -20,7 +20,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
-import { CyclotronJobInputSchemaType } from '~/types'
 
 import { SSH_FIELD, sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { DataWarehouseIntegrationChoice } from './DataWarehouseIntegrationChoice'
@@ -183,11 +182,7 @@ const sourceFieldToElement = (
                         value={value}
                         onChange={onChange}
                         integration={field.kind}
-                        schema={
-                            field.requiredScopes
-                                ? ({ requiredScopes: field.requiredScopes } as CyclotronJobInputSchemaType)
-                                : undefined
-                        }
+                        schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
                     />
                 )}
             </LemonField>

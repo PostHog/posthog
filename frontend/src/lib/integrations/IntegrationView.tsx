@@ -13,7 +13,7 @@ import { dayjs } from 'lib/dayjs'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
 import { IconBranch } from 'lib/lemon-ui/icons'
 
-import { CyclotronJobInputSchemaType, IntegrationType } from '~/types'
+import { IntegrationType } from '~/types'
 
 import { integrationsLogic } from './integrationsLogic'
 
@@ -24,7 +24,7 @@ export function IntegrationView({
 }: {
     integration: IntegrationType
     suffix?: JSX.Element
-    schema?: CyclotronJobInputSchemaType
+    schema?: { requiredScopes?: string }
 }): JSX.Element {
     const { deleteIntegration } = useActions(integrationsLogic)
     const restrictedReason = useRestrictedArea({
