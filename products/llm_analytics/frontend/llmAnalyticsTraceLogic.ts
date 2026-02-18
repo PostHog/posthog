@@ -454,8 +454,9 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
             actions.setEventId(event || null)
             actions.setLineNumber(line ? parseInt(line, 10) : null)
             actions.setInitialTab(tab || null)
-            if (timestamp) {
-                actions.setDateRange(timestamp || null)
+            // If a specific event is requested, don't constrain the trace query to a narrow timestamp window.
+            if (timestamp && !event) {
+                actions.setDateRange(timestamp)
             } else if (exception_ts) {
                 // Increase the lookup window to 20 minutes before and after the exception timestamp, which gives in total 60 minutes.
                 const parsedDate = dayjs(exception_ts)
@@ -463,6 +464,9 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                     parsedDate.subtract(EXCEPTION_LOOKUP_WINDOW_MINUTES, 'minutes').toISOString(),
                     parsedDate.add(EXCEPTION_LOOKUP_WINDOW_MINUTES, 'minutes').toISOString()
                 )
+            } else {
+                // Avoid leaking date window from previous trace navigation.
+                actions.setDateRange(null, null)
             }
             // Set search from URL param if provided, otherwise clear it
             actions.setSearchQuery(search || '')

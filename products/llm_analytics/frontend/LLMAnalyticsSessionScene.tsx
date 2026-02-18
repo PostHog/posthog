@@ -22,7 +22,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
 import { TraceSummary, llmAnalyticsSessionDataLogic } from './llmAnalyticsSessionDataLogic'
 import { llmAnalyticsSessionLogic } from './llmAnalyticsSessionLogic'
-import { formatLLMCost, getTraceTimestamp } from './utils'
+import { formatLLMCost, getTraceTimestamp, sanitizeTraceUrlSearchParams } from './utils'
 
 const LLMASessionFeedbackDisplay = lazy(() =>
     import('./LLMASessionFeedbackDisplay').then((m) => ({ default: m.LLMASessionFeedbackDisplay }))
@@ -46,6 +46,7 @@ export function LLMAnalyticsSessionScene(): JSX.Element {
 function SessionSceneWrapper(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
+    const traceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     const showFeedback = !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS]
 
     const {
@@ -206,7 +207,7 @@ function SessionSceneWrapper(): JSX.Element {
                                                     <Link
                                                         to={
                                                             combineUrl(urls.llmAnalyticsTrace(trace.id), {
-                                                                ...searchParams,
+                                                                ...traceSearchParams,
                                                                 timestamp: getTraceTimestamp(trace.createdAt),
                                                             }).url
                                                         }
@@ -233,7 +234,7 @@ function SessionSceneWrapper(): JSX.Element {
                                                             <Link
                                                                 to={
                                                                     combineUrl(urls.llmAnalyticsTrace(trace.id), {
-                                                                        ...searchParams,
+                                                                        ...traceSearchParams,
                                                                         timestamp: getTraceTimestamp(trace.createdAt),
                                                                         tab: 'summary',
                                                                     }).url

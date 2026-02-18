@@ -336,7 +336,19 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
                     return null
                 }
 
-                return showableEvents.find((event) => event.id === effectiveEventId) || null
+                const matchedEvent =
+                    showableEvents.find((event) => {
+                        const generationId = event.properties.$ai_generation_id
+                        const spanId = event.properties.$ai_span_id
+                        return (
+                            event.id === effectiveEventId ||
+                            generationId === effectiveEventId ||
+                            spanId === effectiveEventId
+                        )
+                    }) || null
+
+                // If URL carries a stale/invalid event id, fall back to trace root instead of hard-failing.
+                return matchedEvent || trace || null
             },
         ],
         tree: [(s) => [s.filteredTree], (filteredTree): TraceTreeNode[] => filteredTree],
