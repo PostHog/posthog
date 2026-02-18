@@ -81,6 +81,9 @@ catalogs:
     posthog-js:
       specifier: ^1.347.2
       version: 1.347.2
+    prettier:
+      specifier: ^3.6.2
+      version: 3.6.2
     ts-pattern:
       specifier: '4.3'
       version: 4.3.0
@@ -1662,12 +1665,12 @@ importers:
       jest:
         specifier: ^30.0.0
         version: 30.0.5(@types/node@22.18.8)(esbuild-register@3.5.0(esbuild@0.27.2))(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.4.5))
-      oxfmt:
-        specifier: 'catalog:'
-        version: 0.33.0
       pino-pretty:
         specifier: ^9.1.0
         version: 9.4.0
+      prettier:
+        specifier: 'catalog:'
+        version: 3.6.2
       supertest:
         specifier: ^7.0.0
         version: 7.0.0

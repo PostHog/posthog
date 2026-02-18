@@ -481,7 +481,8 @@ quality:
         cmd: pnpm oxlint --fix --fix-suggestions --quiet "$@" && pnpm exec oxfmt "$@"
         description: Format JavaScript/TypeScript files (frontend)
     format:nodejs:
-        cmd: pnpm --dir nodejs exec eslint --fix "$@" && pnpm --dir nodejs exec oxfmt "$@"
+        cmd: pnpm --dir nodejs exec eslint --fix "$@" && pnpm --dir nodejs exec prettier
+            --write "$@"
         description: Format nodejs JavaScript files
     format:rust:
         cmd: rustfmt
