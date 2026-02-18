@@ -42,7 +42,6 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
-from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
@@ -435,38 +434,35 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         if formula_nodes:
             with self.timings.measure("apply_formula"):
-                try:
-                    has_compare = bool(self.query.compareFilter and self.query.compareFilter.compare)
-                    if has_compare:
-                        current_results = returned_results[: len(returned_results) // 2]
-                        previous_results = returned_results[len(returned_results) // 2 :]
+                has_compare = bool(self.query.compareFilter and self.query.compareFilter.compare)
+                if has_compare:
+                    current_results = returned_results[: len(returned_results) // 2]
+                    previous_results = returned_results[len(returned_results) // 2 :]
 
-                        final_result = []
-                        for formula_idx, formula_node in enumerate(formula_nodes):
-                            current_formula_results = self.apply_formula(formula_node, current_results)
-                            previous_formula_results = self.apply_formula(formula_node, previous_results)
-                            # Create a new list for each formula's results
-                            formula_results = []
-                            formula_results.extend(current_formula_results)
-                            formula_results.extend(previous_formula_results)
+                    final_result = []
+                    for formula_idx, formula_node in enumerate(formula_nodes):
+                        current_formula_results = self.apply_formula(formula_node, current_results)
+                        previous_formula_results = self.apply_formula(formula_node, previous_results)
+                        # Create a new list for each formula's results
+                        formula_results = []
+                        formula_results.extend(current_formula_results)
+                        formula_results.extend(previous_formula_results)
 
-                            # Set the order based on the formula index
-                            for result in formula_results:
-                                result["order"] = formula_idx
+                        # Set the order based on the formula index
+                        for result in formula_results:
+                            result["order"] = formula_idx
 
-                            final_result.extend(formula_results)
-                    else:
-                        for formula_idx, formula_node in enumerate(formula_nodes):
-                            formula_results = self.apply_formula(formula_node, returned_results)
+                        final_result.extend(formula_results)
+                else:
+                    for formula_idx, formula_node in enumerate(formula_nodes):
+                        formula_results = self.apply_formula(formula_node, returned_results)
 
-                            # Set the order based on the formula index
-                            for result in formula_results:
-                                result["order"] = formula_idx
+                        # Set the order based on the formula index
+                        for result in formula_results:
+                            result["order"] = formula_idx
 
-                            # Create a new list for each formula's results
-                            final_result.extend(formula_results)
-                except ValueError as e:
-                    raise ExposedHogQLError(str(e))
+                        # Create a new list for each formula's results
+                        final_result.extend(formula_results)
         else:
             for result in returned_results:
                 if isinstance(result, list):

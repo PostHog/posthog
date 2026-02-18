@@ -2,6 +2,8 @@ import ast
 import operator
 from typing import Any
 
+from posthog.hogql.errors import ExposedHogQLError
+
 
 class FormulaAST:
     op_map = {
@@ -82,7 +84,7 @@ class FormulaAST:
             except KeyError:
                 available = sorted(k.upper() for k in const_map if k.isalpha() and len(k) == 1)
                 series_word = "series is" if len(available) == 1 else "series are"
-                raise ValueError(
+                raise ExposedHogQLError(
                     f"Formula references series {node.id.upper()}, "
                     f"but only {len(available)} {series_word} defined ({', '.join(available) or 'none'})"
                 )
