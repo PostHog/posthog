@@ -601,13 +601,11 @@ export interface PatchedOrganizationMemberApi {
  */
 export interface OrganizationOAuthApplicationApi {
     readonly id: string
-    /** @maxLength 255 */
-    name?: string
-    /** @maxLength 100 */
-    client_id?: string
+    readonly name: string
+    readonly client_id: string
     readonly redirect_uris_list: readonly string[]
     /** True if this application has been verified by PostHog */
-    is_verified?: boolean
+    readonly is_verified: boolean
     readonly created: string
     readonly updated: string
 }

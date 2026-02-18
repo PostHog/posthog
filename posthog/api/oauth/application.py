@@ -43,6 +43,14 @@ class OrganizationOAuthApplicationSerializer(serializers.ModelSerializer):
             "created",
             "updated",
         ]
+        read_only_fields = [
+            "id",
+            "name",
+            "client_id",
+            "is_verified",
+            "created",
+            "updated",
+        ]
 
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_redirect_uris_list(self, instance: OAuthApplication) -> list[str]:
