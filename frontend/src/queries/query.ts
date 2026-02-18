@@ -26,6 +26,39 @@ import {
     shouldQueryBeAsync,
 } from './utils'
 
+export function waitForPageVisible(signal?: AbortSignal): Promise<void> {
+    if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        return Promise.resolve()
+    }
+
+    return new Promise<void>((resolve, reject) => {
+        const onVisibilityChange = (): void => {
+            if (document.visibilityState === 'visible') {
+                cleanup()
+                resolve()
+            }
+        }
+
+        const onAbort = (): void => {
+            cleanup()
+            reject(new DOMException('Aborted', 'AbortError'))
+        }
+
+        const cleanup = (): void => {
+            document.removeEventListener('visibilitychange', onVisibilityChange)
+            signal?.removeEventListener('abort', onAbort)
+        }
+
+        if (signal?.aborted) {
+            reject(new DOMException('Aborted', 'AbortError'))
+            return
+        }
+
+        document.addEventListener('visibilitychange', onVisibilityChange)
+        signal?.addEventListener('abort', onAbort)
+    })
+}
+
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
@@ -86,6 +119,7 @@ export async function pollForResults(
     let currentDelay = 300 // start low, because all queries will take at minimum this
 
     while (performance.now() - pollStart < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
+        await waitForPageVisible(methodOptions?.signal)
         await delay(currentDelay, methodOptions?.signal)
         currentDelay = Math.min(currentDelay * 1.25, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
 
@@ -134,7 +168,8 @@ async function executeQuery<N extends DataNode>(
      * Whether to limit the function to just polling the provided query ID.
      * This is important in shared contexts, where we cannot create arbitrary queries via POST – we can only GET.
      */
-    pollOnly = false
+    pollOnly = false,
+    limitContext?: 'posthog_ai'
 ): Promise<NonNullable<N['response']>> {
     if (!pollOnly) {
         // Determine the refresh type based on the query node type and refresh parameter
@@ -156,6 +191,7 @@ async function executeQuery<N extends DataNode>(
             refresh: refreshParam,
             filtersOverride,
             variablesOverride,
+            limitContext,
         })
 
         if (response.detail) {
@@ -190,7 +226,8 @@ export async function performQuery<N extends DataNode>(
     setPollResponse?: (status: QueryStatus) => void,
     filtersOverride?: DashboardFilter | null,
     variablesOverride?: Record<string, HogQLVariable> | null,
-    pollOnly = false
+    pollOnly = false,
+    limitContext?: 'posthog_ai'
 ): Promise<NonNullable<N['response']>> {
     let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
@@ -208,7 +245,8 @@ export async function performQuery<N extends DataNode>(
                 setPollResponse,
                 filtersOverride,
                 variablesOverride,
-                pollOnly
+                pollOnly,
+                limitContext
             )
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse

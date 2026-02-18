@@ -752,9 +752,18 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                     // Auto-create workflow variables if the action has a default output_variable
                     let updatedVariables = values.workflow.variables
-                    if (newAction.output_variable?.key) {
-                        const prefix = newAction.output_variable.key
-                        if (newAction.output_variable.spread) {
+                    const outputVars = Array.isArray(newAction.output_variable)
+                        ? newAction.output_variable
+                        : newAction.output_variable
+                          ? [newAction.output_variable]
+                          : []
+
+                    for (const outputVar of outputVars) {
+                        if (!outputVar.key) {
+                            continue
+                        }
+                        const prefix = outputVar.key
+                        if (outputVar.spread) {
                             // Create individual variables for each expected property
                             const spreadKeys = [
                                 'status',
