@@ -487,7 +487,6 @@ export const ExecuteSQLSchema = z.object({
     truncate: z
         .boolean()
         .optional()
-        .default(true)
         .describe(
             'Whether to truncate large JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file).'
         ),
