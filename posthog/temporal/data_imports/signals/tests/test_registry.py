@@ -1,8 +1,9 @@
 import pytest
 
+from pydantic import ValidationError
+
 from posthog.temporal.data_imports.signals.registry import (
     _SIGNAL_TABLE_CONFIGS,
-    SignalEmitterOutput,
     SignalSourceTableConfig,
     get_signal_config,
     is_signal_emission_registered,
@@ -11,9 +12,7 @@ from posthog.temporal.data_imports.signals.registry import (
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
-
-def _noop_emitter(team_id: int, record: dict) -> SignalEmitterOutput | None:
-    return None
+_BASE_FIELDS = {"emitter": lambda tid, r: None, "partition_field": "created_at", "fields": ("id",)}
 
 
 @pytest.fixture(autouse=True)
@@ -26,14 +25,14 @@ def _clean_registry():
 
 class TestRegisterSignalSourceTable:
     def test_registers_and_retrieves_config(self):
-        config = SignalSourceTableConfig(emitter=_noop_emitter, partition_field="created_at", fields=("id",))
+        config = SignalSourceTableConfig(**_BASE_FIELDS)
         register_signal_source_table(ExternalDataSourceType.ZENDESK, "tickets", config)
 
         assert get_signal_config("Zendesk", "tickets") is config
 
     def test_overwrites_existing_registration(self):
-        config_a = SignalSourceTableConfig(emitter=_noop_emitter, partition_field="created_at", fields=("id",))
-        config_b = SignalSourceTableConfig(emitter=_noop_emitter, partition_field="updated_at", fields=("id",))
+        config_a = SignalSourceTableConfig(**_BASE_FIELDS)
+        config_b = SignalSourceTableConfig(**{**_BASE_FIELDS, "partition_field": "updated_at"})
         register_signal_source_table(ExternalDataSourceType.ZENDESK, "tickets", config_a)
         register_signal_source_table(ExternalDataSourceType.ZENDESK, "tickets", config_b)
 
@@ -55,13 +54,71 @@ class TestGetSignalConfig:
 
 class TestIsSignalEmissionRegistered:
     def test_true_when_registered(self):
-        config = SignalSourceTableConfig(emitter=_noop_emitter, partition_field="time", fields=("id",))
+        config = SignalSourceTableConfig(**{**_BASE_FIELDS, "partition_field": "time"})
         register_signal_source_table(ExternalDataSourceType.ZENDESK, "ticket_metric_events", config)
 
         assert is_signal_emission_registered("Zendesk", "ticket_metric_events") is True
 
     def test_false_when_not_registered(self):
         assert is_signal_emission_registered("Zendesk", "organizations") is False
+
+
+class TestSignalSourceTableConfigValidation:
+    @pytest.mark.parametrize(
+        "field_name",
+        ["actionability_prompt", "summarization_prompt"],
+    )
+    def test_rejects_prompt_without_description_placeholder(self, field_name):
+        with pytest.raises(ValidationError, match="must contain.*description.*placeholder"):
+            SignalSourceTableConfig(
+                **{
+                    **_BASE_FIELDS,
+                    field_name: "No placeholder here",
+                    **(
+                        {"description_summarization_threshold_chars": 2000}
+                        if field_name == "summarization_prompt"
+                        else {}
+                    ),
+                }
+            )
+
+    @pytest.mark.parametrize(
+        "field_name",
+        ["actionability_prompt", "summarization_prompt"],
+    )
+    def test_accepts_prompt_with_description_placeholder(self, field_name):
+        config = SignalSourceTableConfig(
+            **{
+                **_BASE_FIELDS,
+                field_name: "Analyze: {description}",
+                **({"description_summarization_threshold_chars": 2000} if field_name == "summarization_prompt" else {}),
+            }
+        )
+        assert getattr(config, field_name) is not None
+
+    def test_rejects_summarization_prompt_without_threshold(self):
+        with pytest.raises(ValidationError, match="must both be set or both be None"):
+            SignalSourceTableConfig(**{**_BASE_FIELDS, "summarization_prompt": "Summarize: {description}"})
+
+    def test_rejects_threshold_without_summarization_prompt(self):
+        with pytest.raises(ValidationError, match="must both be set or both be None"):
+            SignalSourceTableConfig(**{**_BASE_FIELDS, "description_summarization_threshold_chars": 2000})
+
+    def test_accepts_both_summarization_fields_set(self):
+        config = SignalSourceTableConfig(
+            **{
+                **_BASE_FIELDS,
+                "summarization_prompt": "Summarize: {description}",
+                "description_summarization_threshold_chars": 2000,
+            }
+        )
+        assert config.summarization_prompt is not None
+        assert config.description_summarization_threshold_chars == 2000
+
+    def test_accepts_both_summarization_fields_none(self):
+        config = SignalSourceTableConfig(**_BASE_FIELDS)
+        assert config.summarization_prompt is None
+        assert config.description_summarization_threshold_chars is None
 
 
 class TestZendeskTicketsAutoRegistered:

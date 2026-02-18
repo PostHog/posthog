@@ -2,6 +2,8 @@ import dataclasses
 from collections.abc import Callable
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, model_validator
+
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 EMIT_SIGNALS_FEATURE_FLAG = "emit-data-import-signals"
@@ -20,29 +22,44 @@ class SignalEmitterOutput:
 SignalEmitter = Callable[[int, dict[str, Any]], SignalEmitterOutput | None]
 
 
-@dataclasses.dataclass(frozen=True)
-class SignalSourceTableConfig:
+class SignalSourceTableConfig(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     emitter: SignalEmitter
-    # Column used to filter new records. Should match the source table's partition field for efficient ClickHouse queries.
+    # Should match the source table's partition field for efficient ClickHouse queries
     partition_field: str
     # Columns to SELECT — only what the emitter and extra metadata need
     fields: tuple[str, ...]
-    # Optional HogQL WHERE clause to append to every query
-    # e.g., "status NOT IN ('closed', 'solved')" for Zendesk
+    # Optional HogQL WHERE clause, e.g. "status NOT IN ('closed', 'solved')"
     where_clause: str | None = None
     # Max records to process per sync
     max_records: int = 1000
-    # Lookback window in days for first ever sync
+    # How far back to look for new records
     first_sync_lookback_days: int = 7
-    # Optional LLM prompt to check if a record is actionable before emitting.
-    # If None, all records passing the emitter are considered actionable.
+    # LLM prompt to check if a record is actionable before emitting. If None, all records == actionable.
     actionability_prompt: str | None = None
-    # Optional LLM prompt to summarize descriptions that exceed the threshold.
-    # If None, no summarization is performed.
+    # LLM prompt to summarize descriptions that exceed the threshold. If None, no summarization is performed.
     summarization_prompt: str | None = None
-    # Character limit above which descriptions are summarized (and truncated as last resort).
-    # Only used when summarization_prompt is set.
-    description_summarization_threshold: int | None = None
+    # How large the description can be before emitting
+    description_summarization_threshold_chars: int | None = None
+
+    @model_validator(mode="after")
+    def _validate_prompt_placeholders(self) -> "SignalSourceTableConfig":
+        for field_name in ("actionability_prompt", "summarization_prompt"):
+            value = getattr(self, field_name)
+            if value is not None and "{description}" not in value:
+                raise ValueError(f"{field_name} must contain {{description}} placeholder")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_summarization_pair(self) -> "SignalSourceTableConfig":
+        has_prompt = self.summarization_prompt is not None
+        has_threshold = self.description_summarization_threshold_chars is not None
+        if has_prompt != has_threshold:
+            raise ValueError(
+                "summarization_prompt and description_summarization_threshold_chars must both be set or both be None"
+            )
+        return self
 
 
 # Registry mapping (source_type, schema_name) -> config
