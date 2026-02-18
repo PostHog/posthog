@@ -233,8 +233,8 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             max_tokens=16384,
             thinking=self.THINKING_CONFIG,
             # langchain-anthropic 0.3.x doesn't have a first-class effort field;
-            # use extra_body to bypass SDK type checking and send output_config directly.
-            model_kwargs={"extra_body": {"output_config": {"effort": "medium"}}},
+            # forward it via model_kwargs so the Anthropic API receives output_config.
+            model_kwargs={"output_config": {"effort": "medium"}},
             conversation_start_dt=state.start_dt,
             billable=True,
         )
