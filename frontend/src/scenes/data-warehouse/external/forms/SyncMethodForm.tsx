@@ -100,7 +100,7 @@ export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }:
     const incrementalSyncSupported = getIncrementalSyncSupported(schema)
     const appendSyncSupported = getAppendOnlySyncSupported(schema)
 
-    const [radioValue, setRadioValue] = useState(
+    const [radioValue, setRadioValue] = useState(() =>
         getInitialRadioState(schema, !incrementalSyncSupported.disabled, !appendSyncSupported.disabled)
     )
     const [incrementalFieldValue, setIncrementalFieldValue] = useState(schema.incremental_field ?? null)
