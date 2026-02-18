@@ -10,14 +10,13 @@ from pydantic import BaseModel, Field
 from posthog.schema import (
     AlertCalculationInterval,
     AlertConditionType,
-    AlertState,
     InsightThresholdType,
     InsightVizNode,
     QuerySchemaRoot,
 )
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.alert import AlertConfiguration, AlertSubscription, Threshold, are_alerts_supported_for_insight
+from posthog.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from posthog.models.insight import Insight
 
 from ee.hogai.artifacts.types import ModelArtifactResult
@@ -167,8 +166,6 @@ class UpsertAlertTool(MaxTool):
         else:
             return await self._handle_update(action)
 
-    # -- Create --
-
     async def _handle_create(self, action: CreateAlertAction) -> tuple[str, dict[str, Any]]:
         try:
             team = self._team
@@ -179,34 +176,27 @@ class UpsertAlertTool(MaxTool):
                     "error": "validation_failed",
                 }
 
-            limit_error = await self._check_alert_limit()
-            if limit_error:
-                return limit_error, {"error": "plan_limit_reached"}
+            try:
+                await self._check_alert_limit()
+            except ValidationError as e:
+                return str(e.message), {"error": "plan_limit_reached"}
 
             try:
-                insight, was_auto_saved = await self._resolve_insight(action.insight_id)
+                insight, was_auto_saved = await self._resolve_and_validate_insight(
+                    action.insight_id, action_description="create alert for"
+                )
             except Insight.DoesNotExist:
                 return "Insight not found. Provide a valid insight ID or short ID.", {
                     "error": "insight_not_found",
                 }
+            except ValueError as e:
+                return str(e), {"error": "unsupported_insight"}
 
-            await self.check_object_access(insight, "editor", resource="insight", action="create alert for")
-
-            is_supported = await sync_to_async(are_alerts_supported_for_insight)(insight)
-            if not is_supported:
-                return "Alerts are only supported for TrendsQuery insights. This insight type is not supported.", {
-                    "error": "unsupported_insight",
-                }
-
-            bounds: dict[str, float] = {}
-            if action.lower_threshold is not None:
-                bounds["lower"] = action.lower_threshold
-            if action.upper_threshold is not None:
-                bounds["upper"] = action.upper_threshold
-            threshold_config = {
-                "type": action.threshold_type,
-                "bounds": bounds,
-            }
+            threshold_config = Threshold.build_configuration(
+                threshold_type=action.threshold_type,
+                lower=action.lower_threshold,
+                upper=action.upper_threshold,
+            )
 
             truncated_name = action.name[:255]
 
@@ -216,7 +206,7 @@ class UpsertAlertTool(MaxTool):
             try:
                 unsaved_threshold.clean()
             except ValidationError as e:
-                return str(e), {"error": "validation_failed"}
+                return str(e), {"error": "validation_failed on alert treshold"}
 
             alert, threshold = await self._persist_alert(
                 team=team,
@@ -255,8 +245,6 @@ class UpsertAlertTool(MaxTool):
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"Failed to create alert: {str(e)}", {"error": "creation_failed", "details": str(e)}
-
-    # -- Update --
 
     async def _handle_update(self, action: UpdateAlertAction) -> tuple[str, dict[str, Any]]:
         try:
@@ -298,17 +286,15 @@ class UpsertAlertTool(MaxTool):
 
             if action.insight_id is not None:
                 try:
-                    insight, _ = await self._resolve_insight(action.insight_id)
+                    insight, _ = await self._resolve_and_validate_insight(
+                        action.insight_id, action_description="move alert to"
+                    )
                 except Insight.DoesNotExist:
                     return "Insight not found. Provide a valid insight ID or short ID.", {
                         "error": "insight_not_found",
                     }
-                await self.check_object_access(insight, "editor", resource="insight", action="move alert to")
-                is_supported = await sync_to_async(are_alerts_supported_for_insight)(insight)
-                if not is_supported:
-                    return "Alerts are only supported for TrendsQuery insights. This insight type is not supported.", {
-                        "error": "unsupported_insight",
-                    }
+                except ValueError as e:
+                    return str(e), {"error": "unsupported_insight"}
                 alert.insight = insight
                 update_fields.append("insight")
                 if alert.threshold is not None:
@@ -330,13 +316,12 @@ class UpsertAlertTool(MaxTool):
             if not update_fields and not has_threshold_changes:
                 return "No changes provided. Specify at least one field to update.", {"error": "no_changes"}
 
-            if conditions_or_threshold_changed:
-                alert.state = AlertState.NOT_FIRING
-                update_fields.append("state")
-
-            if conditions_or_threshold_changed or calculation_interval_changed:
-                alert.next_check_at = None
-                update_fields.append("next_check_at")
+            update_fields.extend(
+                alert.reset_check_schedule(
+                    conditions_changed=conditions_or_threshold_changed,
+                    interval_changed=calculation_interval_changed,
+                )
+            )
 
             await sync_to_async(alert.save)(update_fields=update_fields)
 
@@ -363,22 +348,18 @@ class UpsertAlertTool(MaxTool):
             return await AlertConfiguration.objects.select_related("threshold", "insight").aget(
                 id=alert_id, team=self._team
             )
-        except (AlertConfiguration.DoesNotExist, ValueError, ValidationError):
+        except Exception:
             return None
 
     @staticmethod
     async def _update_threshold(alert: AlertConfiguration, action: UpdateAlertAction) -> None:
         threshold = alert.threshold
         if threshold is None:
-            config: dict[str, Any] = {
-                "type": action.threshold_type or InsightThresholdType.ABSOLUTE,
-                "bounds": {},
-            }
-            if action.lower_threshold is not None:
-                config["bounds"]["lower"] = action.lower_threshold
-            if action.upper_threshold is not None:
-                config["bounds"]["upper"] = action.upper_threshold
-
+            config = Threshold.build_configuration(
+                threshold_type=action.threshold_type or InsightThresholdType.ABSOLUTE,
+                lower=action.lower_threshold,
+                upper=action.upper_threshold,
+            )
             insight = await sync_to_async(lambda: alert.insight)()
             team = await sync_to_async(lambda: alert.team)()
             new_threshold = Threshold(team=team, insight=insight, name=alert.name, configuration=config)
@@ -387,25 +368,31 @@ class UpsertAlertTool(MaxTool):
             alert.threshold = new_threshold
             return
 
-        config = dict(threshold.configuration)
-        if action.threshold_type is not None:
-            config["type"] = action.threshold_type
-        bounds = dict(config.get("bounds", {}))
-        if action.lower_threshold is not None:
-            bounds["lower"] = action.lower_threshold
-        if action.upper_threshold is not None:
-            bounds["upper"] = action.upper_threshold
-        config["bounds"] = bounds
+        config = Threshold.build_configuration(
+            threshold_type=action.threshold_type,
+            lower=action.lower_threshold,
+            upper=action.upper_threshold,
+            existing=threshold.configuration,
+        )
         threshold.configuration = config
         await sync_to_async(threshold.clean)()
         await sync_to_async(threshold.save)(update_fields=["configuration"])
 
-    # -- Shared helpers --
-
-    async def _check_alert_limit(self) -> str | None:
+    async def _check_alert_limit(self) -> None:
+        """Raise ValidationError if the team has reached its alert limit."""
         team = self._team
         org = await sync_to_async(lambda: team.organization)()
-        return await sync_to_async(AlertConfiguration.check_alert_limit)(team.id, org)
+        await sync_to_async(AlertConfiguration.check_alert_limit)(team.id, org)
+
+    async def _resolve_and_validate_insight(
+        self, insight_id: str | int | None, *, action_description: str
+    ) -> tuple[Insight, bool]:
+        """Resolve insight, check access and alert support. Returns (insight, was_auto_saved)."""
+        insight, was_auto_saved = await self._resolve_insight(insight_id)
+        await self.check_object_access(insight, "editor", resource="insight", action=action_description)
+        if not await sync_to_async(lambda: insight.are_alerts_supported)():
+            raise ValueError("Alerts are only supported for TrendsQuery insights. This insight type is not supported.")
+        return insight, was_auto_saved
 
     async def _resolve_insight(self, insight_id: str | int | None) -> tuple[Insight, bool]:
         """Resolve an insight by numeric ID, short_id, or conversation artifact.
@@ -417,7 +404,7 @@ class UpsertAlertTool(MaxTool):
 
         Returns (insight, was_auto_saved).
         """
-        effective_id = str(insight_id or self.context.get("insight_id") or "").strip()
+        effective_id = str(insight_id or self.context.get("insight_id")).strip()
         if not effective_id:
             raise Insight.DoesNotExist(
                 "No insight provided. Provide an insight_id or use this tool from an insight page."
@@ -437,7 +424,7 @@ class UpsertAlertTool(MaxTool):
         except Insight.DoesNotExist:
             pass
 
-        # 3. Try conversation artifact — auto-save as a new insight (same pattern as upsert_dashboard)
+        # 3. Try conversation artifact — auto-save as a new insight
         result = await self._context_manager.artifacts.aget_visualization(self._state.messages, effective_id)
         if result is None:
             raise Insight.DoesNotExist(f"Insight or visualization '{effective_id}' not found.")
