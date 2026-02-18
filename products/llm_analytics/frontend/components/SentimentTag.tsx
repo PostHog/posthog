@@ -130,16 +130,34 @@ export function SentimentBar({ label, score, loading, size = 'sm', messages }: S
                 </span>
                 {showMaxPositive && (
                     <span
-                        className="absolute w-0.5 bg-success rounded-full"
+                        className="absolute"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ left: `${Math.round(maxPositive * 100)}%`, top: '-2px', bottom: 0 }}
+                        style={{
+                            left: `${Math.round(maxPositive * 100)}%`,
+                            top: '-5px',
+                            marginLeft: '-3px',
+                            width: 0,
+                            height: 0,
+                            borderLeft: '3px solid transparent',
+                            borderRight: '3px solid transparent',
+                            borderTop: '4px solid var(--success)',
+                        }}
                     />
                 )}
                 {showMaxNegative && (
                     <span
-                        className="absolute w-0.5 bg-danger rounded-full"
+                        className="absolute"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ left: `${Math.round(maxNegative * 100)}%`, top: 0, bottom: '-2px' }}
+                        style={{
+                            left: `${Math.round(maxNegative * 100)}%`,
+                            bottom: '-5px',
+                            marginLeft: '-3px',
+                            width: 0,
+                            height: 0,
+                            borderLeft: '3px solid transparent',
+                            borderRight: '3px solid transparent',
+                            borderBottom: '4px solid var(--danger)',
+                        }}
                     />
                 )}
             </span>
