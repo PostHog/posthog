@@ -2,8 +2,6 @@ import { Message } from 'node-rdkafka'
 import { Gauge } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { MessageSizeTooLarge } from '~/utils/db/error'
-import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
 import { HogTransformerHub, HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { KafkaConsumer } from '../kafka/consumer'
@@ -20,9 +18,8 @@ import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restr
 import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
-import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
-import { FlushResult, PersonsStore } from '../worker/ingestion/persons/persons-store'
+import { PersonsStore } from '../worker/ingestion/persons/persons-store'
 import {
     JoinedIngestionPipelineConfig,
     JoinedIngestionPipelineContext,
@@ -207,6 +204,7 @@ export class IngestionConsumer {
             hub: this.hub,
             kafkaProducer: this.kafkaProducer!,
             personsStore: this.personsStore,
+            groupStore: this.groupStore,
             hogTransformer: this.hogTransformer,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             overflowEnabled: this.overflowEnabled(),
@@ -308,19 +306,7 @@ export class IngestionConsumer {
             this.logBatchStart(messages)
         }
 
-        const groupStoreForBatch = this.groupStore.forBatch()
-
-        await this.runIngestionPipeline(messages, groupStoreForBatch)
-
-        const [_, personsStoreMessages] = await Promise.all([groupStoreForBatch.flush(), this.personsStore.flush()])
-
-        if (this.kafkaProducer) {
-            await this.producePersonsStoreMessages(personsStoreMessages)
-        }
-
-        this.personsStore.reportBatch()
-        this.personsStore.reset()
-        groupStoreForBatch.reportBatch()
+        await this.runIngestionPipeline(messages)
 
         for (const message of messages) {
             if (message.timestamp) {
@@ -337,8 +323,8 @@ export class IngestionConsumer {
         }
     }
 
-    private async runIngestionPipeline(messages: Message[], groupStoreForBatch: GroupStoreForBatch): Promise<void> {
-        const batch = messages.map((message) => createContext(ok({ message, groupStoreForBatch }), { message }))
+    private async runIngestionPipeline(messages: Message[]): Promise<void> {
+        const batch = messages.map((message) => createContext(ok({ message }), { message }))
 
         this.joinedPipeline.feed(batch)
 
@@ -346,45 +332,6 @@ export class IngestionConsumer {
         while ((await this.joinedPipeline.next()) !== null) {
             // Continue until all results are processed
         }
-    }
-
-    private async producePersonsStoreMessages(personsStoreMessages: FlushResult[]): Promise<void> {
-        await Promise.all(
-            personsStoreMessages.map((record) => {
-                return Promise.all(
-                    record.topicMessage.messages.map(async (message) => {
-                        try {
-                            return await this.kafkaProducer!.produce({
-                                topic: record.topicMessage.topic,
-                                key: message.key ? Buffer.from(message.key) : null,
-                                value: message.value ? Buffer.from(message.value) : null,
-                                headers: message.headers,
-                            })
-                        } catch (error) {
-                            if (error instanceof MessageSizeTooLarge) {
-                                await captureIngestionWarning(
-                                    this.kafkaProducer!,
-                                    record.teamId,
-                                    'message_size_too_large',
-                                    {
-                                        eventUuid: record.uuid,
-                                        distinctId: record.distinctId,
-                                    }
-                                )
-                                logger.warn('🪣', `Message size too large`, {
-                                    topic: record.topicMessage.topic,
-                                    key: message.key,
-                                    headers: message.headers,
-                                })
-                            } else {
-                                throw error
-                            }
-                        }
-                    })
-                )
-            })
-        )
-        await this.kafkaProducer!.flush()
     }
 
     private overflowEnabled(): boolean {

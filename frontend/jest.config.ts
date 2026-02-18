@@ -13,6 +13,7 @@ const esmModules = [
     '@react-hook',
     '@medv',
     'monaco-editor',
+    '@posthog/hedgehog-mode',
     'mdast-util-find-and-replace',
     'escape-string-regexp',
     'unist-util-visit-parents',
@@ -122,6 +123,7 @@ const config: Config = {
         '^scenes/(.*)$': '<rootDir>/src/scenes/$1',
         '^products/(.*)$': '<rootDir>/../products/$1',
         '^common/(.*)$': '<rootDir>/../common/$1',
+        '^@posthog/shared-onboarding/(.*)$': '<rootDir>/../docs/onboarding/$1',
         '^@posthog/rrweb/es/rrweb': '@posthog/rrweb/dist/rrweb.min.js',
         d3: '<rootDir>/node_modules/d3/dist/d3.min.js',
         '^d3-(.*)$': `d3-$1/dist/d3-$1`,
@@ -217,7 +219,7 @@ const config: Config = {
     },
 
     // An array of regexp pattern strings that are matched against all source file paths, matched files will skip transformation
-    transformIgnorePatterns: [`node_modules/(?!(?:.pnpm/)?(${esmModules.join('|')}))`],
+    transformIgnorePatterns: [`node_modules/(?!.*(${esmModules.join('|')}))`],
 
     // An array of regexp pattern strings that are matched against all modules before the module loader will automatically return a mock for them
     // unmockedModulePathPatterns: undefined,

@@ -1,0 +1,83 @@
+.PHONY: build build-linux build-darwin build-all clean test run deps lint fmt help
+
+# Binary name
+BINARY_NAME=posthog-live
+
+# Go parameters
+GOCMD=go
+GOBUILD=$(GOCMD) build
+GOCLEAN=$(GOCMD) clean
+GOTEST=$(GOCMD) test
+GOMOD=$(GOCMD) mod
+
+# Build flags for smaller binary
+LDFLAGS=-ldflags "-s -w"
+
+# Run development version
+run: build
+	./$(BINARY_NAME)
+
+# Build for current platform (development)
+build: deps
+	$(GOBUILD) $(LDFLAGS) -o $(BINARY_NAME) ./tui/
+
+# Build for Linux amd64 (production)
+build-linux: deps
+	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BINARY_NAME)-linux-amd64 ./tui/
+
+# Build for Linux arm64
+build-linux-arm64: deps
+	GOOS=linux GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BINARY_NAME)-linux-arm64 ./tui/
+
+# Build for macOS amd64
+build-darwin: deps
+	GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BINARY_NAME)-darwin-amd64 ./tui/
+
+# Build for macOS arm64
+build-darwin-arm64: deps
+	GOOS=darwin GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BINARY_NAME)-darwin-arm64 ./tui/
+
+# Build all platforms
+build-all: build-linux build-linux-arm64 build-darwin build-darwin-arm64
+
+# Clean build artifacts
+clean:
+	$(GOCLEAN)
+	rm -f $(BINARY_NAME)
+	rm -f $(BINARY_NAME)-linux-*
+	rm -f $(BINARY_NAME)-darwin-*
+
+# Install dependencies
+deps:
+	$(GOMOD) download
+	$(GOMOD) tidy
+
+# Run tests
+test:
+	$(GOTEST) -v ./tui/ ./tui/...
+
+# Format code
+fmt:
+	$(GOCMD) fmt ./tui/ ./tui/...
+
+# Lint code
+lint:
+	golangci-lint run ./tui/ ./tui/...
+
+# Show help
+help:
+	@echo "PostHog Live TUI - Build Targets"
+	@echo ""
+	@echo "  make -f Makefile.tui build              Build for current platform"
+	@echo "  make -f Makefile.tui build-linux         Build Linux amd64 binary"
+	@echo "  make -f Makefile.tui build-linux-arm64   Build Linux arm64 binary"
+	@echo "  make -f Makefile.tui build-darwin         Build macOS amd64 binary"
+	@echo "  make -f Makefile.tui build-darwin-arm64   Build macOS arm64 binary"
+	@echo "  make -f Makefile.tui build-all            Build all platforms"
+	@echo "  make -f Makefile.tui run                  Build and run locally"
+	@echo "  make -f Makefile.tui clean                Remove build artifacts"
+	@echo "  make -f Makefile.tui deps                 Download Go dependencies"
+	@echo "  make -f Makefile.tui test                 Run Go tests"
+	@echo "  make -f Makefile.tui fmt                  Format Go code"
+	@echo "  make -f Makefile.tui lint                 Run golangci-lint"
+	@echo ""
