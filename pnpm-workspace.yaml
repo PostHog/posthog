@@ -65,3 +65,4 @@ minimumReleaseAgeExclude:
     - '@posthog/*'
     - '@modelcontextprotocol/sdk' # Security update for GHSA-345p-7cg4-v4c7
     - kea@4.0.0-pre.3
+    - torph@0.0.5
