@@ -71,7 +71,7 @@ class BuildBetterSource(SimpleSource[BuildBetterSourceConfig]):
             name=SchemaExternalDataSourceType.BUILD_BETTER,
             label="BuildBetter",
             betaSource=True,
-            caption="Connect your BuildBetter workspace to sync interviews, extractions, and documents.",
+            caption="Connect your BuildBetter workspace to sync interviews, extractions, persons, and companies.",
             iconPath="/static/services/buildbetter.png",
             fields=cast(
                 list[FieldType],
