@@ -1,5 +1,6 @@
 import json
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -15,6 +16,7 @@ from posthog.hogql import ast
 
 from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput, SignalSourceTableConfig
 from posthog.temporal.data_imports.workflow_activities.emit_signals import (
+    SUMMARIZATION_MAX_ATTEMPTS,
     EmitDataImportSignalsWorkflow,
     EmitSignalsActivityInputs,
     _build_emitter_outputs,
@@ -22,6 +24,8 @@ from posthog.temporal.data_imports.workflow_activities.emit_signals import (
     _emit_signals,
     _filter_actionable,
     _query_new_records,
+    _summarize_description,
+    _summarize_long_descriptions,
 )
 
 MODULE_PATH = "posthog.temporal.data_imports.workflow_activities.emit_signals"
@@ -198,6 +202,105 @@ class TestFilterActionable:
             result = await _filter_actionable(outputs, "prompt {description}", extra={})
 
         assert [o.source_id for o in result] == ["1", "3"]
+
+
+class TestSummarizeDescription:
+    PROMPT = "Summarize this: {description}"
+    THRESHOLD = 200
+
+    def _mock_client(self, responses: Sequence[str | None]) -> MagicMock:
+        client = MagicMock()
+        call_idx = 0
+
+        async def generate(*args, **kwargs):
+            nonlocal call_idx
+            resp = MagicMock()
+            resp.text = responses[call_idx]
+            call_idx += 1
+            return resp
+
+        client.models.generate_content = generate
+        return client
+
+    @pytest.mark.asyncio
+    async def test_returns_summary_when_under_threshold(self):
+        client = self._mock_client(["Short summary."])
+        output = _make_output(description="x" * 500)
+
+        result = await _summarize_description(client, output, self.PROMPT, self.THRESHOLD)
+
+        assert result.description == "Short summary."
+
+    @pytest.mark.asyncio
+    async def test_retries_when_first_summary_too_long(self):
+        client = self._mock_client(["a" * 300, "Concise."])
+        output = _make_output(description="x" * 500)
+
+        result = await _summarize_description(client, output, self.PROMPT, self.THRESHOLD)
+
+        assert result.description == "Concise."
+
+    @pytest.mark.asyncio
+    async def test_truncates_after_all_attempts_exhausted(self):
+        client = self._mock_client(["a" * 300] * SUMMARIZATION_MAX_ATTEMPTS)
+        original = "x" * 500
+        output = _make_output(description=original)
+
+        with patch(f"{MODULE_PATH}.posthoganalytics"):
+            result = await _summarize_description(client, output, self.PROMPT, self.THRESHOLD)
+
+        assert result.description == original[: self.THRESHOLD]
+
+    @pytest.mark.asyncio
+    async def test_preserves_other_output_fields(self):
+        client = self._mock_client(["Short summary."])
+        output = SignalEmitterOutput(
+            source_type="github_issue",
+            source_id="42",
+            description="x" * 500,
+            weight=0.8,
+            extra={"html_url": "https://example.com"},
+        )
+
+        result = await _summarize_description(client, output, self.PROMPT, self.THRESHOLD)
+
+        assert result.source_type == "github_issue"
+        assert result.source_id == "42"
+        assert result.weight == 0.8
+        assert result.extra == {"html_url": "https://example.com"}
+
+
+class TestSummarizeLongDescriptions:
+    PROMPT = "Summarize: {description}"
+    THRESHOLD = 100
+
+    @pytest.mark.asyncio
+    async def test_only_summarizes_descriptions_above_threshold(self):
+        short = _make_output(source_id="1", description="short")
+        long = _make_output(source_id="2", description="x" * 200)
+
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = "Summarized."
+        mock_client.models.generate_content = AsyncMock(return_value=mock_response)
+
+        with (
+            patch(f"{MODULE_PATH}.genai") as mock_genai,
+            patch(f"{MODULE_PATH}.activity"),
+        ):
+            mock_genai.AsyncClient.return_value = mock_client
+            result = await _summarize_long_descriptions([short, long], self.PROMPT, self.THRESHOLD, extra={})
+
+        assert result[0].description == "short"
+        assert result[1].description == "Summarized."
+
+    @pytest.mark.asyncio
+    async def test_returns_unchanged_when_all_under_threshold(self):
+        outputs = [_make_output(source_id="1", description="short"), _make_output(source_id="2", description="also")]
+
+        result = await _summarize_long_descriptions(outputs, self.PROMPT, self.THRESHOLD, extra={})
+
+        assert result == outputs
 
 
 class TestEmitSignals:
