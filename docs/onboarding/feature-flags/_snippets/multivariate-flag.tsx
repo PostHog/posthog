@@ -84,9 +84,10 @@ export const MultivariateFlagSnippet = memo(({ language = 'javascript' }: { lang
 
             if result.Variant != nil && *result.Variant == "variant-key" { // replace "variant-key" with the key of your variant
                 // Do something differently for this user
-                // Optional: use the flag payload
-                if result.RawPayload != nil {
-                    fmt.Println(*result.RawPayload)
+                // Optional: use the payload by unmarshalling it into a typed struct
+                var config MyConfig
+                if err := result.GetPayloadAs(&config); err == nil {
+                    fmt.Println(config)
                 }
             }
         `,

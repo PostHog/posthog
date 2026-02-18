@@ -78,9 +78,10 @@ export const BooleanFlagSnippet = memo(({ language = 'javascript' }: { language?
 
             if result.Enabled {
                 // Do something differently for this user
-                // Optional: use the flag payload
-                if result.RawPayload != nil {
-                    fmt.Println(*result.RawPayload)
+                // Optional: use the payload by unmarshalling it into a typed struct
+                var config MyConfig
+                if err := result.GetPayloadAs(&config); err == nil {
+                    fmt.Println(config)
                 }
             }
         `,

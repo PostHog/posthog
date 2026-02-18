@@ -66,8 +66,12 @@ export const FlagPayloadSnippet = memo(({ language = 'javascript' }: { language?
                 return
             }
 
-            if result.RawPayload != nil {
-                fmt.Println(*result.RawPayload)
+            if result.Enabled {
+                // Unmarshal the payload into a typed struct
+                var config MyConfig
+                if err := result.GetPayloadAs(&config); err == nil {
+                    fmt.Println(config)
+                }
             }
         `,
     }
