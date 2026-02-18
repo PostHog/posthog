@@ -1,5 +1,6 @@
 use std::sync::Arc;
 mod spike_alert;
+mod spike_detection;
 
 use crate::{
     app_context::AppContext,

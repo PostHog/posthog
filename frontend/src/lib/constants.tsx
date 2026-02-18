@@ -193,6 +193,9 @@ export const FEATURE_FLAGS = {
     CSP_REPORTING: 'mexicspo', // owner @pauldambra @lricoy @robbiec
     ERROR_TRACKING_ALERT_ROUTING: 'error-tracking-alert-routing', // owner: #team-error-tracking
     EXPERIMENT_INTERVAL_TIMESERIES: 'experiments-interval-timeseries', // owner: @jurajmajerik #team-experiments
+    /* The below flag is used to activate unmounting charts outside the viewport, as we're currently investigating frontend performance
+    issues related to this and want to know the impact of having it on vs. off. */
+    EXPERIMENTAL_DASHBOARD_ITEM_RENDERING: 'experimental-dashboard-item-rendering', // owner: @thmsobrmlr #team-product-analytics
     IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: #team-web-analytics
     LINEAGE_DEPENDENCY_VIEW: 'lineage-dependency-view', // owner: #team-data-stack
     MEMBERS_CAN_USE_PERSONAL_API_KEYS: 'members-can-use-personal-api-keys', // owner: @yasen-posthog #team-platform-features
@@ -212,6 +215,7 @@ export const FEATURE_FLAGS = {
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
     SURVEYS_ADAPTIVE_LIMITS: 'surveys-adaptive-limits', // owner: #team-surveys
     SURVEYS_GUIDED_EDITOR: 'surveys-guided-editor', // owner: #team-surveys, enables the new simplified survey guided editor
+    SURVEYS_REDESIGNED_VIEW: 'surveys-redesigned-view', // owner: #team-surveys, enables the redesigned survey view with sidebar
     TRACK_MEMORY_USAGE: 'track-memory-usage', // owner: @pauldambra #team-replay
     TRACK_REACT_FRAMERATE: 'track-react-framerate', // owner: @pauldambra #team-replay
     WEB_ANALYTICS_API: 'web-analytics-api', // owner: #team-web-analytics

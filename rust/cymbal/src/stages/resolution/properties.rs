@@ -32,6 +32,7 @@ impl ValueOperator for PropertiesResolver {
         event.exception_types = Some(event.exception_list.get_unique_types());
         event.exception_messages = Some(event.exception_list.get_unique_messages());
         event.exception_releases = event.exception_list.get_release_map();
+        event.exception_handled = Some(event.exception_list.get_is_handled());
         Ok(Ok(event))
     }
 }
