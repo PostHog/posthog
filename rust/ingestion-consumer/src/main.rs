@@ -18,7 +18,7 @@ mod types;
 
 use config::Config;
 use consumer::IngestionConsumerLoop;
-use transport::HttpJsonTransport;
+use transport::GrpcTransport;
 
 common_alloc::used!();
 
@@ -78,10 +78,14 @@ pub async fn main() -> Result<(), anyhow::Error> {
     });
 
     // Transport
-    let transport = Arc::new(HttpJsonTransport::new(
-        Duration::from_millis(config.http_timeout_ms),
-        config.max_retries,
-    ));
+    let transport = Arc::new(
+        GrpcTransport::new(
+            &targets,
+            Duration::from_millis(config.grpc_timeout_ms),
+            config.max_retries,
+        )
+        .await?,
+    );
 
     // Consumer loop
     let consumer_loop = IngestionConsumerLoop::new(&config, transport)?;

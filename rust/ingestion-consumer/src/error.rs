@@ -8,11 +8,14 @@ pub enum IngestionError {
         source: anyhow::Error,
     },
 
+    #[error("gRPC error sending to {target}: {status}")]
+    Grpc {
+        target: String,
+        status: tonic::Status,
+    },
+
     #[error("kafka error: {0}")]
     Kafka(#[from] rdkafka::error::KafkaError),
-
-    #[error("serialization error: {0}")]
-    Serialization(#[from] serde_json::Error),
 
     #[error("all retries exhausted sending to {target}")]
     RetriesExhausted { target: String },

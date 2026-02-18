@@ -10,16 +10,16 @@ pub struct Config {
     #[envconfig(from = "KAFKA_TOPIC", default = "events_plugin_ingestion")]
     pub kafka_topic: String,
 
-    #[envconfig(from = "KAFKA_GROUP_ID", default = "ingestion-consumer-rust")]
+    #[envconfig(from = "KAFKA_GROUP_ID", default = "clickhouse-ingestion")]
     pub kafka_group_id: String,
 
     #[envconfig(
         from = "INGESTION_API_ADDRESSES",
-        default = "http://localhost:3400,http://localhost:3401,http://localhost:3402,http://localhost:3403"
+        default = "http://localhost:3400,http://localhost:3401,http://localhost:3402,http://localhost:3403,http://localhost:3404,http://localhost:3405,http://localhost:3406,http://localhost:3407"
     )]
     pub ingestion_api_addresses: String,
 
-    #[envconfig(from = "BATCH_SIZE", default = "500")]
+    #[envconfig(from = "BATCH_SIZE", default = "5000")]
     pub batch_size: usize,
 
     #[envconfig(from = "BATCH_TIMEOUT_MS", default = "500")]
@@ -31,8 +31,8 @@ pub struct Config {
     #[envconfig(from = "BIND_PORT", default = "3310")]
     pub bind_port: u16,
 
-    #[envconfig(from = "HTTP_TIMEOUT_MS", default = "30000")]
-    pub http_timeout_ms: u64,
+    #[envconfig(from = "GRPC_TIMEOUT_MS", default = "30000")]
+    pub grpc_timeout_ms: u64,
 
     #[envconfig(from = "MAX_RETRIES", default = "5")]
     pub max_retries: u32,
@@ -64,7 +64,7 @@ mod tests {
             batch_timeout_ms: 500,
             bind_host: "::".to_string(),
             bind_port: 3310,
-            http_timeout_ms: 30000,
+            grpc_timeout_ms: 30000,
             max_retries: 5,
         };
 
@@ -86,7 +86,7 @@ mod tests {
             batch_timeout_ms: 500,
             bind_host: "::".to_string(),
             bind_port: 3310,
-            http_timeout_ms: 30000,
+            grpc_timeout_ms: 30000,
             max_retries: 5,
         };
 

@@ -1,5 +1,8 @@
-import { Server } from 'http'
+import * as grpc from '@grpc/grpc-js'
+import * as protoLoader from '@grpc/proto-loader'
+import { Server as HttpServer } from 'http'
 import { Message } from 'node-rdkafka'
+import path from 'path'
 import express from 'ultimate-express'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
@@ -18,17 +21,19 @@ import {
     createJoinedIngestionPipeline,
 } from './analytics'
 import { deserializeKafkaMessage } from './api/kafka-message-converter'
-import { IngestBatchRequest, IngestBatchResponse } from './api/types'
+import { IngestBatchResponse, ProtoKafkaMessage } from './api/types'
 import { IngestionConsumerHub } from './ingestion-consumer'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
 import { createContext } from './pipelines/helpers'
 import { ok } from './pipelines/results'
 
+const HEALTH_CHECK_PORT_OFFSET = 100
+
 export class IngestionApiServer {
     private name = 'ingestion-api-server'
-    private app: express.Application
-    private httpServer?: Server
+    private grpcServer?: grpc.Server
+    private healthHttpServer?: HttpServer
     private kafkaProducer?: KafkaProducerWrapper
     private hogTransformer: HogTransformerService
     private personsStore: PersonsStore
@@ -75,20 +80,6 @@ export class IngestionApiServer {
             maxConcurrentUpdates: hub.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: hub.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
             optimisticUpdateRetryInterval: hub.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
-        })
-
-        this.app = express()
-        this.app.use(express.json({ limit: '50mb' }))
-        this.app.post('/api/ingestion/batch', (req: express.Request, res: express.Response) =>
-            this.handleIngestRequest(req, res)
-        )
-        this.app.get('/_health', (_req: express.Request, res: express.Response) => {
-            const health = this.isHealthy()
-            res.status(health.status === 'ok' ? 200 : 503).json({ status: health.status })
-        })
-        this.app.get('/_ready', (_req: express.Request, res: express.Response) => {
-            const ready = this.started
-            res.status(ready ? 200 : 503).json({ status: ready ? 'ok' : 'not_ready' })
         })
     }
 
@@ -141,29 +132,86 @@ export class IngestionApiServer {
             pipelineConfig
         ).build()
 
-        await new Promise<void>((resolve) => {
-            this.httpServer = this.app.listen(this.port, () => {
-                logger.info('🔌', `Ingestion API server listening on port ${this.port}`)
-                resolve()
-            })
-        })
+        // Start gRPC server on main port
+        await this.startGrpcServer()
+
+        // Start HTTP health check on offset port
+        await this.startHealthServer()
 
         this.started = true
     }
 
+    private async startGrpcServer(): Promise<void> {
+        const protoPath = path.resolve(__dirname, '../../../proto/ingestion/v1/ingestion.proto')
+        const packageDef = protoLoader.loadSync(protoPath, {
+            keepCase: true,
+            longs: Number,
+            defaults: true,
+            oneofs: true,
+        })
+        const proto = grpc.loadPackageDefinition(packageDef) as any
+
+        this.grpcServer = new grpc.Server()
+        this.grpcServer.addService(proto.ingestion.v1.IngestionService.service, {
+            IngestBatch: (call: grpc.ServerUnaryCall<any, any>, callback: grpc.sendUnaryData<IngestBatchResponse>) => {
+                const messages: ProtoKafkaMessage[] = call.request.messages
+                this.handleIngestBatch(messages)
+                    .then((count) => callback(null, { status: 0, accepted: count, error: '' }))
+                    .catch((err) => callback(null, { status: 1, accepted: 0, error: String(err) }))
+            },
+        })
+
+        await new Promise<void>((resolve, reject) => {
+            this.grpcServer!.bindAsync(`0.0.0.0:${this.port}`, grpc.ServerCredentials.createInsecure(), (err) => {
+                if (err) {
+                    reject(err)
+                    return
+                }
+                logger.info('gRPC', `Ingestion API gRPC server listening on port ${this.port}`)
+                resolve()
+            })
+        })
+    }
+
+    private async startHealthServer(): Promise<void> {
+        const healthPort = this.port + HEALTH_CHECK_PORT_OFFSET
+        const app = express()
+        app.get('/_health', (_req: express.Request, res: express.Response) => {
+            const health = this.isHealthy()
+            res.status(health.status === 'ok' ? 200 : 503).json({ status: health.status })
+        })
+        app.get('/_ready', (_req: express.Request, res: express.Response) => {
+            const ready = this.started
+            res.status(ready ? 200 : 503).json({ status: ready ? 'ok' : 'not_ready' })
+        })
+
+        await new Promise<void>((resolve) => {
+            this.healthHttpServer = app.listen(healthPort, () => {
+                logger.info('HTTP', `Health check server listening on port ${healthPort}`)
+                resolve()
+            })
+        })
+    }
+
     public async stop(): Promise<void> {
-        logger.info('🔁', `${this.name} - stopping`)
+        logger.info('stop', `${this.name} - stopping`)
         this.started = false
 
-        if (this.httpServer) {
+        if (this.grpcServer) {
+            await new Promise<void>((resolve) => {
+                this.grpcServer!.tryShutdown(() => resolve())
+            })
+        }
+
+        if (this.healthHttpServer) {
             await new Promise<void>((resolve, reject) => {
-                this.httpServer!.close((err) => (err ? reject(err) : resolve()))
+                this.healthHttpServer!.close((err) => (err ? reject(err) : resolve()))
             })
         }
 
         await this.kafkaProducer?.disconnect()
         await this.hogTransformer.stop()
-        logger.info('👍', `${this.name} - stopped!`)
+        logger.info('stop', `${this.name} - stopped!`)
     }
 
     public isHealthy(): HealthCheckResult {
@@ -173,32 +221,18 @@ export class IngestionApiServer {
         return new HealthCheckResultOk()
     }
 
-    private async handleIngestRequest(req: express.Request, res: express.Response): Promise<void> {
-        try {
-            const body = req.body as IngestBatchRequest
-
-            if (!body.messages || !Array.isArray(body.messages)) {
-                const response: IngestBatchResponse = { status: 'error', error: 'messages must be an array' }
-                res.status(400).json(response)
-                return
-            }
-
-            if (body.messages.length === 0) {
-                const response: IngestBatchResponse = { status: 'ok', accepted: 0 }
-                res.status(200).json(response)
-                return
-            }
-
-            const messages: Message[] = body.messages.map(deserializeKafkaMessage)
-            await this.runPipeline(messages)
-
-            const response: IngestBatchResponse = { status: 'ok', accepted: messages.length }
-            res.status(200).json(response)
-        } catch (error) {
-            logger.error('💥', 'Ingestion API batch processing failed', { error: String(error) })
-            const response: IngestBatchResponse = { status: 'error', error: String(error) }
-            res.status(500).json(response)
+    private async handleIngestBatch(protoMessages: ProtoKafkaMessage[]): Promise<number> {
+        if (!protoMessages || protoMessages.length === 0) {
+            return 0
         }
+
+        logger.info('batch', `Ingestion API received batch of ${protoMessages.length} messages`)
+
+        const messages: Message[] = protoMessages.map(deserializeKafkaMessage)
+        await this.runPipeline(messages)
+
+        logger.info('batch', `Ingestion API processed batch of ${messages.length} messages`)
+        return messages.length
     }
 
     private async runPipeline(messages: Message[]): Promise<void> {

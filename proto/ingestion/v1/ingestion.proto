@@ -1,0 +1,35 @@
+syntax = "proto3";
+package ingestion.v1;
+
+service IngestionService {
+  rpc IngestBatch(IngestBatchRequest) returns (IngestBatchResponse);
+}
+
+message KafkaHeader {
+  string key = 1;
+  bytes value = 2;
+}
+
+message KafkaMessage {
+  string topic = 1;
+  int32 partition = 2;
+  int64 offset = 3;
+  optional int64 timestamp = 4;
+  optional bytes key = 5;
+  optional bytes value = 6;
+  repeated KafkaHeader headers = 7;
+}
+
+message IngestBatchRequest {
+  repeated KafkaMessage messages = 1;
+}
+
+message IngestBatchResponse {
+  enum Status {
+    OK = 0;
+    ERROR = 1;
+  }
+  Status status = 1;
+  uint32 accepted = 2;
+  string error = 3;
+}

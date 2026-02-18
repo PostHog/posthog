@@ -1,115 +1,115 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use tonic::transport::Channel;
 use tracing::{info, warn};
 
 use crate::error::IngestionError;
-use crate::types::{BatchRequest, BatchResponse, SerializedMessage};
+use crate::types::{IngestBatchRequest, IngestionServiceClient, KafkaMessage};
 
 #[async_trait]
 pub trait IngestionTransport: Send + Sync {
     async fn send_batch(
         &self,
         target: &str,
-        messages: Vec<SerializedMessage>,
+        messages: Vec<KafkaMessage>,
     ) -> Result<(), IngestionError>;
 }
 
-pub struct HttpJsonTransport {
-    client: reqwest::Client,
+pub struct GrpcTransport {
+    clients: HashMap<String, IngestionServiceClient<Channel>>,
     max_retries: u32,
 }
 
-impl HttpJsonTransport {
-    pub fn new(timeout: Duration, max_retries: u32) -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(timeout)
-            .pool_max_idle_per_host(4)
-            .build()
-            .expect("failed to build HTTP client");
+impl GrpcTransport {
+    pub async fn new(
+        targets: &[String],
+        timeout: Duration,
+        max_retries: u32,
+    ) -> Result<Self, IngestionError> {
+        let mut clients = HashMap::new();
 
-        Self {
-            client,
-            max_retries,
+        for target in targets {
+            let channel = Channel::from_shared(target.clone())
+                .map_err(|e| IngestionError::Transport {
+                    target: target.clone(),
+                    source: anyhow::anyhow!("invalid URI: {e}"),
+                })?
+                .timeout(timeout)
+                .connect_timeout(Duration::from_secs(5))
+                .connect_lazy();
+
+            clients.insert(target.clone(), IngestionServiceClient::new(channel));
+            info!(target, "gRPC channel created");
         }
+
+        Ok(Self {
+            clients,
+            max_retries,
+        })
     }
 }
 
+fn should_retry(code: tonic::Code) -> bool {
+    matches!(
+        code,
+        tonic::Code::Unavailable | tonic::Code::DeadlineExceeded
+    )
+}
+
 #[async_trait]
-impl IngestionTransport for HttpJsonTransport {
+impl IngestionTransport for GrpcTransport {
     async fn send_batch(
         &self,
         target: &str,
-        messages: Vec<SerializedMessage>,
+        messages: Vec<KafkaMessage>,
     ) -> Result<(), IngestionError> {
-        let url = format!("{target}/api/ingestion/batch");
-        let request = BatchRequest { messages };
+        let mut client = self
+            .clients
+            .get(target)
+            .ok_or_else(|| IngestionError::Transport {
+                target: target.to_string(),
+                source: anyhow::anyhow!("no gRPC client for target"),
+            })?
+            .clone();
+
+        let request = IngestBatchRequest { messages };
         let mut backoff = Duration::from_millis(100);
         let max_backoff = Duration::from_secs(30);
 
         for attempt in 0..=self.max_retries {
-            let result = self.client.post(&url).json(&request).send().await;
+            let result = client
+                .ingest_batch(tonic::Request::new(request.clone()))
+                .await;
 
             match result {
                 Ok(response) => {
-                    let status = response.status();
-
-                    if status.is_success() {
-                        let body: BatchResponse = response
-                            .json()
-                            .await
-                            .map_err(|e| IngestionError::Transport {
-                                target: target.to_string(),
-                                source: e.into(),
-                            })?;
-
-                        if body.status == "ok" {
-                            return Ok(());
-                        }
-
-                        return Err(IngestionError::Transport {
-                            target: target.to_string(),
-                            source: anyhow::anyhow!(
-                                "server returned error: {}",
-                                body.error.unwrap_or_default()
-                            ),
-                        });
+                    let resp = response.into_inner();
+                    if resp.status == 0 {
+                        return Ok(());
                     }
-
-                    // Retry on server errors and rate limiting
-                    if should_retry(status.as_u16()) && attempt < self.max_retries {
-                        warn!(
-                            attempt,
-                            status = status.as_u16(),
-                            target,
-                            "retryable HTTP error, backing off"
-                        );
-                        tokio::time::sleep(backoff).await;
-                        backoff = (backoff * 2).min(max_backoff);
-                        continue;
-                    }
-
                     return Err(IngestionError::Transport {
                         target: target.to_string(),
-                        source: anyhow::anyhow!("HTTP {status}"),
+                        source: anyhow::anyhow!("server returned error: {}", resp.error),
                     });
                 }
-                Err(e) => {
-                    if attempt < self.max_retries {
+                Err(status) => {
+                    if should_retry(status.code()) && attempt < self.max_retries {
                         warn!(
                             attempt,
-                            error = %e,
+                            code = ?status.code(),
                             target,
-                            "connection error, retrying"
+                            "retryable gRPC error, backing off"
                         );
                         tokio::time::sleep(backoff).await;
                         backoff = (backoff * 2).min(max_backoff);
                         continue;
                     }
 
-                    return Err(IngestionError::Transport {
+                    return Err(IngestionError::Grpc {
                         target: target.to_string(),
-                        source: e.into(),
+                        status,
                     });
                 }
             }
@@ -119,105 +119,5 @@ impl IngestionTransport for HttpJsonTransport {
         Err(IngestionError::RetriesExhausted {
             target: target.to_string(),
         })
-    }
-}
-
-fn should_retry(status: u16) -> bool {
-    matches!(status, 429 | 502 | 503 | 504)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use httpmock::prelude::*;
-
-    fn make_test_messages(count: usize) -> Vec<SerializedMessage> {
-        (0..count)
-            .map(|i| {
-                SerializedMessage::from_kafka_message(
-                    "test",
-                    0,
-                    i as i64,
-                    None,
-                    None,
-                    Some(b"{}"),
-                    vec![],
-                )
-            })
-            .collect()
-    }
-
-    #[tokio::test]
-    async fn test_successful_batch_send() {
-        let server = MockServer::start();
-
-        server.mock(|when, then| {
-            when.method(POST).path("/api/ingestion/batch");
-            then.status(200)
-                .json_body(serde_json::json!({"status": "ok", "accepted": 2}));
-        });
-
-        let transport = HttpJsonTransport::new(Duration::from_secs(5), 3);
-        let result = transport
-            .send_batch(&server.base_url(), make_test_messages(2))
-            .await;
-
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_retry_on_503() {
-        let server = MockServer::start();
-
-        let fail_mock = server.mock(|when, then| {
-            when.method(POST).path("/api/ingestion/batch");
-            then.status(503);
-        });
-
-        let transport = HttpJsonTransport::new(Duration::from_secs(5), 1);
-        let result = transport
-            .send_batch(&server.base_url(), make_test_messages(1))
-            .await;
-
-        // Should have retried once then failed
-        assert!(result.is_err());
-        fail_mock.assert_hits(2); // initial + 1 retry
-    }
-
-    #[tokio::test]
-    async fn test_no_retry_on_400() {
-        let server = MockServer::start();
-
-        let mock = server.mock(|when, then| {
-            when.method(POST).path("/api/ingestion/batch");
-            then.status(400);
-        });
-
-        let transport = HttpJsonTransport::new(Duration::from_secs(5), 3);
-        let result = transport
-            .send_batch(&server.base_url(), make_test_messages(1))
-            .await;
-
-        assert!(result.is_err());
-        mock.assert_hits(1); // no retries
-    }
-
-    #[tokio::test]
-    async fn test_timeout_handling() {
-        let server = MockServer::start();
-
-        server.mock(|when, then| {
-            when.method(POST).path("/api/ingestion/batch");
-            then.status(200)
-                .delay(Duration::from_secs(10))
-                .json_body(serde_json::json!({"status": "ok"}));
-        });
-
-        let transport = HttpJsonTransport::new(Duration::from_millis(100), 0);
-        let result = transport
-            .send_batch(&server.base_url(), make_test_messages(1))
-            .await;
-
-        assert!(result.is_err());
     }
 }

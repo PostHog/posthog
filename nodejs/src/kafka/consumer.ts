@@ -647,12 +647,10 @@ export class KafkaConsumer {
             await ensureTopicExists(this.consumerConfig, this.config.topic)
         }
 
-        // The consumer has an internal pre-fetching queue that sequentially pools
-        // each partition, with the consumerMaxWaitMs timeout. We want to read big
-        // batches from this queue, but guarantee we are still running (with smaller
-        // batches) if the queue is not full enough. batchingTimeoutMs is that
-        // timeout, to return messages even if fetchBatchSize is not reached.
-        this.rdKafkaConsumer.setDefaultConsumeTimeout(this.config.batchTimeoutMs || DEFAULT_BATCH_TIMEOUT_MS)
+        // Set a short per-call consume timeout. The batch fill loop below
+        // handles the overall batch timeout — each individual consume() call
+        // should return quickly so the loop can check the deadline.
+        this.rdKafkaConsumer.setDefaultConsumeTimeout(100)
         this.rdKafkaConsumer.subscribe([this.config.topic])
 
         const startConsuming = async (): Promise<void> => {
@@ -687,11 +685,24 @@ export class KafkaConsumer {
                         histogramKafkaConsumeInterval.labels({ topic, groupId }).observe(intervalMs)
                     }
                     lastConsumeTime = consumeStartTime
-                    // TRICKY: We wrap this in a retry check. It seems that despite being connected and ready, the client can still have an undeterministic
-                    // error when consuming, hence the retryIfRetriable.
-                    const messages = await retryIfRetriable(() =>
-                        promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(this.fetchBatchSize, cb))
-                    )
+                    // Collect messages until batch is full or deadline expires.
+                    // A single consume() call only returns what's already in librdkafka's
+                    // internal queue, so we loop to allow the queue to refill between drains.
+                    const batchDeadline = Date.now() + (this.config.batchTimeoutMs || DEFAULT_BATCH_TIMEOUT_MS)
+                    const messages: Message[] = []
+                    while (messages.length < this.fetchBatchSize) {
+                        const remaining = this.fetchBatchSize - messages.length
+                        const batch = await retryIfRetriable(() =>
+                            promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(remaining, cb))
+                        )
+                        messages.push(...batch)
+                        if (messages.length >= this.fetchBatchSize || Date.now() >= batchDeadline) {
+                            break
+                        }
+                        if (batch.length === 0) {
+                            break
+                        }
+                    }
 
                     // After successfully pulling a batch, update heartbeat for backward compatibility
                     this.heartbeat()

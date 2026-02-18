@@ -3,7 +3,7 @@ use std::hash::Hasher;
 
 use siphasher::sip::SipHasher13;
 
-use crate::types::SerializedMessage;
+use crate::types::KafkaMessage;
 
 pub struct MessageRouter {
     target_count: usize,
@@ -17,9 +17,9 @@ impl MessageRouter {
 
     pub fn route_batch(
         &self,
-        messages: Vec<SerializedMessage>,
-    ) -> HashMap<usize, Vec<SerializedMessage>> {
-        let mut groups: HashMap<usize, Vec<SerializedMessage>> = HashMap::new();
+        messages: Vec<KafkaMessage>,
+    ) -> HashMap<usize, Vec<KafkaMessage>> {
+        let mut groups: HashMap<usize, Vec<KafkaMessage>> = HashMap::new();
 
         for msg in messages {
             let target = self.route_message(&msg);
@@ -29,7 +29,7 @@ impl MessageRouter {
         groups
     }
 
-    fn route_message(&self, msg: &SerializedMessage) -> usize {
+    fn route_message(&self, msg: &KafkaMessage) -> usize {
         let token = msg.get_header("token").unwrap_or_default();
         let distinct_id = msg.get_header("distinct_id").unwrap_or_default();
         let routing_key = format!("{token}:{distinct_id}");
@@ -45,21 +45,27 @@ impl MessageRouter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::SerializedMessage;
+    use crate::types::{KafkaHeader, KafkaMessage};
 
-    fn make_message(token: &str, distinct_id: &str) -> SerializedMessage {
-        SerializedMessage::from_kafka_message(
-            "events_plugin_ingestion",
-            0,
-            0,
-            None,
-            None,
-            Some(b"{}"),
-            vec![
-                ("token".to_string(), token.as_bytes().to_vec()),
-                ("distinct_id".to_string(), distinct_id.as_bytes().to_vec()),
+    fn make_message(token: &str, distinct_id: &str) -> KafkaMessage {
+        KafkaMessage {
+            topic: "events_plugin_ingestion".to_string(),
+            partition: 0,
+            offset: 0,
+            timestamp: None,
+            key: None,
+            value: Some(b"{}".to_vec()),
+            headers: vec![
+                KafkaHeader {
+                    key: "token".to_string(),
+                    value: token.as_bytes().to_vec(),
+                },
+                KafkaHeader {
+                    key: "distinct_id".to_string(),
+                    value: distinct_id.as_bytes().to_vec(),
+                },
             ],
-        )
+        }
     }
 
     #[test]
@@ -119,24 +125,24 @@ mod tests {
     fn test_empty_headers_route_deterministically() {
         let router = MessageRouter::new(4);
 
-        let msg1 = SerializedMessage::from_kafka_message(
-            "test",
-            0,
-            0,
-            None,
-            None,
-            Some(b"{}"),
-            vec![],
-        );
-        let msg2 = SerializedMessage::from_kafka_message(
-            "test",
-            0,
-            1,
-            None,
-            None,
-            Some(b"{}"),
-            vec![],
-        );
+        let msg1 = KafkaMessage {
+            topic: "test".to_string(),
+            partition: 0,
+            offset: 0,
+            timestamp: None,
+            key: None,
+            value: Some(b"{}".to_vec()),
+            headers: vec![],
+        };
+        let msg2 = KafkaMessage {
+            topic: "test".to_string(),
+            partition: 0,
+            offset: 1,
+            timestamp: None,
+            key: None,
+            value: Some(b"{}".to_vec()),
+            headers: vec![],
+        };
 
         let groups1 = router.route_batch(vec![msg1]);
         let groups2 = router.route_batch(vec![msg2]);

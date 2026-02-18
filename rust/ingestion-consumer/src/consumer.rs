@@ -1,9 +1,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use std::collections::HashMap;
+
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::message::{Headers, Message};
-use rdkafka::ClientConfig;
+use rdkafka::{ClientConfig, Offset, TopicPartitionList};
 use tokio::time::timeout;
 use tracing::{error, info, warn};
 
@@ -11,7 +13,7 @@ use crate::config::Config;
 use crate::error::IngestionError;
 use crate::router::MessageRouter;
 use crate::transport::IngestionTransport;
-use crate::types::SerializedMessage;
+use crate::types::{KafkaHeader, KafkaMessage};
 
 pub struct IngestionConsumerLoop {
     consumer: StreamConsumer,
@@ -37,6 +39,8 @@ impl IngestionConsumerLoop {
             .set("auto.offset.reset", "latest")
             .set("fetch.min.bytes", "1")
             .set("fetch.wait.max.ms", "100")
+            .set("partition.assignment.strategy", "cooperative-sticky")
+            .set("enable.auto.offset.store", "false")
             .create()?;
 
         consumer.subscribe(&[&config.kafka_topic])?;
@@ -93,6 +97,16 @@ impl IngestionConsumerLoop {
             return Ok(0);
         }
 
+        // Track max offset per topic-partition for committing after success
+        let mut max_offsets: HashMap<(String, i32), i64> = HashMap::new();
+        for msg in &messages {
+            let key = (msg.topic.clone(), msg.partition);
+            let entry = max_offsets.entry(key).or_insert(msg.offset);
+            if msg.offset > *entry {
+                *entry = msg.offset;
+            }
+        }
+
         let count = messages.len();
         let groups = self.router.route_batch(messages);
 
@@ -125,15 +139,19 @@ impl IngestionConsumerLoop {
             });
         }
 
-        // All succeeded - commit offsets
-        if let Err(e) = self.consumer.commit_consumer_state(CommitMode::Async) {
+        // All succeeded - commit the offsets we processed
+        let mut tpl = TopicPartitionList::new();
+        for ((topic, partition), offset) in &max_offsets {
+            tpl.add_partition_offset(topic, *partition, Offset::Offset(offset + 1))?;
+        }
+        if let Err(e) = self.consumer.commit(&tpl, CommitMode::Async) {
             warn!(error = %e, "failed to commit offsets");
         }
 
         Ok(count)
     }
 
-    async fn collect_batch(&self) -> Result<Vec<SerializedMessage>, IngestionError> {
+    async fn collect_batch(&self) -> Result<Vec<KafkaMessage>, IngestionError> {
         let mut messages = Vec::with_capacity(self.batch_size);
 
         for _ in 0..self.batch_size {
@@ -141,8 +159,8 @@ impl IngestionConsumerLoop {
 
             match recv {
                 Ok(Ok(msg)) => {
-                    let serialized = serialize_borrowed_message(&msg);
-                    messages.push(serialized);
+                    let proto_msg = proto_from_borrowed(&msg);
+                    messages.push(proto_msg);
                 }
                 Ok(Err(e)) => {
                     warn!(error = %e, "kafka recv error");
@@ -159,25 +177,28 @@ impl IngestionConsumerLoop {
     }
 }
 
-fn serialize_borrowed_message(msg: &rdkafka::message::BorrowedMessage<'_>) -> SerializedMessage {
-    let headers: Vec<(String, Vec<u8>)> = msg
+fn proto_from_borrowed(msg: &rdkafka::message::BorrowedMessage<'_>) -> KafkaMessage {
+    let headers: Vec<KafkaHeader> = msg
         .headers()
         .map(|hdrs| {
             hdrs.iter()
                 .filter_map(|header| {
-                    header.value.map(|v| (header.key.to_string(), v.to_vec()))
+                    header.value.map(|v| KafkaHeader {
+                        key: header.key.to_string(),
+                        value: v.to_vec(),
+                    })
                 })
                 .collect()
         })
         .unwrap_or_default();
 
-    SerializedMessage::from_kafka_message(
-        msg.topic(),
-        msg.partition(),
-        msg.offset(),
-        msg.timestamp().to_millis(),
-        msg.key(),
-        msg.payload(),
+    KafkaMessage {
+        topic: msg.topic().to_string(),
+        partition: msg.partition(),
+        offset: msg.offset(),
+        timestamp: msg.timestamp().to_millis(),
+        key: msg.key().map(|k| k.to_vec()),
+        value: msg.payload().map(|v| v.to_vec()),
         headers,
-    )
+    }
 }

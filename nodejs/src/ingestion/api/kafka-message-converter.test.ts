@@ -1,28 +1,21 @@
-import { Message, MessageHeader } from 'node-rdkafka'
+import { deserializeKafkaMessage } from './kafka-message-converter'
+import { ProtoKafkaMessage } from './types'
 
-import { deserializeKafkaMessage, serializeKafkaMessage } from './kafka-message-converter'
-import { SerializedKafkaMessage } from './types'
-
-function makeHeader(key: string, value: Buffer): MessageHeader {
-    const h: MessageHeader = {}
-    h[key] = value
-    return h
-}
-
-function makeMessage(overrides: Partial<Message> & Pick<Message, 'topic' | 'partition' | 'offset' | 'value'>): Message {
+function makeProtoMessage(
+    overrides: Partial<ProtoKafkaMessage> & Pick<ProtoKafkaMessage, 'topic' | 'partition' | 'offset'>
+): ProtoKafkaMessage {
     return {
-        size: overrides.value?.length ?? 0,
         headers: [],
         ...overrides,
     }
 }
 
 describe('kafka-message-converter', () => {
-    describe('round-trip serialization', () => {
-        const testCases: Array<{ name: string; message: Message }> = [
+    describe('deserializeKafkaMessage', () => {
+        const testCases: Array<{ name: string; proto: ProtoKafkaMessage; expected: Record<string, any> }> = [
             {
                 name: 'full message with all fields',
-                message: makeMessage({
+                proto: makeProtoMessage({
                     topic: 'events_plugin_ingestion',
                     partition: 3,
                     offset: 12345,
@@ -30,170 +23,146 @@ describe('kafka-message-converter', () => {
                     key: Buffer.from('phc_abc:user-1'),
                     value: Buffer.from(JSON.stringify({ event: '$pageview' })),
                     headers: [
-                        makeHeader('token', Buffer.from('phc_abc')),
-                        makeHeader('distinct_id', Buffer.from('user-1')),
+                        { key: 'token', value: Buffer.from('phc_abc') },
+                        { key: 'distinct_id', value: Buffer.from('user-1') },
                     ],
                 }),
+                expected: {
+                    topic: 'events_plugin_ingestion',
+                    partition: 3,
+                    offset: 12345,
+                    timestamp: 1708012800000,
+                    hasKey: true,
+                    hasValue: true,
+                    headerCount: 2,
+                },
             },
             {
                 name: 'null key and value',
-                message: makeMessage({
+                proto: makeProtoMessage({
                     topic: 'test-topic',
                     partition: 0,
                     offset: 0,
-                    key: undefined,
-                    value: null,
-                    headers: [],
                 }),
+                expected: {
+                    topic: 'test-topic',
+                    partition: 0,
+                    offset: 0,
+                    hasKey: false,
+                    hasValue: false,
+                    headerCount: 0,
+                },
             },
             {
                 name: 'binary payload with non-UTF8 bytes',
-                message: makeMessage({
+                proto: makeProtoMessage({
                     topic: 'test-topic',
                     partition: 1,
                     offset: 99,
                     key: Buffer.from([0x00, 0xff, 0x80, 0x7f]),
                     value: Buffer.from([0xde, 0xad, 0xbe, 0xef]),
-                    headers: [makeHeader('binary_header', Buffer.from([0x01, 0x02, 0x03]))],
+                    headers: [{ key: 'binary_header', value: Buffer.from([0x01, 0x02, 0x03]) }],
                 }),
+                expected: {
+                    topic: 'test-topic',
+                    partition: 1,
+                    offset: 99,
+                    hasKey: true,
+                    hasValue: true,
+                    headerCount: 1,
+                },
             },
             {
                 name: 'multiple headers preserved in order',
-                message: makeMessage({
+                proto: makeProtoMessage({
                     topic: 'test-topic',
                     partition: 0,
                     offset: 5,
                     value: Buffer.from('test'),
                     headers: [
-                        makeHeader('token', Buffer.from('phc_abc')),
-                        makeHeader('distinct_id', Buffer.from('user-1')),
-                        makeHeader('uuid', Buffer.from('550e8400-e29b-41d4-a716-446655440000')),
-                        makeHeader('event', Buffer.from('$pageview')),
+                        { key: 'token', value: Buffer.from('phc_abc') },
+                        { key: 'distinct_id', value: Buffer.from('user-1') },
+                        { key: 'uuid', value: Buffer.from('550e8400-e29b-41d4-a716-446655440000') },
+                        { key: 'event', value: Buffer.from('$pageview') },
                     ],
                 }),
-            },
-            {
-                name: 'no timestamp',
-                message: makeMessage({
-                    topic: 'test-topic',
-                    partition: 2,
-                    offset: 7,
-                    value: Buffer.from('data'),
-                    headers: [],
-                }),
-            },
-            {
-                name: 'empty headers array',
-                message: makeMessage({
+                expected: {
                     topic: 'test-topic',
                     partition: 0,
-                    offset: 0,
-                    value: Buffer.from('data'),
-                    headers: [],
-                }),
+                    offset: 5,
+                    hasKey: false,
+                    hasValue: true,
+                    headerCount: 4,
+                },
             },
         ]
 
-        it.each(testCases)('preserves all fields: $name', ({ message }) => {
-            const serialized = serializeKafkaMessage(message)
-            const deserialized = deserializeKafkaMessage(serialized)
+        it.each(testCases)('converts proto to Message: $name', ({ proto, expected }) => {
+            const result = deserializeKafkaMessage(proto)
 
-            expect(deserialized.topic).toBe(message.topic)
-            expect(deserialized.partition).toBe(message.partition)
-            expect(deserialized.offset).toBe(message.offset)
-            expect(deserialized.timestamp).toBe(message.timestamp)
+            expect(result.topic).toBe(expected.topic)
+            expect(result.partition).toBe(expected.partition)
+            expect(result.offset).toBe(expected.offset)
 
-            if (message.key != null) {
-                const originalKey = Buffer.isBuffer(message.key) ? message.key : Buffer.from(message.key)
-                expect(Buffer.isBuffer(deserialized.key)).toBe(true)
-                expect(Buffer.compare(deserialized.key as Buffer, originalKey)).toBe(0)
+            if (expected.hasKey) {
+                expect(Buffer.isBuffer(result.key)).toBe(true)
+                expect(Buffer.compare(result.key as Buffer, proto.key!)).toBe(0)
             } else {
-                expect(deserialized.key).toBeUndefined()
+                expect(result.key).toBeUndefined()
             }
 
-            if (message.value != null) {
-                expect(Buffer.compare(deserialized.value!, message.value)).toBe(0)
+            if (expected.hasValue) {
+                expect(Buffer.isBuffer(result.value)).toBe(true)
+                expect(Buffer.compare(result.value!, proto.value!)).toBe(0)
             } else {
-                expect(deserialized.value).toBeNull()
+                expect(result.value).toBeNull()
             }
 
-            expect(deserialized.headers).toHaveLength(message.headers?.length ?? 0)
-            if (message.headers) {
-                for (let i = 0; i < message.headers.length; i++) {
-                    const originalHeader = message.headers[i]
-                    const deserializedHeader = deserialized.headers![i]
-                    for (const [key, val] of Object.entries(originalHeader)) {
-                        const originalBuf = Buffer.isBuffer(val) ? val : Buffer.from(val)
-                        expect(Buffer.compare(deserializedHeader[key] as Buffer, originalBuf)).toBe(0)
-                    }
-                }
+            expect(result.headers).toHaveLength(expected.headerCount)
+            for (let i = 0; i < proto.headers.length; i++) {
+                const h = proto.headers[i]
+                const resultH = result.headers![i]
+                expect(Buffer.compare(resultH[h.key] as Buffer, h.value)).toBe(0)
             }
         })
-    })
 
-    describe('serializeKafkaMessage', () => {
-        it('base64 encodes key, value, and header values', () => {
-            const msg = makeMessage({
-                topic: 'test',
-                partition: 0,
-                offset: 0,
-                key: Buffer.from('my-key'),
-                value: Buffer.from('my-value'),
-                headers: [makeHeader('token', Buffer.from('phc_abc'))],
-            })
-
-            const serialized = serializeKafkaMessage(msg)
-
-            expect(serialized.key).toBe(Buffer.from('my-key').toString('base64'))
-            expect(serialized.value).toBe(Buffer.from('my-value').toString('base64'))
-            expect(serialized.headers[0]['token']).toBe(Buffer.from('phc_abc').toString('base64'))
-        })
-
-        it('handles string header values from node-rdkafka', () => {
-            // node-rdkafka can deliver header values as strings at runtime
-            const header: MessageHeader = {}
-            header['token'] = 'phc_abc'
-
-            const msg = makeMessage({
-                topic: 'test',
-                partition: 0,
-                offset: 0,
-                value: null,
-                headers: [header],
-            })
-
-            const serialized = serializeKafkaMessage(msg)
-            expect(serialized.headers[0]['token']).toBe(Buffer.from('phc_abc').toString('base64'))
-        })
-    })
-
-    describe('deserializeKafkaMessage', () => {
         it('computes size from value length', () => {
-            const serialized: SerializedKafkaMessage = {
+            const proto = makeProtoMessage({
                 topic: 'test',
                 partition: 0,
                 offset: 0,
-                key: null,
-                value: Buffer.from('hello world').toString('base64'),
-                headers: [],
-            }
+                value: Buffer.from('hello world'),
+            })
 
-            const deserialized = deserializeKafkaMessage(serialized)
-            expect(deserialized.size).toBe(11)
+            const result = deserializeKafkaMessage(proto)
+            expect(result.size).toBe(11)
         })
 
-        it('sets size to 0 for null value', () => {
-            const serialized: SerializedKafkaMessage = {
+        it('sets size to 0 for missing value', () => {
+            const proto = makeProtoMessage({
                 topic: 'test',
                 partition: 0,
                 offset: 0,
-                key: null,
-                value: null,
-                headers: [],
-            }
+            })
 
-            const deserialized = deserializeKafkaMessage(serialized)
-            expect(deserialized.size).toBe(0)
+            const result = deserializeKafkaMessage(proto)
+            expect(result.size).toBe(0)
+        })
+
+        it('converts Long-like offset and timestamp to number', () => {
+            const proto = makeProtoMessage({
+                topic: 'test',
+                partition: 0,
+                offset: 12345,
+                timestamp: 1708012800000,
+                value: Buffer.from('data'),
+            })
+
+            const result = deserializeKafkaMessage(proto)
+            expect(typeof result.offset).toBe('number')
+            expect(result.offset).toBe(12345)
+            expect(typeof result.timestamp).toBe('number')
+            expect(result.timestamp).toBe(1708012800000)
         })
     })
 })

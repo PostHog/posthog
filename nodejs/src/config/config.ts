@@ -72,7 +72,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
-        CONSUMER_BATCH_SIZE: 500,
+        CONSUMER_BATCH_SIZE: 5000,
         CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: 30_000,
         CONSUMER_LOOP_STALL_THRESHOLD_MS: 60_000, // 1 minute - consider loop stalled after this
         CONSUMER_LOOP_BASED_HEALTH_CHECK: false, // Use consumer loop monitoring for health checks instead of heartbeats
