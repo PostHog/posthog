@@ -248,6 +248,7 @@
         "snappy-wasm": "^0.3.0",
         "tailwind-merge": "^2.2.2",
         "tailwindcss": "4.0.7",
+        "torph": "^0.0.5",
         "ts-pattern": "catalog:",
         "typescript": "catalog:",
         "use-debounce": "catalog:",
