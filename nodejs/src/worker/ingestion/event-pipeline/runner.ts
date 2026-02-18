@@ -24,7 +24,6 @@ import {
     pipelineStepThrowCounter,
 } from './metrics'
 import { prepareEventStep } from './prepareEventStep'
-import { processPersonlessStep } from './processPersonlessStep'
 import { processPersonsStep } from './processPersonsStep'
 
 export type RunnerResult<T = object> = T & {
@@ -163,18 +162,12 @@ export class EventPipelineRunner {
         timestamp: DateTime,
         team: Team,
         processPerson: boolean = true,
-        forceDisablePersonProcessing: boolean = false
+        personlessPerson?: Person
     ): Promise<EventPipelinePipelineResult> {
         this.originalEvent = normalizedEvent
 
         try {
-            return await this.runEventPipelineSteps(
-                normalizedEvent,
-                timestamp,
-                team,
-                processPerson,
-                forceDisablePersonProcessing
-            )
+            return await this.runEventPipelineSteps(normalizedEvent, timestamp, team, processPerson, personlessPerson)
         } catch (error) {
             if (error instanceof StepErrorNoRetry) {
                 // At the step level we have chosen to drop these events and send them to DLQ
@@ -195,7 +188,7 @@ export class EventPipelineRunner {
         timestamp: DateTime,
         team: Team,
         processPerson: boolean,
-        forceDisablePersonProcessing: boolean
+        personlessPerson?: Person
     ): Promise<EventPipelinePipelineResult> {
         const kafkaAcks: Promise<unknown>[] = []
         const warnings: PipelineWarning[] = []
@@ -204,8 +197,7 @@ export class EventPipelineRunner {
             normalizedEvent,
             team,
             timestamp,
-            processPerson,
-            forceDisablePersonProcessing,
+            personlessPerson,
             team.id,
             kafkaAcks,
             warnings
@@ -247,8 +239,7 @@ export class EventPipelineRunner {
         event: PluginEvent,
         team: Team,
         timestamp: DateTime,
-        processPerson: boolean,
-        forceDisablePersonProcessing: boolean,
+        personlessPerson: Person | undefined,
         teamId: number,
         kafkaAcks: Promise<unknown>[],
         warnings: PipelineWarning[]
@@ -256,30 +247,16 @@ export class EventPipelineRunner {
         let postPersonEvent = event
         let person: Person
         let personKafkaAck: Promise<void> = Promise.resolve()
-        let shouldProcessPerson = processPerson
+        let shouldProcessPerson = !personlessPerson
         let forceUpgrade = false
 
-        // If personless mode, check if we need to force upgrade
-        if (!processPerson) {
-            const personlessResult = await this.runPipelineStep<Person, typeof processPersonlessStep>(
-                processPersonlessStep,
-                [event, team, timestamp, this.personsStore, forceDisablePersonProcessing],
-                teamId,
-                true,
-                kafkaAcks,
-                warnings
-            )
-
-            if (!isOkResult(personlessResult)) {
-                return personlessResult
-            }
-
-            person = personlessResult.value
+        if (personlessPerson) {
+            person = personlessPerson
             forceUpgrade = !!person.force_upgrade
             shouldProcessPerson = forceUpgrade
         }
 
-        // Run full person processing if needed (either processPerson=true or force_upgrade)
+        // Run full person processing if needed
         if (shouldProcessPerson) {
             const personStepResult = await this.runPipelineStep<
                 [PluginEvent, Person, Promise<void>],
