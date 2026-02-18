@@ -1385,7 +1385,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         shipVariantSuccess: ({ payload }) => {
-            lemonToast.success('The selected variant has been shipped')
+            lemonToast.success('Experiment ended. The selected variant has been rolled out to all users.')
             actions.closeShipVariantModal()
             if (payload.shouldStopExperiment && !values.isExperimentStopped) {
                 actions.endExperiment()

@@ -399,14 +399,14 @@ export function PageHeaderCustom(): JSX.Element {
                         )}
                         {shouldShowShipVariantButton && (
                             <>
-                                <Tooltip title="Choose a variant and roll it out to all users">
+                                <Tooltip title="Conclude this experiment and decide which variant to keep">
                                     <LemonButton
                                         type="primary"
                                         icon={<IconFlask />}
                                         onClick={() => openShipVariantModal()}
                                         size="small"
                                     >
-                                        <b>Ship a variant</b>
+                                        <b>End experiment</b>
                                     </LemonButton>
                                 </Tooltip>
                                 <ShipVariantModal />
@@ -674,7 +674,7 @@ export function StopExperimentModal(): JSX.Element {
                     later if needed.
                 </div>
                 <div>
-                    To roll out a specific variant to all users instead, use the 'Ship a variant' button or adjust the
+                    To roll out a specific variant to all users instead, use the 'End experiment' button or adjust the
                     feature flag settings.
                 </div>
                 <ConclusionForm />
@@ -794,7 +794,7 @@ export function ShipVariantModal(): JSX.Element {
                     closeShipVariantModal()
                 }}
                 width={600}
-                title="Ship a variant"
+                title="End experiment"
                 footer={
                     <div className="flex items-center gap-2">
                         <LemonButton
@@ -813,18 +813,18 @@ export function ShipVariantModal(): JSX.Element {
                             type="primary"
                             disabledReason={!experiment.conclusion && 'Select a conclusion'}
                         >
-                            Ship variant
+                            End experiment
                         </LemonButton>
                     </div>
                 }
             >
-                <div className="deprecated-space-y-6">
-                    <div className="text-sm">
-                        This will roll out the selected variant to <b>100% of {aggregationTargetName}</b> and stop the
-                        experiment.
-                    </div>
-                    <div className="flex items-center">
-                        <div className="w-1/2 pr-4">
+                <div className="space-y-4">
+                    <div>
+                        <LemonLabel>Variant to keep</LemonLabel>
+                        <div className="text-sm text-secondary">
+                            The selected variant will be rolled out to <b>100% of {aggregationTargetName}</b>.
+                        </div>
+                        <div className="w-1/2">
                             <LemonSelect
                                 className="w-full"
                                 data-attr="metrics-selector"
