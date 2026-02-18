@@ -56,6 +56,9 @@ export const KAFKA_CDP_BATCH_HOGFLOW_REQUESTS = `${prefix}cdp_batch_hogflow_requ
 export const KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT = `${prefix}clickhouse_error_tracking_issue_fingerprint${suffix}`
 export const KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES = `${prefix}clickhouse_error_tracking_issue_fingerprint_overrides${suffix}`
 
+// Warehouse source webhook ingestion
+export const KAFKA_WAREHOUSE_SOURCE_WEBHOOKS = `${prefix}warehouse_source_webhooks${suffix}`
+
 // Logs ingestion topics
 export const KAFKA_LOGS_INGESTION = `${prefix}logs_ingestion${suffix}`
 export const KAFKA_LOGS_INGESTION_DLQ = `${prefix}logs_ingestion_dlq${suffix}`
