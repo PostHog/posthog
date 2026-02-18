@@ -103,7 +103,7 @@ export function AuthorizedUrlList({
                 }
 
                 return editUrlIndex === index ? (
-                    <div className="border rounded p-2 bg-surface-primary">
+                    <div key={index} className="border rounded p-2 bg-surface-primary">
                         <AuthorizedUrlForm
                             type={type}
                             actionId={actionId}
