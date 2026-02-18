@@ -49,11 +49,8 @@ def create_clickhouse_tables():
     if num_tables == num_expected_tables:
         return
 
-    mergetree_queries = list(map(build_query, CREATE_MERGETREE_TABLE_QUERIES))
-    run_clickhouse_statement_in_parallel(mergetree_queries)
-
-    distributed_queries = list(map(build_query, CREATE_DISTRIBUTED_TABLE_QUERIES))
-    run_clickhouse_statement_in_parallel(distributed_queries)
+    table_queries = list(map(build_query, CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES))
+    run_clickhouse_statement_in_parallel(table_queries)
 
     if settings.IN_EVAL_TESTING:
         kafka_table_queries = list(map(build_query, CREATE_KAFKA_TABLE_QUERIES))
