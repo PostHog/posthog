@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl, encodeParams } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -7,7 +7,41 @@ import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ToolbarProps } from '~/types'
 
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
-import { LOCALSTORAGE_KEY } from './utils'
+import { LOCALSTORAGE_KEY, OAUTH_LOCALSTORAGE_KEY } from './utils'
+
+// Singleton refresh promise shared across toolbarFetch/toolbarUploadMedia to prevent concurrent races
+let refreshPromise: Promise<{ access_token: string; refresh_token: string; expires_in: number }> | null = null
+
+/**
+ * Attempt a token refresh and retry on 401. Shared by toolbarFetch and toolbarUploadMedia.
+ * Returns the original response if no retry is needed, or the retried response.
+ */
+async function withTokenRefresh(
+    response: Response,
+    retryRequest: (newAccessToken: string) => Promise<Response>
+): Promise<Response> {
+    const logic = toolbarConfigLogic.findMounted()
+    const accessToken = logic?.values.accessToken
+    const refreshToken = logic?.values.refreshToken
+    const clientId = logic?.values.clientId
+    const uiHost = logic?.values.uiHost
+
+    if (response.status !== 401 || !accessToken || !refreshToken || !clientId || !uiHost) {
+        return response
+    }
+
+    try {
+        const tokens = await refreshOAuthTokens(uiHost, clientId, refreshToken)
+        if (!toolbarConfigLogic.findMounted()) {
+            return response
+        }
+        toolbarConfigLogic.actions.setOAuthTokens(tokens.access_token, tokens.refresh_token, clientId)
+        return await retryRequest(tokens.access_token)
+    } catch {
+        toolbarConfigLogic.actions.tokenExpired()
+        return response
+    }
+}
 
 export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     path(['toolbar', 'toolbarConfigLogic']),
@@ -15,12 +49,18 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
     actions({
         authenticate: true,
+        migrateToOAuth: true,
         logout: true,
         tokenExpired: true,
         clearUserIntent: true,
         showButton: true,
         hideButton: true,
         persistConfig: true,
+        setOAuthTokens: (accessToken: string, refreshToken: string, clientId: string) => ({
+            accessToken,
+            refreshToken,
+            clientId,
+        }),
     }),
 
     reducers(({ props }) => ({
@@ -28,7 +68,31 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         props: [props],
         temporaryToken: [
             props.temporaryToken || null,
-            { logout: () => null, tokenExpired: () => null, authenticate: () => null },
+            { logout: () => null, tokenExpired: () => null, authenticate: () => null, setOAuthTokens: () => null },
+        ],
+        accessToken: [
+            props.accessToken || null,
+            {
+                setOAuthTokens: (_, { accessToken }) => accessToken,
+                logout: () => null,
+                tokenExpired: () => null,
+            },
+        ],
+        refreshToken: [
+            props.refreshToken || null,
+            {
+                setOAuthTokens: (_, { refreshToken }) => refreshToken,
+                logout: () => null,
+                tokenExpired: () => null,
+            },
+        ],
+        clientId: [
+            props.clientId || null,
+            {
+                setOAuthTokens: (_, { clientId }) => clientId,
+                logout: () => null,
+                tokenExpired: () => null,
+            },
         ],
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
         experimentId: [props.experimentId || null, { logout: () => null, clearUserIntent: () => null }],
@@ -76,7 +140,10 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             },
         ],
         dataAttributes: [(s) => [s.props], (props): string[] => props.dataAttributes ?? []],
-        isAuthenticated: [(s) => [s.temporaryToken], (temporaryToken) => !!temporaryToken],
+        isAuthenticated: [
+            (s) => [s.temporaryToken, s.accessToken],
+            (temporaryToken, accessToken) => !!temporaryToken || !!accessToken,
+        ],
         toolbarFlagsKey: [(s) => [s.props], (props): string | undefined => props.toolbarFlagsKey],
     }),
 
@@ -85,27 +152,47 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             toolbarPosthogJS.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
             const encodedUrl = encodeURIComponent(window.location.href)
             actions.persistConfig()
-            // Use UI host for auth redirects (SSO/login)
-            window.location.href = `${values.uiHost}/authorize_and_redirect/?redirect=${encodedUrl}`
+
+            const authUrl = `${values.uiHost}/toolbar_oauth/authorize/?redirect=${encodedUrl}`
+            const popup = window.open(authUrl, 'posthog_toolbar_oauth', 'width=600,height=700')
+            if (!popup) {
+                lemonToast.error('Popup was blocked. Please allow popups for this site to authenticate.')
+            }
+        },
+        migrateToOAuth: () => {
+            toolbarPosthogJS.capture('toolbar migrate to oauth')
+            const encodedUrl = encodeURIComponent(window.location.href)
+            const authUrl = `${values.uiHost}/toolbar_oauth/authorize/?redirect=${encodedUrl}`
+            const popup = window.open(authUrl, 'posthog_toolbar_oauth', 'width=600,height=700')
+            if (!popup) {
+                lemonToast.info('Please click "Authenticate" to upgrade your toolbar session.')
+            }
         },
         logout: () => {
             toolbarPosthogJS.capture('toolbar logout')
             localStorage.removeItem(LOCALSTORAGE_KEY)
+            localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
         },
         tokenExpired: () => {
             toolbarPosthogJS.capture('toolbar token expired')
-            console.warn('PostHog Toolbar API token expired. Clearing session.')
+            console.warn('PostHog Toolbar session expired. Clearing session.')
             if (values.props.source !== 'localstorage') {
-                lemonToast.error('PostHog Toolbar API token expired.')
+                lemonToast.error('Please re-authenticate to continue using the toolbar.')
             }
+            localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
             actions.persistConfig()
         },
-
+        setOAuthTokens: () => {
+            actions.persistConfig()
+        },
         persistConfig: () => {
             // Most params we don't change, only those that we may have modified during the session
             const toolbarParams: ToolbarProps = {
                 ...values.props,
                 temporaryToken: values.temporaryToken ?? undefined,
+                accessToken: values.accessToken ?? undefined,
+                refreshToken: values.refreshToken ?? undefined,
+                clientId: values.clientId ?? undefined,
                 actionId: values.actionId ?? undefined,
                 experimentId: values.experimentId ?? undefined,
                 productTourId: values.productTourId ?? undefined,
@@ -114,10 +201,52 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             }
 
             localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(toolbarParams))
+
+            // Persist OAuth tokens separately so they survive posthog-js overwriting LOCALSTORAGE_KEY
+            // when re-launching from a URL hash
+            if (values.accessToken) {
+                localStorage.setItem(
+                    OAUTH_LOCALSTORAGE_KEY,
+                    JSON.stringify({
+                        accessToken: values.accessToken,
+                        refreshToken: values.refreshToken,
+                        clientId: values.clientId,
+                    })
+                )
+            } else {
+                localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
+            }
         },
     })),
 
-    afterMount(({ props, values }) => {
+    afterMount(({ props, values, actions, cache }) => {
+        // Always try to restore OAuth tokens from separate storage.
+        // posthog-js overwrites LOCALSTORAGE_KEY with hash params on each launch,
+        // losing the OAuth tokens. This separate key survives that overwrite.
+        // We check even when temporaryToken exists (e.g. old bookmark) — stored
+        // OAuth tokens take precedence, and setOAuthTokens clears the temp token.
+        if (!values.accessToken) {
+            try {
+                const stored = localStorage.getItem(OAUTH_LOCALSTORAGE_KEY)
+                if (stored) {
+                    const { accessToken, refreshToken, clientId } = JSON.parse(stored)
+                    if (accessToken && refreshToken && clientId) {
+                        actions.setOAuthTokens(accessToken, refreshToken, clientId)
+                    }
+                }
+            } catch {
+                // ignore localStorage errors
+            }
+        }
+
+        // Migrate users from temporary tokens to OAuth.
+        // If we still have a temp token but no OAuth tokens (after localStorage restoration),
+        // auto-open the OAuth popup. The temp token stays active so the toolbar
+        // remains functional while the popup completes.
+        if (values.temporaryToken && !values.accessToken) {
+            actions.migrateToOAuth()
+        }
+
         if (props.instrument) {
             const distinctId = props.distinctId
 
@@ -129,8 +258,66 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         }
 
         toolbarPosthogJS.capture('toolbar loaded', { is_authenticated: values.isAuthenticated })
+
+        // Listen for OAuth callback postMessage from the popup
+        cache.oauthMessageHandler = (event: MessageEvent): void => {
+            if (event.origin !== values.uiHost) {
+                return
+            }
+            if (event.data?.type !== 'toolbar_oauth_callback') {
+                return
+            }
+            if (event.data.error) {
+                console.error('PostHog Toolbar OAuth error:', event.data.error, event.data.error_description)
+                return
+            }
+            if (event.data.access_token) {
+                actions.setOAuthTokens(event.data.access_token, event.data.refresh_token, event.data.client_id)
+            }
+        }
+        window.addEventListener('message', cache.oauthMessageHandler)
+    }),
+
+    beforeUnmount(({ cache }) => {
+        if (cache.oauthMessageHandler) {
+            window.removeEventListener('message', cache.oauthMessageHandler)
+        }
     }),
 ])
+
+async function refreshOAuthTokens(
+    uiHost: string,
+    clientId: string,
+    currentRefreshToken: string
+): Promise<{
+    access_token: string
+    refresh_token: string
+    expires_in: number
+}> {
+    if (refreshPromise) {
+        return refreshPromise
+    }
+
+    refreshPromise = (async () => {
+        try {
+            const response = await fetch(`${uiHost}/api/user/toolbar_oauth_refresh/`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ refresh_token: currentRefreshToken, client_id: clientId }),
+            })
+
+            if (!response.ok) {
+                throw new Error(`Refresh failed: ${response.status}`)
+            }
+
+            return await response.json()
+        } finally {
+            refreshPromise = null
+        }
+    })()
+
+    return refreshPromise
+}
 
 export async function toolbarFetch(
     url: string,
@@ -144,38 +331,65 @@ export async function toolbarFetch(
     */
     urlConstruction: 'full' | 'use-as-provided' = 'full'
 ): Promise<Response> {
-    const temporaryToken = toolbarConfigLogic.findMounted()?.values.temporaryToken
-    const host = toolbarConfigLogic.findMounted()?.values.uiHost // Use UI host for API requests since it's pointing to PostHog's UI
+    const logic = toolbarConfigLogic.findMounted()
+    const temporaryToken = logic?.values.temporaryToken
+    const accessToken = logic?.values.accessToken
+    const host = logic?.values.uiHost
+
+    if (!temporaryToken && !accessToken) {
+        return new Response(JSON.stringify({ results: [] }), { status: 401 })
+    }
+
+    const useBearer = !!accessToken
 
     let fullUrl: string
     if (urlConstruction === 'use-as-provided') {
         fullUrl = url
     } else {
         const { pathname, searchParams } = combineUrl(url)
-        const params = { ...searchParams, temporary_token: temporaryToken }
-        fullUrl = `${host}${pathname}${encodeParams(params, '?')}`
+        if (useBearer) {
+            fullUrl = `${host}${pathname}${encodeParams(searchParams, '?')}`
+        } else {
+            const params = { ...searchParams, temporary_token: temporaryToken }
+            fullUrl = `${host}${pathname}${encodeParams(params, '?')}`
+        }
     }
 
-    const payloadData = payload
-        ? {
-              body: JSON.stringify(payload),
-              headers: {
-                  'Content-Type': 'application/json',
-              },
-          }
-        : {}
+    const headers: Record<string, string> = {}
+    if (useBearer) {
+        headers['Authorization'] = `Bearer ${accessToken}`
+    }
+    if (payload) {
+        headers['Content-Type'] = 'application/json'
+    }
 
-    const response = await fetch(fullUrl, {
+    let response = await fetch(fullUrl, {
         method,
-        ...payloadData,
+        headers,
+        ...(payload ? { body: JSON.stringify(payload) } : {}),
     })
+
+    if (useBearer) {
+        response = await withTokenRefresh(response, async (newAccessToken) => {
+            const retryHeaders: Record<string, string> = { Authorization: `Bearer ${newAccessToken}` }
+            if (payload) {
+                retryHeaders['Content-Type'] = 'application/json'
+            }
+            return await fetch(fullUrl, {
+                method,
+                headers: retryHeaders,
+                ...(payload ? { body: JSON.stringify(payload) } : {}),
+            })
+        })
+    }
+
     if (response.status === 403) {
-        const responseData = await response.json()
+        const responseData = await response.clone().json()
         if (responseData.detail === "You don't have access to the project.") {
             toolbarConfigLogic.actions.authenticate()
         }
     }
-    if (response.status == 401) {
+    if (response.status === 401) {
         toolbarConfigLogic.actions.tokenExpired()
     }
     return response
@@ -188,27 +402,46 @@ export interface ToolbarMediaUploadResponse {
 }
 
 /**
- * Upload media (images) from the toolbar using temporary token authentication.
- * This is a separate function from toolbarFetch because it needs to handle FormData
- * instead of JSON payloads.
+ * Upload media (images) from the toolbar.
+ * Supports both temporary token (query param) and OAuth Bearer token auth.
  */
 export async function toolbarUploadMedia(file: File): Promise<{ id: string; url: string; fileName: string }> {
-    const temporaryToken = toolbarConfigLogic.findMounted()?.values.temporaryToken
-    const apiHost = toolbarConfigLogic.findMounted()?.values.apiHost
+    const logic = toolbarConfigLogic.findMounted()
+    const temporaryToken = logic?.values.temporaryToken
+    const accessToken = logic?.values.accessToken
+    const apiHost = logic?.values.apiHost
 
-    if (!temporaryToken || !apiHost) {
+    if ((!temporaryToken && !accessToken) || !apiHost) {
         throw new Error('Toolbar not authenticated')
     }
 
     const formData = new FormData()
     formData.append('image', file)
 
-    const url = `${apiHost}/api/projects/@current/uploaded_media/${encodeParams({ temporary_token: temporaryToken }, '?')}`
+    const useBearer = !!accessToken
+    let url: string
+    const headers: Record<string, string> = {}
 
-    const response = await fetch(url, {
-        method: 'POST',
-        body: formData,
-    })
+    if (useBearer) {
+        url = `${apiHost}/api/projects/@current/uploaded_media/`
+        headers['Authorization'] = `Bearer ${accessToken}`
+    } else {
+        url = `${apiHost}/api/projects/@current/uploaded_media/${encodeParams({ temporary_token: temporaryToken }, '?')}`
+    }
+
+    let response = await fetch(url, { method: 'POST', body: formData, headers })
+
+    if (useBearer) {
+        response = await withTokenRefresh(response, async (newAccessToken) => {
+            const retryFormData = new FormData()
+            retryFormData.append('image', file)
+            return await fetch(url, {
+                method: 'POST',
+                body: retryFormData,
+                headers: { Authorization: `Bearer ${newAccessToken}` },
+            })
+        })
+    }
 
     if (response.status === 401) {
         toolbarConfigLogic.actions.tokenExpired()
