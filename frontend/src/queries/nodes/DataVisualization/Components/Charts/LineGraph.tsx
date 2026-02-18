@@ -138,7 +138,7 @@ export const LineGraph = ({
         if (!isShiftPressed) {
             setHoveredDatasetIndex(null)
         }
-    }, [isShiftPressed, setHoveredDatasetIndex])
+    }, [isShiftPressed])
 
     const isBarChart =
         visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar
