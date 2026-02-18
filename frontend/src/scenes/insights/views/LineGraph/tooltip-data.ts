@@ -3,6 +3,34 @@ import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 import { GraphDataset } from '~/types'
 
+function getTooltipPointValue(dp: TooltipItem<any>, pointDataset: GraphDataset): number {
+    const isHorizontal = dp.chart?.options?.indexAxis === 'y'
+    if (typeof dp.parsed === 'number') {
+        return dp.parsed
+    }
+
+    if (dp.parsed && typeof dp.parsed === 'object') {
+        const parsedValue = (dp.parsed as Record<string, unknown>)[isHorizontal ? 'x' : 'y']
+        if (typeof parsedValue === 'number') {
+            return parsedValue
+        }
+    }
+
+    const rawValue = pointDataset?.data?.[dp.dataIndex]
+    if (typeof rawValue === 'number') {
+        return rawValue
+    }
+
+    if (rawValue && typeof rawValue === 'object') {
+        const pointValue = (rawValue as Record<string, unknown>)[isHorizontal ? 'x' : 'y']
+        if (typeof pointValue === 'number') {
+            return pointValue
+        }
+    }
+
+    return 0
+}
+
 export function createTooltipData(
     tooltipDataPoints: TooltipItem<any>[],
     filterFn?: (s: SeriesDatum) => boolean
@@ -31,7 +59,7 @@ export function createTooltipData(
                 color: Array.isArray(pointDataset.borderColor)
                     ? pointDataset.borderColor?.[dp.dataIndex]
                     : pointDataset.borderColor,
-                count: pointDataset?.data?.[dp.dataIndex] || 0,
+                count: getTooltipPointValue(dp, pointDataset),
                 filter: pointDataset?.filter ?? {},
                 hideTooltip: (pointDataset as any).hideTooltip,
             }

@@ -30,6 +30,7 @@ import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useChart } from 'lib/hooks/useChart'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
@@ -88,6 +89,22 @@ export function onChartClick(
     datasets: GraphDataset[],
     onClick?: { (payload: GraphPointPayload): void | undefined }
 ): void {
+    const isHorizontalChart = chart.options?.indexAxis === 'y'
+    const extractPointValue = (value: unknown): number | undefined => {
+        if (typeof value === 'number') {
+            return value
+        }
+
+        if (value && typeof value === 'object') {
+            const axisValue = (value as Record<string, unknown>)[isHorizontalChart ? 'x' : 'y']
+            if (typeof axisValue === 'number') {
+                return axisValue
+            }
+        }
+
+        return undefined
+    }
+
     const nativeEvent = event.native
     if (!nativeEvent) {
         return
@@ -135,7 +152,7 @@ export function onChartClick(
         .map((_dt) => ({
             ..._dt,
             personUrl: _dt.persons_urls?.[referencePoint.index].url,
-            pointValue: _dt.data[referencePoint.index],
+            pointValue: extractPointValue(_dt.data?.[referencePoint.index]),
         }))
 
     onClick?.({
@@ -249,6 +266,25 @@ export const LineGraph = (props: LineGraphProps): JSX.Element => {
  */
 const LOG_ZERO = 1e-10
 
+function getAxisValue(point: unknown, isHorizontal: boolean): number | null {
+    if (typeof point === 'number') {
+        return point
+    }
+
+    if (point && typeof point === 'object') {
+        const value = (point as Record<string, unknown>)[isHorizontal ? 'x' : 'y']
+        if (typeof value === 'number') {
+            return value
+        }
+    }
+
+    return null
+}
+
+function sumAxisValues(points: unknown[], isHorizontal: boolean): number {
+    return points.reduce<number>((total, point) => total + (getAxisValue(point, isHorizontal) ?? 0), 0)
+}
+
 export function LineGraph_({
     datasets: _datasets,
     labels,
@@ -306,6 +342,8 @@ export function LineGraph_({
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar].includes(type)
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
+    const isPreparedDataFlagEnabled = useFeatureFlag('PRODUCT_ANALYTICS_CHARTJS_PREPARED_DATA')
+    const shouldUsePreparedData = isPreparedDataFlagEnabled && !isPercentStackView
     const showAnnotations = ((isTrends && !isHorizontal) || isFunnels) && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
     const isHighlightBarMode = isBar && isStacked && isShiftPressed
@@ -375,7 +413,7 @@ export function LineGraph_({
             backgroundColor = hexToRGBA(mainColor, alpha)
         }
 
-        let adjustedData = dataset.data
+        let adjustedData = Array.isArray(dataset.data) ? [...dataset.data] : []
         if (isLog10 && Array.isArray(adjustedData)) {
             // In log scale, transform zeros to our special value
             adjustedData = adjustedData.map((value) => (value === 0 ? LOG_ZERO : value))
@@ -386,6 +424,12 @@ export function LineGraph_({
             const count = dataset.count
             adjustedData = adjustedData.map((value) => (typeof value === 'number' ? (value / count) * 100 : value))
         }
+        const chartData = shouldUsePreparedData
+            ? adjustedData.map((value, pointIndex) =>
+                  isHorizontal ? { x: value ?? null, y: pointIndex } : { x: pointIndex, y: value ?? null }
+              )
+            : adjustedData
+        const datasetPointCount = adjustedData.length
 
         // `horizontalBar` colors are set in `ActionsHorizontalBar.tsx` and overridden in spread of `dataset` below
         return {
@@ -401,7 +445,7 @@ export function LineGraph_({
                         return undefined
                     }
 
-                    const isIncomplete = ctx.p1DataIndex >= dataset.data.length + incompletenessOffsetFromEnd
+                    const isIncomplete = ctx.p1DataIndex >= datasetPointCount + incompletenessOffsetFromEnd
                     const isActive = !dataset.compare || dataset.compare_label != 'previous'
                     // if last date is still active show dotted line
                     return isIncomplete && isActive ? [10, 10] : undefined
@@ -412,7 +456,7 @@ export function LineGraph_({
                         return undefined
                     }
 
-                    const isIncomplete = ctx.p1DataIndex >= dataset.data.length + incompletenessOffsetFromEnd
+                    const isIncomplete = ctx.p1DataIndex >= datasetPointCount + incompletenessOffsetFromEnd
                     const isActive = !dataset.compare || dataset.compare_label != 'previous'
                     // if last date is still active show dotted line
                     const areaBackgroundColor = hexToRGBA(mainColor, 0.5)
@@ -426,7 +470,8 @@ export function LineGraph_({
             order: 1,
             ...(type === GraphType.Histogram ? { barPercentage: 1 } : {}),
             ...dataset,
-            data: adjustedData,
+            data: chartData,
+            parsing: shouldUsePreparedData ? false : dataset.parsing,
             hoverBorderWidth: isBar ? 0 : 2,
             hoverBorderRadius: isBar ? 0 : 2,
             type: (isHorizontal ? GraphType.Bar : type) as ChartType,
@@ -526,13 +571,13 @@ export function LineGraph_({
             }
 
             const processedDatasets = filteredDatasets.map(processDataset)
+            const nonZeroSeriesValues = processedDatasets
+                .flatMap((dataset) => (Array.isArray(dataset.data) ? dataset.data : []))
+                .map((point) => getAxisValue(point, isHorizontal))
+                .filter((value): value is number => value !== null && value !== 0 && value !== LOG_ZERO)
 
-            const seriesNonZeroMax = Math.max(
-                ...processedDatasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO)
-            )
-            const seriesNonZeroMin = Math.min(
-                ...processedDatasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO)
-            )
+            const seriesNonZeroMax = nonZeroSeriesValues.length > 0 ? Math.max(...nonZeroSeriesValues) : 0
+            const seriesNonZeroMin = nonZeroSeriesValues.length > 0 ? Math.min(...nonZeroSeriesValues) : 1
             const precision = seriesNonZeroMax < 2 ? 2 : seriesNonZeroMax < 5 ? 1 : 0
             const goalLines = (_goalLines || []).filter(
                 (goalLine) => goalLine.displayIfCrossed !== false || goalLine.value >= seriesNonZeroMax
@@ -590,14 +635,14 @@ export function LineGraph_({
                     datalabels: {
                         color: 'white',
                         anchor: (context) => {
-                            const datum = context.dataset?.data[context.dataIndex]
+                            const datum = getAxisValue(context.dataset?.data?.[context.dataIndex], isHorizontal)
                             return typeof datum !== 'number' ? 'end' : datum > 0 ? 'end' : 'start'
                         },
                         backgroundColor: (context) => {
                             return (context.dataset?.borderColor as string) || 'black'
                         },
                         display: (context) => {
-                            const datum = context.dataset?.data[context.dataIndex]
+                            const datum = getAxisValue(context.dataset?.data?.[context.dataIndex], isHorizontal)
                             if (showValuesOnSeries && inSurveyView) {
                                 return true
                             }
@@ -605,16 +650,17 @@ export function LineGraph_({
                                 ? 'auto'
                                 : false
                         },
-                        formatter: (value: number, context) => {
-                            if (value !== 0 && inSurveyView && showValuesOnSeries) {
+                        formatter: (_value: number, context) => {
+                            const datum = getAxisValue(context.dataset?.data?.[context.dataIndex], isHorizontal) ?? 0
+                            if (datum !== 0 && inSurveyView && showValuesOnSeries) {
                                 const dataset = context.dataset as any
                                 // Use totalResponses if provided (for per-respondent %), otherwise sum of values
                                 const total =
                                     dataset.totalResponses ??
-                                    dataset.data?.reduce((sum: number, val: number) => sum + val, 0) ??
+                                    sumAxisValues(Array.isArray(dataset.data) ? dataset.data : [], isHorizontal) ??
                                     1
-                                const percentage = ((value / total) * 100).toFixed(1)
-                                return `${value} (${percentage}%)`
+                                const percentage = ((datum / total) * 100).toFixed(1)
+                                return `${datum} (${percentage}%)`
                             }
 
                             const data = context.chart?.data as ExtendedChartData
@@ -625,7 +671,7 @@ export function LineGraph_({
                             const percentageValue = data.calculatedData?.[datasetIndex][dataIndex]
                             return formatPercentStackAxisValue(
                                 trendsFilter,
-                                percentageValue || value,
+                                percentageValue || datum,
                                 isPercentStackView
                             )
                         },
@@ -855,6 +901,10 @@ export function LineGraph_({
                 onClick: (event: ChartEvent, _: ActiveElement[], chart: Chart) => {
                     onChartClick(event, chart, processedDatasets, onClick)
                 },
+            }
+            if (shouldUsePreparedData) {
+                options.parsing = false
+                options.normalized = true
             }
 
             const truncateRows = !inSurveyView && !!inCardView
