@@ -1,19 +1,34 @@
+import re
 from datetime import timedelta
-from typing import Optional
+from typing import Optional, cast
 
 from django.utils.timezone import now
 
-from posthog.schema import CachedSessionsQueryResponse, DashboardFilter, SessionsQuery, SessionsQueryResponse
+from posthog.schema import (
+    CachedSessionsQueryResponse,
+    DashboardFilter,
+    PropertyOperator,
+    SessionsQuery,
+    SessionsQueryResponse,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_order_expr
-from posthog.hogql.property import action_to_expr, has_aggregation, map_virtual_properties, property_to_expr
+from posthog.hogql.property import (
+    _expr_to_compare_op,
+    action_to_expr,
+    has_aggregation,
+    map_virtual_properties,
+    property_to_expr,
+)
 
+from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.api.utils import get_pk_or_uuid
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import Action, Person
 from posthog.models.person.person import READ_DB_FOR_PERSONS, get_distinct_ids_for_subquery
+from posthog.models.property.property import Property
 from posthog.utils import relative_date_parse
 
 # Allow-listed fields returned when you select "*" from sessions
@@ -31,6 +46,19 @@ SELECT_STAR_FROM_SESSIONS_FIELDS = [
     "$is_bounce",
 ]
 
+# Regex for valid HogQL identifiers (no backtick quoting needed)
+HOGQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
+
+# Separator between a HogQL expression and its display label comment
+HOGQL_COMMENT_SEPARATOR = "--"
+
+# Table aliases used in person joins
+PERSON_DISTINCT_IDS_ALIAS = "__pdi"
+PERSON_LOOKUP_ALIAS = "__person_lookup"
+
+# Column name prefix for person properties
+PERSON_PROPERTY_PREFIX = "person.properties."
+
 
 class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
     query: SessionsQuery
@@ -42,19 +70,137 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
         )
 
+    def _split_col_comment(self, col: str) -> tuple[str, str | None]:
+        """Split a column expression from its display label comment."""
+        if HOGQL_COMMENT_SEPARATOR in col:
+            expr, comment = col.split(HOGQL_COMMENT_SEPARATOR, 1)
+            return expr.strip(), comment.strip()
+        return col.strip(), None
+
+    def _col_name(self, col: str) -> str:
+        """Extract the expression part of a column, stripping any comment."""
+        return self._split_col_comment(col)[0]
+
+    def _needs_person_join(self) -> bool:
+        """Check if any selected column, orderBy, or filter requires person join."""
+        for col in self.select_input_raw():
+            col_name = self._col_name(col)
+            if col_name == "person_display_name" or col_name.startswith(PERSON_PROPERTY_PREFIX):
+                return True
+
+        if self.query.orderBy:
+            for col in self.query.orderBy:
+                col_name = self._col_name(col)
+                if col_name == "person_display_name" or col_name.startswith(PERSON_PROPERTY_PREFIX):
+                    return True
+
+        if self.query.properties:
+            for prop in self.query.properties:
+                if hasattr(prop, "type") and prop.type == "person":
+                    return True
+
+        return False
+
+    def _build_person_display_name_expr(self) -> str:
+        """Build the HogQL expression for person_display_name using a subquery join."""
+        property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+        props = []
+        for key in property_keys:
+            escaped_key = key if HOGQL_IDENTIFIER_RE.match(key) else f"`{key}`"
+            props.append(f"toString({PERSON_LOOKUP_ALIAS}.properties.{escaped_key})")
+
+        coalesce_expr = f"coalesce({', '.join([*props, 'sessions.distinct_id'])})"
+        return f"({coalesce_expr}, toString({PERSON_LOOKUP_ALIAS}.id), sessions.distinct_id)"
+
+    def _transform_person_property_col(self, col: str) -> str:
+        """Transform person.properties.X to use __person_lookup alias."""
+        expr, comment = self._split_col_comment(col)
+        transformed = expr.replace(PERSON_PROPERTY_PREFIX, f"{PERSON_LOOKUP_ALIAS}.properties.")
+        if comment:
+            return f"{transformed} {HOGQL_COMMENT_SEPARATOR} {comment}"
+        return transformed
+
+    def _person_property_to_expr(self, prop) -> ast.Expr:
+        """Convert a person property filter to an expression using __person_lookup.
+
+        Delegates to _expr_to_compare_op which handles all PropertyOperator values.
+        """
+        key = prop.key
+        value = prop.value
+        operator = cast(Optional[PropertyOperator], getattr(prop, "operator", None)) or PropertyOperator.EXACT
+        field = ast.Field(chain=[PERSON_LOOKUP_ALIAS, "properties", key])
+        property_obj = Property(key=key, value=value, operator=operator, type="person")
+        return _expr_to_compare_op(
+            expr=field,
+            value=value,
+            operator=operator,
+            property=property_obj,
+            is_json_field=True,
+            team=self.team,
+        )
+
+    def _build_person_joins(self, select_from: ast.JoinExpr) -> None:
+        """Attach LEFT JOINs for person_distinct_ids and persons onto select_from."""
+        pdi_join = ast.JoinExpr(
+            table=ast.Field(chain=["person_distinct_ids"]),
+            join_type="LEFT JOIN",
+            alias=PERSON_DISTINCT_IDS_ALIAS,
+            constraint=ast.JoinConstraint(
+                expr=ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["sessions", "distinct_id"]),
+                    right=ast.Field(chain=[PERSON_DISTINCT_IDS_ALIAS, "distinct_id"]),
+                ),
+                constraint_type="ON",
+            ),
+        )
+
+        persons_join = ast.JoinExpr(
+            table=ast.Field(chain=["persons"]),
+            join_type="LEFT JOIN",
+            alias=PERSON_LOOKUP_ALIAS,
+            constraint=ast.JoinConstraint(
+                expr=ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=[PERSON_DISTINCT_IDS_ALIAS, "person_id"]),
+                    right=ast.Field(chain=[PERSON_LOOKUP_ALIAS, "id"]),
+                ),
+                constraint_type="ON",
+            ),
+        )
+
+        pdi_join.next_join = persons_join
+        select_from.next_join = pdi_join
+
     def select_cols(self) -> tuple[list[str], list[ast.Expr]]:
+        needs_person_join = self._needs_person_join()
         select_input: list[str] = []
         for col in self.select_input_raw():
-            # Selecting a "*" expands the list of columns
+            col_name = self._col_name(col)
+
             if col == "*":
-                select_input.append(f"tuple({', '.join(SELECT_STAR_FROM_SESSIONS_FIELDS)})")
+                fields = (
+                    [f"sessions.{f}" for f in SELECT_STAR_FROM_SESSIONS_FIELDS]
+                    if needs_person_join
+                    else SELECT_STAR_FROM_SESSIONS_FIELDS
+                )
+                select_input.append(f"tuple({', '.join(fields)})")
+            elif col_name == "person_display_name":
+                select_input.append(self._build_person_display_name_expr())
+            elif col_name.startswith(PERSON_PROPERTY_PREFIX):
+                select_input.append(self._transform_person_property_col(col))
             else:
-                select_input.append(col)
+                if needs_person_join and col_name in SELECT_STAR_FROM_SESSIONS_FIELDS:
+                    select_input.append(f"sessions.{col}")
+                else:
+                    select_input.append(col)
         return select_input, [
             map_virtual_properties(parse_expr(column, timings=self.timings)) for column in select_input
         ]
 
     def to_query(self) -> ast.SelectQuery:
+        needs_person_join = self._needs_person_join()
+
         with self.timings.measure("build_ast"):
             # columns & group_by
             with self.timings.measure("columns"):
@@ -72,19 +218,24 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                     where_exprs = [parse_expr(expr, timings=self.timings) for expr in where_input]
                 if self.query.properties:
                     with self.timings.measure("properties"):
-                        # Filter out cohort and person properties from session-level filters
-                        # as they require person_id which doesn't exist in sessions table
-                        session_properties = [
-                            prop
-                            for prop in self.query.properties
-                            if not (
-                                hasattr(prop, "type")
-                                and prop.type in ("cohort", "static-cohort", "precalculated-cohort", "person")
-                            )
-                        ]
+                        session_properties = []
+                        person_properties = []
+                        for prop in self.query.properties:
+                            if hasattr(prop, "type"):
+                                if prop.type in ("cohort", "static-cohort", "precalculated-cohort"):
+                                    continue
+                                elif prop.type == "person":
+                                    person_properties.append(prop)
+                                    continue
+                            session_properties.append(prop)
+
                         where_exprs.extend(
                             property_to_expr(property, self.team, scope="session") for property in session_properties
                         )
+
+                        for prop in person_properties:
+                            where_exprs.append(self._person_property_to_expr(prop))
+
                 if self.query.fixedProperties:
                     with self.timings.measure("fixed_properties"):
                         where_exprs.extend(
@@ -98,7 +249,10 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                         ).first()
                         where_exprs.append(
                             ast.CompareOperation(
-                                left=ast.Call(name="cityHash64", args=[ast.Field(chain=["distinct_id"])]),
+                                left=ast.Call(
+                                    name="cityHash64",
+                                    args=[ast.Field(chain=["sessions", "distinct_id"])],
+                                ),
                                 right=ast.Tuple(
                                     exprs=[
                                         ast.Call(name="cityHash64", args=[ast.Constant(value=id)])
@@ -227,9 +381,14 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                     order_by = []
 
             with self.timings.measure("select"):
+                select_from = ast.JoinExpr(table=ast.Field(chain=["sessions"]))
+
+                if needs_person_join:
+                    self._build_person_joins(select_from)
+
                 stmt = ast.SelectQuery(
                     select=select,
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["sessions"])),
+                    select_from=select_from,
                     where=where,
                     having=having,
                     group_by=group_by if has_any_aggregation else None,
@@ -257,6 +416,18 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                     select = result[star_idx]
                     new_result = dict(zip(SELECT_STAR_FROM_SESSIONS_FIELDS, select))
                     self.paginator.results[index][star_idx] = new_result
+
+        # Convert person_display_name tuple to dict
+        for column_index, col in enumerate(self.select_input_raw()):
+            if self._col_name(col) == "person_display_name":
+                for index, result in enumerate(self.paginator.results):
+                    row = list(self.paginator.results[index])
+                    row[column_index] = {
+                        "display_name": result[column_index][0],
+                        "id": str(result[column_index][1]),
+                        "distinct_id": str(result[column_index][2]),
+                    }
+                    self.paginator.results[index] = row
 
         return SessionsQueryResponse(
             results=self.paginator.results,
