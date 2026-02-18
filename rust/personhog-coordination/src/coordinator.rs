@@ -19,6 +19,9 @@ pub struct CoordinatorConfig {
     pub leader_lease_ttl: i64,
     pub keepalive_interval: Duration,
     pub election_retry_interval: Duration,
+    /// How long to wait after the first pod event before rebalancing, to batch
+    /// rapid pod registrations into a single rebalance.
+    pub rebalance_debounce_interval: Duration,
 }
 
 impl Default for CoordinatorConfig {
@@ -28,6 +31,7 @@ impl Default for CoordinatorConfig {
             leader_lease_ttl: 15,
             keepalive_interval: Duration::from_secs(5),
             election_retry_interval: Duration::from_secs(5),
+            rebalance_debounce_interval: Duration::from_secs(1),
         }
     }
 }
@@ -122,14 +126,18 @@ impl Coordinator {
         {
             let store = Arc::clone(&self.store);
             let strategy = Arc::clone(&self.strategy);
+            let debounce_interval = self.config.rebalance_debounce_interval;
             let token = cancel.child_token();
-            tasks.spawn(async move { Self::watch_pods_loop(store, strategy, token).await });
+            tasks.spawn(async move {
+                Self::watch_pods_loop(store, strategy, debounce_interval, token).await
+            });
         }
 
         {
             let store = Arc::clone(&self.store);
+            let strategy = Arc::clone(&self.strategy);
             let token = cancel.child_token();
-            tasks.spawn(async move { Self::watch_handoffs_loop(store, token).await });
+            tasks.spawn(async move { Self::watch_handoffs_loop(store, strategy, token).await });
         }
 
         {
@@ -154,33 +162,52 @@ impl Coordinator {
     async fn watch_pods_loop(
         store: Arc<EtcdStore>,
         strategy: Arc<dyn AssignmentStrategy>,
+        debounce_interval: Duration,
         cancel: CancellationToken,
     ) -> Result<()> {
         let mut stream = store.watch_pods().await?;
 
         loop {
+            // Wait for the first pod event
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 msg = stream.message() => {
                     let resp = msg?.ok_or_else(|| Error::InvalidState("pod watch stream ended".to_string()))?;
-                    for event in resp.events() {
-                        match event.event_type() {
-                            EventType::Put => {
-                                tracing::info!("pod registered or updated");
-                            }
-                            EventType::Delete => {
-                                tracing::warn!("pod lease expired or deleted");
-                            }
-                        }
-                    }
-                    // Recompute assignments on any pod change
-                    Self::handle_pod_change_static(&store, strategy.as_ref()).await?;
+                    Self::log_pod_events(&resp);
                 }
+            }
+
+            // Drain additional events arriving within the debounce window
+            let deadline = tokio::time::Instant::now() + debounce_interval;
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => return Ok(()),
+                    _ = tokio::time::sleep_until(deadline) => break,
+                    msg = stream.message() => {
+                        let resp = msg?.ok_or_else(|| Error::InvalidState("pod watch stream ended".to_string()))?;
+                        Self::log_pod_events(&resp);
+                    }
+                }
+            }
+
+            Self::handle_pod_change_static(&store, strategy.as_ref()).await?;
+        }
+    }
+
+    fn log_pod_events(resp: &etcd_client::WatchResponse) {
+        for event in resp.events() {
+            match event.event_type() {
+                EventType::Put => tracing::info!("pod registered or updated"),
+                EventType::Delete => tracing::warn!("pod lease expired or deleted"),
             }
         }
     }
 
-    async fn watch_handoffs_loop(store: Arc<EtcdStore>, cancel: CancellationToken) -> Result<()> {
+    async fn watch_handoffs_loop(
+        store: Arc<EtcdStore>,
+        strategy: Arc<dyn AssignmentStrategy>,
+        cancel: CancellationToken,
+    ) -> Result<()> {
         let mut stream = store.watch_handoffs().await?;
 
         loop {
@@ -199,6 +226,13 @@ impl Coordinator {
                                 }
                             }
                         }
+                    }
+
+                    // After processing all events in this batch, check if all
+                    // handoffs have completed. If so, re-trigger rebalancing to
+                    // pick up any pod changes that were deferred.
+                    if store.list_handoffs().await?.is_empty() {
+                        Self::handle_pod_change_static(&store, strategy.as_ref()).await?;
                     }
                 }
             }
@@ -294,6 +328,18 @@ impl Coordinator {
         // This happens when a pod crashes during the Warming phase before it can
         // signal Ready — the handoff would be stuck forever otherwise.
         Self::cleanup_stale_handoffs(store, &active_pods).await?;
+
+        // Skip rebalancing while handoffs are in flight to prevent overlapping
+        // rebalances from overwriting each other. The watch_handoffs_loop will
+        // re-trigger rebalancing once all handoffs complete.
+        let remaining_handoffs = store.list_handoffs().await?;
+        if !remaining_handoffs.is_empty() {
+            tracing::info!(
+                in_flight = remaining_handoffs.len(),
+                "handoffs in progress, deferring rebalance"
+            );
+            return Ok(());
+        }
 
         let current_assignments = store.list_assignments().await?;
 

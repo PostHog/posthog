@@ -4,10 +4,12 @@ use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
 
+use std::time::Duration;
+
 use common::{
-    start_coordinator, start_coordinator_named, start_pod, start_pod_blocking,
-    start_pod_with_lease_ttl, start_router, test_store, wait_for_condition, HandoffEvent,
-    PodHandles, POLL_INTERVAL, WAIT_TIMEOUT,
+    start_coordinator, start_coordinator_named, start_coordinator_with_debounce, start_pod,
+    start_pod_blocking, start_pod_slow, start_pod_with_lease_ttl, start_router, test_store,
+    wait_for_condition, HandoffEvent, PodHandles, POLL_INTERVAL, WAIT_TIMEOUT,
 };
 use personhog_coordination::strategy::{
     AssignmentStrategy, JumpHashStrategy, StickyBalancedStrategy,
@@ -18,6 +20,10 @@ const MANY_PARTITIONS: u32 = 12;
 
 /// Generates `#[tokio::test]` functions for each strategy variant.
 /// Each test runs inside a `sticky_balanced` or `jump_hash` module.
+///
+/// Test functions receive `(test_name, strategy, evenly_distributed)` where
+/// `evenly_distributed` indicates whether the strategy guarantees perfectly
+/// balanced partition counts across pods.
 macro_rules! strategy_tests {
     ($( $(#[$meta:meta])* $name:ident ),* $(,)?) => {
         mod sticky_balanced {
@@ -29,6 +35,7 @@ macro_rules! strategy_tests {
                     super::$name(
                         concat!(stringify!($name), "-sticky"),
                         Arc::new(StickyBalancedStrategy),
+                        true,
                     ).await;
                 }
             )*
@@ -43,6 +50,7 @@ macro_rules! strategy_tests {
                     super::$name(
                         concat!(stringify!($name), "-jump"),
                         Arc::new(JumpHashStrategy),
+                        false,
                     ).await;
                 }
             )*
@@ -50,6 +58,7 @@ macro_rules! strategy_tests {
     };
 }
 
+// Add tests here in order to test them for each strategy variant.
 strategy_tests! {
     single_pod_gets_all_partitions,
     scale_up_triggers_handoff,
@@ -58,12 +67,17 @@ strategy_tests! {
     multi_router_ack_quorum,
     pod_crash_during_warming_restores_assignments,
     scale_down_to_one_pod,
-    #[ignore] rapid_pod_joins,
+    rapid_pod_joins,
     rolling_update,
     coordinator_starts_after_pods,
+    debounce_batches_rapid_pod_changes,
 }
 
-async fn single_pod_gets_all_partitions(test_name: &str, strategy: Arc<dyn AssignmentStrategy>) {
+async fn single_pod_gets_all_partitions(
+    test_name: &str,
+    strategy: Arc<dyn AssignmentStrategy>,
+    _evenly_distributed: bool,
+) {
     let store = test_store(test_name).await;
     let cancel = CancellationToken::new();
 
@@ -95,7 +109,11 @@ async fn single_pod_gets_all_partitions(test_name: &str, strategy: Arc<dyn Assig
     cancel.cancel();
 }
 
-async fn scale_up_triggers_handoff(test_name: &str, strategy: Arc<dyn AssignmentStrategy>) {
+async fn scale_up_triggers_handoff(
+    test_name: &str,
+    strategy: Arc<dyn AssignmentStrategy>,
+    _evenly_distributed: bool,
+) {
     let store = test_store(test_name).await;
     let cancel = CancellationToken::new();
 
@@ -198,7 +216,11 @@ async fn scale_up_triggers_handoff(test_name: &str, strategy: Arc<dyn Assignment
     cancel.cancel();
 }
 
-async fn pod_crash_reassigns_partitions(test_name: &str, strategy: Arc<dyn AssignmentStrategy>) {
+async fn pod_crash_reassigns_partitions(
+    test_name: &str,
+    strategy: Arc<dyn AssignmentStrategy>,
+    _evenly_distributed: bool,
+) {
     let store = test_store(test_name).await;
     let cancel = CancellationToken::new();
 
@@ -263,7 +285,11 @@ async fn pod_crash_reassigns_partitions(test_name: &str, strategy: Arc<dyn Assig
     cancel.cancel();
 }
 
-async fn leader_failover(test_name: &str, strategy: Arc<dyn AssignmentStrategy>) {
+async fn leader_failover(
+    test_name: &str,
+    strategy: Arc<dyn AssignmentStrategy>,
+    _evenly_distributed: bool,
+) {
     let store = test_store(test_name).await;
     let cancel = CancellationToken::new();
 
@@ -347,7 +373,11 @@ async fn leader_failover(test_name: &str, strategy: Arc<dyn AssignmentStrategy>)
     cancel.cancel();
 }
 
-async fn multi_router_ack_quorum(test_name: &str, strategy: Arc<dyn AssignmentStrategy>) {
+async fn multi_router_ack_quorum(
+    test_name: &str,
+    strategy: Arc<dyn AssignmentStrategy>,
+    _evenly_distributed: bool,
+) {
     let store = test_store(test_name).await;
     let cancel = CancellationToken::new();
 
@@ -440,6 +470,7 @@ async fn multi_router_ack_quorum(test_name: &str, strategy: Arc<dyn AssignmentSt
 async fn pod_crash_during_warming_restores_assignments(
     test_name: &str,
     strategy: Arc<dyn AssignmentStrategy>,
+    _evenly_distributed: bool,
 ) {
     let store = test_store(test_name).await;
     let cancel = CancellationToken::new();
@@ -563,7 +594,11 @@ async fn pod_crash_during_warming_restores_assignments(
     cancel.cancel();
 }
 
-async fn scale_down_to_one_pod(test_name: &str, strategy: Arc<dyn AssignmentStrategy>) {
+async fn scale_down_to_one_pod(
+    test_name: &str,
+    strategy: Arc<dyn AssignmentStrategy>,
+    _evenly_distributed: bool,
+) {
     let store = test_store(test_name).await;
     let cancel = CancellationToken::new();
 
@@ -642,20 +677,17 @@ async fn scale_down_to_one_pod(test_name: &str, strategy: Arc<dyn AssignmentStra
     cancel.cancel();
 }
 
-// Known limitation: the coordinator does not guard against overlapping rebalances.
-// When multiple pods join rapidly, each pod registration triggers a new rebalance
-// that can overwrite in-flight handoffs, causing some partitions to be reassigned
-// without going through the full handoff protocol (no warming, no coordinated
-// cutover). The fix is to either skip rebalance while handoffs are in flight
-// (with re-evaluation on handoff completion) or compute assignments using
-// "effective state" that treats pending handoffs as completed.
-async fn rapid_pod_joins(test_name: &str, strategy: Arc<dyn AssignmentStrategy>) {
+async fn rapid_pod_joins(
+    test_name: &str,
+    strategy: Arc<dyn AssignmentStrategy>,
+    evenly_distributed: bool,
+) {
     let store = test_store(test_name).await;
     let cancel = CancellationToken::new();
 
     store.set_total_partitions(MANY_PARTITIONS).await.unwrap();
 
-    let _coord = start_coordinator(Arc::clone(&store), strategy, cancel.clone());
+    let _coord = start_coordinator(Arc::clone(&store), Arc::clone(&strategy), cancel.clone());
     let _router = start_router(Arc::clone(&store), "router-0", cancel.clone());
 
     // Start with one pod and wait for it to get all partitions + router registered
@@ -679,22 +711,53 @@ async fn rapid_pod_joins(test_name: &str, strategy: Arc<dyn AssignmentStrategy>)
     let _pod2 = start_pod(Arc::clone(&store), "writer-2", cancel.clone());
     let _pod3 = start_pod(Arc::clone(&store), "writer-3", cancel.clone());
 
-    // Wait for balanced assignment across all 4 pods (12 / 4 = 3 each)
+    let pod_names: Vec<String> = (0..4).map(|i| format!("writer-{i}")).collect();
+
+    // Wait until the strategy is satisfied: all partitions assigned, no handoffs,
+    // every pod owns partitions, and the strategy would make no further changes.
     let check_store = Arc::clone(&store);
+    let check_strategy = Arc::clone(&strategy);
+    let check_pods = pod_names.clone();
     wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
         let store = Arc::clone(&check_store);
+        let strategy = Arc::clone(&check_strategy);
+        let pods = check_pods.clone();
         async move {
             let assignments = store.list_assignments().await.unwrap_or_default();
             let handoffs = store.list_handoffs().await.unwrap_or_default();
-            assignments.len() == MANY_PARTITIONS as usize
-                && handoffs.is_empty()
-                && (0..4).all(|i| {
-                    let name = format!("writer-{i}");
-                    assignments.iter().filter(|a| a.owner == name).count() == 3
-                })
+            if assignments.len() != MANY_PARTITIONS as usize || !handoffs.is_empty() {
+                return false;
+            }
+            let current: std::collections::HashMap<u32, String> = assignments
+                .iter()
+                .map(|a| (a.partition, a.owner.clone()))
+                .collect();
+            let desired = strategy.compute_assignments(&current, &pods, MANY_PARTITIONS);
+            personhog_coordination::coordinator::compute_required_handoffs(&current, &desired)
+                .is_empty()
         }
     })
     .await;
+
+    // Verify every pod owns at least one partition
+    let assignments = store.list_assignments().await.unwrap();
+    for name in &pod_names {
+        assert!(
+            assignments.iter().any(|a| a.owner == *name),
+            "{name} should own at least one partition"
+        );
+    }
+
+    if evenly_distributed {
+        let per_pod = MANY_PARTITIONS as usize / pod_names.len();
+        for name in &pod_names {
+            assert_eq!(
+                assignments.iter().filter(|a| a.owner == *name).count(),
+                per_pod,
+                "expected even distribution for {name}"
+            );
+        }
+    }
 
     cancel.cancel();
 }
@@ -704,7 +767,11 @@ async fn rapid_pod_joins(test_name: &str, strategy: Arc<dyn AssignmentStrategy>)
 ///
 /// Flow: start old-{0,1,2} -> for each i: new-i starts, old-i dies, new-(i+1) starts...
 /// Final state: all partitions on new-{0,1,2}.
-async fn rolling_update(test_name: &str, strategy: Arc<dyn AssignmentStrategy>) {
+async fn rolling_update(
+    test_name: &str,
+    strategy: Arc<dyn AssignmentStrategy>,
+    _evenly_distributed: bool,
+) {
     let store = test_store(test_name).await;
     let cancel = CancellationToken::new();
 
@@ -827,7 +894,11 @@ async fn rolling_update(test_name: &str, strategy: Arc<dyn AssignmentStrategy>) 
     cancel.cancel();
 }
 
-async fn coordinator_starts_after_pods(test_name: &str, strategy: Arc<dyn AssignmentStrategy>) {
+async fn coordinator_starts_after_pods(
+    test_name: &str,
+    strategy: Arc<dyn AssignmentStrategy>,
+    _evenly_distributed: bool,
+) {
     let store = test_store(test_name).await;
     let cancel = CancellationToken::new();
 
@@ -876,6 +947,106 @@ async fn coordinator_starts_after_pods(test_name: &str, strategy: Arc<dyn Assign
         }
     })
     .await;
+
+    cancel.cancel();
+}
+
+/// Tests that the debounce window batches rapid pod registrations into fewer
+/// rebalances, and that the system converges correctly even when handoffs take
+/// longer than the debounce interval.
+///
+/// Setup: 500ms debounce, 300ms warm delay per partition.
+/// 1. Start pod-0, wait for all partitions assigned
+/// 2. Rapidly add pod-1, pod-2, pod-3 (within debounce window)
+/// 3. Verify convergence: all pods own partitions, no handoffs stuck
+async fn debounce_batches_rapid_pod_changes(
+    test_name: &str,
+    strategy: Arc<dyn AssignmentStrategy>,
+    evenly_distributed: bool,
+) {
+    let store = test_store(test_name).await;
+    let cancel = CancellationToken::new();
+
+    store.set_total_partitions(MANY_PARTITIONS).await.unwrap();
+
+    let _coord = start_coordinator_with_debounce(
+        Arc::clone(&store),
+        Arc::clone(&strategy),
+        Duration::from_millis(500),
+        cancel.clone(),
+    );
+    let _router = start_router(Arc::clone(&store), "router-0", cancel.clone());
+
+    // Pod-0 uses a slow handler: 300ms per partition warm
+    let warm_delay = Duration::from_millis(300);
+    let _pod0 = start_pod_slow(Arc::clone(&store), "writer-0", warm_delay, cancel.clone());
+
+    // Wait for initial assignment + router registered
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let assignments = store.list_assignments().await.unwrap_or_default();
+            let routers = store.list_routers().await.unwrap_or_default();
+            assignments.len() == MANY_PARTITIONS as usize
+                && assignments.iter().all(|a| a.owner == "writer-0")
+                && routers.len() == 1
+        }
+    })
+    .await;
+
+    // Rapidly add 3 more slow pods — all within the 500ms debounce window
+    let _pod1 = start_pod_slow(Arc::clone(&store), "writer-1", warm_delay, cancel.clone());
+    let _pod2 = start_pod_slow(Arc::clone(&store), "writer-2", warm_delay, cancel.clone());
+    let _pod3 = start_pod_slow(Arc::clone(&store), "writer-3", warm_delay, cancel.clone());
+
+    let pod_names: Vec<String> = (0..4).map(|i| format!("writer-{i}")).collect();
+
+    // Wait for the strategy to be satisfied (no further handoffs needed).
+    // Longer timeout: slow warm (300ms * partitions) + debounce (500ms) + handoff rounds
+    let check_store = Arc::clone(&store);
+    let check_strategy = Arc::clone(&strategy);
+    let check_pods = pod_names.clone();
+    wait_for_condition(Duration::from_secs(30), POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        let strategy = Arc::clone(&check_strategy);
+        let pods = check_pods.clone();
+        async move {
+            let assignments = store.list_assignments().await.unwrap_or_default();
+            let handoffs = store.list_handoffs().await.unwrap_or_default();
+            if assignments.len() != MANY_PARTITIONS as usize || !handoffs.is_empty() {
+                return false;
+            }
+            let current: std::collections::HashMap<u32, String> = assignments
+                .iter()
+                .map(|a| (a.partition, a.owner.clone()))
+                .collect();
+            let desired = strategy.compute_assignments(&current, &pods, MANY_PARTITIONS);
+            personhog_coordination::coordinator::compute_required_handoffs(&current, &desired)
+                .is_empty()
+        }
+    })
+    .await;
+
+    // Verify every pod owns at least one partition
+    let assignments = store.list_assignments().await.unwrap();
+    for name in &pod_names {
+        assert!(
+            assignments.iter().any(|a| a.owner == *name),
+            "{name} should own at least one partition"
+        );
+    }
+
+    if evenly_distributed {
+        let per_pod = MANY_PARTITIONS as usize / pod_names.len();
+        for name in &pod_names {
+            assert_eq!(
+                assignments.iter().filter(|a| a.owner == *name).count(),
+                per_pod,
+                "expected even distribution for {name}"
+            );
+        }
+    }
 
     cancel.cancel();
 }

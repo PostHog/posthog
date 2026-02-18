@@ -71,6 +71,7 @@ pub fn start_coordinator_named(
             leader_lease_ttl,
             keepalive_interval: Duration::from_secs(keepalive_secs),
             election_retry_interval: Duration::from_secs(1),
+            rebalance_debounce_interval: Duration::from_millis(100),
         },
         strategy,
     );
@@ -125,6 +126,44 @@ pub fn start_pod_blocking(
             pod_name: name.to_string(),
             lease_ttl,
             heartbeat_interval: Duration::from_secs(heartbeat_secs),
+            ..Default::default()
+        },
+        Arc::new(handler),
+    );
+    let token = cancel.child_token();
+    tokio::spawn(async move { pod.run(token).await });
+    PodHandles { events }
+}
+
+pub fn start_coordinator_with_debounce(
+    store: Arc<EtcdStore>,
+    strategy: Arc<dyn AssignmentStrategy>,
+    debounce_interval: Duration,
+    cancel: CancellationToken,
+) -> JoinHandle<Result<()>> {
+    let coordinator = Coordinator::new(
+        store,
+        CoordinatorConfig {
+            rebalance_debounce_interval: debounce_interval,
+            ..Default::default()
+        },
+        strategy,
+    );
+    let token = cancel.child_token();
+    tokio::spawn(async move { coordinator.run(token).await })
+}
+
+pub fn start_pod_slow(
+    store: Arc<EtcdStore>,
+    name: &str,
+    warm_delay: Duration,
+    cancel: CancellationToken,
+) -> PodHandles {
+    let (handler, events) = SlowHandoffHandler::new(warm_delay);
+    let pod = PodHandle::new(
+        store,
+        PodConfig {
+            pod_name: name.to_string(),
             ..Default::default()
         },
         Arc::new(handler),
@@ -222,6 +261,46 @@ impl HandoffHandler for BlockingHandoffHandler {
     async fn warm_partition(&self, _partition: u32) -> Result<()> {
         // Block forever — simulates a slow warm that never completes
         std::future::pending().await
+    }
+
+    async fn release_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Released(partition));
+        Ok(())
+    }
+}
+
+/// A handoff handler that adds a configurable delay to warm_partition.
+/// Simulates a pod that takes time to warm its cache.
+pub struct SlowHandoffHandler {
+    pub events: Arc<Mutex<Vec<HandoffEvent>>>,
+    pub warm_delay: Duration,
+}
+
+impl SlowHandoffHandler {
+    pub fn new(warm_delay: Duration) -> (Self, Arc<Mutex<Vec<HandoffEvent>>>) {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        (
+            Self {
+                events: Arc::clone(&events),
+                warm_delay,
+            },
+            events,
+        )
+    }
+}
+
+#[async_trait]
+impl HandoffHandler for SlowHandoffHandler {
+    async fn warm_partition(&self, partition: u32) -> Result<()> {
+        tokio::time::sleep(self.warm_delay).await;
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Warmed(partition));
+        Ok(())
     }
 
     async fn release_partition(&self, partition: u32) -> Result<()> {
