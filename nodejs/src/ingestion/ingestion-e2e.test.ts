@@ -261,7 +261,8 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                     .build(),
             ]
 
-            await ingester.handleKafkaBatch(createKafkaMessages(events))
+            const { backgroundTask } = await ingester.handleKafkaBatch(createKafkaMessages(events))
+            await backgroundTask
 
             await waitForExpect(async () => {
                 await waitForKafkaMessages(hub)
