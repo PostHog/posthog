@@ -31,6 +31,14 @@ import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogi
 
 export type CalcColumnState = 'total' | 'average' | 'median'
 
+export const MAX_VALUE_COLUMNS = 200
+
+/** When there are too many data points (e.g. 90 days grouped by hour = 2160),
+ *  only show the most recent columns to avoid freezing the browser. */
+export function getValueColumnStartIndex(dataLength: number): number {
+    return Math.max(0, dataLength - MAX_VALUE_COLUMNS)
+}
+
 export interface InsightsTableProps {
     /** Key for the entityFilterLogic */
     filterKey: string
@@ -362,7 +370,15 @@ export function InsightsTable({
             return aValue - bValue
         }
 
-        return results.map((_, index) => ({
+        // Only show the most recent MAX_VALUE_COLUMNS columns to avoid
+        // freezing the browser on large date ranges (e.g. 90 days by hour = 2160 columns)
+        const visibleStartIndex = getValueColumnStartIndex(results.length)
+        const visibleDataIndices = Array.from(
+            { length: results.length - visibleStartIndex },
+            (_, i) => visibleStartIndex + i
+        )
+
+        return visibleDataIndices.map((index) => ({
             title: isStickiness ? (
                 `${interval ? capitalizeFirstLetter(interval) : 'Day'} ${index + 1}`
             ) : (
@@ -376,17 +392,15 @@ export function InsightsTable({
                     weekStartDay={weekStartDay}
                 />
             ),
-            render: (_, item: IndexedTrendResult) => {
-                return (
-                    <ValueColumnItem
-                        index={index}
-                        item={item}
-                        isStickiness={isStickiness}
-                        renderCount={renderCount}
-                        formatPropertyValueForDisplay={formatPropertyValueForDisplay}
-                    />
-                )
-            },
+            render: (_, item: IndexedTrendResult) => (
+                <ValueColumnItem
+                    index={index}
+                    item={item}
+                    isStickiness={isStickiness}
+                    renderCount={renderCount}
+                    formatPropertyValueForDisplay={formatPropertyValueForDisplay}
+                />
+            ),
             key: `data-${index}`,
             sorter: (a: IndexedTrendResult, b: IndexedTrendResult) => dataSorter(a, b, index),
             align: 'right',
