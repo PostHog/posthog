@@ -164,4 +164,4 @@ docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/ru
 
 ## Skills
 
-Skills are created inside [.agents/skills](.agents/skills/) by default and them symlinked to [.claude/skills](.claude/skills). Make sure you always treat `.agents/skills` as the source of truth.
+Skills are created inside [.agents/skills](.agents/skills/) by default and then symlinked to [.claude/skills](.claude/skills). Make sure you always treat `.agents/skills` as the source of truth.
