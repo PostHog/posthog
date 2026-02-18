@@ -87,6 +87,8 @@ pub const SPIKE_ISSUES_BLOCKED_BY_COOLDOWN: &str = "cymbal_spike_issues_blocked_
 
 // Stages Name.
 // We want to keep previous value for comparison, can be changed later on
+pub const CONSUMER_EXCEPTION_PIPELINE: &str = "cymbal_consumer_exception_pipeline";
+pub const HTTP_EXCEPTION_PIPELINE: &str = "cymbal_http_exception_pipeline";
 pub const EXCEPTION_PROCESSING_PIPELINE: &str = EXCEPTION_PROCESSING_TIME;
 pub const PRE_PROCESSING_STAGE: &str = "cymbal_exception_pre_processing_stage";
 pub const POST_PROCESSING_STAGE: &str = "cymbal_exception_post_processing_stage";
@@ -95,6 +97,7 @@ pub const LINKING_STAGE: &str = ISSUE_PROCESSING_TIME;
 pub const GROUPING_STAGE: &str = "cymbal_exception_grouping_stage";
 pub const ALERTING_STAGE: &str = "cymbal_exception_alerting_stage";
 pub const SPIKE_ALERT_STAGE: &str = SPIKE_DETECTION_TIME;
+pub const DROP_SUPPRESSED_STAGE: &str = "cymbal_drop_suppressed_stage";
 
 // Operators
 pub const FRAME_RESOLVER_OPERATOR: &str = FRAME_BATCH_TIME;
