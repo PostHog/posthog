@@ -4,6 +4,7 @@ Fetches $ai_generation events, extracts user messages, and classifies
 sentiment via the ONNX model for one or more traces in a single batch.
 """
 
+import asyncio
 from typing import Any
 
 import structlog
@@ -36,7 +37,7 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
         pending.extend(collect_pending(rows_by_trace.get(trace_id, []), trace_id, MAX_TOTAL_CLASSIFICATIONS))
 
     # Batch classify all texts across all traces in one call
-    all_results = classify([p.text for p in pending]) if pending else []
+    all_results = await asyncio.to_thread(classify, [p.text for p in pending]) if pending else []
 
     if pending:
         from posthog.temporal.llm_analytics.sentiment.metrics import (

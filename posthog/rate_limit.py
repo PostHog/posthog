@@ -629,7 +629,7 @@ class WidgetTeamThrottle(SimpleRateThrottle):
     """Rate limit per team token."""
 
     scope = "widget_team"
-    rate = "1000/hour"
+    rate = "3600/hour"
 
     def get_cache_key(self, request, view):
         # Throttle by team token if available, otherwise by IP
