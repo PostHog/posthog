@@ -83,7 +83,7 @@ DEFAULT_PAGE_LIMIT = 100
 # It's almost certainly wrong to add more properties to this list, instead convince the user to send data to use with
 # these properties, or use e.g. a CDP transformation to rewrite their events.
 #
-# If you do want to add a new columns
+# If you do want to add new columns
 # * add it to the places linked above
 # * ensure it is materialized on US and EU prod
 # * ensure the materialized columns have case-insensitive skip indexes
