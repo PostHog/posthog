@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
 
 import { IconMessage } from '@posthog/icons'
 import { LemonBanner, LemonInput, LemonSelect, Spinner } from '@posthog/lemon-ui'
@@ -59,29 +58,15 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
         hasMoreSurveys,
         responseCounts,
     } = useValues(surveyTriggerLogic)
-    const { loadSurveys, loadMoreSurveys, setSearchTerm } = useActions(surveyTriggerLogic)
+    const { loadMoreSurveys, setSearchTerm } = useActions(surveyTriggerLogic)
     const selectedSurveyId = getSelectedSurveyId(config)
     const completedOnly = getCompletedResponsesOnly(config)
     const filterTestAccounts = config.filters?.filter_test_accounts ?? false
 
-    const [selectedSurveyName, setSelectedSurveyName] = useState<string | null>(null)
-
-    useEffect(() => {
-        loadSurveys()
-    }, [loadSurveys])
-
-    useEffect(() => {
-        if (selectedSurveyId && selectedSurveyId !== 'any') {
-            const survey = allSurveys.find((s) => s.id === selectedSurveyId)
-            if (survey) {
-                setSelectedSurveyName(survey.name)
-            }
-        } else {
-            setSelectedSurveyName(null)
-        }
-    }, [selectedSurveyId, allSurveys])
-
-    const selectedSurveyLabel = selectedSurveyName ?? (selectedSurveyId ? 'Loading...' : null)
+    const selectedSurvey =
+        selectedSurveyId && selectedSurveyId !== 'any' ? allSurveys.find((s) => s.id === selectedSurveyId) : null
+    const selectedSurveyLabel =
+        selectedSurvey?.name ?? (selectedSurveyId && selectedSurveyId !== 'any' ? 'Loading...' : null)
 
     const surveyOptions = [
         ...(selectedSurveyId && selectedSurveyLabel

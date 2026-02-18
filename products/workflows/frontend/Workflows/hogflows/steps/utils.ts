@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { SurveyEventName } from 'lib/posthog-typed'
+import { SurveyEventName } from '~/types'
 
 import { HogFlowAction } from '../types'
 

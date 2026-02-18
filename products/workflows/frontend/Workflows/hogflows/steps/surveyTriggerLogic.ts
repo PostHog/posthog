@@ -16,7 +16,7 @@ export const surveyTriggerLogic = kea<surveyTriggerLogicType>([
     actions({
         loadMoreSurveys: true,
         loadMoreSurveysFailure: true,
-        appendSurveys: (surveys: Survey[]) => ({ surveys }),
+        appendSurveys: (surveys: Survey[], rawCount: number) => ({ surveys, rawCount }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
     reducers({
@@ -33,11 +33,18 @@ export const surveyTriggerLogic = kea<surveyTriggerLogicType>([
                 appendSurveys: (state, { surveys }) => [...state, ...surveys],
             },
         ],
+        apiOffset: [
+            0,
+            {
+                loadSurveysSuccess: (_, { surveys }) => surveys.length,
+                appendSurveys: (state, { rawCount }) => state + rawCount,
+            },
+        ],
         hasMoreSurveys: [
             true,
             {
                 loadSurveysSuccess: (_, { surveys }) => surveys.length >= SURVEYS_PAGE_SIZE,
-                appendSurveys: (_, { surveys }) => surveys.length >= SURVEYS_PAGE_SIZE,
+                appendSurveys: (_, { rawCount }) => rawCount >= SURVEYS_PAGE_SIZE,
             },
         ],
         moreSurveysLoading: [
@@ -92,10 +99,10 @@ export const surveyTriggerLogic = kea<surveyTriggerLogicType>([
             try {
                 const response = await api.surveys.list({
                     limit: SURVEYS_PAGE_SIZE,
-                    offset: values.allSurveys.length,
+                    offset: values.apiOffset,
                 })
                 const filtered = response.results.filter((s) => !s.archived)
-                actions.appendSurveys(filtered)
+                actions.appendSurveys(filtered, response.results.length)
             } catch (e) {
                 lemonToast.error('Failed to load more surveys: ' + (e as Error).message)
                 actions.loadMoreSurveysFailure()
