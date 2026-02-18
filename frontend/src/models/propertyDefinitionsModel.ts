@@ -4,7 +4,7 @@ import api, { ApiMethodOptions, CountedPaginatedResponse } from 'lib/api'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { captureTimeToSeeData } from 'lib/internalMetrics'
-import { colonDelimitedDuration } from 'lib/utils'
+import { colonDelimitedDuration, toString } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -103,6 +103,13 @@ export type Option = {
     status?: 'loading' | 'loaded'
     allowCustomValues?: boolean
     values?: PropValue[]
+    refreshing?: boolean
+    /** Values present when the latest background refresh started, used to identify newly appeared values. */
+    preRefreshValueNames?: string[]
+    /** Values loaded with no search input, used to keep ordering stable as the user types. */
+    initialValueNames?: string[]
+    /** Current search input for this property key. */
+    searchInput?: string
 }
 
 const getPropertyKey = (
@@ -204,11 +211,13 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             properties?: { key: string; values: string | string[] }[]
         }) => payload,
         setOptionsLoading: (key: string) => ({ key }),
-        setOptions: (key: string, values: PropValue[], allowCustomValues: boolean) => ({
+        setOptions: (key: string, values: PropValue[], allowCustomValues: boolean, refreshing?: boolean) => ({
             key,
             values,
             allowCustomValues,
+            refreshing,
         }),
+        setOptionsSearchInput: (key: string, searchInput: string) => ({ key, searchInput }),
         // internal
         fetchAllPendingDefinitions: true,
         abortAnyRunningQuery: true,
@@ -229,13 +238,34 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             {} as Record<string, Option>,
             {
                 setOptionsLoading: (state, { key }) => ({ ...state, [key]: { ...state[key], status: 'loading' } }),
-                setOptions: (state, { key, values, allowCustomValues }) => ({
+                setOptions: (state, { key, values, allowCustomValues, refreshing }) => {
+                    const current = state[key]
+                    const valueNames = values.map((v) => toString(v.name))
+                    const searchInput = current?.searchInput || ''
+
+                    // Capture values as the pre-refresh baseline when a refresh begins
+                    const isStartingRefresh = refreshing && !current?.refreshing
+                    const preRefreshValueNames = isStartingRefresh ? valueNames : current?.preRefreshValueNames
+
+                    // Keep ordering baseline updated whenever loaded with no search
+                    const initialValueNames = searchInput === '' ? valueNames : current?.initialValueNames
+
+                    return {
+                        ...state,
+                        [key]: {
+                            ...current,
+                            values: Array.from(new Set(values)),
+                            status: 'loaded',
+                            allowCustomValues,
+                            refreshing: refreshing ?? false,
+                            preRefreshValueNames,
+                            initialValueNames,
+                        },
+                    }
+                },
+                setOptionsSearchInput: (state, { key, searchInput }) => ({
                     ...state,
-                    [key]: {
-                        values: Array.from(new Set(values)),
-                        status: 'loaded',
-                        allowCustomValues,
-                    },
+                    [key]: { ...state[key], searchInput },
                 }),
             },
         ],
@@ -394,7 +424,9 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 signal: cache.abortController.signal,
             }
 
-            const propValues: PropValue[] = await api.get(
+            actions.setOptionsSearchInput(propertyKey, newInput || '')
+
+            const responseData: PropValue[] | { results: PropValue[]; refreshing: boolean } = await api.get(
                 constructValuesEndpoint(
                     endpoint,
                     values.currentTeamId,
@@ -407,8 +439,26 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 methodOptions
             )
             breakpoint()
-            actions.setOptions(propertyKey, propValues, type !== PropertyDefinitionType.FlagValue)
+
+            const propValues = Array.isArray(responseData) ? responseData : responseData.results
+            const refreshing = Array.isArray(responseData) ? false : responseData.refreshing
+
+            actions.setOptions(propertyKey, propValues, type !== PropertyDefinitionType.FlagValue, refreshing)
             cache.abortController = null
+
+            // Schedule a poll when the backend signals a background refresh is in progress
+            cache.pollingTimeouts = cache.pollingTimeouts || {}
+            if (refreshing) {
+                if (cache.pollingTimeouts[propertyKey]) {
+                    clearTimeout(cache.pollingTimeouts[propertyKey])
+                }
+                cache.pollingTimeouts[propertyKey] = setTimeout(() => {
+                    actions.loadPropertyValues({ endpoint, type, newInput, propertyKey, eventNames, properties })
+                }, 2000)
+            } else if (cache.pollingTimeouts[propertyKey]) {
+                clearTimeout(cache.pollingTimeouts[propertyKey])
+                delete cache.pollingTimeouts[propertyKey]
+            }
 
             await captureTimeToSeeData(teamLogic.values.currentTeamId, {
                 type: 'property_values_load',

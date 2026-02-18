@@ -14,6 +14,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { PropertyFilterBetween } from 'lib/components/PropertyFilters/components/PropertyFilterBetween'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
+import { propertyValueLogic } from 'lib/components/PropertyFilters/components/propertyValueLogic'
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -75,6 +76,7 @@ export function PropertyValue({
     const isDateTimeProperty = operator && isOperatorDate(operator)
     const isBetweenProperty = operator && isOperatorBetween(operator)
     const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(type)
+    const { isRefreshing } = useValues(propertyValueLogic({ propertyKey, type: propertyDefinitionType }))
 
     const isDurationProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Duration
@@ -130,10 +132,19 @@ export function PropertyValue({
     // (to avoid overwriting suggestions based on search input)
     useEffect(() => {
         if (propertyOptions?.status === 'loaded' && propertyOptions?.values && currentSearchInput.current === '') {
-            const orderedKeys = propertyOptions.values.map((v) => toString(v.name))
-            setInitialSuggestedValues({
-                set: new Set(orderedKeys),
-                orderedKeys,
+            const newKeys = propertyOptions.values.map((v) => toString(v.name))
+            setInitialSuggestedValues((prev) => {
+                // Merge new keys into existing ones so that values already shown are never removed
+                // from under the user's cursor when a background refresh arrives with a different list.
+                const merged = [...prev.orderedKeys]
+                const existingSet = new Set(prev.orderedKeys)
+                for (const key of newKeys) {
+                    if (!existingSet.has(key)) {
+                        merged.push(key)
+                        existingSet.add(key)
+                    }
+                }
+                return { set: existingSet, orderedKeys: merged }
             })
         }
     }, [propertyOptions?.status, propertyOptions?.values])
@@ -300,7 +311,7 @@ export function PropertyValue({
         <LemonInputSelect
             className={inputClassName}
             data-attr="prop-val"
-            loading={propertyOptions?.status === 'loading'}
+            loading={propertyOptions?.status === 'loading' || isRefreshing}
             value={formattedValues}
             mode={isMultiSelect ? 'multiple' : 'single'}
             allowCustomValues={propertyOptions?.allowCustomValues ?? true}
