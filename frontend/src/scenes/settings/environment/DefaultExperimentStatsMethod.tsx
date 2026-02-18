@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { useRestrictedArea } from 'lib/components/RestrictedArea'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 
 import { StatsMethodSelector } from '~/scenes/experiments/components/StatsMethodSelector'
@@ -11,8 +11,8 @@ export function DefaultExperimentStatsMethod(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 
-    // TODO: This should probably be looking at the Experiment resource access level
     const restrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
 
