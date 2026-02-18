@@ -68,7 +68,7 @@ class KafkaConsumerService:
                 logger.warning("signal_registration_failed", signal=sig)
 
     def _create_consumer(self) -> ConfluentConsumer:
-        config = {
+        config: dict[str, str | int | float | bool | None] = {
             "bootstrap.servers": ",".join(self._kafka_hosts)
             if isinstance(self._kafka_hosts, list)
             else self._kafka_hosts,
