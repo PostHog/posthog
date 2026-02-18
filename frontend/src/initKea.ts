@@ -29,6 +29,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadBilling', // Gracefully handled if it fails
     'loadData', // Gracefully handled in the data table
     'loadRecordingMeta', // Gracefully handled in the recording player
+    'loadSimilarIssues', // Gracefully handled in the similar issues list
 ]
 
 interface InitKeaProps {

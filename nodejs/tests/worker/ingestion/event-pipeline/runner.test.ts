@@ -23,13 +23,11 @@ import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
 import { parseJSON } from '../../../../src/utils/json-parse'
 import * as metrics from '../../../../src/worker/ingestion/event-pipeline/metrics'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
-import { processPersonlessStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonlessStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { EventPipelineRunner, EventPipelineRunnerOptions } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { PersonMergeLimitExceededError } from '../../../../src/worker/ingestion/persons/person-merge-types'
 import { PostgresPersonRepository } from '../../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 
-jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonlessStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/prepareEventStep')
 
@@ -372,9 +370,8 @@ describe('EventPipelineRunner', () => {
         })
     })
 
-    describe('EventPipelineRunner with processPerson flags', () => {
+    describe('EventPipelineRunner with personlessPerson', () => {
         beforeEach(() => {
-            jest.mocked(processPersonlessStep).mockResolvedValue(ok(person))
             jest.mocked(processPersonsStep).mockResolvedValue(
                 ok([
                     pluginEvent,
@@ -385,80 +382,24 @@ describe('EventPipelineRunner', () => {
             jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
         })
 
-        it('calls processPersonlessStep when processPerson=false and forceDisablePersonProcessing=true', async () => {
-            await runner.runEventPipeline(pluginEvent, eventTimestamp, team, false, true)
+        it('skips processPersonsStep when personlessPerson is provided without force_upgrade', async () => {
+            await runner.runEventPipeline(pluginEvent, eventTimestamp, team, false, person)
 
-            expect(processPersonlessStep).toHaveBeenCalledTimes(1)
-            expect(processPersonlessStep).toHaveBeenCalledWith(
-                expect.any(Object), // event
-                expect.any(Object), // team
-                expect.any(Object), // timestamp
-                expect.any(Object), // personStoreBatch
-                true // forceDisablePersonProcessing
-            )
             expect(processPersonsStep).not.toHaveBeenCalled()
         })
 
-        it('calls processPersonsStep when processPerson=true', async () => {
-            await runner.runEventPipeline(pluginEvent, eventTimestamp, team, true, false)
-
-            expect(processPersonlessStep).not.toHaveBeenCalled()
-            expect(processPersonsStep).toHaveBeenCalledWith(
-                expect.any(Object), // kafkaProducer
-                expect.any(Object), // mergeMode
-                expect.any(Number), // measurePersonJsonbSize
-                expect.any(Boolean), // personPropertiesUpdateAll
-                expect.any(Object), // event
-                expect.any(Object), // team
-                expect.any(Object), // timestamp
-                true, // processPerson
-                expect.any(Object) // personsStore
-            )
-        })
-
-        it('calls processPersonlessStep when processPerson=false and skips processPersonsStep if no force_upgrade', async () => {
-            await runner.runEventPipeline(pluginEvent, eventTimestamp, team, false, false)
-
-            expect(processPersonlessStep).toHaveBeenCalledTimes(1)
-            expect(processPersonsStep).not.toHaveBeenCalled()
-        })
-
-        it('calls both steps when processPerson=false but force_upgrade is set', async () => {
+        it('calls processPersonsStep when personlessPerson has force_upgrade', async () => {
             const personWithForceUpgrade = { ...person, force_upgrade: true }
-            jest.mocked(processPersonlessStep).mockResolvedValue(ok(personWithForceUpgrade))
 
-            await runner.runEventPipeline(pluginEvent, eventTimestamp, team, false, false)
+            await runner.runEventPipeline(pluginEvent, eventTimestamp, team, false, personWithForceUpgrade)
 
-            expect(processPersonlessStep).toHaveBeenCalledTimes(1)
             expect(processPersonsStep).toHaveBeenCalledTimes(1)
-            expect(processPersonsStep).toHaveBeenCalledWith(
-                expect.any(Object), // kafkaProducer
-                expect.any(Object), // mergeMode
-                expect.any(Number), // measurePersonJsonbSize
-                expect.any(Boolean), // personPropertiesUpdateAll
-                expect.any(Object), // event
-                expect.any(Object), // team
-                expect.any(Object), // timestamp
-                true, // processPerson forced to true for force_upgrade
-                expect.any(Object) // personsStore
-            )
         })
 
-        it('uses default values processPerson=true when not specified', async () => {
+        it('calls processPersonsStep when no personlessPerson is provided', async () => {
             await runner.runEventPipeline(pluginEvent, eventTimestamp, team)
 
-            expect(processPersonlessStep).not.toHaveBeenCalled()
-            expect(processPersonsStep).toHaveBeenCalledWith(
-                expect.any(Object), // kafkaProducer
-                expect.any(Object), // mergeMode
-                expect.any(Number), // measurePersonJsonbSize
-                expect.any(Boolean), // personPropertiesUpdateAll
-                expect.any(Object), // event
-                expect.any(Object), // team
-                expect.any(Object), // timestamp
-                true, // processPerson (default)
-                expect.any(Object) // personsStore
-            )
+            expect(processPersonsStep).toHaveBeenCalledTimes(1)
         })
     })
 })
