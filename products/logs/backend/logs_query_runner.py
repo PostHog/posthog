@@ -277,10 +277,10 @@ class LogsQueryRunnerMixin(QueryRunner):
                 exprs.append(property_to_expr(self.attribute_filters, team=self.team))
 
             if self.log_filters:
-                for filter in self.log_filters:
-                    if filter.key == "message":
-                        exprs.append(get_lowercase_index_hint(filter, team=self.team))
-                    exprs.append(property_to_expr(filter, team=self.team))
+                for log_filter in self.log_filters:
+                    if log_filter.key == "message":
+                        exprs.append(get_lowercase_index_hint(log_filter, team=self.team))
+                    exprs.append(property_to_expr(log_filter, team=self.team))
 
         exprs.append(ast.Placeholder(expr=ast.Field(chain=["filters"])))
 
