@@ -248,7 +248,7 @@ testdata_superset = [
         ),
         True,
     ),
-    # additional node
+    # a has more properties (more filtered), not a superset
     (
         EventsNode(
             properties=[
@@ -258,21 +258,21 @@ testdata_superset = [
         ),
         EventsNode(
             properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT)]
-        ),
-        True,
-    ),
-    # subset
-    (
-        EventsNode(
-            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT)]
-        ),
-        EventsNode(
-            properties=[
-                EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT),
-                PersonPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT),
-            ]
         ),
         False,
+    ),
+    # a has fewer properties (less filtered), a is superset of b
+    (
+        EventsNode(
+            properties=[EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT)]
+        ),
+        EventsNode(
+            properties=[
+                EventPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT),
+                PersonPropertyFilter(key="some_key", value="some_value", operator=PropertyOperator.EXACT),
+            ]
+        ),
+        True,
     ),
     (EventsNode(), EventsNode(), True),
     # different node type
@@ -345,7 +345,6 @@ testdata_group_superset = [
 ]
 
 
-# TODO: Use testdata_superset instead of testdata_equals params
-@pytest.mark.parametrize("a,b,expected", testdata_equals + testdata_group_superset)
+@pytest.mark.parametrize("a,b,expected", testdata_superset + testdata_group_superset)
 def test_is_superset(a, b, expected):
     assert is_superset(a, b) == expected
