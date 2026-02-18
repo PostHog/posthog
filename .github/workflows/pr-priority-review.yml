@@ -2,7 +2,7 @@ name: Priority Review Slack Notifications
 
 on:
     pull_request:
-        types: [labeled]
+        types: [labeled, closed, ready_for_review]
     pull_request_review:
         types: [submitted]
 
@@ -12,15 +12,20 @@ env:
 permissions:
     contents: read
     pull-requests: read
-    models: read
 
 jobs:
-    # When a PR is labeled "priority-review", post to #dev-stamp-exchange
+    # When a non-draft PR is labeled "priority-review", or a labeled PR is undrafted
     notify-priority-review:
         runs-on: ubuntu-latest
         if: >-
-            github.event.action == 'labeled'
-            && github.event.label.name == 'priority-review'
+            (
+              github.event.action == 'labeled'
+              && github.event.label.name == 'priority-review'
+              && github.event.pull_request.draft == false
+            ) || (
+              github.event.action == 'ready_for_review'
+              && contains(github.event.pull_request.labels.*.name, 'priority-review')
+            )
         steps:
             - name: Get author display name
               id: author
@@ -30,30 +35,7 @@ jobs:
                       const { data: user } = await github.rest.users.getByUsername({
                         username: context.payload.pull_request.user.login,
                       });
-                      const name = user.name || context.payload.pull_request.user.login;
-                      core.setOutput('name', name.split(' ')[0]);
-
-            - name: Summarize PR
-              id: summary
-              uses: actions/ai-inference@v1
-              with:
-                  model: openai/gpt-4o-mini
-                  max-tokens: 80
-                  prompt: |
-                      You write ultra-short casual Slack summaries for code review requests.
-                      Given a PR title and author first name, produce a one-liner like:
-                      "$NAME wants a stamp for fixing the broken cohort queries"
-                      "$NAME wants a stamp for adding dark mode to the dashboard"
-
-                      Rules:
-                      - Start with "$NAME wants a stamp for ..."
-                      - Use plain English, no jargon, no quotes, no markdown
-                      - Strip conventional commit prefixes (feat, fix, chore, etc.)
-                      - Keep it under 15 words total
-                      - Just output the line, nothing else
-
-                      Author first name: ${{ steps.author.outputs.name }}
-                      PR title: ${{ github.event.pull_request.title }}
+                      core.setOutput('name', user.name || context.payload.pull_request.user.login);
 
             - name: Escape PR title
               id: pr
@@ -61,7 +43,6 @@ jobs:
               with:
                   script: |
                       const title = context.payload.pull_request.title;
-                      // Escape for Slack mrkdwn link text, then for YAML embedding
                       const escaped = title
                         .replace(/&/g, '&amp;')
                         .replace(/</g, '&lt;')
@@ -71,19 +52,7 @@ jobs:
                         .replace(/"/g, '\\"');
                       core.setOutput('title', escaped);
 
-            # TODO: remove dry-run gate after testing
-            - name: Dry run — print Slack message
-              if: github.event.pull_request.head.ref == 'chore/priority-review-summary'
-              run: |
-                  echo "=== DRY RUN — would post to Slack ==="
-                  echo ""
-                  echo ":eyes: #${{ github.event.pull_request.number }} ${{ steps.pr.outputs.title }}"
-                  echo "${{ steps.summary.outputs.response }}"
-                  echo ""
-                  echo "Author display name: ${{ steps.author.outputs.name }}"
-
             - name: Post to Slack
-              if: github.event.pull_request.head.ref != 'chore/priority-review-summary'
               id: slack
               uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
               with:
@@ -98,10 +67,9 @@ jobs:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: ":eyes: <${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }} ${{ steps.pr.outputs.title }}>\n${{ steps.summary.outputs.response }}"
+                            text: ":eyes: <${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }} ${{ steps.pr.outputs.title }}> by ${{ steps.author.outputs.name }}"
 
             - name: Save Slack message info
-              if: github.event.pull_request.head.ref != 'chore/priority-review-summary'
               run: |
                   echo '{}' | jq \
                     --arg channel "${{ steps.slack.outputs.channel_id }}" \
@@ -109,13 +77,70 @@ jobs:
                     '{channel: $channel, ts: $ts}' > .priority-review-slack
 
             - name: Cache Slack message info
-              if: github.event.pull_request.head.ref != 'chore/priority-review-summary'
               uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
               with:
                   path: .priority-review-slack
                   key: priority-review-slack-pr-${{ github.event.pull_request.number }}
 
-    # When a priority-review PR is approved, update the Slack message and thread-reply
+    # When a priority-review PR is closed, strikethrough the Slack message
+    cleanup-closed:
+        runs-on: ubuntu-latest
+        if: >-
+            github.event.action == 'closed'
+            && contains(github.event.pull_request.labels.*.name, 'priority-review')
+        steps:
+            - name: Restore Slack message info
+              uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              with:
+                  path: .priority-review-slack
+                  key: priority-review-slack-pr-${{ github.event.pull_request.number }}
+
+            - name: Read Slack message info
+              id: slack_msg
+              run: |
+                  if [ -f .priority-review-slack ]; then
+                    echo "found=true" >> $GITHUB_OUTPUT
+                    echo "channel=$(jq -r '.channel' .priority-review-slack)" >> $GITHUB_OUTPUT
+                    echo "ts=$(jq -r '.ts' .priority-review-slack)" >> $GITHUB_OUTPUT
+                  else
+                    echo "found=false" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Escape PR title
+              if: steps.slack_msg.outputs.found == 'true'
+              id: pr
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              with:
+                  script: |
+                      const title = context.payload.pull_request.title;
+                      const escaped = title
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/\|/g, '-')
+                        .replace(/\\/g, '\\\\')
+                        .replace(/"/g, '\\"');
+                      core.setOutput('title', escaped);
+
+            - name: Strikethrough Slack message
+              if: steps.slack_msg.outputs.found == 'true'
+              continue-on-error: true
+              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              with:
+                  method: chat.update
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ steps.slack_msg.outputs.channel }}"
+                      ts: "${{ steps.slack_msg.outputs.ts }}"
+                      text: "Closed: ${{ steps.pr.outputs.title }}"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: "~<${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }} ${{ steps.pr.outputs.title }}>~ (closed)"
+
+    # When a priority-review PR is approved, update the Slack message
     notify-reviewed:
         runs-on: ubuntu-latest
         if: >-
@@ -139,6 +164,19 @@ jobs:
                   else
                     echo "found=false" >> $GITHUB_OUTPUT
                   fi
+
+            - name: Get display names
+              if: steps.slack_msg.outputs.found == 'true'
+              id: names
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              with:
+                  script: |
+                      const [author, reviewer] = await Promise.all([
+                        github.rest.users.getByUsername({ username: context.payload.pull_request.user.login }),
+                        github.rest.users.getByUsername({ username: context.payload.review.user.login }),
+                      ]);
+                      core.setOutput('author', author.data.name || context.payload.pull_request.user.login);
+                      core.setOutput('reviewer', reviewer.data.name || context.payload.review.user.login);
 
             - name: Escape PR title
               if: steps.slack_msg.outputs.found == 'true'
@@ -185,4 +223,4 @@ jobs:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: ":white_check_mark: <${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }} ${{ steps.pr.outputs.title }}> by ${{ github.event.pull_request.user.login }} — reviewed and approved by ${{ github.event.review.user.login }}"
+                            text: ":white_check_mark: <${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }} ${{ steps.pr.outputs.title }}> by ${{ steps.names.outputs.author }} — reviewed and approved by ${{ steps.names.outputs.reviewer }}"
