@@ -46,7 +46,6 @@ import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 import { SessionConsoleLogStore } from './sessions/session-console-log-store'
 import { SessionFilter } from './sessions/session-filter'
 import { SessionTracker } from './sessions/session-tracker'
-import { TeamFilter } from './teams/team-filter'
 import { MessageWithTeam } from './teams/types'
 import { TopTracker } from './top-tracker'
 import { CaptureIngestionWarningFn } from './types'
@@ -85,7 +84,7 @@ export class SessionRecordingIngester {
     private readonly sessionBatchManager: SessionBatchManager
     private readonly redisPool: RedisPool
     private readonly restrictionRedisPool: RedisPool
-    private readonly teamFilter: TeamFilter
+    private readonly teamService: TeamService
     private readonly libVersionMonitor?: LibVersionMonitor
     private readonly fileStorage: SessionBatchFileStorage
     private readonly eventIngestionRestrictionManager: EventIngestionRestrictionManager
@@ -194,7 +193,7 @@ export class SessionRecordingIngester {
             pipeline: 'session_recordings',
         })
 
-        this.teamFilter = new TeamFilter(teamService)
+        this.teamService = teamService
         if (ingestionWarningProducer) {
             const captureWarning: CaptureIngestionWarningFn = async (teamId, type, details, debounce) => {
                 await captureIngestionWarning(ingestionWarningProducer, teamId, type, details, debounce)
@@ -267,6 +266,7 @@ export class SessionRecordingIngester {
             overflowEnabled: !this.consumeOverflow,
             overflowTopic: this.overflowTopic,
             promiseScheduler: this.promiseScheduler,
+            teamService: this.teamService,
             topTracker: this.topTracker,
         })
     }
@@ -309,20 +309,22 @@ export class SessionRecordingIngester {
         SessionRecordingIngesterMetrics.observeKafkaBatchSize(batchSize)
         SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
 
-        // Run messages through the pipeline (handles restrictions and parsing)
+        // Run messages through the pipeline (handles restrictions, parsing, and team filtering)
         const pipelineOutputs = await instrumentFn(
             `recordingingesterv2.handleEachBatch.runPipeline`,
             async () => await runSessionReplayPipeline(this.sessionReplayPipeline, messages)
         )
 
+        // Convert pipeline output to MessageWithTeam format for downstream processing
+        const messagesWithTeam: MessageWithTeam[] = pipelineOutputs.map((output) => ({
+            team: output.team,
+            message: output.parsedMessage,
+        }))
+
         const processedMessages = await instrumentFn(`recordingingesterv2.handleEachBatch.filterBatch`, async () => {
-            const parsedMessages = pipelineOutputs.map((output) => output.parsedMessage)
-            const messagesWithTeam = await this.teamFilter.filterBatch(parsedMessages)
-            const processedMessages = this.libVersionMonitor
+            return this.libVersionMonitor
                 ? await this.libVersionMonitor.processBatch(messagesWithTeam)
                 : messagesWithTeam
-
-            return processedMessages
         })
 
         this.kafkaConsumer.heartbeat()
