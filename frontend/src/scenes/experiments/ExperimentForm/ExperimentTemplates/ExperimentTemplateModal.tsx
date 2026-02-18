@@ -1,4 +1,4 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
@@ -8,9 +8,7 @@ interface ExperimentTemplateModalProps {
     onApply: () => void
 }
 
-export function ExperimentTemplateModal({ onApply }: ExperimentTemplateModalProps): JSX.Element | null {
-    useMountedLogic(experimentTemplateModalLogic)
-
+export const ExperimentTemplateModal = ({ onApply }: ExperimentTemplateModalProps): JSX.Element | null => {
     const { isModalOpen, template } = useValues(experimentTemplateModalLogic)
     const { closeTemplateModal } = useActions(experimentTemplateModalLogic)
 
