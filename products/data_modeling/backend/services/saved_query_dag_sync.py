@@ -64,7 +64,7 @@ def resolve_dependency_to_node(
     # ephemeral view
     if isinstance(table, HogQLSavedQuery):
         saved_query = DataWarehouseSavedQuery.objects.get(team=team, name=dependency_name, deleted=False)
-        return Node.objects.get(team=team, dag_id=dag_id, saved_query=saved_query, name=dependency_name)
+        return Node.objects.get(team=team, dag_id_text=dag_id, saved_query=saved_query, name=dependency_name)
 
     # table in s3
     if isinstance(table, HogQLDataWarehouseTable):
@@ -74,7 +74,9 @@ def resolve_dependency_to_node(
             )
             # matview
             if matview_saved_query is not None:
-                return Node.objects.get(team=team, dag_id=dag_id, saved_query=matview_saved_query, name=dependency_name)
+                return Node.objects.get(
+                    team=team, dag_id_text=dag_id, saved_query=matview_saved_query, name=dependency_name
+                )
             # warehouse table
             warehouse_table = (
                 DataWarehouseTable.objects.filter(team=team, id=table.table_id).exclude(deleted=True).first()
@@ -87,7 +89,7 @@ def resolve_dependency_to_node(
             raise UnknownParentError(dependency_name, "")
         node, _ = Node.objects.get_or_create(
             team=team,
-            dag_id=dag_id,
+            dag_id_text=dag_id,
             name=dependency_name,
             type=NodeType.TABLE,
             defaults={"properties": {"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)}},
@@ -96,7 +98,7 @@ def resolve_dependency_to_node(
     # system table
     node, _ = Node.objects.get_or_create(
         team=team,
-        dag_id=dag_id,
+        dag_id_text=dag_id,
         name=dependency_name,
         type=NodeType.TABLE,
         defaults={"properties": {"origin": "posthog"}},
@@ -135,7 +137,7 @@ def sync_saved_query_to_dag(
     target, _ = Node.objects.get_or_create(
         team=team,
         saved_query=saved_query,
-        dag_id=dag_id,
+        dag_id_text=dag_id,
         defaults={"name": saved_query.name, "type": node_type, "properties": extra_properties},
     )
     # update type (name is automatically synced from saved_query in Node.save())
@@ -161,7 +163,7 @@ def sync_saved_query_to_dag(
             )
             conflict_dag_id = get_conflict_dag_id(team.id)
             # update the node to use conflict dag_id and store error info
-            target.dag_id = conflict_dag_id
+            target.dag_id_text = conflict_dag_id
             target.properties = {
                 **target.properties,
                 **extra_properties,
@@ -174,7 +176,7 @@ def sync_saved_query_to_dag(
             # create conflict edge
             Edge(
                 team=team,
-                dag_id=conflict_dag_id,
+                dag_id_text=conflict_dag_id,
                 source=target,
                 target=target,
                 properties={
@@ -202,7 +204,7 @@ def sync_saved_query_to_dag(
             try:
                 Edge.objects.create(
                     team=team,
-                    dag_id=dag_id,
+                    dag_id_text=dag_id,
                     source=source,
                     target=target,
                     properties=extra_properties,
@@ -218,7 +220,7 @@ def sync_saved_query_to_dag(
                 # creates the edge without validation for DLQ purposes
                 Edge(
                     team=team,
-                    dag_id=get_conflict_dag_id(team.id),
+                    dag_id_text=get_conflict_dag_id(team.id),
                     source=source,
                     target=target,
                     properties={

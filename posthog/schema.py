@@ -45,6 +45,7 @@ class AgentMode(StrEnum):
     PLAN = "plan"
     EXECUTION = "execution"
     SURVEY = "survey"
+    ONBOARDING = "onboarding"
     RESEARCH = "research"
     FLAGS = "flags"
 
@@ -370,6 +371,7 @@ class AssistantTool(StrEnum):
     CREATE_NOTEBOOK = "create_notebook"
     LIST_DATA = "list_data"
     FINALIZE_PLAN = "finalize_plan"
+    RECOMMEND_PRODUCTS = "recommend_products"
 
 
 class AssistantToolCall(BaseModel):
@@ -3907,11 +3909,7 @@ class TaxonomicFilterGroupType(StrEnum):
     NUMERICAL_EVENT_PROPERTIES = "numerical_event_properties"
     PERSON_PROPERTIES = "person_properties"
     PAGEVIEW_URLS = "pageview_urls"
-    PAGEVIEW_EVENTS = "pageview_events"
     SCREENS = "screens"
-    SCREEN_EVENTS = "screen_events"
-    EMAIL_ADDRESSES = "email_addresses"
-    AUTOCAPTURE_EVENTS = "autocapture_events"
     CUSTOM_EVENTS = "custom_events"
     WILDCARD = "wildcard"
     GROUPS = "groups"

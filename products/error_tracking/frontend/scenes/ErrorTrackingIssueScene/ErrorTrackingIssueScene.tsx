@@ -229,7 +229,7 @@ const LeftHandColumn = (): JSX.Element => {
                     </TabsPrimitiveContent>
                 )}
                 {hasSimilarIssues && (
-                    <TabsPrimitiveContent value="similar_issues">
+                    <TabsPrimitiveContent value="similar_issues" className="flex-1 min-h-0">
                         <SimilarIssuesList />
                     </TabsPrimitiveContent>
                 )}

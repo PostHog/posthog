@@ -7,8 +7,7 @@ use crate::{
     error::UnhandledError,
     issue_resolution::Issue,
     metric_consts::SPIKE_ALERT_STAGE,
-    pipeline::exception::spike_detection::do_spike_detection,
-    stages::pipeline::ExceptionEventPipelineItem,
+    stages::{alerting::spike_detection::do_spike_detection, pipeline::ExceptionEventPipelineItem},
     types::{
         batch::Batch,
         stage::{Stage, StageResult},

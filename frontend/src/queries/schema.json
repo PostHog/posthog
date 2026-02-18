@@ -364,6 +364,7 @@
                 "plan",
                 "execution",
                 "survey",
+                "onboarding",
                 "research",
                 "flags"
             ],
@@ -1997,7 +1998,8 @@
                 "manage_memories",
                 "create_notebook",
                 "list_data",
-                "finalize_plan"
+                "finalize_plan",
+                "recommend_products"
             ],
             "type": "string"
         },
@@ -31780,11 +31782,7 @@
                 "numerical_event_properties",
                 "person_properties",
                 "pageview_urls",
-                "pageview_events",
                 "screens",
-                "screen_events",
-                "email_addresses",
-                "autocapture_events",
                 "custom_events",
                 "wildcard",
                 "groups",

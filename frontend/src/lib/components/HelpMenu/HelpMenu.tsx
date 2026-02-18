@@ -17,11 +17,11 @@ import {
     IconSparkles,
     IconSupport,
 } from '@posthog/icons'
-import { LemonTag, ProfilePicture } from '@posthog/lemon-ui'
+import { ProfilePicture } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link/Link'
-import { IconBlank, IconPreview } from 'lib/lemon-ui/icons'
+import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
@@ -303,9 +303,9 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             setHelpMenuOpen(false)
                                         }}
                                         render={
-                                            <ButtonPrimitive menuItem data-attr="help-menu-show-tour-again-button">
-                                                <IconPreview />
-                                                Show tour again <LemonTag size="small">Temporary</LemonTag>
+                                            <ButtonPrimitive menuItem>
+                                                <IconBlank />
+                                                Where's the panel? 🤔
                                             </ButtonPrimitive>
                                         }
                                     />
