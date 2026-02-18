@@ -8,7 +8,9 @@ import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUr
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { JSSnippet, JSSnippetV2 as JSSnippetV2Component } from 'lib/components/JSSnippet'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { getPublicSupportSnippet } from 'lib/components/Support/supportLogic'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { debounce, inStorybook, inStorybookTestRunner } from 'lib/utils'
@@ -27,23 +29,27 @@ export function TeamDisplayName({ updateInline = false }: { updateInline?: boole
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const [name, setName] = useState(currentTeam?.name || '')
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const debouncedUpdateCurrentTeam = useMemo(() => debounce(updateCurrentTeam, 500), [updateCurrentTeam])
     const handleChange = (value: string): void => {
         setName(value)
-        if (updateInline) {
+        if (updateInline && !restrictedReason) {
             debouncedUpdateCurrentTeam({ name: value })
         }
     }
 
     return (
         <div className="deprecated-space-y-4 max-w-160">
-            <LemonInput value={name} onChange={handleChange} />
+            <LemonInput value={name} onChange={handleChange} disabledReason={restrictedReason} />
             {!updateInline && (
                 <LemonButton
                     type="primary"
                     onClick={() => updateCurrentTeam({ name })}
-                    disabled={!name || !currentTeam || name === currentTeam.name}
+                    disabled={!name || !currentTeam || name === currentTeam.name || !!restrictedReason}
                     loading={currentTeamLoading}
                 >
                     Rename project
@@ -238,7 +244,7 @@ export function TeamAuthorizedURLs(): JSX.Element {
     const canEdit =
         inStorybook() || inStorybookTestRunner()
             ? true
-            : userHasAccess(AccessControlResourceType.WebAnalytics, AccessControlLevel.Editor)
+            : userHasAccess(AccessControlResourceType.WebAnalytics, AccessControlLevel.Manager)
 
     return (
         <AuthorizedUrlList
@@ -246,6 +252,7 @@ export function TeamAuthorizedURLs(): JSX.Element {
             allowWildCards={false}
             allowAdd={canEdit}
             allowDelete={canEdit}
+            displaySuggestions={canEdit}
         />
     )
 }
