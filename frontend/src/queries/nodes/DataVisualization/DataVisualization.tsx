@@ -95,6 +95,7 @@ export function DataTableVisualization({
         },
         cachedResults,
         variablesOverride,
+        limitContext: context?.limitContext,
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
@@ -104,6 +105,7 @@ export function DataTableVisualization({
         loadPriority: insightProps.loadPriority,
         dataNodeCollectionId,
         variablesOverride,
+        limitContext: context?.limitContext,
     }
 
     // The `as unknown as InsightLogicProps` below is smelly, but it's required because Kea logics can't be generic

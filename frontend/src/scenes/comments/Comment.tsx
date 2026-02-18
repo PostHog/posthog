@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
-import { IconCheck, IconEllipsis, IconEye, IconPencil, IconShare } from '@posthog/icons'
+import { IconEllipsis, IconEye, IconPencil, IconShare, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonMenu, ProfilePicture } from '@posthog/lemon-ui'
 
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
@@ -177,7 +177,7 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
 }
 
 const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
-    const {} = useValues(commentsLogic)
+    const { disabledReasonFor } = useValues(commentsLogic)
     const { deleteComment, setEditingComment, setReplyingComment } = useActions(commentsLogic)
 
     return (
@@ -207,10 +207,10 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
                             onClick: () => setEditingComment(comment),
                         },
                         {
-                            icon: <IconCheck />,
+                            icon: <IconTrash />,
                             label: 'Delete',
                             onClick: () => deleteComment(comment),
-                            // disabledReason: "Only admins can archive other peoples comments"
+                            disabledReason: disabledReasonFor(comment),
                         },
                     ]}
                 >

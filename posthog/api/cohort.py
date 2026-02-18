@@ -1310,6 +1310,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             # Using to_dict() here serializer.save() was changing the instance in memory,
             # so we need to get the before state in a "detached" manner that won't be
             # affected by the serializer.save() call.
+            # nosemgrep: idor-lookup-without-team (ID from already team-scoped instance)
             before_update = Cohort.objects.get(pk=instance_id).to_dict()
         except Cohort.DoesNotExist:
             before_update = {}

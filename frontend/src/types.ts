@@ -11,6 +11,7 @@ import { eventWithTime } from '@posthog/rrweb-types'
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { PaginatedResponse } from 'lib/api'
 import { AlertType } from 'lib/components/Alerts/types'
+import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
 import { UrlTriggerConfig } from 'lib/components/IngestionControls/types'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
@@ -358,7 +359,7 @@ export interface UserType extends UserBaseType {
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
-    hedgehog_config?: Partial<HedgehogConfig>
+    hedgehog_config?: HedgehogConfig
     allow_sidebar_suggestions?: boolean
     role_at_organization?: UserRole | null
     passkeys_enabled_for_2fa?: boolean
@@ -376,24 +377,19 @@ export type HedgehogColorOptions =
     | 'invert-hue'
     | 'greyscale'
 
-export interface MinimalHedgehogConfig {
+export type MinimalHedgehogConfig = {
     use_as_profile: boolean
-    color: HedgehogColorOptions | null
-    accessories: string[]
+    color: HedgehogActorOptions['color']
+    skin: HedgehogActorOptions['skin']
+    accessories: HedgehogActorOptions['accessories']
 }
 
-export type HedgehogSkin = 'default' | 'spiderhog' | 'robohog'
-
-export interface HedgehogConfig extends MinimalHedgehogConfig {
-    enabled: boolean
-    color: HedgehogColorOptions | null
-    skin?: HedgehogSkin
-    accessories: string[]
-    walking_enabled: boolean
-    interactions_enabled: boolean
-    controls_enabled: boolean
+export type HedgehogConfig = {
+    version: 2
+    use_as_profile: boolean
     party_mode_enabled: boolean
-    fixed_direction?: 'left' | 'right'
+    enabled: boolean
+    actor_options: HedgehogActorOptions
 }
 
 export interface NotificationSettings {
@@ -858,6 +854,8 @@ export enum PropertyOperator {
     SemverTilde = 'semver_tilde',
     SemverCaret = 'semver_caret',
     SemverWildcard = 'semver_wildcard',
+    IContainsMulti = 'icontains_multi',
+    NotIContainsMulti = 'not_icontains_multi',
 }
 
 export enum SavedInsightsTabs {
@@ -3375,6 +3373,9 @@ export interface ProductTourBannerConfig {
         link?: string
         tourId?: string
     }
+    animation?: {
+        duration: number
+    }
 }
 
 export type ProductTourButtonAction = 'dismiss' | 'link' | 'next_step' | 'previous_step' | 'trigger_tour'
@@ -3404,6 +3405,8 @@ export const PRODUCT_TOUR_STEP_WIDTHS: Record<ProductTourStepWidth, number> = {
     'extra-wide': 700,
 }
 
+export type ProductTourStepTargeting = 'auto' | 'manual'
+
 export interface ProductTourStep {
     id: string
     type: ProductTourStepType
@@ -3429,8 +3432,10 @@ export interface ProductTourStep {
     screenshotMediaId?: string
     /** enhanced element data for more reliable lookup at runtime */
     inferenceData?: InferredSelector
-    /** When true, SDK uses selector directly instead of inferenceData for element matching */
+    /** SDK-only: derived from elementTargeting on save. Do not read directly in editor code. */
     useManualSelector?: boolean
+    /** Editor-only: explicit targeting mode. Derived from legacy fields on load via normalizeStep(). */
+    elementTargeting?: ProductTourStepTargeting
     /** Button configuration for tour steps (modals / announcements) */
     buttons?: ProductTourStepButtons
     /** Banner configuration (only for banner steps) */
@@ -3804,6 +3809,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     bucketing_identifier?: FeatureFlagBucketingIdentifier | null
     _should_create_usage_dashboard?: boolean
     last_called_at?: string | null
+    is_used_in_replay_settings?: boolean
 }
 
 export interface OrganizationFeatureFlag {
@@ -4081,10 +4087,20 @@ export interface EventDefinition {
     is_action?: boolean
     hidden?: boolean
     default_columns?: string[]
+    media_preview_urls?: string[]
 }
 
 export interface EventDefinitionMetrics {
     query_usage_30_day: number
+}
+
+export interface ObjectMediaPreview {
+    id: string
+    created_at: string
+    updated_at: string
+    media_url: string
+    media_type: 'uploaded' | 'exported'
+    metadata?: Record<string, any>
 }
 
 export enum PropertyType {
@@ -4239,6 +4255,7 @@ export interface Experiment {
         custom_exposure_filter?: FilterType
         aggregation_group_type_index?: integer
         variant_screenshot_media_ids?: Record<string, string[]>
+        rollout_percentage?: number
     }
     start_date?: string | null
     end_date?: string | null
@@ -4262,6 +4279,7 @@ export interface Experiment {
     scheduling_config?: {
         timeseries?: boolean
     }
+    exposure_preaggregation_enabled?: boolean
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
     conclusion_comment?: string | null
@@ -4364,6 +4382,8 @@ export interface AppContext {
     current_team: TeamType | TeamPublicType | null
     preflight: PreflightStatus
     default_event_name: string | null
+    has_pageview: boolean
+    has_screen: boolean
     persisted_feature_flags?: string[]
     anonymous: boolean
     frontend_apps?: Record<number, FrontendAppConfig>
@@ -4938,6 +4958,7 @@ export type APIScopeObject =
     | 'export'
     | 'feature_flag'
     | 'group'
+    | 'health_issue'
     | 'hog_function'
     | 'insight'
     | 'insight_variable'
@@ -5163,12 +5184,14 @@ export interface DataModelingNode {
     type: DataModelingNodeType
     dag_id: string
     saved_query_id?: string
-    properties: Record<string, unknown>
     created_at: string
     updated_at: string
     upstream_count: number
     downstream_count: number
+    user_tag?: string
     last_run_at?: string
+    last_run_status?: DataModelingJobStatus
+    sync_interval?: DataWarehouseSyncInterval
 }
 
 export interface DataModelingEdge {
@@ -5744,6 +5767,7 @@ export enum SDKKey {
     NEXT_JS = 'nextjs',
     NODE_JS = 'nodejs',
     NUXT_JS = 'nuxtjs',
+    NUXT_JS_36 = 'nuxtjs_36',
     OLLAMA = 'ollama',
     OPENAI = 'openai',
     OPENAI_AGENTS = 'openai_agents',
@@ -5758,6 +5782,7 @@ export enum SDKKey {
     REMIX = 'remix',
     RETOOL = 'retool',
     RUBY = 'ruby',
+    RUBY_ON_RAILS = 'ruby_on_rails',
     RUDDERSTACK = 'rudderstack',
     RUST = 'rust',
     SEGMENT = 'segment',
@@ -5777,6 +5802,7 @@ export enum SDKKey {
     WORDPRESS = 'wordpress',
     XAI = 'xai',
     ZAPIER = 'zapier',
+    HONO = 'hono',
 }
 
 export enum SDKTag {
@@ -6010,6 +6036,8 @@ export type HogFunctionType = {
     template?: HogFunctionTemplateType
     status?: HogFunctionStatus
     batch_export_id?: string | null
+    template_id?: string
+    deleted?: boolean
 }
 
 export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon' | 'hidden'
@@ -6768,7 +6796,7 @@ export interface ApprovalPolicy {
 }
 
 export interface WebAnalyticsFiltersConfig {
-    properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[]
+    properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[]
     dateFrom?: string | null
     dateTo?: string | null
     interval?: IntervalType

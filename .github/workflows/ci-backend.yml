@@ -62,6 +62,8 @@ jobs:
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             llm_gateway: ${{ steps.filter.outputs.llm_gateway || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
+            products: ${{ steps.filter.outputs.products || 'true' }}
+            legacy: ${{ steps.filter.outputs.legacy || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -90,7 +92,7 @@ jobs:
                         # including the negated rule appears to work
                         # but makes it always match because the checked file always isn't `ee/frontend/**` 🙈
                         - 'ee/**/*'
-                        - 'common/hogvm/**/*'
+                        - 'common/**/*'
                         - 'posthog/**/*'
                         - 'products/**/backend/**/*'
                         - 'bin/*.py'
@@ -112,11 +114,9 @@ jobs:
                         - docker-compose.dev.yml
                         - docker-compose.profiles.yml
                         - docker-compose.base.yml
+                        - bin/wait-for-docker
                         - frontend/public/email/*
                         - docker/clickhouse
-                        # These scripts are used in the CI
-                        - bin/check_temporal_up
-                        - bin/check_kafka_clickhouse_up
                       migrations:
                         - docker/clickhouse
                         - 'posthog/migrations/*.py'
@@ -135,6 +135,17 @@ jobs:
                         # Generation tooling - changes here could affect output
                         - 'frontend/bin/generate-openapi-types.mjs'
                         - 'frontend/src/lib/api-orval-mutator.ts'
+                        - 'frontend/src/lib/api-stub-for-orval.ts'
+                      # Isolated products - triggers fast isolated tests
+                      products:
+                        - 'products/**/backend/**/*'
+                        - 'common/**/*'
+                      # Legacy code - triggers full Django test suite
+                      # Also includes common/ as high-blast-radius code that affects everything
+                      legacy:
+                        - 'ee/**/*'
+                        - 'posthog/**/*'
+                        - 'common/**/*'
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -167,6 +178,224 @@ jobs:
                       echo "::notice::🔄 Running in UPDATE mode - snapshots can be updated"
                     fi
                   fi
+
+    # Fast pre-job: determines which products need testing and if Django should run
+    # Only needs pnpm + node — no Python, Docker, or services
+    # Runs on depot for turbo remote cache access (cache status drives Django gating)
+    turbo-discover:
+        needs: changes
+        if: needs.changes.outputs.backend == 'true'
+        runs-on: depot-ubuntu-latest
+        timeout-minutes: 5
+        name: Discover product tests
+        outputs:
+            run_legacy: ${{ steps.contract-check.outputs.run_legacy }}
+            matrix: ${{ steps.discover.outputs.matrix }}
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+                  cache: pnpm
+
+            - name: Install pnpm dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Check contract changes
+              id: contract-check
+              run: |
+                  # Determines if Django needs to run based on contract changes.
+                  #
+                  # Logic:
+                  # - Push to master: run Django (full CI)
+                  # - Legacy (posthog/ee/common) changed: run Django
+                  # - Any contract-check cache miss: run Django
+                  # - All cache hits: skip Django (isolated impl-only changes)
+                  #
+                  # Always runs contract-check at the end to keep the remote cache
+                  # warm as a baseline for future product-only PRs.
+
+                  if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+                    echo "Push to master - Django will run"
+                    echo "run_legacy=true" >> $GITHUB_OUTPUT
+                  elif [[ "${{ needs.changes.outputs.legacy }}" == "true" ]]; then
+                    echo "Legacy code changed - Django will run"
+                    echo "run_legacy=true" >> $GITHUB_OUTPUT
+                  else
+                    # Product-only change — check contract cache to decide
+                    CACHE_STATUS=$(./node_modules/.bin/turbo run backend:contract-check --dry-run=json 2>/dev/null | jq -r '
+                      [.tasks[] | select(.command | test("NONEXISTENT") | not) | .cache.status] |
+                      if length == 0 then "NO_TASKS"
+                      elif any(. == "MISS") then "MISS"
+                      else "HIT"
+                      end
+                    ' || echo "PARSE_ERROR")
+
+                    echo "Contract check cache status: $CACHE_STATUS"
+
+                    if [[ "$CACHE_STATUS" == "HIT" || "$CACHE_STATUS" == "NO_TASKS" ]]; then
+                      echo "Contracts unchanged (cache $CACHE_STATUS) - Django can be skipped"
+                      echo "run_legacy=false" >> $GITHUB_OUTPUT
+                    else
+                      echo "Contract files changed ($CACHE_STATUS) - Django will run"
+                      echo "run_legacy=true" >> $GITHUB_OUTPUT
+                    fi
+                  fi
+
+                  # Always run to keep remote cache warm as baseline
+                  ./node_modules/.bin/turbo run backend:contract-check --output-logs=errors-only 2>/dev/null || true
+
+            - name: Discover products to test
+              id: discover
+              env:
+                  LEGACY_CHANGED: ${{ needs.changes.outputs.legacy }}
+              run: |
+                  MATRIX=$(node .github/scripts/turbo-discover.js)
+                  echo "Matrix: $MATRIX"
+                  echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+
+    # Runs product tests in parallel — one matrix job per group
+    # Each job gets its own runner + Docker stack, so no shared DB conflicts
+    # Small products (< 50 tests) are grouped into a single job to avoid setup overhead
+    turbo-tests:
+        needs: [changes, turbo-discover]
+        if: >-
+            always() &&
+            needs.turbo-discover.result == 'success' &&
+            needs.turbo-discover.outputs.matrix != '[]' &&
+            needs.turbo-discover.outputs.matrix != ''
+        runs-on: depot-ubuntu-latest-4
+        timeout-minutes: 30
+        name: Product tests (${{ matrix.group }})
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ fromJson(needs.turbo-discover.outputs.matrix) }}
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+                  cache: pnpm
+
+            - name: Install pnpm dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: 3.12.12
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
+
+            - name: Install uv
+              id: setup-uv
+              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              with:
+                  enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+                  version: 0.9.9
+
+            - name: Install SAML dependencies
+              if: steps.setup-uv.outputs.cache-hit != 'true'
+              run: sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-backend'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Install sqlx-cli
+              run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
+            - name: Install Python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Clean up data directories
+              run: |
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
+
+            - name: Start services
+              run: |
+                  export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:25.8.12.129
+                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
+                  cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
+                  docker compose -f docker-compose.dev.yml --profile batch-exports down
+                  docker compose -f docker-compose.dev.yml --profile batch-exports up -d &
+
+            - name: Add Kafka and ClickHouse to /etc/hosts
+              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+
+            - name: Set up needed files
+              run: |
+                  mkdir -p frontend/dist
+                  touch frontend/dist/index.html frontend/dist/layout.html frontend/dist/exporter.html
+                  ./bin/download-mmdb
+
+            - name: Wait for Docker services
+              run: bin/wait-for-docker
+
+            - name: Run product tests
+              # --force: discover already decided this product needs testing, skip turbo cache
+              # --log-order=stream: stream pytest output live instead of buffering until completion
+              # pytest_args: optional pytest-split flags for sharded products (e.g. "-- --splits 3 --group 1")
+              env:
+                  # --reuse-db: keep the test database between sequential product runs to avoid
+                  # ClickHouse drop/create race conditions with ReplicatedMergeTree ZK metadata.
+                  # On master, also collect timing data for pytest-split sharding.
+                  PYTEST_ADDOPTS: >-
+                      --reuse-db
+                      ${{ github.ref == 'refs/heads/master' && '--store-durations --durations-path ../../.test_durations' || '' }}
+              run: pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
+
+            - name: Upload timing data
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: ${{ github.ref == 'refs/heads/master' }}
+              with:
+                  name: timing_data-Products-${{ strategy.job-index }}
+                  path: .test_durations
+                  include-hidden-files: true
+                  retention-days: 2
+    check-idor-coverage:
+        needs: [changes]
+        if: needs.changes.outputs.backend == 'true'
+        timeout-minutes: 5
+        name: Check IDOR semgrep rule coverage
+        runs-on: depot-ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+            - name: Set up Python
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+              with:
+                  python-version: 3.12.12
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: 0.9.9
+            - name: Install Python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+            - name: Check IDOR model coverage
+              run: python .github/scripts/check-idor-model-coverage.py
 
     check-migrations:
         needs: [changes]
@@ -237,10 +466,8 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev
 
-            - name: Wait for services to be available
-              run: |
-                  bin/check_postgres_up
-                  bin/check_kafka_clickhouse_up
+            - name: Wait for Docker services
+              run: bin/wait-for-docker
 
             - name: Run migrations up to master
               run: |
@@ -261,6 +488,9 @@ jobs:
             - name: Install python dependencies for this PR
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Check module boundaries (tach)
+              run: tach check
 
             - name: Check migrations and post SQL comment
               if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
@@ -478,10 +708,36 @@ jobs:
                   npm_config_fetch_retry_maxtimeout: 60000
               run: pnpm install --frozen-lockfile
 
-            - name: Check if OpenAPI types are up to date
+            - name: Get app token for OpenAPI type commits
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
+              id: openapi-app-token
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              with:
+                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
+            - name: Check and update OpenAPI types
+              env:
+                  EVENT_NAME: ${{ github.event_name }}
+                  HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+                  BRANCH: ${{ github.event.pull_request.head.ref }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  REPOSITORY: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  APP_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
+                  GH_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
               run: |
                   ./bin/hogli build:openapi
-                  if ! git diff --exit-code; then
+                  if git diff --exit-code; then
+                      echo "OpenAPI types are up to date"
+                      exit 0
+                  fi
+
+                  echo "OpenAPI types are out of date"
+
+                  # On non-PR builds or fork PRs, fail with instructions
+                  if [ "$EVENT_NAME" != "pull_request" ] || \
+                     [ "$HEAD_REPO" != "PostHog/posthog" ]; then
                       echo ""
                       echo "::error::OpenAPI types are out of date!"
                       echo ""
@@ -498,9 +754,51 @@ jobs:
                       exit 1
                   fi
 
+                  echo "::notice::Committing updated OpenAPI types to PR branch"
+
+                  # Verify branch hasn't advanced since CI started
+                  CURRENT_SHA=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
+                  if [ "$CURRENT_SHA" != "$HEAD_SHA" ]; then
+                      echo "::warning::Branch advanced during workflow ($HEAD_SHA -> $CURRENT_SHA) — skipping auto-commit"
+                      echo "The new commit will trigger its own workflow run."
+                      exit 0
+                  fi
+
+                  # Disable auto-merge before pushing to prevent unreviewed code from merging
+                  gh pr merge --disable-auto "$PR_NUMBER" || echo "Auto-merge was not enabled"
+
+                  git remote set-url origin "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git"
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+
+                  # Switch to PR branch and regenerate types there
+                  git fetch origin "$BRANCH"
+                  git checkout -f -B "$BRANCH" "origin/$BRANCH"
+                  ./bin/hogli build:openapi
+
+                  if git diff --exit-code; then
+                      echo "Types already up to date on PR branch"
+                      exit 0
+                  fi
+
+                  git add frontend/src/generated/
+                  git add products/*/frontend/generated/ 2>/dev/null || true
+                  git commit -m "chore: update OpenAPI generated types"
+                  git push origin "$BRANCH"
+                  echo "::notice::Pushed updated OpenAPI types to $BRANCH"
+
     django:
-        needs: [changes, detect-snapshot-mode, get_clickhouse_versions]
-        if: needs.changes.outputs.backend == 'true'
+        needs: [changes, turbo-discover, detect-snapshot-mode, get_clickhouse_versions]
+        # Run legacy pytest if:
+        # 1. Legacy code directly changed (ee/, posthog/)
+        # 2. OR product changes affect legacy code (turbo-discover outputs run_legacy=true)
+        # 3. OR turbo-discover itself failed (conservative: run Django on detection failure)
+        if: |
+            always() &&
+            needs.changes.outputs.backend == 'true' &&
+            (needs.changes.outputs.legacy == 'true' ||
+             needs.turbo-discover.outputs.run_legacy == 'true' ||
+             (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
         # increase for tmate testing
         timeout-minutes: 30
 
@@ -638,6 +936,7 @@ jobs:
                   fetch-depth: 1
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   ref: ${{ github.event.pull_request.head.ref }}
+                  lfs: true
                   clean: false
             - name: Clean up data directories with container permissions
               run: |
@@ -802,17 +1101,13 @@ jobs:
                   touch frontend/dist/exporter.html
                   ./bin/download-mmdb
 
-            - name: Wait for services to be available
+            - name: Wait for Docker services
               shell: bash
-              run: |
-                  bin/check_kafka_clickhouse_up
-                  bin/check_postgres_up
-
-            - name: Wait for Temporal
-              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
-              shell: bash
-              run: |
-                  bin/check_temporal_up
+              # Read-only health poll for core services only. Can't use --wait here
+              # because it blocks on ALL project containers including temporal, which
+              # boots slowly (auto-setup runs DB migrations). Temporal was started in
+              # background above and will be ready by the time temporal tests run.
+              run: bin/wait-for-docker
 
             - name: Determine if --snapshot-update should be on
               # UPDATE mode: human commits - update snapshots
@@ -857,12 +1152,10 @@ jobs:
                   pytest -v --tb=short ${{
                       matrix.person-on-events
                       && './posthog/clickhouse/ ./posthog/queries/ ./posthog/api/test/test_insight* ./posthog/api/test/dashboards/test_dashboard.py'
-                      || 'posthog products'
+                      || 'posthog'
                   }} ${{ matrix.person-on-events && 'ee/clickhouse/' || 'ee/' }} -m "not async_migrations" \
                       --ignore=posthog/temporal \
                       --ignore=posthog/dags \
-                      --ignore=products/**/dags \
-                      --ignore=products/batch_exports/backend/tests/temporal \
                       --ignore=common/hogvm/python/test \
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql_queries' || '' }} \
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql' || '' }} \
@@ -1013,6 +1306,8 @@ jobs:
             oldest_supported_image: ${{ steps.read-versions.outputs.oldest_supported_image }}
             # All unique versions for compat tests
             all: ${{ steps.read-versions.outputs.all }}
+            # Whether to skip compat tests (all versions identical = no extra coverage)
+            skip_compat: ${{ steps.check-compat.outputs.skip }}
         steps:
             - uses: actions/checkout@v6
               with:
@@ -1040,10 +1335,29 @@ jobs:
                   echo "all=$all" >> $GITHUB_OUTPUT
                   echo "All versions for compat tests: $all"
 
+            - name: Check if compat tests are needed
+              id: check-compat
+              run: |
+                  UNIQUE=$(jq -r '[.[]] | unique | length' .github/clickhouse-versions.json)
+                  if [ "$UNIQUE" -eq 1 ]; then
+                    echo "skip=true" >> $GITHUB_OUTPUT
+                    echo "All CH versions identical — compat tests provide no additional coverage, skipping"
+                  else
+                    echo "skip=false" >> $GITHUB_OUTPUT
+                    echo "Multiple CH versions found — compat tests needed"
+                  fi
+
     clickhouse-compat:
         name: ClickHouse compat tests - ${{ matrix.clickhouse-server-image }}
-        needs: [changes, get_clickhouse_versions]
-        if: needs.changes.outputs.backend == 'true'
+        needs: [changes, turbo-discover, get_clickhouse_versions]
+        # Run if legacy code changed, product changes affect legacy, or turbo-discover failed
+        if: |
+            always() &&
+            needs.changes.outputs.backend == 'true' &&
+            needs.get_clickhouse_versions.outputs.skip_compat != 'true' &&
+            (needs.changes.outputs.legacy == 'true' ||
+             needs.turbo-discover.outputs.run_legacy == 'true' ||
+             (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
         runs-on: depot-ubuntu-latest
         strategy:
             fail-fast: false
@@ -1149,7 +1463,17 @@ jobs:
     # Job just to collate the status of the matrix jobs for requiring passing status
     # Must depend on handle-snapshots to prevent auto-merge before commits complete
     django_tests:
-        needs: [django, clickhouse-compat, check-migrations, async-migrations, handle-snapshots]
+        needs:
+            [
+                django,
+                clickhouse-compat,
+                check-migrations,
+                async-migrations,
+                turbo-discover,
+                turbo-tests,
+                handle-snapshots,
+                check-idor-coverage,
+            ]
         name: Django Tests Pass
         runs-on: ubuntu-latest
         if: always()
@@ -1180,6 +1504,24 @@ jobs:
                     exit 1
                   fi
 
+                  # Check IDOR coverage - must pass for Django Tests to be green
+                  if [[ "${{ needs.check-idor-coverage.result }}" != "success" && "${{ needs.check-idor-coverage.result }}" != "skipped" ]]; then
+                    echo "IDOR coverage check failed."
+                    exit 1
+                  fi
+
+                  # Check Turbo discover - must pass for Django Tests to be green
+                  if [[ "${{ needs.turbo-discover.result }}" != "success" && "${{ needs.turbo-discover.result }}" != "skipped" ]]; then
+                    echo "Turbo discover failed."
+                    exit 1
+                  fi
+
+                  # Check Turbo tests (products) - must pass for Django Tests to be green
+                  if [[ "${{ needs.turbo-tests.result }}" != "success" && "${{ needs.turbo-tests.result }}" != "skipped" ]]; then
+                    echo "Turbo tests failed."
+                    exit 1
+                  fi
+
                   # Check handle-snapshots result (OK if skipped, but fail if it failed)
                   if [[ "${{ needs.handle-snapshots.result }}" == "failure" ]]; then
                     echo "Snapshot commit job failed."
@@ -1190,12 +1532,18 @@ jobs:
 
     async-migrations:
         name: Async migrations tests -  ${{ matrix.clickhouse-server-image }}
-        needs: [changes, get_clickhouse_versions]
+        needs: [changes, turbo-discover, get_clickhouse_versions]
         strategy:
             fail-fast: false
             matrix:
                 clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.oldest_supported) }}
-        if: needs.changes.outputs.backend == 'true'
+        # Run if legacy code changed, product changes affect legacy, or turbo-discover failed
+        if: |
+            always() &&
+            needs.changes.outputs.backend == 'true' &&
+            (needs.changes.outputs.legacy == 'true' ||
+             needs.turbo-discover.outputs.run_legacy == 'true' ||
+             (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
         runs-on: depot-ubuntu-latest
         steps:
             - name: 'Checkout repo'
@@ -1266,11 +1614,9 @@ jobs:
                   touch frontend/dist/layout.html
                   touch frontend/dist/exporter.html
 
-            - name: Wait for services to be available
+            - name: Wait for Docker services
               shell: bash
-              run: |
-                  bin/check_kafka_clickhouse_up
-                  bin/check_postgres_up
+              run: bin/wait-for-docker
 
             - name: Run async migrations tests
               run: |
@@ -1287,8 +1633,8 @@ jobs:
         name: Calculate running time
         needs: [django_tests, async-migrations]
         runs-on: ubuntu-latest
-        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
-            always() && (
+        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
+            always() && github.actor != 'dependabot[bot]' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:

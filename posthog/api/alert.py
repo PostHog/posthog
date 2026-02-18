@@ -241,6 +241,7 @@ class AlertSerializer(serializers.ModelSerializer):
         if subscribed_users is not None:
             AlertSubscription.objects.filter(alert_configuration=instance).exclude(user__in=subscribed_users).delete()
             for user in subscribed_users:
+                # nosemgrep: idor-lookup-without-team (user team membership validated by viewset)
                 AlertSubscription.objects.get_or_create(
                     user=user, alert_configuration=instance, defaults={"created_by": self.context["request"].user}
                 )
