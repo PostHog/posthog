@@ -7,6 +7,7 @@ import { LemonBadge, LemonButton, LemonCheckbox, LemonDropdown, LemonTable, Lemo
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
+import { stripMarkdown } from 'lib/utils/stripMarkdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -25,7 +26,7 @@ import {
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ScenesTabs } from '../../components/ScenesTabs'
 import { type Ticket, priorityMultiselectOptions, statusMultiselectOptions } from '../../types'
-import { supportTicketsSceneLogic } from './supportTicketsSceneLogic'
+import { SUPPORT_TICKETS_PAGE_SIZE, supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 
 export const scene: SceneExport = {
     component: SupportTicketsScene,
@@ -38,11 +39,23 @@ export function SupportTicketsScene(): JSX.Element {
     const { filteredTickets, statusFilter, priorityFilter, assigneeFilter, dateFrom, dateTo, ticketsLoading, sorting } =
         useValues(logic)
     const { setStatusFilter, setPriorityFilter, setAssigneeFilter, setDateRange, loadTickets, setSorting } =
+    const {
+        filteredTickets,
+        statusFilter,
+        priorityFilter,
+        assigneeFilter,
+        dateFrom,
+        dateTo,
+        ticketsLoading,
+        currentPage,
+        totalCount,
+    } = useValues(logic)
+    const { setStatusFilter, setPriorityFilter, setAssigneeFilter, setDateRange, setCurrentPage, loadTickets } =
         useActions(logic)
     const { push } = useActions(router)
 
     return (
-        <SceneContent>
+        <SceneContent className="pb-4">
             <SceneTitleSection
                 name="Support"
                 description=""
@@ -176,6 +189,17 @@ export function SupportTicketsScene(): JSX.Element {
                 onSort={(newSorting) => setSorting(newSorting)}
                 useURLForSorting={false}
                 noSortingCancellation
+                pagination={{
+                    controlled: true,
+                    currentPage,
+                    pageSize: SUPPORT_TICKETS_PAGE_SIZE,
+                    entryCount: totalCount,
+                    onBackward: currentPage > 1 ? () => setCurrentPage(currentPage - 1) : undefined,
+                    onForward:
+                        currentPage * SUPPORT_TICKETS_PAGE_SIZE < totalCount
+                            ? () => setCurrentPage(currentPage + 1)
+                            : undefined,
+                }}
                 onRow={(ticket) => ({
                     onClick: () => push(urls.supportTicketDetail(ticket.id)),
                 })}
@@ -234,7 +258,7 @@ export function SupportTicketsScene(): JSX.Element {
                                             'font-medium': ticket.unread_team_count > 0,
                                         })}
                                     >
-                                        {ticket.last_message_text}
+                                        {stripMarkdown(ticket.last_message_text)}
                                     </span>
                                 ) : (
                                     <span className="text-muted-alt text-xs">—</span>

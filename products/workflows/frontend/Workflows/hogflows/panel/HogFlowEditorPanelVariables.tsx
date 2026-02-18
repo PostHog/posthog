@@ -81,16 +81,16 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
             >
                 {workflow.variables && workflow.variables.length > 0 && (
                     <div className="w-full flex gap-2 px-0.5 text-xs font-medium text-secondary">
-                        <span className="w-32">Key</span>
-                        <span className="w-40">Default</span>
-                        <span className="flex-1">Usage</span>
-                        <span className="w-5" />
+                        <span className="w-1/4 shrink-0">Key</span>
+                        <span className="w-1/4 shrink-0">Default</span>
+                        <span className="flex-1 min-w-0">Usage</span>
+                        <span className="w-5 shrink-0" />
                     </div>
                 )}
 
                 {workflow.variables?.map((variable, idx) => (
                     <div key={`${workflow.id}_${idx}`} className="w-full flex items-center gap-2">
-                        <LemonField.Pure className="w-32">
+                        <LemonField.Pure className="w-1/4 shrink-0">
                             <LemonInput
                                 size="small"
                                 type="text"
@@ -101,7 +101,7 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
                                 }}
                             />
                         </LemonField.Pure>
-                        <LemonField.Pure className="w-40">
+                        <LemonField.Pure className="w-1/4 shrink-0">
                             <LemonInput
                                 size="small"
                                 type="text"
@@ -112,7 +112,7 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
                                 }}
                             />
                         </LemonField.Pure>
-                        <span className="group relative flex-1">
+                        <span className="group relative flex-1 min-w-0">
                             <code className="w-full py-1 bg-primary-alt-highlight-secondary rounded-sm text-center text-xs truncate block">
                                 {`{ variables.${variable.key} }`}
                             </code>

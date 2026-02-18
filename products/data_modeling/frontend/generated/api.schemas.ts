@@ -49,7 +49,6 @@ export interface NodeApi {
     dag_id?: string
     /** @nullable */
     readonly saved_query_id: string | null
-    properties?: unknown
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
@@ -57,6 +56,12 @@ export interface NodeApi {
     readonly downstream_count: number
     /** @nullable */
     readonly last_run_at: string | null
+    /** @nullable */
+    readonly last_run_status: string | null
+    /** @nullable */
+    readonly user_tag: string | null
+    /** @nullable */
+    readonly sync_interval: string | null
 }
 
 export interface PaginatedNodeListApi {

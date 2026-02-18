@@ -1,5 +1,11 @@
 # PostHog Development Guide
 
+## Codebase Structure
+
+- [Monorepo layout](docs/internal/monorepo-layout.md) - high-level directory structure (products, services, common)
+- [Products README](products/README.md) - how to create and structure products
+- [Products architecture](products/architecture.md) - DTOs, facades, isolated testing
+
 ## Commands
 
 - Environment:
@@ -9,6 +15,7 @@
 - Tests:
   - All tests: `pytest`
   - Single test: `pytest path/to/test.py::TestClass::test_method`
+  - Product tests (Turbo): `pnpm turbo run backend:test --filter=@posthog/products-<name>`
   - Frontend: `pnpm --filter=@posthog/frontend test`
   - Single frontend test: `pnpm --filter=@posthog/frontend jest <test_file>`
 - Lint:
@@ -31,6 +38,7 @@ Use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) for a
 - `feat`: New feature or functionality (touches production code)
 - `fix`: Bug fix (touches production code)
 - `chore`: Non-production changes (docs, tests, config, CI, refactoring agents instructions, etc.)
+- Scope convention: use `llma` for LLM analytics changes (for example, `feat(llma): ...`)
 
 ### Format
 
@@ -124,7 +132,7 @@ docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/ru
 
 - API views should declare request/response schemas — prefer `@validated_request` from `posthog.api.mixins` or `@extend_schema` from drf-spectacular
 - Django serializers are the source of truth for frontend API types — `hogli build:openapi` generates TypeScript via drf-spectacular + Orval. Generated files (`api.schemas.ts`, `api.ts`) live in `frontend/src/generated/core/` and `products/{product}/frontend/generated/` — don't edit them manually, change serializers and rerun. See `docs/published/type-system.md` for the full pipeline
-- If possible, new features should live in `products/` as Django apps with `backend/` and `frontend/` subdirectories
+- New features should live in `products/` — read [products/README.md](products/README.md) for layout and setup. When _creating a new_ product, follow [products/architecture.md](products/architecture.md) (DTOs, facades, isolation). Most existing products are legacy moves and don't use this architecture yet — match the patterns already in the product you're editing
 - Always filter querysets by `team_id` — in serializers, access the team via `self.context["get_team"]()`
 - **Do not add domain-specific fields to the `Team` model.** Use a Team Extension model instead — see `posthog/models/team/README.md` for the pattern and helpers
 
@@ -139,7 +147,6 @@ docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/ru
 - Naming: Use descriptive names, camelCase for JS/TS, snake_case for Python
 - Comments: should not duplicate the code below, don't tell me "this finds the shortest username" tell me _why_ that is important, if it isn't important don't add a comment, almost never add a comment
 - Python tests: do not add doc comments
-- Python tests: do not create `__init__.py` files in test directories (pytest discovers tests without them)
 - jest tests: when writing jest tests, prefer a single top-level describe block in a file
 - any tests: prefer to use parameterized tests, think carefully about what input and output look like so that the tests exercise the system and explain the code to the future traveller
 - Python tests: in python use the parameterized library for parameterized tests, every time you are tempted to add more than one assertion to a test consider (really carefully) if it should be a parameterized test instead
@@ -151,5 +158,6 @@ docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/ru
 
 ## General
 
+- Markdown: prefer semantic line breaks; no hard wrapping
 - Use American English spelling
 - When mentioning PostHog products, the product names should use Sentence casing, not Title Casing. For example, 'Product analytics', not 'Product Analytics'. Any other buttons, tab text, tooltips, etc should also all use Sentence casing. For example, 'Save as view' instead of 'Save As View'.
