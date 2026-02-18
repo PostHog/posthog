@@ -504,6 +504,15 @@ jobs:
                   private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
 
             - name: Check and update OpenAPI types
+              env:
+                  EVENT_NAME: ${{ github.event_name }}
+                  HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+                  BRANCH: ${{ github.event.pull_request.head.ref }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  REPOSITORY: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  APP_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
+                  GH_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
               run: |
                   ./bin/hogli build:openapi
                   if git diff --exit-code; then
@@ -514,8 +523,8 @@ jobs:
                   echo "OpenAPI types are out of date"
 
                   # On non-PR builds or fork PRs, fail with instructions
-                  if [ "${{ github.event_name }}" != "pull_request" ] || \
-                     [ "${{ github.event.pull_request.head.repo.full_name }}" != "PostHog/posthog" ]; then
+                  if [ "$EVENT_NAME" != "pull_request" ] || \
+                     [ "$HEAD_REPO" != "PostHog/posthog" ]; then
                       echo ""
                       echo "::error::OpenAPI types are out of date!"
                       echo ""
@@ -534,19 +543,18 @@ jobs:
 
                   echo "::notice::Committing updated OpenAPI types to PR branch"
 
-                  BRANCH="${{ github.event.pull_request.head.ref }}"
-                  TOKEN="${{ steps.openapi-app-token.outputs.token }}"
-
                   # Verify branch hasn't advanced since CI started
                   CURRENT_SHA=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
-                  EXPECTED_SHA="${{ github.event.pull_request.head.sha }}"
-                  if [ "$CURRENT_SHA" != "$EXPECTED_SHA" ]; then
-                      echo "::warning::Branch advanced during workflow ($EXPECTED_SHA -> $CURRENT_SHA) — skipping auto-commit"
+                  if [ "$CURRENT_SHA" != "$HEAD_SHA" ]; then
+                      echo "::warning::Branch advanced during workflow ($HEAD_SHA -> $CURRENT_SHA) — skipping auto-commit"
                       echo "The new commit will trigger its own workflow run."
                       exit 0
                   fi
 
-                  git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${{ github.repository }}.git"
+                  # Disable auto-merge before pushing to prevent unreviewed code from merging
+                  gh pr merge --disable-auto "$PR_NUMBER" || echo "Auto-merge was not enabled"
+
+                  git remote set-url origin "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git"
                   git config user.name "github-actions[bot]"
                   git config user.email "github-actions[bot]@users.noreply.github.com"
 
