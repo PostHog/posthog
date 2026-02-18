@@ -11,8 +11,11 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
+    ACCESS_CONTROL_RESOURCES,
+    AccessControlLevel,
     AccessSource,
     UserAccessControl,
+    compute_effective_access_level,
     default_access_level,
     highest_access_level,
     minimum_access_level,
@@ -21,6 +24,7 @@ from posthog.rbac.user_access_control import (
 from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
 
 from ee.models.rbac.access_control import AccessControl
+from ee.models.rbac.role import Role
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -140,6 +144,149 @@ class AccessControlSerializer(serializers.ModelSerializer):
         return data
 
 
+class AccessControlWithEffectiveSerializer(AccessControlSerializer):
+    """Extended serializer that includes effective access level fields.
+    Only used for project-level and resource-type-level settings endpoints.
+    """
+
+    effective_access_level = serializers.CharField(read_only=True, allow_null=True, required=False)
+    effective_access_level_reason = serializers.CharField(read_only=True, allow_null=True, required=False)
+
+    class Meta(AccessControlSerializer.Meta):
+        fields = [
+            *AccessControlSerializer.Meta.fields,
+            "effective_access_level",
+            "effective_access_level_reason",
+        ]
+
+
+def _annotate_effective_access_levels(
+    access_controls: list[AccessControl],
+    all_members: list[OrganizationMembership] | None = None,
+    all_roles: list[Role] | None = None,
+) -> list[AccessControl]:
+    """
+    Annotates each AccessControl instance with effective_access_level and
+    effective_access_level_reason as transient attributes (not persisted).
+
+    When all_members/all_roles are provided, synthesizes rows for member×resource
+    and role×resource combinations that don't have explicit overrides, so the
+    response contains effective levels for every member and role.
+
+    Returns the (possibly extended) list of access controls.
+    """
+    defaults: dict[str, AccessControlLevel] = {}
+    role_acs: list[AccessControl] = []
+    member_acs: list[AccessControl] = []
+    default_acs: list[AccessControl] = []
+
+    for ac in access_controls:
+        if ac.organization_member_id is None and ac.role_id is None:  # type: ignore[attr-defined]
+            defaults[ac.resource] = cast(AccessControlLevel, ac.access_level)
+            default_acs.append(ac)
+        elif ac.role_id is not None:  # type: ignore[attr-defined]
+            role_acs.append(ac)
+        else:
+            member_acs.append(ac)
+
+    # {(role_id, resource): level} for looking up role overrides per member
+    role_levels_lookup: dict[tuple[str, str], AccessControlLevel] = {
+        (str(ac.role_id), ac.resource): cast(AccessControlLevel, ac.access_level)  # type: ignore[attr-defined]
+        for ac in role_acs
+    }
+
+    # Determine which resources we're working with
+    resources = list(defaults.keys())
+    if all_members is not None or all_roles is not None:
+        for r in ACCESS_CONTROL_RESOURCES:
+            if r not in resources:
+                resources.append(r)
+
+    # Synthesize missing role×resource rows (access_level=None means no override exists)
+    synthesized_role_acs: list[AccessControl] = []
+    if all_roles is not None:
+        existing_role_keys = {(str(ac.role_id), ac.resource) for ac in role_acs}  # type: ignore[attr-defined]
+        for role in all_roles:
+            for resource in resources:
+                if (str(role.id), resource) not in existing_role_keys:
+                    synthetic = AccessControl(
+                        resource=resource,
+                        access_level=None,
+                        role_id=role.id,
+                        organization_member=None,
+                    )
+                    synthesized_role_acs.append(synthetic)
+
+    # Synthesize missing member×resource rows (access_level=None means no override exists)
+    synthesized_member_acs: list[AccessControl] = []
+    if all_members is not None:
+        existing_member_keys = {
+            (str(ac.organization_member_id), ac.resource)
+            for ac in member_acs  # type: ignore[attr-defined]
+        }
+        for membership in all_members:
+            for resource in resources:
+                if (str(membership.id), resource) not in existing_member_keys:
+                    synthetic = AccessControl(
+                        resource=resource,
+                        access_level=None,
+                        organization_member=membership,
+                        role=None,
+                    )
+                    synthesized_member_acs.append(synthetic)
+
+    # Annotate default rows
+    for ac in default_acs:
+        ac.effective_access_level = ac.access_level  # type: ignore[attr-defined]
+        ac.effective_access_level_reason = "project_default"  # type: ignore[attr-defined]
+
+    # Annotate role rows (both real and synthesized)
+    for ac in role_acs + synthesized_role_acs:
+        resource_default = defaults.get(ac.resource, default_access_level(ac.resource))
+        saved = cast(AccessControlLevel, ac.access_level) if ac.access_level is not None else "none"
+        effective, reason = compute_effective_access_level(
+            resource=ac.resource,
+            saved_level=saved,
+            saved_reason="role_override",
+            default_level=resource_default,
+            role_levels=[],
+            is_org_admin=False,
+        )
+        ac.effective_access_level = effective  # type: ignore[attr-defined]
+        ac.effective_access_level_reason = reason  # type: ignore[attr-defined]
+
+    # Annotate member rows (both real and synthesized)
+    for ac in member_acs + synthesized_member_acs:
+        membership = ac.organization_member
+        resource_default = defaults.get(ac.resource, default_access_level(ac.resource))
+
+        is_org_admin = membership is not None and membership.level >= OrganizationMembership.Level.ADMIN
+
+        member_role_levels: list[AccessControlLevel] = []
+        if membership is not None and not is_org_admin:
+            try:
+                for rm in membership.role_memberships.all():
+                    role_level = role_levels_lookup.get((str(rm.role_id), ac.resource))
+                    if role_level:
+                        member_role_levels.append(role_level)
+            except Exception:
+                pass
+
+        saved = cast(AccessControlLevel, ac.access_level) if ac.access_level is not None else "none"
+        effective, reason = compute_effective_access_level(
+            resource=ac.resource,
+            saved_level=saved,
+            saved_reason="member_override",
+            default_level=resource_default,
+            role_levels=member_role_levels,
+            is_org_admin=is_org_admin,
+        )
+        ac.effective_access_level = effective  # type: ignore[attr-defined]
+        ac.effective_access_level_reason = reason  # type: ignore[attr-defined]
+
+    return default_acs + role_acs + synthesized_role_acs + member_acs + synthesized_member_acs
+
+
 class AccessControlViewSetMixin(_GenericViewSet):
     # Why a mixin? We want to easily add this to any existing resource, including providing easy helpers for adding access control info such
     # as the current users access level to any response.
@@ -230,14 +377,40 @@ class AccessControlViewSetMixin(_GenericViewSet):
         obj = self.get_object()
         resource_id = obj.id
 
-        if is_resource_level:
-            # If resource level then we are getting all controls for the project that aren't specific to a resource
-            access_controls = AccessControl.objects.filter(team=team, resource_id=None).all()
-        else:
-            # Otherwise we are getting all controls for the specific resource
-            access_controls = AccessControl.objects.filter(team=team, resource=resource, resource_id=resource_id).all()
+        is_settings_endpoint = is_resource_level or resource == "project"
 
-        serializer = self._get_access_control_serializer(instance=access_controls, many=True)
+        if is_settings_endpoint:
+            base_qs = AccessControl.objects.select_related("organization_member").prefetch_related(
+                "organization_member__role_memberships"
+            )
+        else:
+            base_qs = AccessControl.objects.all()
+
+        if is_resource_level:
+            # resource_id=None: type-level rules (e.g. "dashboards → editor for everyone"), not tied to a specific object
+            access_controls = list(base_qs.filter(team=team, resource_id=None).all())
+        else:
+            # resource_id set: object-level rules for this specific resource instance (e.g. project, notebook #123)
+            access_controls = list(base_qs.filter(team=team, resource=resource, resource_id=resource_id).all())
+
+        if is_settings_endpoint:
+            all_members = list(
+                OrganizationMembership.objects.filter(
+                    organization=team.organization, user__is_active=True
+                ).prefetch_related("role_memberships")
+            )
+            all_roles = list(Role.objects.filter(organization=team.organization))
+
+            access_controls = _annotate_effective_access_levels(
+                access_controls, all_members=all_members, all_roles=all_roles
+            )
+            serializer_context = self.get_serializer_context()
+            serializer = AccessControlWithEffectiveSerializer(
+                instance=access_controls, many=True, context=serializer_context
+            )
+        else:
+            serializer = self._get_access_control_serializer(instance=access_controls, many=True)
+
         user_access_level = user_access_control.get_user_access_level(obj)
 
         return Response(

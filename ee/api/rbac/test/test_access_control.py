@@ -1287,3 +1287,322 @@ class TestAccessControlScopeRequirements(BaseAccessControlTest):
             headers={"authorization": f"Bearer {key_value}"},
         )
         assert response.status_code == status.HTTP_200_OK
+
+
+class TestEffectiveAccessLevelsProjectLevel(BaseAccessControlTest):
+    """Test effective_access_level and effective_access_level_reason on the project-level access_controls endpoint."""
+
+    def setUp(self):
+        super().setUp()
+        self.user2 = self._create_user("user2@example.com")
+        self.user2_membership = self.user2.organization_memberships.get(organization=self.organization)
+        self.role = Role.objects.create(name="Engineering", organization=self.organization)
+
+    def _get_project_access_controls(self):
+        return self.client.get("/api/projects/@current/access_controls")
+
+    def _find_ac(self, data, *, role_id=None, member_id=None, is_default=False):
+        for ac in data["access_controls"]:
+            if is_default and ac["organization_member"] is None and ac["role"] is None:
+                return ac
+            if role_id and ac["role"] == str(role_id):
+                return ac
+            if member_id and ac["organization_member"] == str(member_id):
+                return ac
+        return None
+
+    def test_default_row_effective_equals_access_level(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        self._put_project_access_control({"access_level": "member"})
+
+        res = self._get_project_access_controls()
+        assert res.status_code == status.HTTP_200_OK
+        ac = self._find_ac(res.json(), is_default=True)
+        assert ac is not None
+        assert ac["effective_access_level"] == ac["access_level"]
+        assert ac["effective_access_level_reason"] == "project_default"
+
+    def test_role_override_effective_is_max_of_saved_and_default(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        # Project default = member
+        self._put_project_access_control({"access_level": "member"})
+        # Role override = admin
+        self._put_project_access_control({"role": str(self.role.id), "access_level": "admin"})
+
+        res = self._get_project_access_controls()
+        ac = self._find_ac(res.json(), role_id=self.role.id)
+        assert ac is not None
+        assert ac["access_level"] == "admin"
+        assert ac["effective_access_level"] == "admin"
+        assert ac["effective_access_level_reason"] == "role_override"
+
+    def test_role_override_lower_than_default_shows_default_as_effective(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        # Project default = admin
+        self._put_project_access_control({"access_level": "admin"})
+        # Role override = member (lower)
+        self._put_project_access_control({"role": str(self.role.id), "access_level": "member"})
+
+        res = self._get_project_access_controls()
+        ac = self._find_ac(res.json(), role_id=self.role.id)
+        assert ac is not None
+        assert ac["access_level"] == "member"
+        assert ac["effective_access_level"] == "admin"
+        assert ac["effective_access_level_reason"] == "project_default"
+
+    def test_member_override_effective_considers_roles(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        # Project default = member
+        self._put_project_access_control({"access_level": "member"})
+        # Role "Engineering" = admin
+        self._put_project_access_control({"role": str(self.role.id), "access_level": "admin"})
+        # Add user2 to role
+        RoleMembership.objects.create(user=self.user2, role=self.role, organization_member=self.user2_membership)
+        # Member override = member
+        self._put_project_access_control(
+            {"organization_member": str(self.user2_membership.id), "access_level": "member"}
+        )
+
+        res = self._get_project_access_controls()
+        ac = self._find_ac(res.json(), member_id=self.user2_membership.id)
+        assert ac is not None
+        assert ac["access_level"] == "member"
+        assert ac["effective_access_level"] == "admin"
+        assert ac["effective_access_level_reason"] == "role_override"
+
+    def test_member_org_admin_always_gets_admin_effective(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        # Project default = member
+        self._put_project_access_control({"access_level": "member"})
+        # Make user2 org admin
+        self.user2_membership.level = OrganizationMembership.Level.ADMIN
+        self.user2_membership.save()
+        # Member override = member
+        self._put_project_access_control(
+            {"organization_member": str(self.user2_membership.id), "access_level": "member"}
+        )
+
+        res = self._get_project_access_controls()
+        ac = self._find_ac(res.json(), member_id=self.user2_membership.id)
+        assert ac is not None
+        assert ac["access_level"] == "member"
+        assert ac["effective_access_level"] == "admin"
+        assert ac["effective_access_level_reason"] == "organization_admin"
+
+    def test_member_effective_falls_back_to_default_when_override_is_lower(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        # Project default = admin
+        self._put_project_access_control({"access_level": "admin"})
+        # Member override = member (lower)
+        self._put_project_access_control(
+            {"organization_member": str(self.user2_membership.id), "access_level": "member"}
+        )
+
+        res = self._get_project_access_controls()
+        ac = self._find_ac(res.json(), member_id=self.user2_membership.id)
+        assert ac is not None
+        assert ac["access_level"] == "member"
+        assert ac["effective_access_level"] == "admin"
+        assert ac["effective_access_level_reason"] == "project_default"
+
+    def test_synthesized_member_row_for_project_access(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        # Project default = member
+        self._put_project_access_control({"access_level": "member"})
+
+        res = self._get_project_access_controls()
+        # user2 has no explicit project override — access_level is null, effective = default
+        ac = self._find_ac(res.json(), member_id=self.user2_membership.id)
+        assert ac is not None
+        assert ac["access_level"] is None
+        assert ac["effective_access_level"] == "member"
+        assert ac["effective_access_level_reason"] == "project_default"
+
+    def test_synthesized_role_row_for_project_access(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        # Project default = member
+        self._put_project_access_control({"access_level": "member"})
+
+        res = self._get_project_access_controls()
+        # Role has no explicit project override — access_level is null, effective = default
+        ac = self._find_ac(res.json(), role_id=self.role.id)
+        assert ac is not None
+        assert ac["access_level"] is None
+        assert ac["effective_access_level"] == "member"
+        assert ac["effective_access_level_reason"] == "project_default"
+
+
+class TestEffectiveAccessLevelsResourceLevel(BaseAccessControlTest):
+    """Test effective_access_level and effective_access_level_reason on the resource_access_controls endpoint."""
+
+    def setUp(self):
+        super().setUp()
+        self.user2 = self._create_user("user2@example.com")
+        self.user2_membership = self.user2.organization_memberships.get(organization=self.organization)
+        self.role = Role.objects.create(name="Engineering", organization=self.organization)
+
+    def _get_resource_access_controls(self):
+        return self.client.get("/api/projects/@current/resource_access_controls")
+
+    def _find_ac(self, data, *, resource, role_id=None, member_id=None, is_default=False):
+        for ac in data["access_controls"]:
+            if ac["resource"] != resource:
+                continue
+            if is_default and ac["organization_member"] is None and ac["role"] is None:
+                return ac
+            if role_id and ac["role"] == str(role_id):
+                return ac
+            if member_id and ac["organization_member"] == str(member_id):
+                return ac
+        return None
+
+    def test_default_row_effective_equals_access_level(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        self._put_global_access_control({"resource": "dashboard", "access_level": "editor"})
+
+        res = self._get_resource_access_controls()
+        assert res.status_code == status.HTTP_200_OK
+        ac = self._find_ac(res.json(), resource="dashboard", is_default=True)
+        assert ac is not None
+        assert ac["effective_access_level"] == "editor"
+        assert ac["effective_access_level_reason"] == "project_default"
+
+    def test_role_override_lower_than_default_shows_default(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        # Dashboard default = editor
+        self._put_global_access_control({"resource": "dashboard", "access_level": "editor"})
+        # Role override = viewer (lower)
+        self._put_global_access_control({"resource": "dashboard", "access_level": "viewer", "role": str(self.role.id)})
+
+        res = self._get_resource_access_controls()
+        ac = self._find_ac(res.json(), resource="dashboard", role_id=self.role.id)
+        assert ac is not None
+        assert ac["access_level"] == "viewer"
+        assert ac["effective_access_level"] == "editor"
+        assert ac["effective_access_level_reason"] == "project_default"
+
+    def test_role_override_higher_than_default_shows_role(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        # Dashboard default = viewer
+        self._put_global_access_control({"resource": "dashboard", "access_level": "viewer"})
+        # Role override = editor (higher)
+        self._put_global_access_control({"resource": "dashboard", "access_level": "editor", "role": str(self.role.id)})
+
+        res = self._get_resource_access_controls()
+        ac = self._find_ac(res.json(), resource="dashboard", role_id=self.role.id)
+        assert ac is not None
+        assert ac["access_level"] == "editor"
+        assert ac["effective_access_level"] == "editor"
+        assert ac["effective_access_level_reason"] == "role_override"
+
+    def test_member_override_considers_role_and_default(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        # Dashboard default = viewer
+        self._put_global_access_control({"resource": "dashboard", "access_level": "viewer"})
+        # Role override = editor
+        self._put_global_access_control({"resource": "dashboard", "access_level": "editor", "role": str(self.role.id)})
+        # Add user2 to role
+        RoleMembership.objects.create(user=self.user2, role=self.role, organization_member=self.user2_membership)
+        # Member override = none
+        self._put_global_access_control(
+            {"resource": "dashboard", "access_level": "none", "organization_member": str(self.user2_membership.id)}
+        )
+
+        res = self._get_resource_access_controls()
+        ac = self._find_ac(res.json(), resource="dashboard", member_id=self.user2_membership.id)
+        assert ac is not None
+        assert ac["access_level"] == "none"
+        assert ac["effective_access_level"] == "editor"
+        assert ac["effective_access_level_reason"] == "role_override"
+
+    def test_member_org_admin_gets_highest_effective(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        self._put_global_access_control({"resource": "dashboard", "access_level": "viewer"})
+        # Make user2 org admin
+        self.user2_membership.level = OrganizationMembership.Level.ADMIN
+        self.user2_membership.save()
+        # Member override = none
+        self._put_global_access_control(
+            {"resource": "dashboard", "access_level": "none", "organization_member": str(self.user2_membership.id)}
+        )
+
+        res = self._get_resource_access_controls()
+        ac = self._find_ac(res.json(), resource="dashboard", member_id=self.user2_membership.id)
+        assert ac is not None
+        assert ac["access_level"] == "none"
+        assert ac["effective_access_level"] == "manager"
+        assert ac["effective_access_level_reason"] == "organization_admin"
+
+    def test_member_effective_falls_back_to_default(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        # Dashboard default = editor
+        self._put_global_access_control({"resource": "dashboard", "access_level": "editor"})
+        # Member override = viewer (lower)
+        self._put_global_access_control(
+            {"resource": "dashboard", "access_level": "viewer", "organization_member": str(self.user2_membership.id)}
+        )
+
+        res = self._get_resource_access_controls()
+        ac = self._find_ac(res.json(), resource="dashboard", member_id=self.user2_membership.id)
+        assert ac is not None
+        assert ac["access_level"] == "viewer"
+        assert ac["effective_access_level"] == "editor"
+        assert ac["effective_access_level_reason"] == "project_default"
+
+    def test_synthesized_rows_for_members_without_overrides(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        # Dashboard default = editor
+        self._put_global_access_control({"resource": "dashboard", "access_level": "editor"})
+
+        res = self._get_resource_access_controls()
+        data = res.json()
+
+        # user2 has no explicit override — access_level is null, effective = default
+        ac = self._find_ac(data, resource="dashboard", member_id=self.user2_membership.id)
+        assert ac is not None
+        assert ac["access_level"] is None
+        assert ac["effective_access_level"] == "editor"
+        assert ac["effective_access_level_reason"] == "project_default"
+
+    def test_synthesized_rows_for_roles_without_overrides(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        # Dashboard default = editor
+        self._put_global_access_control({"resource": "dashboard", "access_level": "editor"})
+
+        res = self._get_resource_access_controls()
+        data = res.json()
+
+        # Role has no explicit dashboard override — access_level is null, effective = default
+        ac = self._find_ac(data, resource="dashboard", role_id=self.role.id)
+        assert ac is not None
+        assert ac["access_level"] is None
+        assert ac["effective_access_level"] == "editor"
+        assert ac["effective_access_level_reason"] == "project_default"
+
+    def test_synthesized_member_row_considers_role_overrides(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        # Dashboard default = viewer
+        self._put_global_access_control({"resource": "dashboard", "access_level": "viewer"})
+        # Role override = editor
+        self._put_global_access_control({"resource": "dashboard", "access_level": "editor", "role": str(self.role.id)})
+        # Add user2 to role (no explicit member override)
+        RoleMembership.objects.create(user=self.user2, role=self.role, organization_member=self.user2_membership)
+
+        res = self._get_resource_access_controls()
+        ac = self._find_ac(res.json(), resource="dashboard", member_id=self.user2_membership.id)
+        assert ac is not None
+        assert ac["access_level"] is None
+        assert ac["effective_access_level"] == "editor"
+        assert ac["effective_access_level_reason"] == "role_override"
+
+    def test_object_level_endpoint_does_not_include_effective_fields(self):
+        """Effective fields should only appear on settings endpoints, not object-level access controls."""
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        from products.notebooks.backend.models import Notebook
+
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, short_id="0", title="test")
+        res = self.client.get(f"/api/projects/@current/notebooks/{notebook.short_id}/access_controls")
+        assert res.status_code == status.HTTP_200_OK
+        for ac in res.json()["access_controls"]:
+            assert "effective_access_level" not in ac
+            assert "effective_access_level_reason" not in ac
