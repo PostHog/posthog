@@ -21,7 +21,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, LLMPrompt } from '~/types'
 
 import { useTracesQueryContext } from '../LLMAnalyticsTracesScene'
-import { PromptLogicProps, PromptMode, PromptViewTab, isPrompt, llmPromptLogic } from './llmPromptLogic'
+import { PromptLogicProps, PromptMode, isPrompt, llmPromptLogic } from './llmPromptLogic'
 import { openDeletePromptDialog } from './utils'
 
 export const scene: SceneExport<PromptLogicProps> = {
@@ -44,11 +44,11 @@ export function LLMPromptScene(): JSX.Element {
         promptForm,
         isViewMode,
         prompt,
-        activeViewTab,
     } = useValues(llmPromptLogic)
     const { searchParams } = useValues(router)
+    const activeViewTab = searchParams?.tab === 'usage' ? 'usage' : 'overview'
 
-    const { submitPromptForm, deletePrompt, setMode, setActiveViewTab } = useActions(llmPromptLogic)
+    const { submitPromptForm, deletePrompt, setMode } = useActions(llmPromptLogic)
 
     if (isPromptMissing) {
         return <NotFound object="prompt" />
@@ -110,10 +110,12 @@ export function LLMPromptScene(): JSX.Element {
                 {prompt && isPrompt(prompt) ? (
                     <LemonTabs
                         activeKey={activeViewTab}
-                        onChange={(tab) => setActiveViewTab(tab as PromptViewTab)}
+                        onChange={(tab) =>
+                            router.actions.replace(urls.llmAnalyticsPrompt(prompt.name), { ...searchParams, tab })
+                        }
                         tabs={[
                             {
-                                key: PromptViewTab.Overview,
+                                key: 'overview',
                                 label: 'Overview',
                                 content: (
                                     <>
@@ -123,7 +125,7 @@ export function LLMPromptScene(): JSX.Element {
                                 ),
                             },
                             {
-                                key: PromptViewTab.Usage,
+                                key: 'usage',
                                 label: 'Usage',
                                 content: <PromptUsage prompt={prompt} />,
                             },

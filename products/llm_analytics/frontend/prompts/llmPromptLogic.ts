@@ -28,7 +28,14 @@ import {
 } from '~/queries/schema/schema-general'
 import { teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
-import { AnyPropertyFilter, Breadcrumb, LLMPrompt, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    AnyPropertyFilter,
+    Breadcrumb,
+    ChartDisplayType,
+    LLMPrompt,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import type { llmPromptLogicType } from './llmPromptLogicType'
 import { llmPromptsLogic } from './llmPromptsLogic'
@@ -36,11 +43,6 @@ import { llmPromptsLogic } from './llmPromptsLogic'
 export enum PromptMode {
     View = 'view',
     Edit = 'edit',
-}
-
-export enum PromptViewTab {
-    Overview = 'overview',
-    Usage = 'usage',
 }
 
 export interface PromptLogicProps {
@@ -76,7 +78,6 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         setPrompt: (prompt: LLMPrompt | PromptFormValues) => ({ prompt }),
         deletePrompt: true,
         setMode: (mode: PromptMode) => ({ mode }),
-        setActiveViewTab: (activeViewTab: PromptViewTab) => ({ activeViewTab }),
     }),
 
     reducers(({ props }) => ({
@@ -91,12 +92,6 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             props.mode ?? PromptMode.View,
             {
                 setMode: (_, { mode }) => mode,
-            },
-        ],
-        activeViewTab: [
-            PromptViewTab.Overview,
-            {
-                setActiveViewTab: (_, { activeViewTab }) => activeViewTab,
             },
         ],
     })),
@@ -325,13 +320,10 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 source: {
                     kind: NodeKind.TrendsQuery,
                     series: [{ kind: NodeKind.EventsNode, event: PROMPT_FETCHED_EVENT, name: PROMPT_FETCHED_EVENT }],
-                    properties: {
-                        type: 'AND',
-                        values: [{ type: 'AND', values: promptUsagePropertyFilter }],
-                    },
+                    properties: promptUsagePropertyFilter,
                     dateRange: { date_from: '-30d', explicitDate: false },
                     interval: 'day',
-                    trendsFilter: { display: 'ActionsLineGraph' },
+                    trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
                 },
                 full: false,
                 showLastComputation: true,
@@ -384,13 +376,11 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         }): {
             prompt: PromptFormValues | LLMPrompt | null
             promptForm: PromptFormValues
-            activeViewTab: PromptViewTab
         } => {
             if (props.promptName === 'new') {
                 return {
                     prompt: DEFAULT_PROMPT_FORM_VALUES,
                     promptForm: DEFAULT_PROMPT_FORM_VALUES,
-                    activeViewTab: PromptViewTab.Overview,
                 }
             }
 
@@ -400,14 +390,12 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 return {
                     prompt: existingPrompt,
                     promptForm: getPromptFormDefaults(existingPrompt),
-                    activeViewTab: PromptViewTab.Overview,
                 }
             }
 
             return {
                 prompt: null,
                 promptForm: DEFAULT_PROMPT_FORM_VALUES,
-                activeViewTab: PromptViewTab.Overview,
             }
         }
     ),
