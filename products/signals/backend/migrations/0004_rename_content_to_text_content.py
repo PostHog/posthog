@@ -17,4 +17,8 @@ class Migration(migrations.Migration):
             field=models.TextField(default="{}"),
             preserve_default=False,
         ),
+        migrations.AddIndex(
+            model_name="signalreportartefact",
+            index=models.Index(fields=["report"], name="signals_sig_report__idx"),
+        ),
     ]

@@ -60,3 +60,8 @@ class SignalReportArtefact(UUIDModel):
     type = models.CharField(max_length=100, choices=ArtefactType.choices)
     text_content = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["report"], name="signals_sig_report__idx"),
+        ]
