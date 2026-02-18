@@ -79,7 +79,7 @@ logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 DEFAULT_PAGE_LIMIT = 100
-# Sync with .../lib/constants.tsx and .../cdp/constants.ts
+# Sync with .../lib/constants.tsx and .../cdp/utils.ts
 # It's almost certainly wrong to add more properties to this list, instead convince the user to send data to use with
 # these properties, or use e.g. a CDP transformation to rewrite their events.
 #
