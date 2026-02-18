@@ -516,7 +516,19 @@ jobs:
                   # On non-PR builds or fork PRs, fail with instructions
                   if [ "${{ github.event_name }}" != "pull_request" ] || \
                      [ "${{ github.event.pull_request.head.repo.full_name }}" != "PostHog/posthog" ]; then
-                      echo "::error::OpenAPI types are out of date! Run locally: hogli build:openapi"
+                      echo ""
+                      echo "::error::OpenAPI types are out of date!"
+                      echo ""
+                      echo "The TypeScript API types in products/*/frontend/generated/ are auto-generated"
+                      echo "from Django serializers and views. When you modify the backend API, you need"
+                      echo "to regenerate these types."
+                      echo ""
+                      echo "To fix, run locally:  hogli build:openapi"
+                      echo "Then commit the updated generated files."
+                      echo ""
+                      echo "More info: https://posthog.com/handbook/engineering/type-system"
+                      echo ""
+                      echo "Questions? #team-devex on Slack"
                       exit 1
                   fi
 
@@ -524,6 +536,15 @@ jobs:
 
                   BRANCH="${{ github.event.pull_request.head.ref }}"
                   TOKEN="${{ steps.openapi-app-token.outputs.token }}"
+
+                  # Verify branch hasn't advanced since CI started
+                  CURRENT_SHA=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
+                  EXPECTED_SHA="${{ github.event.pull_request.head.sha }}"
+                  if [ "$CURRENT_SHA" != "$EXPECTED_SHA" ]; then
+                      echo "::warning::Branch advanced during workflow ($EXPECTED_SHA -> $CURRENT_SHA) — skipping auto-commit"
+                      echo "The new commit will trigger its own workflow run."
+                      exit 0
+                  fi
 
                   git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${{ github.repository }}.git"
                   git config user.name "github-actions[bot]"
