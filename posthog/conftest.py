@@ -439,6 +439,22 @@ def _runs_on_internal_pr() -> bool:
     return value.lower() in {"1", "true"}
 
 
+def _ch_replication_available() -> bool:
+    if os.environ.get("CH_REPLICATION_ENABLED") == "1":
+        return True
+    try:
+        from clickhouse_driver import Client as SyncClient
+
+        client = SyncClient(host="localhost", port=9001)
+        client.execute("SELECT 1")
+        client.disconnect()
+        return True
+    except Exception:
+        return False
+
+
 def pytest_runtest_setup(item: pytest.Item) -> None:
     if "requires_secrets" in item.keywords and not _runs_on_internal_pr():
         pytest.skip("Skipping test that requires internal secrets on external PRs")
+    if "ch_replication" in item.keywords and not _ch_replication_available():
+        pytest.skip("Second ClickHouse replica not available (set CH_REPLICATION_ENABLED=1)")
