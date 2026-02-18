@@ -373,7 +373,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         ]
     )
     def test_can_create_flag_with_valid_operator(self, operator: str) -> None:
-        value = "" if operator == "is_set" else "test"
+        value = "" if operator == "is_set" else "2025-01-01" if "date" in operator else "test"
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags",
             {
@@ -389,6 +389,37 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                     "type": "person",
                                     "value": value,
                                     "operator": operator,
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_can_create_flag_with_flag_evaluates_to_operator(self) -> None:
+        base_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="base-flag",
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Dependent flag",
+                "key": "dependent-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {
+                                    "key": str(base_flag.id),
+                                    "type": "flag",
+                                    "value": "true",
+                                    "operator": "flag_evaluates_to",
                                 }
                             ],
                         }
