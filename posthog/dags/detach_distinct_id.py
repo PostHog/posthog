@@ -80,6 +80,14 @@ def _lookup_distinct_id(
     row = cursor.fetchone()
     if row is None:
         return None
+    # Handle both dict rows (RealDictCursor) and tuple rows (regular cursor)
+    if isinstance(row, dict):
+        return {
+            "pdi_id": row["id"],
+            "version": row["version"],
+            "person_pk": row["person_id"],
+            "person_uuid": str(row["uuid"]),
+        }
     return {
         "pdi_id": row[0],
         "version": row[1],
@@ -97,13 +105,14 @@ def _count_other_distinct_ids(
     """Count how many *other* distinct_ids the person has."""
     cursor.execute(
         """
-        SELECT COUNT(*)
+        SELECT COUNT(*) AS count
         FROM posthog_persondistinctid
         WHERE team_id = %s AND person_id = %s AND id != %s
         """,
         [team_id, person_pk, exclude_pdi_id],
     )
-    return cursor.fetchone()[0]
+    row = cursor.fetchone()
+    return row["count"] if isinstance(row, dict) else row[0]
 
 
 def _delete_distinct_id_row(
@@ -118,7 +127,7 @@ def _delete_distinct_id_row(
     row = cursor.fetchone()
     if row is None:
         raise RuntimeError(f"posthog_persondistinctid id={pdi_id} disappeared between lookup and delete")
-    version = row[0]
+    version = row["version"] if isinstance(row, dict) else row[0]
     cursor.execute("DELETE FROM posthog_persondistinctid WHERE id = %s", [pdi_id])
     return version
 
