@@ -28,12 +28,14 @@ from posthog.models import Team
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
+from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
 from products.signals.backend.temporal.types import (
     EmitSignalInputs,
     ExistingReportMatch,
     MatchResult,
     NewReportMatch,
     SignalCandidate,
+    SignalReportSummaryWorkflowInputs,
     SignalTypeExample,
     TeamSignalGroupingInput,
 )
@@ -69,8 +71,6 @@ class EmitSignalWorkflow:
 
     @temporalio.workflow.run
     async def run(self, inputs: EmitSignalInputs) -> str:
-        from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
-
         signal_id = str(uuid.uuid4())
 
         # Fetch signal type examples and embedding in parallel (examples needed for query generation)
@@ -180,8 +180,6 @@ class EmitSignalWorkflow:
         )
 
         if assign_result.promoted:
-            from products.signals.backend.temporal.types import SignalReportSummaryWorkflowInputs
-
             try:
                 await workflow.start_child_workflow(
                     SignalReportSummaryWorkflow.run,
@@ -804,12 +802,6 @@ CONTINUE_AS_NEW_THRESHOLD = 20
 
 async def _process_one_signal(inputs: EmitSignalInputs) -> str:
     """Shared signal processing logic used by both EmitSignalWorkflow and TeamSignalGroupingWorkflow."""
-    from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
-    from products.signals.backend.temporal.types import SignalReportSummaryWorkflowInputs
-
-    with workflow.unsafe.imports_passed_through():
-        from django.conf import settings
-
     signal_id = str(uuid.uuid4())
 
     embedding_result, type_examples_result = await asyncio.gather(
@@ -956,6 +948,7 @@ class TeamSignalGroupingWorkflow:
 
     @temporalio.workflow.signal
     async def submit_signal(self, signal: EmitSignalInputs) -> None:
+        # TODO - add some kind of limiting here, to prevent this growing forever
         self._signal_buffer.append(signal)
 
     @temporalio.workflow.run
