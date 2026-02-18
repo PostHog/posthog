@@ -417,12 +417,16 @@ export const getLlmAnalyticsSentimentCreateUrl = (projectId: string) => {
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 5fbdd92278 (chore: update OpenAPI generated types)
 export const llmAnalyticsSentimentCreate = async (
     projectId: string,
     sentimentRequestApi: SentimentRequestApi,
     options?: RequestInit
 ): Promise<SentimentResponseApi> => {
     return apiMutator<SentimentResponseApi>(getLlmAnalyticsSentimentCreateUrl(projectId), {
+<<<<<<< HEAD
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -433,6 +437,12 @@ export const llmAnalyticsSentimentCreate = async (projectId: string, options?: R
         ...options,
         method: 'POST',
 >>>>>>> ab34249ab8 (feat(llma): add sentiment UI to traces table and trace detail view)
+=======
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sentimentRequestApi),
+>>>>>>> 5fbdd92278 (chore: update OpenAPI generated types)
     })
 }
 
@@ -441,12 +451,16 @@ export const getLlmAnalyticsSentimentBatchCreateUrl = (projectId: string) => {
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 5fbdd92278 (chore: update OpenAPI generated types)
 export const llmAnalyticsSentimentBatchCreate = async (
     projectId: string,
     sentimentBatchRequestApi: SentimentBatchRequestApi,
     options?: RequestInit
 ): Promise<SentimentBatchResponseApi> => {
     return apiMutator<SentimentBatchResponseApi>(getLlmAnalyticsSentimentBatchCreateUrl(projectId), {
+<<<<<<< HEAD
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -457,6 +471,12 @@ export const llmAnalyticsSentimentBatchCreate = async (projectId: string, option
         ...options,
         method: 'POST',
 >>>>>>> ab34249ab8 (feat(llma): add sentiment UI to traces table and trace detail view)
+=======
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sentimentBatchRequestApi),
+>>>>>>> 5fbdd92278 (chore: update OpenAPI generated types)
     })
 }
 
