@@ -515,17 +515,17 @@ jobs:
             - name: Publish report to Cloudflare Pages
               if: always() && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
               id: cf-deploy
+              continue-on-error: true
               env:
                   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
                   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
               run: |
                   BRANCH=${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || 'master' }}
-                  OUTPUT=$(npx --yes wrangler@3 pages deploy playwright/playwright-report \
+                  npx --yes wrangler@3 pages deploy playwright/playwright-report \
                     --project-name=playwright-report \
                     --branch="$BRANCH" \
-                    --commit-dirty=true 2>&1)
-                  echo "$OUTPUT"
-                  URL=$(echo "$OUTPUT" | grep -oP 'https://\S+\.pages\.dev' | tail -1)
+                    --commit-dirty=true 2>&1 | tee /tmp/wrangler-output.txt
+                  URL=$(grep -oP 'https://\S+\.pages\.dev' /tmp/wrangler-output.txt | tail -1)
                   echo "deployment-url=$URL" >> $GITHUB_OUTPUT
 
             - name: Write report URL to job summary
@@ -544,11 +544,36 @@ jobs:
               with:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   script: |
+                      const fs = require('fs');
                       const marker = '<!-- playwright-report-comment -->';
                       const reportUrl = '${{ steps.cf-deploy.outputs.deployment-url }}';
                       const passed = '${{ job.status }}' === 'success';
                       const icon = passed ? '✅' : '❌';
-                      const body = `${marker}\n${icon} Playwright report: [view report](${reportUrl})`;
+
+                      // Collect flaky tests from JSON report
+                      let flakyLines = '';
+                      try {
+                          const results = JSON.parse(fs.readFileSync('playwright/results.json', 'utf8'));
+                          const flaky = [];
+                          function collect(suites) {
+                              for (const suite of suites || []) {
+                                  for (const spec of suite.specs || []) {
+                                      for (const test of spec.tests || []) {
+                                          if (test.status === 'flaky') {
+                                              flaky.push(`- ${spec.title} (${test.projectName})`);
+                                          }
+                                      }
+                                  }
+                                  collect(suite.suites);
+                              }
+                          }
+                          collect(results.suites);
+                          if (flaky.length > 0) {
+                              flakyLines = `\n\n⚠️ **${flaky.length} flaky test${flaky.length > 1 ? 's' : ''}:**\n${flaky.join('\n')}`;
+                          }
+                      } catch {}
+
+                      const body = `${marker}\n${icon} Playwright report: [view report](${reportUrl})${flakyLines}`;
 
                       const { data: comments } = await github.rest.issues.listComments({
                           owner: context.repo.owner,
