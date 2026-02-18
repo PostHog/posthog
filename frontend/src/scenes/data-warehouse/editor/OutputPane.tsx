@@ -13,22 +13,20 @@ import {
     IconCopy,
     IconDownload,
     IconExpand45,
-    IconFilter,
     IconGear,
     IconGraph,
     IconMinus,
     IconPlus,
     IconShare,
 } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonDropdown, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
-import { IconTableChart, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconTableChart } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { transformDataTableToDataTableRows } from 'lib/utils/dataTableTransformations'
@@ -37,7 +35,6 @@ import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
@@ -289,82 +286,13 @@ function RowDetailsModal({ isOpen, onClose, row, columns, columnKeys }: RowDetai
     )
 }
 
-function FiltersDropdown(): JSX.Element {
-    const { sourceQuery, hasTestAccountFilters } = useValues(sqlEditorLogic)
-    const { setSourceQuery, runQuery, setLocalDefault } = useActions(sqlEditorLogic)
-
-    const hasDateRange = !!(
-        sourceQuery.source.filters?.dateRange?.date_from || sourceQuery.source.filters?.dateRange?.date_to
-    )
-    const hasTestFilter = hasTestAccountFilters && !!sourceQuery.source.filters?.filterTestAccounts
-    const activeFilterCount = (hasDateRange ? 1 : 0) + (hasTestFilter ? 1 : 0)
-
-    return (
-        <LemonDropdown
-            closeOnClickInside={false}
-            overlay={
-                <div className="flex flex-col gap-2 p-2 min-w-64">
-                    <DateRange
-                        key="date-range"
-                        query={sourceQuery.source}
-                        setQuery={(query) => {
-                            setSourceQuery({
-                                ...sourceQuery,
-                                source: query,
-                            })
-                            runQuery(query.query)
-                        }}
-                    />
-                    <TestAccountFilterSwitch
-                        checked={hasTestFilter}
-                        onChange={(checked: boolean) => {
-                            setSourceQuery({
-                                ...sourceQuery,
-                                source: {
-                                    ...sourceQuery.source,
-                                    filters: {
-                                        ...sourceQuery.source.filters,
-                                        filterTestAccounts: checked,
-                                    },
-                                },
-                            })
-                            setLocalDefault(checked)
-                            runQuery()
-                        }}
-                        size="small"
-                    />
-                </div>
-            }
-        >
-            <LemonButton
-                icon={
-                    <IconWithCount count={activeFilterCount} showZero={false}>
-                        <IconFilter />
-                    </IconWithCount>
-                }
-                type="secondary"
-                size="small"
-            >
-                Filters
-            </LemonButton>
-        </LemonDropdown>
-    )
-}
-
 export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const {
-        sourceQuery,
-        exportContext,
-        editingInsight,
-        insightLoading,
-        updateInsightButtonEnabled,
-        showLegacyFilters,
-        hasQueryInput,
-    } = useValues(sqlEditorLogic)
+    const { sourceQuery, exportContext, editingInsight, insightLoading, updateInsightButtonEnabled, hasQueryInput } =
+        useValues(sqlEditorLogic)
     const { saveAsInsight, updateInsight, setSourceQuery, shareTab } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
@@ -558,7 +486,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                             <div
                                 key={tab.key}
                                 className={clsx(
-                                    'flex-1 flex-row flex items-center bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium] whitespace-nowrap',
+                                    'flex-1 flex-row flex items-center bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium] whitespace-nowrap text-xs',
                                     {
                                         'font-semibold !border-brand-yellow': tab.key === activeTab,
                                         'border-transparent': tab.key !== activeTab,
@@ -571,8 +499,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                             </div>
                         ))}
                 </div>
-                <div className="flex gap-2 py-2 px-4 flex-shrink-0">
-                    {showLegacyFilters && <FiltersDropdown />}
+                <div className="flex gap-2 py-1 px-4 flex-shrink-0 items-center">
                     {activeTab === OutputTab.Visualization && (
                         <>
                             <div className="flex justify-between flex-wrap">
@@ -581,11 +508,13 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                     <div className="flex gap-2 items-center flex-wrap">
                                         <TableDisplay
                                             disabledReason={!hasColumns ? 'No results to visualize' : undefined}
+                                            size="xsmall"
                                         />
 
                                         <LemonButton
                                             disabledReason={!hasColumns ? 'No results to visualize' : undefined}
                                             type="secondary"
+                                            size="xsmall"
                                             icon={<IconGear />}
                                             onClick={() => toggleChartSettingsPanel()}
                                             tooltip="Visualization settings"
@@ -601,6 +530,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                                 }
                                                 loading={insightLoading}
                                                 type="primary"
+                                                size="xsmall"
                                                 onClick={() => updateInsight()}
                                                 id="sql-editor-update-insight"
                                                 sideAction={{
@@ -625,6 +555,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                             <LemonButton
                                                 disabledReason={!hasColumns ? 'No results to save' : undefined}
                                                 type="primary"
+                                                size="xsmall"
                                                 onClick={() => saveAsInsight()}
                                                 id="sql-editor-save-insight"
                                             >
@@ -646,6 +577,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                       : undefined
                             }
                             type="secondary"
+                            size="xsmall"
                             onClick={() => setActiveTab(OutputTab.Visualization)}
                             id={`sql-editor-${editingInsight || insightLoading ? 'view' : 'create'}-insight`}
                             icon={<IconGraph />}
@@ -671,6 +603,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                 id="sql-editor-copy-dropdown"
                                 disabledReason={!response?.columns || !rows.length ? 'No results to copy' : undefined}
                                 type="secondary"
+                                size="xsmall"
                                 icon={<IconCopy />}
                             />
                         </LemonMenu>
@@ -681,6 +614,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                 id="sql-editor-export"
                                 disabledReason={!hasColumns ? 'No results to export' : undefined}
                                 type="secondary"
+                                size="xsmall"
                                 icon={<IconDownload />}
                                 sideIcon={null}
                                 buttonCopy=""
@@ -703,6 +637,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                 id="sql-editor-share"
                                 disabledReason={!hasQueryInput && 'No query to share'}
                                 type="secondary"
+                                size="xsmall"
                                 icon={<IconShare />}
                                 onClick={() => shareTab()}
                             />
