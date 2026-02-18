@@ -26,6 +26,7 @@ import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 
+import { sidePanelOfframpLogic } from '../navigation-3000/sidepanel/sidePanelOfframpLogic'
 import { navigationLogic } from '../navigation/navigationLogic'
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
 import { ConfigurePinnedTabsModal } from './ConfigurePinnedTabsModal'
@@ -40,6 +41,8 @@ export function SceneTabs(): JSX.Element {
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+    const { showOfframpModal } = useActions(sidePanelOfframpLogic)
+    const { isSceneTabsOfframpDismissed } = useValues(sidePanelOfframpLogic)
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {
@@ -143,6 +146,17 @@ export function SceneTabs(): JSX.Element {
                                 <IconPlus className="!ml-0 size-3" />
                             </Link>
                         </AppShortcut>
+
+                        {isRemovingSidePanelFlag && !isSceneTabsOfframpDismissed && (
+                            <ButtonPrimitive
+                                onClick={() => {
+                                    showOfframpModal()
+                                }}
+                                className="p-1 flex items-center gap-1 cursor-pointer rounded border-b z-20 ml-auto"
+                            >
+                                Where's the panel? 🤔
+                            </ButtonPrimitive>
+                        )}
                     </div>
                 </SortableContext>
             </DndContext>
