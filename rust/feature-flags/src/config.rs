@@ -480,9 +480,11 @@ pub struct Config {
 /// this means they each create N threads for an N-core CFS limit, causing 2x
 /// oversubscription and CFS throttling whenever Rayon activates.
 ///
-/// We split the available cores: 75% to Tokio (handles all request I/O — DB, Redis,
-/// network) and the remainder to Rayon (CPU-bound flag evaluation), ensuring the total
-/// stays at or near the CFS budget.
+/// We split the available cores 50/50: half to Tokio (handles all request I/O — DB,
+/// Redis, network) and half to Rayon (CPU-bound flag evaluation), ensuring the total
+/// stays at or near the CFS budget. Tokio threads spend most of their time in .await
+/// (I/O-bound), so they need fewer threads than Rayon's CPU-bound workload. On odd
+/// core counts, Rayon gets the extra thread.
 pub struct ThreadCounts {
     pub tokio_workers: usize,
     pub rayon_threads: usize,
@@ -499,7 +501,7 @@ impl ThreadCounts {
     fn from_cores(cores: usize) -> Self {
         // With 1 core we need at least 1 thread per pool to function,
         // accepting the slight oversubscription.
-        let tokio_workers = (cores * 3 / 4).max(1);
+        let tokio_workers = (cores / 2).max(1);
         let rayon_threads = cores.saturating_sub(tokio_workers).max(1);
 
         Self {
@@ -1044,9 +1046,10 @@ mod thread_counts_tests {
     #[rstest]
     #[case::single_core(1, 1, 1)]
     #[case::two_cores(2, 1, 1)]
-    #[case::four_cores(4, 3, 1)]
-    #[case::eight_cores(8, 6, 2)]
-    #[case::sixteen_cores(16, 12, 4)]
+    #[case::four_cores(4, 2, 2)]
+    #[case::six_cores(6, 3, 3)]
+    #[case::eight_cores(8, 4, 4)]
+    #[case::sixteen_cores(16, 8, 8)]
     fn test_thread_allocation(
         #[case] cores: usize,
         #[case] expected_tokio: usize,
