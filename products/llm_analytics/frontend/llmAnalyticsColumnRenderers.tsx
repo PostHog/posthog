@@ -16,9 +16,11 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types
 
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { AIDataLoading } from './components/AIDataLoading'
+import { SentimentBar, flattenGenerationMessages } from './components/SentimentTag'
 import { EventData, useAIData } from './hooks/useAIData'
 import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
+import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
 import { CompatMessage } from './types'
 import { normalizeMessages, parseJSONPreview } from './utils'
 
@@ -185,6 +187,36 @@ function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JSX.Eleme
         : { distinct_id: distinctId }
 
     return <PersonColumnCell person={personData} />
+}
+
+function LazySentimentColumnCell({ traceId }: { traceId: string }): JSX.Element {
+    const { sentimentByTraceId, isTraceLoading } = useValues(llmSentimentLazyLoaderLogic)
+    const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
+    const { dateFilter } = useValues(llmAnalyticsSharedLogic)
+
+    const cached = sentimentByTraceId[traceId]
+    const loading = isTraceLoading(traceId)
+
+    if (cached === undefined && !loading) {
+        ensureSentimentLoaded(traceId, dateFilter)
+    }
+
+    if (loading || cached === undefined) {
+        return <AIDataLoading variant="inline" />
+    }
+
+    if (cached === null) {
+        return <>–</>
+    }
+
+    return (
+        <SentimentBar
+            label={cached.label}
+            score={cached.score}
+            size="full"
+            messages={flattenGenerationMessages(cached.generations)}
+        />
+    )
 }
 
 function AIInputCell({ eventData }: { eventData: EventData }): JSX.Element {
@@ -364,6 +396,19 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
             }
 
             return <PersonColumnCell person={null} />
+        },
+    },
+    sentiment: {
+        title: 'Sentiment',
+        render: ({ record }) => {
+            if (!record || typeof record !== 'object' || Array.isArray(record)) {
+                return <>–</>
+            }
+            const traceRecord = record as LLMTrace
+            if (!traceRecord.id) {
+                return <>–</>
+            }
+            return <LazySentimentColumnCell traceId={traceRecord.id} />
         },
     },
     // LLM person column for Users tab - clicking filter redirects to traces page
