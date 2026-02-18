@@ -103,7 +103,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 actions.createEvaluationSuccess(response)
 
                 // Trigger global tracking stuff for quick start + intent
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.set_up_llm_evaluation)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpLlmEvaluation)
                 void actions.addProductIntent({
                     product_type: ProductKey.LLM_EVALUATIONS,
                     intent_context: ProductIntentContext.LLM_EVALUATION_CREATED,

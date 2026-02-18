@@ -46,7 +46,7 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
     listeners(({ values }) => ({
         loadHasReverseProxySuccess: () => {
             if (values.hasReverseProxy) {
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.set_up_reverse_proxy)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpReverseProxy)
             }
         },
     })),

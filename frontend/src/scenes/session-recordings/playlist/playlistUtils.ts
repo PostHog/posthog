@@ -114,7 +114,7 @@ export async function createPlaylist(
     }
     const res = await api.recordings.createPlaylist(playlist)
     if (playlist.type === 'collection') {
-        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.create_recording_playlist)
+        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateRecordingPlaylist)
     }
     if (redirect) {
         router.actions.push(urls.replayPlaylist(res.short_id))

@@ -426,7 +426,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 if (launch) {
                     actions.launchAtUrl(url)
                 }
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.add_authorized_domain)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.AddAuthorizedDomain)
             },
         ],
         removeUrl: sharedListeners.saveUrls,

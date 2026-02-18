@@ -1860,6 +1860,144 @@ export const BusinessModelEnumApi = {
 } as const
 
 /**
+ * * `ingest_first_event` - ingest_first_event
+ * `set_up_reverse_proxy` - set_up_reverse_proxy
+ * `create_first_insight` - create_first_insight
+ * `create_first_dashboard` - create_first_dashboard
+ * `track_custom_events` - track_custom_events
+ * `define_actions` - define_actions
+ * `set_up_cohorts` - set_up_cohorts
+ * `explore_trends_insight` - explore_trends_insight
+ * `create_funnel` - create_funnel
+ * `explore_retention_insight` - explore_retention_insight
+ * `explore_paths_insight` - explore_paths_insight
+ * `explore_stickiness_insight` - explore_stickiness_insight
+ * `explore_lifecycle_insight` - explore_lifecycle_insight
+ * `add_authorized_domain` - add_authorized_domain
+ * `set_up_web_vitals` - set_up_web_vitals
+ * `review_web_analytics_dashboard` - review_web_analytics_dashboard
+ * `filter_web_analytics` - filter_web_analytics
+ * `set_up_web_analytics_conversion_goals` - set_up_web_analytics_conversion_goals
+ * `visit_web_vitals_dashboard` - visit_web_vitals_dashboard
+ * `setup_session_recordings` - setup_session_recordings
+ * `watch_session_recording` - watch_session_recording
+ * `configure_recording_settings` - configure_recording_settings
+ * `create_recording_playlist` - create_recording_playlist
+ * `enable_console_logs` - enable_console_logs
+ * `create_feature_flag` - create_feature_flag
+ * `implement_flag_in_code` - implement_flag_in_code
+ * `update_feature_flag_release_conditions` - update_feature_flag_release_conditions
+ * `create_multivariate_flag` - create_multivariate_flag
+ * `set_up_flag_payloads` - set_up_flag_payloads
+ * `set_up_flag_evaluation_runtimes` - set_up_flag_evaluation_runtimes
+ * `create_experiment` - create_experiment
+ * `implement_experiment_variants` - implement_experiment_variants
+ * `launch_experiment` - launch_experiment
+ * `review_experiment_results` - review_experiment_results
+ * `create_survey` - create_survey
+ * `launch_survey` - launch_survey
+ * `collect_survey_responses` - collect_survey_responses
+ * `connect_source` - connect_source
+ * `run_first_query` - run_first_query
+ * `join_external_data` - join_external_data
+ * `create_saved_view` - create_saved_view
+ * `enable_error_tracking` - enable_error_tracking
+ * `upload_source_maps` - upload_source_maps
+ * `view_first_error` - view_first_error
+ * `resolve_first_error` - resolve_first_error
+ * `ingest_first_llm_event` - ingest_first_llm_event
+ * `view_first_trace` - view_first_trace
+ * `track_costs` - track_costs
+ * `set_up_llm_evaluation` - set_up_llm_evaluation
+ * `run_ai_playground` - run_ai_playground
+ * `enable_revenue_analytics_viewset` - enable_revenue_analytics_viewset
+ * `connect_revenue_source` - connect_revenue_source
+ * `set_up_revenue_goal` - set_up_revenue_goal
+ * `enable_log_capture` - enable_log_capture
+ * `view_first_logs` - view_first_logs
+ * `create_first_workflow` - create_first_workflow
+ * `set_up_first_workflow_channel` - set_up_first_workflow_channel
+ * `configure_workflow_trigger` - configure_workflow_trigger
+ * `add_workflow_action` - add_workflow_action
+ * `launch_workflow` - launch_workflow
+ * `create_first_endpoint` - create_first_endpoint
+ * `configure_endpoint` - configure_endpoint
+ * `test_endpoint` - test_endpoint
+ * `create_early_access_feature` - create_early_access_feature
+ * `update_feature_stage` - update_feature_stage
+ */
+export type AvailableSetupTaskIdsEnumApi =
+    (typeof AvailableSetupTaskIdsEnumApi)[keyof typeof AvailableSetupTaskIdsEnumApi]
+
+export const AvailableSetupTaskIdsEnumApi = {
+    IngestFirstEvent: 'ingest_first_event',
+    SetUpReverseProxy: 'set_up_reverse_proxy',
+    CreateFirstInsight: 'create_first_insight',
+    CreateFirstDashboard: 'create_first_dashboard',
+    TrackCustomEvents: 'track_custom_events',
+    DefineActions: 'define_actions',
+    SetUpCohorts: 'set_up_cohorts',
+    ExploreTrendsInsight: 'explore_trends_insight',
+    CreateFunnel: 'create_funnel',
+    ExploreRetentionInsight: 'explore_retention_insight',
+    ExplorePathsInsight: 'explore_paths_insight',
+    ExploreStickinessInsight: 'explore_stickiness_insight',
+    ExploreLifecycleInsight: 'explore_lifecycle_insight',
+    AddAuthorizedDomain: 'add_authorized_domain',
+    SetUpWebVitals: 'set_up_web_vitals',
+    ReviewWebAnalyticsDashboard: 'review_web_analytics_dashboard',
+    FilterWebAnalytics: 'filter_web_analytics',
+    SetUpWebAnalyticsConversionGoals: 'set_up_web_analytics_conversion_goals',
+    VisitWebVitalsDashboard: 'visit_web_vitals_dashboard',
+    SetupSessionRecordings: 'setup_session_recordings',
+    WatchSessionRecording: 'watch_session_recording',
+    ConfigureRecordingSettings: 'configure_recording_settings',
+    CreateRecordingPlaylist: 'create_recording_playlist',
+    EnableConsoleLogs: 'enable_console_logs',
+    CreateFeatureFlag: 'create_feature_flag',
+    ImplementFlagInCode: 'implement_flag_in_code',
+    UpdateFeatureFlagReleaseConditions: 'update_feature_flag_release_conditions',
+    CreateMultivariateFlag: 'create_multivariate_flag',
+    SetUpFlagPayloads: 'set_up_flag_payloads',
+    SetUpFlagEvaluationRuntimes: 'set_up_flag_evaluation_runtimes',
+    CreateExperiment: 'create_experiment',
+    ImplementExperimentVariants: 'implement_experiment_variants',
+    LaunchExperiment: 'launch_experiment',
+    ReviewExperimentResults: 'review_experiment_results',
+    CreateSurvey: 'create_survey',
+    LaunchSurvey: 'launch_survey',
+    CollectSurveyResponses: 'collect_survey_responses',
+    ConnectSource: 'connect_source',
+    RunFirstQuery: 'run_first_query',
+    JoinExternalData: 'join_external_data',
+    CreateSavedView: 'create_saved_view',
+    EnableErrorTracking: 'enable_error_tracking',
+    UploadSourceMaps: 'upload_source_maps',
+    ViewFirstError: 'view_first_error',
+    ResolveFirstError: 'resolve_first_error',
+    IngestFirstLlmEvent: 'ingest_first_llm_event',
+    ViewFirstTrace: 'view_first_trace',
+    TrackCosts: 'track_costs',
+    SetUpLlmEvaluation: 'set_up_llm_evaluation',
+    RunAiPlayground: 'run_ai_playground',
+    EnableRevenueAnalyticsViewset: 'enable_revenue_analytics_viewset',
+    ConnectRevenueSource: 'connect_revenue_source',
+    SetUpRevenueGoal: 'set_up_revenue_goal',
+    EnableLogCapture: 'enable_log_capture',
+    ViewFirstLogs: 'view_first_logs',
+    CreateFirstWorkflow: 'create_first_workflow',
+    SetUpFirstWorkflowChannel: 'set_up_first_workflow_channel',
+    ConfigureWorkflowTrigger: 'configure_workflow_trigger',
+    AddWorkflowAction: 'add_workflow_action',
+    LaunchWorkflow: 'launch_workflow',
+    CreateFirstEndpoint: 'create_first_endpoint',
+    ConfigureEndpoint: 'configure_endpoint',
+    TestEndpoint: 'test_endpoint',
+    CreateEarlyAccessFeature: 'create_early_access_feature',
+    UpdateFeatureStage: 'update_feature_stage',
+} as const
+
+/**
  * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
 passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
 backward compatibility of the REST API.
@@ -1977,6 +2115,7 @@ export interface ProjectBackwardCompatApi {
     conversations_enabled?: boolean | null
     conversations_settings?: unknown | null
     logs_settings?: unknown | null
+    readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnumApi[]
 }
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
@@ -2099,6 +2238,7 @@ export interface PatchedProjectBackwardCompatApi {
     conversations_enabled?: boolean | null
     conversations_settings?: unknown | null
     logs_settings?: unknown | null
+    readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnumApi[]
 }
 
 export interface RoleApi {
@@ -2408,6 +2548,7 @@ export interface EnterpriseEventDefinitionApi {
     readonly created_by: UserBasicApi
     post_to_slack?: boolean
     default_columns?: string[]
+    readonly media_preview_urls: readonly string[]
 }
 
 export interface PaginatedEnterpriseEventDefinitionListApi {
@@ -2451,6 +2592,7 @@ export interface PatchedEnterpriseEventDefinitionApi {
     readonly created_by?: UserBasicApi
     post_to_slack?: boolean
     default_columns?: string[]
+    readonly media_preview_urls?: readonly string[]
 }
 
 export type EventDefinitionApiProperties = { [key: string]: unknown }

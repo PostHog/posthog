@@ -79,7 +79,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                     await api.errorTracking.bulkMarkStatus(ids, 'resolved')
                 })
 
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.resolve_first_error)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ResolveFirstError)
             },
             suppressIssues: async ({ ids }) => {
                 await runMutation('suppressIssues', async () => {

@@ -549,21 +549,21 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             dashboardsModel.findMounted()?.actions.updateDashboardInsight(savedInsight)
 
             // Properly track activation events
-            const tasksToComplete: SetupTaskId[] = [SetupTaskId.create_first_insight]
+            const tasksToComplete: SetupTaskId[] = [SetupTaskId.CreateFirstInsight]
             const query = isNodeWithSource(savedInsight.query) ? savedInsight.query.source : savedInsight.query
 
             if (isTrendsQuery(query)) {
-                tasksToComplete.push(SetupTaskId.explore_trends_insight)
+                tasksToComplete.push(SetupTaskId.ExploreTrendsInsight)
             } else if (isFunnelsQuery(query)) {
-                tasksToComplete.push(SetupTaskId.create_funnel)
+                tasksToComplete.push(SetupTaskId.CreateFunnel)
             } else if (isRetentionQuery(query)) {
-                tasksToComplete.push(SetupTaskId.explore_retention_insight)
+                tasksToComplete.push(SetupTaskId.ExploreRetentionInsight)
             } else if (isPathsQuery(query)) {
-                tasksToComplete.push(SetupTaskId.explore_paths_insight)
+                tasksToComplete.push(SetupTaskId.ExplorePathsInsight)
             } else if (isStickinessQuery(query)) {
-                tasksToComplete.push(SetupTaskId.explore_stickiness_insight)
+                tasksToComplete.push(SetupTaskId.ExploreStickinessInsight)
             } else if (isLifecycleQuery(query)) {
-                tasksToComplete.push(SetupTaskId.explore_lifecycle_insight)
+                tasksToComplete.push(SetupTaskId.ExploreLifecycleInsight)
             }
 
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(tasksToComplete)

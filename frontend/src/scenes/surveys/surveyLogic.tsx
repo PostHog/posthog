@@ -898,7 +898,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 actions.loadSurveys()
                 router.actions.replace(urls.survey(survey.id))
                 actions.reportSurveyCreated(survey)
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.create_survey)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateSurvey)
             },
             updateSurveySuccess: ({ survey }) => {
                 lemonToast.success(<>Survey {survey.name} updated</>)
@@ -908,7 +908,7 @@ export const surveyLogic = kea<surveyLogicType>([
             },
             launchSurveySuccess: ({ survey }) => {
                 lemonToast.success(<>Survey {survey.name} launched</>)
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.launch_survey)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.LaunchSurvey)
 
                 actions.loadSurveys()
             },

@@ -116,7 +116,7 @@ export const proxyLogic = kea<proxyLogicType>([
             // Mark the reverse proxy setup task as completed if any proxy is valid
             const hasValidProxy = proxyRecords.some((r) => r.status === 'valid')
             if (hasValidProxy) {
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.set_up_reverse_proxy)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpReverseProxy)
             }
         },
         maybeRefreshRecords: () => {

@@ -126,7 +126,7 @@ export const productSetupLogic = kea<productSetupLogicType>([
                     let isAutoCompleted = false
 
                     // Reverse proxy task auto-completes if proxy is detected
-                    if (task.id === SetupTaskId.set_up_reverse_proxy && hasReverseProxy) {
+                    if (task.id === SetupTaskId.SetUpReverseProxy && hasReverseProxy) {
                         isAutoCompleted = true
                     }
 
@@ -203,7 +203,7 @@ export const productSetupLogic = kea<productSetupLogicType>([
 
             // Special cases that need non-navigation actions
             switch (taskId) {
-                case SetupTaskId.set_up_web_analytics_conversion_goals:
+                case SetupTaskId.SetUpWebAnalyticsConversionGoals:
                     // Click the filters button after navigation to reveal the conversion goal
                     // (it's inside a popover in the condensed filter bar)
                     setTimeout(() => {

@@ -236,7 +236,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 router.actions.replace(urls.earlyAccessFeature(_earlyAccessFeature.id))
 
                 // Mark feature creation task as completed
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.create_early_access_feature)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateEarlyAccessFeature)
             }
         },
         showGAPromotionConfirmation: async ({ onConfirm }) => {
@@ -261,7 +261,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 actions.saveEarlyAccessFeature({ ...values.earlyAccessFeature, stage })
 
                 // Mark stage update task as completed when user changes stage
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.update_feature_stage)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.UpdateFeatureStage)
             }
 
             // If promoting to General Availability, show confirmation dialog

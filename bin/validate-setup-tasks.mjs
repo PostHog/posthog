@@ -41,10 +41,10 @@ function extractSetupTaskIds() {
     const constBody = constMatch[1]
     const taskIds = []
 
-    // Match lines like: ingest_first_event: 'ingest_first_event',
+    // Match lines like: IngestFirstEvent: 'ingest_first_event',
     const lines = constBody.split('\n')
     for (const line of lines) {
-        const match = line.match(/^\s+([a-z_]+)\s*:/)
+        const match = line.match(/^\s+([A-Za-z]+)\s*:/)
         if (match) {
             taskIds.push(match[1])
         }
@@ -66,7 +66,7 @@ function checkTaskHasCompletionCode(taskId) {
 
         try {
             execSync(
-                // Safe: taskId is extracted from our own source code via regex matching only [a-z_]+ characters
+                // Safe: taskId is extracted from our own source code via regex matching only [A-Za-z]+ characters
                 // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
                 `grep -r "${pattern}" "${fullPath}" --include="*.ts" --include="*.tsx" --exclude="api.schemas.ts" --exclude="productSetupRegistry.ts" -q 2>/dev/null`,
                 {

@@ -987,7 +987,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         ) {
                             globalSetupLogic
                                 .findMounted()
-                                ?.actions.markTaskAsCompleted(SetupTaskId.update_feature_flag_release_conditions)
+                                ?.actions.markTaskAsCompleted(SetupTaskId.UpdateFeatureFlagReleaseConditions)
                         }
 
                         savedFlag = await api.update(
@@ -1303,18 +1303,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.editFeatureFlag(false)
 
             // Collect all completed setup tasks
-            const completedTasks: SetupTaskId[] = [SetupTaskId.create_feature_flag]
+            const completedTasks: SetupTaskId[] = [SetupTaskId.CreateFeatureFlag]
 
             if (featureFlag.filters?.payloads && Object.keys(featureFlag.filters.payloads).length > 0) {
-                completedTasks.push(SetupTaskId.set_up_flag_payloads)
+                completedTasks.push(SetupTaskId.SetUpFlagPayloads)
             }
 
             if (featureFlag.filters?.multivariate) {
-                completedTasks.push(SetupTaskId.create_multivariate_flag)
+                completedTasks.push(SetupTaskId.CreateMultivariateFlag)
             }
 
             if (featureFlag.evaluation_runtime && featureFlag.evaluation_runtime !== FeatureFlagEvaluationRuntime.ALL) {
-                completedTasks.push(SetupTaskId.set_up_flag_evaluation_runtimes)
+                completedTasks.push(SetupTaskId.SetUpFlagEvaluationRuntimes)
             }
 
             // Set all completed tasks at once to avoid conflicts
