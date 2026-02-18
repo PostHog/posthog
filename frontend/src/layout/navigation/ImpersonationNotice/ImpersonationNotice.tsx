@@ -1,19 +1,19 @@
 import './ImpersonationNotice.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCollapse, IconEllipsis, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonMenu, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonMenu, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { DraggableWithSnapZones, DraggableWithSnapZonesRef } from 'lib/components/DraggableWithSnapZones'
+import { DraggableWithSnapZones, DraggableWithSnapZonesRef, SnapPosition } from 'lib/components/DraggableWithSnapZones'
 import { dayjs } from 'lib/dayjs'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconDragHandle } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { userLogic } from 'scenes/userLogic'
 
-import { ImpersonationTicketContext, impersonationNoticeLogic } from './impersonationNoticeLogic'
+import { ImpersonationTicketContext, TicketMessage, impersonationNoticeLogic } from './impersonationNoticeLogic'
 import { ImpersonationReasonModal } from './ImpersonationReasonModal'
 
 function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: () => void }): JSX.Element {
@@ -46,6 +46,76 @@ function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: (
     }, [pastCountdown])
 
     return <span className="tabular-nums text-warning">{countdown}</span>
+}
+
+function TicketMessageBubble({ message }: { message: TicketMessage }): JSX.Element {
+    const isCustomer = message.authorType === 'customer'
+
+    return (
+        <div className={cn('flex flex-col gap-0.5', isCustomer ? 'items-start' : 'items-end')}>
+            <div className="flex items-center gap-1 text-[10px] text-muted-alt px-1">
+                <span>{message.authorName}</span>
+                <span>·</span>
+                <span>{dayjs(message.createdAt).format('MMM D, h:mm A')}</span>
+                {message.isPrivate && <span className="text-warning-dark">(private)</span>}
+            </div>
+            <div
+                className={cn(
+                    'rounded-lg px-2 py-1 text-xs max-w-[85%]',
+                    isCustomer ? 'bg-surface-tertiary' : 'bg-primary-highlight'
+                )}
+            >
+                {message.content}
+            </div>
+        </div>
+    )
+}
+
+function TicketMessagesContent({ messages, loading }: { messages: TicketMessage[]; loading: boolean }): JSX.Element {
+    const messagesEndRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }, [messages.length])
+
+    return (
+        <div
+            className="overflow-y-auto space-y-2 bg-surface-primary rounded p-2"
+            style={{ height: '25vh', maxHeight: '300px' }}
+        >
+            {loading ? (
+                <div className="flex items-center justify-center h-full">
+                    <Spinner />
+                </div>
+            ) : messages.length === 0 ? (
+                <div className="flex items-center justify-center h-full text-muted-alt text-xs">No messages yet</div>
+            ) : (
+                <>
+                    {messages.map((message) => (
+                        <TicketMessageBubble key={message.id} message={message} />
+                    ))}
+                    <div ref={messagesEndRef} />
+                </>
+            )}
+        </div>
+    )
+}
+
+function getPersistedSnapPosition(): SnapPosition | null {
+    try {
+        const stored = localStorage.getItem('impersonation-notice-position')
+        if (stored) {
+            const parsed = JSON.parse(stored)
+            return parsed.snapPosition || null
+        }
+    } catch {
+        // Ignore
+    }
+    return null
+}
+
+function isPositionOnRight(position: SnapPosition | null): boolean {
+    return position?.includes('right') ?? true
 }
 
 function LoginAsContent({
@@ -96,8 +166,16 @@ function LoginAsContent({
 function ImpersonationNoticeContent(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
     const { logout, loadUser } = useActions(userLogic)
-    const { isReadOnly, isUpgradeModalOpen, isImpersonationUpgradeInProgress } = useValues(impersonationNoticeLogic)
-    const { closeUpgradeModal, upgradeImpersonation } = useActions(impersonationNoticeLogic)
+    const {
+        isReadOnly,
+        isUpgradeModalOpen,
+        isImpersonationUpgradeInProgress,
+        impersonationTicket,
+        ticketMessages,
+        ticketMessagesLoading,
+        isTicketExpanded,
+    } = useValues(impersonationNoticeLogic)
+    const { closeUpgradeModal, upgradeImpersonation, toggleTicketExpanded } = useActions(impersonationNoticeLogic)
 
     return (
         <>
@@ -117,6 +195,30 @@ function ImpersonationNoticeContent(): JSX.Element {
                     </>
                 )}
             </p>
+            {impersonationTicket && (
+                <LemonCollapse
+                    panels={[
+                        {
+                            key: 'ticket',
+                            header: `Working on Ticket #${impersonationTicket.ticket_number}`,
+                            content: (
+                                <TicketMessagesContent
+                                    messages={ticketMessages}
+                                    loading={ticketMessagesLoading}
+                                />
+                            ),
+                        },
+                    ]}
+                    activeKey={isTicketExpanded ? 'ticket' : undefined}
+                    onChange={(key) => {
+                        if ((key === 'ticket') !== isTicketExpanded) {
+                            toggleTicketExpanded()
+                        }
+                    }}
+                    size="small"
+                    embedded
+                />
+            )}
             <div className="flex gap-2 justify-end">
                 <LemonButton type="secondary" size="small" onClick={() => loadUser()} loading={userLoading}>
                     Refresh
@@ -125,13 +227,16 @@ function ImpersonationNoticeContent(): JSX.Element {
                     Log out
                 </LemonButton>
             </div>
-            {isReadOnly && (
+            {isUpgradeModalOpen && (
                 <ImpersonationReasonModal
-                    isOpen={isUpgradeModalOpen}
+                    isOpen
                     onClose={closeUpgradeModal}
                     onConfirm={upgradeImpersonation}
                     title="Upgrade to read-write impersonation"
                     description="Read-write mode allows you to make changes on behalf of the user. Please provide a reason for this upgrade."
+                    defaultReason={
+                        impersonationTicket ? `Investigating Ticket #${impersonationTicket.ticket_number}` : ''
+                    }
                     confirmText="Upgrade"
                     loading={isImpersonationUpgradeInProgress}
                 />
@@ -143,7 +248,7 @@ function ImpersonationNoticeContent(): JSX.Element {
 export function ImpersonationNotice(): JSX.Element | null {
     const { user } = useValues(userLogic)
 
-    const { isMinimized, isReadOnly, isImpersonated, ticketContext, adminLoginUrl } =
+    const { isMinimized, isReadOnly, isImpersonated, isTicketExpanded, ticketContext, adminLoginUrl } =
         useValues(impersonationNoticeLogic)
     const { minimize, maximize, openUpgradeModal, setPageVisible } = useActions(impersonationNoticeLogic)
 
@@ -152,14 +257,26 @@ export function ImpersonationNotice(): JSX.Element | null {
     const draggableRef = useRef<DraggableWithSnapZonesRef>(null)
     const [isDragging, setIsDragging] = useState(false)
 
+    // Track snap position for determining expansion direction
+    const [snapPosition, setSnapPosition] = useState<SnapPosition | null>(() => getPersistedSnapPosition())
+
     const handleMinimize = (): void => {
         minimize()
         draggableRef.current?.trySnapTo('bottom-right')
     }
 
+    const handleDragStop = (): void => {
+        setIsDragging(false)
+        // Update snap position from localStorage after drag
+        setSnapPosition(getPersistedSnapPosition())
+    }
+
     useEffect(() => {
         setPageVisible(isPageVisible)
     }, [isPageVisible, setPageVisible])
+
+    // Determine if the panel should expand to the left based on position
+    const expandsLeft = useMemo(() => isPositionOnRight(snapPosition), [snapPosition])
 
     const showLoginAs = user?.is_staff && !isImpersonated && !!ticketContext
 
@@ -176,7 +293,7 @@ export function ImpersonationNotice(): JSX.Element | null {
             defaultSnapPosition="bottom-right"
             persistKey="impersonation-notice-position"
             onDragStart={() => setIsDragging(true)}
-            onDragStop={() => setIsDragging(false)}
+            onDragStop={handleDragStop}
         >
             <div
                 className={cn(
@@ -187,7 +304,9 @@ export function ImpersonationNotice(): JSX.Element | null {
                         ? 'ImpersonationNotice--login-as'
                         : isReadOnly
                           ? 'ImpersonationNotice--read-only'
-                          : 'ImpersonationNotice--read-write'
+                          : 'ImpersonationNotice--read-write',
+                    isTicketExpanded && 'ImpersonationNotice--ticket-expanded',
+                    isTicketExpanded && expandsLeft && 'ImpersonationNotice--expands-left'
                 )}
             >
                 <div className="ImpersonationNotice__sidebar">

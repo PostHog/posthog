@@ -8,6 +8,7 @@ export interface ImpersonationReasonModalProps {
     onConfirm: (reason: string) => void | Promise<void>
     title: string
     description?: string
+    defaultReason?: string
     confirmText?: string
     loading?: boolean
     children?: ReactNode
@@ -19,11 +20,12 @@ export function ImpersonationReasonModal({
     onConfirm,
     title,
     description,
+    defaultReason = '',
     confirmText = 'Confirm',
     loading = false,
     children,
 }: ImpersonationReasonModalProps): JSX.Element {
-    const [reason, setReason] = useState('')
+    const [reason, setReason] = useState(defaultReason)
 
     const handleConfirm = (): void => {
         onConfirm(reason)

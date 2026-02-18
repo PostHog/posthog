@@ -1,9 +1,11 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 
 import { CLOUD_HOSTNAMES } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
 
-import { Region, UserType } from '~/types'
+import api from '~/lib/api'
+import { CommentType, Region, UserType } from '~/types'
 
 import type { impersonationNoticeLogicType } from './impersonationNoticeLogicType'
 
@@ -19,6 +21,21 @@ function adminLoginUrlForTicket(context: ImpersonationTicketContext): string | n
     }
     const domain = CLOUD_HOSTNAMES[context.region]
     return `https://${domain}/admin/posthog/user/?q=${encodeURIComponent(context.email)}`
+}
+
+export interface ImpersonationTicket {
+    id: string
+    ticket_number: number
+    team_id: number
+}
+
+export interface TicketMessage {
+    id: string
+    content: string
+    authorType: 'customer' | 'support' | 'human'
+    authorName: string
+    createdAt: string
+    isPrivate: boolean
 }
 
 export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
@@ -37,7 +54,66 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
         setPageVisible: (visible: boolean) => ({ visible }),
         clearPageHiddenAt: true,
         setTicketContext: (context: ImpersonationTicketContext | null) => ({ context }),
+        toggleTicketExpanded: true,
     }),
+
+    loaders(({ values }) => ({
+        impersonationTicket: [
+            null as ImpersonationTicket | null,
+            {
+                loadImpersonationTicket: async () => {
+                    if (!values.isImpersonated) {
+                        return null
+                    }
+                    try {
+                        return await api.get('admin/impersonation/ticket/')
+                    } catch {
+                        return null
+                    }
+                },
+            },
+        ],
+        ticketMessages: [
+            [] as TicketMessage[],
+            {
+                loadTicketMessages: async () => {
+                    const ticket = values.impersonationTicket
+                    if (!ticket) {
+                        return []
+                    }
+                    try {
+                        const response = await api.comments.list({
+                            scope: 'conversations_ticket',
+                            item_id: ticket.id,
+                        })
+                        // Transform comments to TicketMessage format and reverse for oldest first
+                        return (response.results || []).reverse().map((comment: CommentType) => {
+                            const authorType = comment.item_context?.author_type || 'customer'
+                            let displayName = 'Customer'
+                            if (comment.created_by) {
+                                displayName =
+                                    [comment.created_by.first_name, comment.created_by.last_name]
+                                        .filter(Boolean)
+                                        .join(' ') ||
+                                    comment.created_by.email ||
+                                    'Support'
+                            }
+                            return {
+                                id: comment.id,
+                                content: comment.content || '',
+                                authorType: authorType === 'support' ? 'human' : authorType,
+                                authorName: displayName,
+                                createdAt: comment.created_at,
+                                isPrivate: comment.item_context?.is_private || false,
+                            }
+                        })
+                    } catch {
+                        return []
+                    }
+                },
+            },
+        ],
+    })),
 
     reducers({
         isMinimized: [
@@ -67,6 +143,12 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
             null as ImpersonationTicketContext | null,
             {
                 setTicketContext: (_, { context }) => context,
+            },
+        ],
+        isTicketExpanded: [
+            false,
+            {
+                toggleTicketExpanded: (state) => !state,
             },
         ],
     }),
@@ -108,5 +190,23 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
                 }
             }
         },
+        loadImpersonationTicketSuccess: () => {
+            // Load messages once we have the ticket
+            if (values.impersonationTicket) {
+                actions.loadTicketMessages()
+            }
+        },
+        toggleTicketExpanded: () => {
+            // Load messages when expanding if we haven't already
+            if (values.isTicketExpanded && values.ticketMessages.length === 0 && values.impersonationTicket) {
+                actions.loadTicketMessages()
+            }
+        },
     })),
+
+    afterMount(({ actions, values }) => {
+        if (values.isImpersonated) {
+            actions.loadImpersonationTicket()
+        }
+    }),
 ])
