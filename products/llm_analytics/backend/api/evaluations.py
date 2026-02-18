@@ -16,7 +16,6 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.clickhouse.client import query_with_columns
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import AccessControlPermission
@@ -356,51 +355,91 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
 
         source = serializer.validated_data["source"]
         sample_count = serializer.validated_data["sample_count"]
+        conditions = serializer.validated_data.get("conditions", [])
+
+        from posthog.hogql import ast
+        from posthog.hogql.property import property_to_expr
+        from posthog.hogql.query import execute_hogql_query
 
         from posthog.cdp.validation import compile_hog
+        from posthog.models.team import Team
 
         try:
             bytecode = compile_hog(source, "destination")
         except Exception as e:
             return Response({"error": f"Compilation error: {e}"}, status=400)
 
-        events = query_with_columns(
-            """
-            SELECT
-                uuid,
-                event,
-                properties,
-                distinct_id
-            FROM events
-            WHERE team_id = %(team_id)s
-              AND event IN ('$ai_generation', '$ai_metric')
-              AND timestamp > now() - INTERVAL 7 DAY
-            ORDER BY timestamp DESC
-            LIMIT %(limit)s
-            """,
-            {"team_id": self.team_id, "limit": sample_count},
-            team_id=self.team_id,
+        team = Team.objects.get(id=self.team_id)
+
+        # Build WHERE clause from trigger conditions (OR between condition sets, AND within each)
+        where_exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value=["$ai_generation", "$ai_metric"]),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Sub,
+                    left=ast.Call(name="now", args=[]),
+                    right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=7)]),
+                ),
+            ),
+        ]
+
+        # Apply property filters from conditions
+        condition_exprs: list[ast.Expr] = []
+        for condition in conditions:
+            props = condition.get("properties", [])
+            if props:
+                expr = property_to_expr(props, team)
+                condition_exprs.append(expr)
+
+        if condition_exprs:
+            if len(condition_exprs) == 1:
+                where_exprs.append(condition_exprs[0])
+            else:
+                where_exprs.append(ast.Or(exprs=condition_exprs))
+
+        query = ast.SelectQuery(
+            select=[
+                ast.Field(chain=["uuid"]),
+                ast.Field(chain=["event"]),
+                ast.Field(chain=["properties"]),
+                ast.Field(chain=["distinct_id"]),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(exprs=where_exprs),
+            order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+            limit=ast.Constant(value=sample_count),
         )
 
-        if not events:
+        response = execute_hogql_query(query=query, team=team, limit_context=None)
+
+        if not response.results:
             return Response({"results": [], "message": "No recent AI events found in the last 7 days"})
 
         results = []
-        for event_row in events:
-            properties = event_row["properties"]
+        for row in response.results:
+            event_uuid = str(row[0])
+            event_type = row[1]
+            properties = row[2]
+            distinct_id = row[3]
+
             if isinstance(properties, str):
                 properties = json.loads(properties)
 
             event_data = {
-                "uuid": str(event_row["uuid"]),
-                "event": event_row["event"],
+                "uuid": event_uuid,
+                "event": event_type,
                 "properties": properties,
-                "distinct_id": event_row.get("distinct_id", ""),
+                "distinct_id": distinct_id or "",
             }
 
             result = run_hog_eval(bytecode, event_data)
 
-            event_type = event_row["event"]
             if event_type == "$ai_generation":
                 input_raw = properties.get("$ai_input") or properties.get("$ai_input_state", "")
                 output_raw = (
@@ -417,7 +456,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
 
             results.append(
                 {
-                    "event_uuid": str(event_row["uuid"]),
+                    "event_uuid": event_uuid,
+                    "trace_id": properties.get("$ai_trace_id"),
                     "input_preview": input_preview,
                     "output_preview": output_preview,
                     "result": result["verdict"],
@@ -432,3 +472,4 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
 class TestHogRequestSerializer(serializers.Serializer):
     source = serializers.CharField(required=True, min_length=1)
     sample_count = serializers.IntegerField(required=False, default=5, min_value=1, max_value=10)
+    conditions = serializers.ListField(child=serializers.DictField(), required=False, default=list)

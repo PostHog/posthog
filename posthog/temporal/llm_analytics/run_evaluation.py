@@ -500,9 +500,14 @@ def run_hog_eval(bytecode: list, event_data: dict[str, Any]) -> dict[str, Any]:
         input_raw = properties.get("$ai_input_state", "")
         output_raw = properties.get("$ai_output_state", "")
 
+    # Ensure input/output are always strings so string operations (ilike, length, etc.) work consistently.
+    # Users can still parse structured data with jsonParse() when needed.
+    input_val = json.dumps(input_raw) if isinstance(input_raw, (list, dict)) else (input_raw or "")
+    output_val = json.dumps(output_raw) if isinstance(output_raw, (list, dict)) else (output_raw or "")
+
     globals_dict: dict[str, Any] = {
-        "input": input_raw,
-        "output": output_raw,
+        "input": input_val,
+        "output": output_val,
         "properties": properties,
         "event": {
             "uuid": event_data.get("uuid", ""),
@@ -524,6 +529,8 @@ def run_hog_eval(bytecode: list, event_data: dict[str, Any]) -> dict[str, Any]:
         return {"verdict": None, "reasoning": "", "error": "Memory limit exceeded"}
     except HogVMException as e:
         return {"verdict": None, "reasoning": "", "error": f"Runtime error: {e}"}
+    except Exception as e:
+        return {"verdict": None, "reasoning": "", "error": f"Unexpected error: {e}"}
 
     reasoning = "\n".join(response.stdout) if response.stdout else ""
 

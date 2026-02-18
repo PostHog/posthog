@@ -1,14 +1,35 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { IconCheck, IconExternal, IconWarning, IconX } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+
+import { urls } from '~/scenes/urls'
 
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { HogTestResult } from '../types'
 
 const HOG_EXAMPLES: { label: string; source: string }[] = [
+    {
+        label: 'Quickstart',
+        source: `// Explore the globals available to your evaluation
+// input: the LLM input (string or array of messages)
+// output: the LLM output (string or array of choices)
+// properties: all event properties (e.g. properties.$ai_model)
+
+print('--- input ---')
+print(input)
+
+print('--- output ---')
+print(output)
+
+print('--- model ---')
+print(properties.$ai_model)
+
+// Return true (pass) or false (fail)
+return true`,
+    },
     {
         label: 'Output not empty',
         source: `// Check that the output is not empty
@@ -28,20 +49,26 @@ if (not result) {
 return result`,
     },
     {
-        label: 'Contains keyword',
-        source: `// Check that the output contains an expected keyword
-let keyword := 'hello'
-let result := output ilike concat('%', keyword, '%')
-if (not result) {
-    print('Missing keyword:', keyword)
+        label: 'Contains keywords',
+        source: `// Check that the output contains all expected keywords
+let keywords := ['hello', 'world']
+let missing := []
+for (let i, kw in keywords) {
+    if (not (output ilike concat('%', kw, '%'))) {
+        missing := arrayPushBack(missing, kw)
+    }
 }
-return result`,
+if (length(missing) > 0) {
+    print('Missing keywords:', missing)
+    return false
+}
+return true`,
     },
     {
         label: 'Print messages',
         source: `// Print each message and always pass
 let messages := input
-if (typeof(messages) == 'string') {
+if (typeof(messages) == 'string' and startsWith(trim(messages), '[')) {
     messages := jsonParse(messages)
 }
 if (typeof(messages) == 'array') {
@@ -49,25 +76,55 @@ if (typeof(messages) == 'array') {
         print(concat('Message ', toString(i), ': [', msg.role, '] ', msg.content))
     }
 } else {
-    print('Input:', messages)
+    print('Input:', input)
 }
 return true`,
     },
     {
-        label: 'Valid JSON output',
-        source: `// Check that the output is valid JSON
-fn isValidJSON(s) {
-    try {
-        jsonParse(s)
-        return true
-    } catch (e) {
-        return false
+        label: 'Output quality',
+        source: `// Rate output quality based on length
+let len := length(output)
+
+if (len == 0) {
+    print('Empty response')
+    return false
+} else if (len < 50) {
+    print('Response too short:', len, 'chars')
+    return false
+} else if (len > 10000) {
+    print('Response suspiciously long:', len, 'chars')
+    return false
+} else {
+    print('Response length OK:', len, 'chars')
+    return true
+}`,
+    },
+    {
+        label: 'Tools called',
+        source: `// Check that specific tools were called in the output
+let expected := ['get_weather', 'get_news']
+let found := []
+let missing := []
+for (let i, tool in expected) {
+    if (output ilike concat('%', tool, '%')) {
+        found := arrayPushBack(found, tool)
+    } else {
+        missing := arrayPushBack(missing, tool)
     }
 }
-
-let result := isValidJSON(output)
+print('Found:', found)
+if (length(missing) > 0) {
+    print('Missing:', missing)
+    return false
+}
+return true`,
+    },
+    {
+        label: 'No PII in output',
+        source: `// Check that the output does not contain email addresses
+let result := not (output =~ '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+[.][a-zA-Z]{2,}')
 if (not result) {
-    print('Output is not valid JSON')
+    print('Output contains an email address')
 }
 return result`,
     },
@@ -160,28 +217,41 @@ function HogTestResultsPanel(): JSX.Element | null {
                         },
                     },
                     {
-                        title: 'Output preview',
-                        key: 'output_preview',
-                        render: (_, row) => (
-                            <Tooltip title={row.output_preview}>
-                                <div className="max-w-xs truncate text-sm cursor-default">
-                                    {row.output_preview || <span className="text-muted italic">empty</span>}
-                                </div>
-                            </Tooltip>
-                        ),
-                    },
-                    {
                         title: 'Reasoning',
                         key: 'reasoning',
                         render: (_, row) => (
-                            <Tooltip title={row.reasoning || row.error}>
-                                <div className="max-w-xs truncate text-sm cursor-default">
-                                    {row.reasoning || row.error || <span className="text-muted italic">none</span>}
-                                </div>
-                            </Tooltip>
+                            <div className="truncate text-sm">
+                                {row.reasoning || row.error || <span className="text-muted italic">none</span>}
+                            </div>
                         ),
                     },
+                    {
+                        title: '',
+                        key: 'link',
+                        width: 32,
+                        render: (_, row) =>
+                            row.trace_id ? (
+                                <Tooltip title="View generation">
+                                    <Link
+                                        to={urls.llmAnalyticsTrace(row.trace_id, {
+                                            event: row.event_uuid,
+                                        })}
+                                        target="_blank"
+                                    >
+                                        <IconExternal className="text-muted text-base" />
+                                    </Link>
+                                </Tooltip>
+                            ) : null,
+                    },
                 ]}
+                expandable={{
+                    expandedRowRender: (row) => (
+                        <pre className="text-sm whitespace-pre-wrap m-0 p-2">
+                            {row.reasoning || row.error || 'No output'}
+                        </pre>
+                    ),
+                    rowExpandable: (row) => !!(row.reasoning || row.error),
+                }}
                 dataSource={hogTestResults ?? []}
                 loading={hogTestResultsLoading}
                 rowKey="event_uuid"
@@ -223,17 +293,18 @@ export function EvaluationCodeEditor(): JSX.Element {
                 />
                 <div className="flex justify-between items-center text-sm text-muted">
                     <div className="flex items-center gap-2">
-                        <span>{source.length} characters</span>
-                        <LemonButton
-                            type="secondary"
-                            size="xsmall"
-                            loading={hogTestResultsLoading}
-                            disabled={!source.trim()}
-                            onClick={testHogOnSample}
-                            data-attr="llma-evaluation-test-hog"
-                        >
-                            Test on sample
-                        </LemonButton>
+                        <Tooltip title="Compile and run your code against up to 5 recent generations matching your trigger filters">
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                loading={hogTestResultsLoading}
+                                disabled={!source.trim()}
+                                onClick={testHogOnSample}
+                                data-attr="llma-evaluation-test-hog"
+                            >
+                                Test on sample
+                            </LemonButton>
+                        </Tooltip>
                     </div>
                     <div className="flex items-center gap-2">
                         <span>Expected output:</span>
@@ -247,6 +318,9 @@ export function EvaluationCodeEditor(): JSX.Element {
             <div className="bg-bg-light border rounded p-3">
                 <div className="flex items-center justify-between mb-2">
                     <h4 className="text-sm font-semibold m-0">Examples</h4>
+                    <Link to="https://posthog.com/docs/hog" target="_blank" className="text-sm">
+                        Hog language reference <IconExternal className="inline text-xs" />
+                    </Link>
                 </div>
                 <div className="flex flex-wrap gap-1.5 mb-3">
                     {HOG_EXAMPLES.map((example) => (

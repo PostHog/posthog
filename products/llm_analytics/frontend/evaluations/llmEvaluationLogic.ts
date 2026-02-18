@@ -107,11 +107,29 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     if (!evaluation || evaluation.evaluation_type !== 'hog') {
                         return null
                     }
-                    const response = await api.create(`/api/environments/${teamId}/evaluations/test_hog/`, {
-                        source: evaluation.evaluation_config.source,
-                        sample_count: 5,
-                    })
-                    return response.results
+                    try {
+                        const conditions = evaluation.conditions
+                            .filter((c) => c.properties && c.properties.length > 0)
+                            .map((c) => ({ properties: c.properties }))
+                        const response = await api.create(`/api/environments/${teamId}/evaluations/test_hog/`, {
+                            source: evaluation.evaluation_config.source,
+                            sample_count: 5,
+                            conditions,
+                        })
+                        return response.results
+                    } catch (e: any) {
+                        const message = e.detail || e.data?.error || e.message || 'Unknown error'
+                        return [
+                            {
+                                event_uuid: 'error',
+                                input_preview: '',
+                                output_preview: '',
+                                result: null,
+                                reasoning: '',
+                                error: typeof message === 'string' ? message : JSON.stringify(message),
+                            },
+                        ]
+                    }
                 },
             },
         ],

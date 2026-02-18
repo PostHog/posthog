@@ -185,6 +185,37 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                 />
                             </Field>
 
+                            <Field name="evaluation_type" label="Evaluation type">
+                                <LemonSelect
+                                    value={evaluation.evaluation_type}
+                                    onChange={(value) => setEvaluationType(value as EvaluationType)}
+                                    options={[
+                                        {
+                                            value: 'llm_judge',
+                                            label: 'LLM as a judge',
+                                        },
+                                        {
+                                            value: 'hog',
+                                            label: 'Hog',
+                                        },
+                                    ]}
+                                    fullWidth
+                                />
+                            </Field>
+                            <p className="text-muted text-sm -mt-2">
+                                {isHog ? (
+                                    <>
+                                        Run deterministic{' '}
+                                        <Link to="https://posthog.com/docs/hog" target="_blank">
+                                            Hog code
+                                        </Link>{' '}
+                                        against each generation. No LLM cost, instant results.
+                                    </>
+                                ) : (
+                                    'Use an LLM to evaluate each generation against a natural-language prompt.'
+                                )}
+                            </p>
+
                             <Field name="description" label="Description (optional)">
                                 <LemonTextArea
                                     value={evaluation.description || ''}
@@ -233,31 +264,6 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                 </Field>
                             )}
                         </div>
-                    </div>
-
-                    {/* Evaluation Type */}
-                    <div className="bg-bg-light border rounded p-6">
-                        <h3 className="text-lg font-semibold mb-4">Evaluation type</h3>
-                        <LemonSelect
-                            value={evaluation.evaluation_type}
-                            onChange={(value) => setEvaluationType(value as EvaluationType)}
-                            options={[
-                                {
-                                    value: 'llm_judge',
-                                    label: 'LLM as a judge',
-                                },
-                                {
-                                    value: 'hog',
-                                    label: 'Hog',
-                                },
-                            ]}
-                            fullWidth
-                        />
-                        <p className="text-muted text-sm mt-2">
-                            {isHog
-                                ? 'Run deterministic Hog code against each generation. No LLM cost, instant results.'
-                                : 'Use an LLM to evaluate each generation against a natural-language prompt.'}
-                        </p>
                     </div>
 
                     {/* Prompt / Code Configuration */}

@@ -350,20 +350,23 @@ class TestEvaluationConfigsApi(APIBaseTest):
 
 
 class TestTestHogEndpoint(APIBaseTest):
-    def _sample_events(self, count=1):
-        return [
-            {
-                "uuid": str(uuid4()),
-                "event": "$ai_generation",
-                "properties": '{"$ai_input": "What is 2+2?", "$ai_output": "4"}',
-                "distinct_id": "user-1",
-            }
+    def _mock_hogql_response(self, count=1):
+        from posthog.hogql.query import HogQLQueryResponse
+
+        rows = [
+            (
+                str(uuid4()),
+                "$ai_generation",
+                {"$ai_input": "What is 2+2?", "$ai_output": "4"},
+                "user-1",
+            )
             for _ in range(count)
         ]
+        return HogQLQueryResponse(results=rows, columns=["uuid", "event", "properties", "distinct_id"])
 
-    @patch("products.llm_analytics.backend.api.evaluations.query_with_columns")
+    @patch("posthog.hogql.query.execute_hogql_query")
     def test_test_hog_compiles_and_executes(self, mock_query):
-        mock_query.return_value = self._sample_events(2)
+        mock_query.return_value = self._mock_hogql_response(2)
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/test_hog/",
@@ -395,9 +398,9 @@ class TestTestHogEndpoint(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("products.llm_analytics.backend.api.evaluations.query_with_columns")
+    @patch("posthog.hogql.query.execute_hogql_query")
     def test_test_hog_no_events(self, mock_query):
-        mock_query.return_value = []
+        mock_query.return_value = self._mock_hogql_response(0)
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/test_hog/",
@@ -407,9 +410,9 @@ class TestTestHogEndpoint(APIBaseTest):
         self.assertEqual(response.json()["results"], [])
         self.assertIn("message", response.json())
 
-    @patch("products.llm_analytics.backend.api.evaluations.query_with_columns")
+    @patch("posthog.hogql.query.execute_hogql_query")
     def test_test_hog_handles_runtime_error(self, mock_query):
-        mock_query.return_value = self._sample_events(1)
+        mock_query.return_value = self._mock_hogql_response(1)
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/test_hog/",

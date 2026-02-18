@@ -74,6 +74,7 @@ export interface EvaluationRun {
 
 export interface HogTestResult {
     event_uuid: string
+    trace_id?: string | null
     input_preview: string
     output_preview: string
     result: boolean | null
