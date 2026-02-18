@@ -38,10 +38,6 @@ REQUIRED_FIELDS = ("id", "subject", "description", "priority", "status")
 EXTRA_FIELDS = ("url", "type", "tags", "created_at", "requester_id", "organization_id", "brand_id")
 
 
-def _extract_extra(record: dict[str, Any]) -> dict[str, Any]:
-    return {k: v for k, v in record.items() if k in EXTRA_FIELDS}
-
-
 def zendesk_ticket_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterOutput | None:
     # Required fields based on `zendesk_tickets` table definition
     ticket_id = record.get("id")
@@ -72,7 +68,7 @@ def zendesk_ticket_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitte
         # Sticking to 1 by default for user-generated issues
         weight=1.0,
         # Attach only the fields that would make sense for a signal, without duplicating already included data
-        extra=_extract_extra(record),
+        extra={k: v for k, v in record.items() if k in EXTRA_FIELDS},
     )
 
 

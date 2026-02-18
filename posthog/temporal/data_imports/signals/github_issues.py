@@ -36,10 +36,6 @@ REQUIRED_FIELDS = ("id", "title", "body", "state")
 EXTRA_FIELDS = ("html_url", "number", "labels", "created_at", "updated_at", "comments", "locked")
 
 
-def _extract_extra(record: dict[str, Any]) -> dict[str, Any]:
-    return {k: v for k, v in record.items() if k in EXTRA_FIELDS}
-
-
 def github_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterOutput | None:
     issue_id = record.get("id")
     title = record.get("title")
@@ -62,7 +58,7 @@ def github_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterO
         source_id=str(issue_id),
         description=signal_description,
         weight=1.0,
-        extra=_extract_extra(record),
+        extra={k: v for k, v in record.items() if k in EXTRA_FIELDS},
     )
 
 
