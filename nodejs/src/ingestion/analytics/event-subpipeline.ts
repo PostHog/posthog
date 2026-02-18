@@ -17,6 +17,7 @@ import { createExtractHeatmapDataStep } from '../event-processing/extract-heatma
 import { createHogTransformEventStep } from '../event-processing/hog-transform-event-step'
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from '../event-processing/normalize-process-person-flag-step'
+import { createProcessPersonlessStep } from '../event-processing/process-personless-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 
 export interface EventSubpipelineInput {
@@ -51,6 +52,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
         .pipe(createNormalizeProcessPersonFlagStep())
         .pipe(createHogTransformEventStep(hogTransformer))
         .pipe(createNormalizeEventStep())
+        .pipe(createProcessPersonlessStep(personsStore))
         .pipe(
             createEventPipelineRunnerV1Step(
                 options,
