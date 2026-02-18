@@ -80,6 +80,11 @@ class FormulaAST:
             try:
                 return const_map[node.id]
             except KeyError:
-                raise ValueError(f"Constant {node.id} not supported")
+                available = sorted(k.upper() for k in const_map if k.isalpha() and len(k) == 1)
+                series_word = "series is" if len(available) == 1 else "series are"
+                raise ValueError(
+                    f"Formula references series {node.id.upper()}, "
+                    f"but only {len(available)} {series_word} defined ({', '.join(available) or 'none'})"
+                )
 
         raise TypeError(f"Unsupported operation: {node.__class__.__name__}")
