@@ -79,15 +79,6 @@ export class TeamManager {
         }
     }
 
-    public async getTeamForEvent(event: { team_id?: number | null; token?: string | null }): Promise<Team | null> {
-        if (event.team_id) {
-            return this.getTeam(event.team_id)
-        } else if (event.token) {
-            return this.getTeamByToken(event.token)
-        }
-        return null
-    }
-
     private async fetchTeams(teamIdOrTokens: string[]): Promise<Record<string, Team | null>> {
         const [teamIds, tokens] = teamIdOrTokens.reduce(
             ([teamIds, tokens], idOrToken) => {

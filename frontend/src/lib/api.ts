@@ -1828,6 +1828,10 @@ export class ApiRequest {
         return this.llmPrompts(teamId).addPathComponent('name').addPathComponent(name)
     }
 
+    public llmPromptResolveByName(name: string, teamId?: TeamType['id']): ApiRequest {
+        return this.llmPrompts(teamId).addPathComponent('resolve').addPathComponent('name').addPathComponent(name)
+    }
+
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('evaluation_runs')
     }
@@ -5452,6 +5456,10 @@ const api = {
 
         getByName(promptName: string): Promise<LLMPrompt> {
             return new ApiRequest().llmPromptByName(promptName).get()
+        },
+
+        resolveByName(promptName: string): Promise<LLMPrompt> {
+            return new ApiRequest().llmPromptResolveByName(promptName).get()
         },
 
         async create(data: Omit<Partial<LLMPrompt>, 'created_by'>): Promise<LLMPrompt> {
