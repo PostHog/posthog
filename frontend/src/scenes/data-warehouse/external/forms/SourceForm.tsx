@@ -177,6 +177,7 @@ const sourceFieldToElement = (
                         value={value}
                         onChange={onChange}
                         integration={field.kind}
+                        schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
                     />
                 )}
             </LemonField>

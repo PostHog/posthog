@@ -4,14 +4,14 @@ import api from 'lib/api'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 
-import { CyclotronJobInputSchemaType, IntegrationType } from '~/types'
+import { IntegrationType } from '~/types'
 
 export function IntegrationScopesWarning({
     integration,
     schema,
 }: {
     integration: IntegrationType
-    schema?: CyclotronJobInputSchemaType
+    schema?: Pick<{ requiredScopes?: string }, 'requiredScopes'>
 }): JSX.Element {
     const getScopes = useMemo((): string[] => {
         const scopes: any[] = []

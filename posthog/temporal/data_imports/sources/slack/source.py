@@ -39,7 +39,11 @@ class SlackSource(SimpleSource[SlackSourceConfig], OAuthMixin):
                 list[FieldType],
                 [
                     SourceFieldOauthConfig(
-                        name="slack_integration_id", label="Slack workspace", required=True, kind="slack"
+                        name="slack_integration_id",
+                        label="Slack workspace",
+                        required=True,
+                        kind="slack",
+                        requiredScopes="channels:read groups:read channels:history groups:history users:read users:read.email reactions:read",
                     )
                 ],
             ),

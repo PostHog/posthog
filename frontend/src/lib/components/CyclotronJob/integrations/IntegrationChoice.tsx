@@ -9,8 +9,6 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { urls } from 'scenes/urls'
 
-import { CyclotronJobInputSchemaType } from '~/types'
-
 import { getAllRegisteredIntegrationSetups, getIntegrationSetup } from './integrationSetupRegistry'
 // Side-effect import: register all integration setups
 import './integrationSetups'
@@ -19,7 +17,7 @@ export type IntegrationConfigureProps = {
     value?: number
     onChange?: (value: number | null) => void
     redirectUrl?: string
-    schema?: CyclotronJobInputSchemaType
+    schema?: { requiredScopes?: string }
     integration?: string
     beforeRedirect?: () => void
 }
