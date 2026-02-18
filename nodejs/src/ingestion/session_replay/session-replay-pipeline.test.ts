@@ -64,7 +64,7 @@ describe('session-replay-pipeline', () => {
             const headers: Record<string, string> = {}
             for (const header of input.message.headers || []) {
                 for (const [key, value] of Object.entries(header)) {
-                    headers[key] = (value as Buffer).toString()
+                    headers[key] = Buffer.isBuffer(value) ? value.toString() : value
                 }
             }
             return Promise.resolve(ok({ ...input, headers }))
