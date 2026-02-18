@@ -459,6 +459,9 @@ export default defineConfig({
           ...(info?.title ? [info.title] : []),
           ...(info?.version ? ['OpenAPI spec version: ' + info.version] : []),
         ],
+        namingConvention: {
+          enum: 'PascalCase',
+        },
         fetch: {
           includeHttpResponseReturnType: false,
         },

@@ -46,7 +46,7 @@ export interface PatchedErrorTrackingAssignmentRuleApi {
 export type LibraryEnumApi = (typeof LibraryEnumApi)[keyof typeof LibraryEnumApi]
 
 export const LibraryEnumApi = {
-    web: 'web',
+    Web: 'web',
 } as const
 
 /**
@@ -56,8 +56,8 @@ export const LibraryEnumApi = {
 export type MatchTypeEnumApi = (typeof MatchTypeEnumApi)[keyof typeof MatchTypeEnumApi]
 
 export const MatchTypeEnumApi = {
-    all: 'all',
-    any: 'any',
+    All: 'all',
+    Any: 'any',
 } as const
 
 export interface ErrorTrackingAutoCaptureControlsApi {
@@ -129,31 +129,31 @@ export interface PatchedErrorTrackingAutoCaptureControlsApi {
 export type KindCf2EnumApi = (typeof KindCf2EnumApi)[keyof typeof KindCf2EnumApi]
 
 export const KindCf2EnumApi = {
-    slack: 'slack',
-    salesforce: 'salesforce',
-    hubspot: 'hubspot',
-    'google-pubsub': 'google-pubsub',
-    'google-cloud-storage': 'google-cloud-storage',
-    'google-ads': 'google-ads',
-    'google-sheets': 'google-sheets',
-    snapchat: 'snapchat',
-    'linkedin-ads': 'linkedin-ads',
-    'reddit-ads': 'reddit-ads',
-    'tiktok-ads': 'tiktok-ads',
-    'bing-ads': 'bing-ads',
-    intercom: 'intercom',
-    email: 'email',
-    linear: 'linear',
-    github: 'github',
-    gitlab: 'gitlab',
-    'meta-ads': 'meta-ads',
-    twilio: 'twilio',
-    clickup: 'clickup',
-    vercel: 'vercel',
-    databricks: 'databricks',
-    'azure-blob': 'azure-blob',
-    firebase: 'firebase',
-    jira: 'jira',
+    Slack: 'slack',
+    Salesforce: 'salesforce',
+    Hubspot: 'hubspot',
+    GooglePubsub: 'google-pubsub',
+    GoogleCloudStorage: 'google-cloud-storage',
+    GoogleAds: 'google-ads',
+    GoogleSheets: 'google-sheets',
+    Snapchat: 'snapchat',
+    LinkedinAds: 'linkedin-ads',
+    RedditAds: 'reddit-ads',
+    TiktokAds: 'tiktok-ads',
+    BingAds: 'bing-ads',
+    Intercom: 'intercom',
+    Email: 'email',
+    Linear: 'linear',
+    Github: 'github',
+    Gitlab: 'gitlab',
+    MetaAds: 'meta-ads',
+    Twilio: 'twilio',
+    Clickup: 'clickup',
+    Vercel: 'vercel',
+    Databricks: 'databricks',
+    AzureBlob: 'azure-blob',
+    Firebase: 'firebase',
+    Jira: 'jira',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
@@ -248,11 +248,11 @@ export type ErrorTrackingIssueFullStatusEnumApi =
     (typeof ErrorTrackingIssueFullStatusEnumApi)[keyof typeof ErrorTrackingIssueFullStatusEnumApi]
 
 export const ErrorTrackingIssueFullStatusEnumApi = {
-    archived: 'archived',
-    active: 'active',
-    resolved: 'resolved',
-    pending_release: 'pending_release',
-    suppressed: 'suppressed',
+    Archived: 'archived',
+    Active: 'active',
+    Resolved: 'resolved',
+    PendingRelease: 'pending_release',
+    Suppressed: 'suppressed',
 } as const
 
 export interface ErrorTrackingIssueAssignmentApi {
