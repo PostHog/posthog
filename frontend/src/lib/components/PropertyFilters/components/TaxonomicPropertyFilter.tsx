@@ -78,6 +78,7 @@ export function TaxonomicPropertyFilter({
     editable = true,
     operatorAllowlist,
     endpointFilters,
+    hogQLGlobals,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
@@ -177,6 +178,7 @@ export function TaxonomicPropertyFilter({
             hideBehavioralCohorts={hideBehavioralCohorts}
             selectFirstItem={!cohortOrOtherValue}
             endpointFilters={endpointFilters}
+            hogQLGlobals={hogQLGlobals}
         />
     )
 

@@ -15420,7 +15420,8 @@
                 "BingAds",
                 "Shopify",
                 "Attio",
-                "SnapchatAds"
+                "SnapchatAds",
+                "Linear"
             ],
             "type": "string"
         },
@@ -17032,8 +17033,33 @@
             },
             "type": "object"
         },
-        "HedgehogColorOptions": {
-            "enum": ["green", "red", "blue", "purple", "dark", "light", "sepia", "invert", "invert-hue", "greyscale"],
+        "HedgehogActorAccessoryOption": {
+            "enum": [
+                "beret",
+                "cap",
+                "chef",
+                "cowboy",
+                "eyepatch",
+                "flag",
+                "glasses",
+                "graduation",
+                "parrot",
+                "party",
+                "pineapple",
+                "sunglasses",
+                "tophat",
+                "xmas-hat",
+                "xmas-antlers",
+                "xmas-scarf"
+            ],
+            "type": "string"
+        },
+        "HedgehogActorColorOption": {
+            "enum": ["green", "red", "blue", "purple", "dark", "light", "greyscale", "sepia", "invert", "rainbow"],
+            "type": "string"
+        },
+        "HedgehogActorSkinOption": {
+            "enum": ["default", "spiderhog", "robohog", "hogzilla", "ghost"],
             "type": "string"
         },
         "HogCompileResponse": {
@@ -21513,14 +21539,24 @@
             "properties": {
                 "accessories": {
                     "items": {
-                        "type": "string"
+                        "$ref": "#/definitions/HedgehogActorAccessoryOption"
                     },
                     "type": "array"
                 },
                 "color": {
                     "anyOf": [
                         {
-                            "$ref": "#/definitions/HedgehogColorOptions"
+                            "$ref": "#/definitions/HedgehogActorColorOption"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "skin": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/HedgehogActorSkinOption"
                         },
                         {
                             "type": "null"
@@ -21531,7 +21567,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["use_as_profile", "color", "accessories"],
+            "required": ["use_as_profile"],
             "type": "object"
         },
         "ModeContext": {
@@ -23003,6 +23039,11 @@
                 },
                 "filters_override": {
                     "$ref": "#/definitions/DashboardFilter"
+                },
+                "limit_context": {
+                    "description": "Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value.",
+                    "enum": ["posthog_ai", null],
+                    "type": ["string", "null"]
                 },
                 "name": {
                     "description": "Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name.",

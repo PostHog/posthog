@@ -213,6 +213,14 @@ export function TourSettingsPanel({ tourId }: TourSettingsPanelProps): JSX.Eleme
                     </div>
 
                     <div className="flex items-center justify-between">
+                        <span className="text-sm">Dismiss on outside clicks</span>
+                        <LemonSwitch
+                            checked={currentAppearance.dismissOnClickOutside ?? true}
+                            onChange={(dismissOnClickOutside) => updateAppearance({ dismissOnClickOutside })}
+                        />
+                    </div>
+
+                    <div className="flex items-center justify-between">
                         <Tooltip title="Branding only appears on the first step">
                             <span className="text-sm border-b border-dashed border-current">Remove branding</span>
                         </Tooltip>
