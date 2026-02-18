@@ -1,5 +1,6 @@
 import './ImagePreview.scss'
 
+import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCollapse, IconExpand, IconShare } from '@posthog/icons'
@@ -20,6 +21,7 @@ import { AutocapturePreviewImage } from 'lib/utils/autocapture-previews'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
+import { miniFiltersLogic } from '../miniFiltersLogic'
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { AIEventExpanded, AIEventSummary } from './AIEventItems'
 
@@ -92,7 +94,8 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
             <ExceptionTitlePill event={item.data} />
         ) : null
 
-    const groupCount = item.groupedEvents?.length
+    const { groupRepeatedItems } = useValues(miniFiltersLogic)
+    const groupCount = groupRepeatedItems ? item.groupedEvents?.length : undefined
 
     return (
         <div data-attr="item-event" className="font-light w-full @container">
@@ -115,7 +118,7 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
                         </div>
                     ) : null}
                     {groupCount && groupCount > 1 ? (
-                        <span className="inline-flex items-center justify-center rounded-full min-w-5 h-5 px-1 text-white text-xs font-semibold bg-secondary-3000-hover">
+                        <span className="inline-flex items-center justify-center rounded-full min-w-4 h-4 px-0.5 text-white text-xxs font-bold bg-secondary-3000-hover">
                             {groupCount}
                         </span>
                     ) : null}

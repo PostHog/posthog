@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useValues } from 'kea'
 
 import { LemonDivider } from '@posthog/lemon-ui'
 
@@ -7,6 +8,7 @@ import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { colonDelimitedDuration } from 'lib/utils'
 
+import { miniFiltersLogic } from '../miniFiltersLogic'
 import { InspectorListItemAppState, InspectorListItemConsole } from '../playerInspectorLogic'
 
 export interface ItemConsoleLogProps {
@@ -18,13 +20,16 @@ export interface ItemAppStateProps {
 }
 
 export function ItemConsoleLog({ item }: ItemConsoleLogProps): JSX.Element {
+    const { groupRepeatedItems } = useValues(miniFiltersLogic)
+    const showBadge = groupRepeatedItems && (item.data.count || 1) > 1
+
     return (
         <div className="w-full font-light flex items-center" data-attr="item-console-log">
             <div className="px-2 py-1 text-xs cursor-pointer truncate font-mono flex-1">{item.data.content}</div>
-            {(item.data.count || 1) > 3 ? (
+            {showBadge ? (
                 <span
                     className={clsx(
-                        'inline-flex items-center justify-center rounded-full min-w-5 h-5 px-1 mx-2 shrink-0 text-white text-xs font-semibold',
+                        'inline-flex items-center justify-center rounded-full min-w-4 h-4 px-0.5 mx-2 shrink-0 text-white text-xxs font-bold',
                         item.highlightColor === 'danger'
                             ? 'bg-fill-error-highlight'
                             : item.highlightColor === 'warning'
@@ -47,7 +52,7 @@ export function ItemConsoleLogDetail({ item }: ItemConsoleLogProps): JSX.Element
     return (
         <div className="w-full font-light" data-attr="item-console-log">
             <div className="px-2 py-1 text-xs border-t">
-                {count > 3 && occurrences?.length ? (
+                {count > 1 && occurrences?.length ? (
                     <>
                         <div className="italic mb-1">
                             This log occurred <b>{count}</b> times:
@@ -74,7 +79,7 @@ export function ItemConsoleLogDetail({ item }: ItemConsoleLogProps): JSX.Element
                             })}
                         </div>
                     </>
-                ) : count > 3 ? (
+                ) : count > 1 ? (
                     <>
                         <div className="italic">
                             This log occurred <b>{count}</b> times in a row.

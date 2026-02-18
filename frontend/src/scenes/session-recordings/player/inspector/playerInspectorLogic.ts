@@ -190,17 +190,20 @@ export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicPr
     matchingEventsMatchType?: MatchingEventsMatchType
 }
 
-/** Merges runs of identical adjacent events/inactivity into grouped items. Groups of <= 3 are kept ungrouped. */
-export function collapseAdjacentItems(items: InspectorListItem[]): InspectorListItem[] {
+/** Merges runs of identical adjacent events and inactivity into grouped items.
+ *  Inactivity is always collapsed. Event grouping is controlled by `groupEvents`. */
+export function collapseAdjacentItems(items: InspectorListItem[], groupEvents = true): InspectorListItem[] {
     const collapsed = items.reduce((acc, item) => {
         const previousItem = acc[acc.length - 1]
 
         if (item.type === 'inactivity' && previousItem?.type === 'inactivity') {
-            previousItem.durationMs += item.durationMs
+            // Replace the previous item with a merged copy (no mutation)
+            acc[acc.length - 1] = { ...previousItem, durationMs: previousItem.durationMs + item.durationMs }
             return acc
         }
 
         if (
+            groupEvents &&
             item.type === 'events' &&
             previousItem?.type === 'events' &&
             item.data.event === previousItem.data.event &&
@@ -208,10 +211,9 @@ export function collapseAdjacentItems(items: InspectorListItem[]): InspectorList
             !item.highlightColor &&
             !previousItem.highlightColor
         ) {
-            if (!previousItem.groupedEvents) {
-                previousItem.groupedEvents = [{ ...previousItem }]
-            }
-            previousItem.groupedEvents.push(item)
+            const existingGroup = previousItem.groupedEvents ?? [{ ...previousItem }]
+            // Replace with a new object carrying the updated group (no mutation)
+            acc[acc.length - 1] = { ...previousItem, groupedEvents: [...existingGroup, item] }
             return acc
         }
 
@@ -219,9 +221,9 @@ export function collapseAdjacentItems(items: InspectorListItem[]): InspectorList
         return acc
     }, [] as InspectorListItem[])
 
-    // Only keep event groups with > 3 items; un-group smaller runs
+    // Only keep event groups with 2+ items; un-group singletons
     return collapsed.flatMap((item) => {
-        if (item.type === 'events' && item.groupedEvents && item.groupedEvents.length <= 3) {
+        if (item.type === 'events' && item.groupedEvents && item.groupedEvents.length <= 1) {
             return item.groupedEvents.map((e) => ({ ...e, groupedEvents: undefined }))
         }
         return item
@@ -331,7 +333,14 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
         values: [
             miniFiltersLogic,
-            ['showOnlyMatching', 'miniFiltersByKey', 'searchQuery', 'miniFiltersForTypeByKey', 'miniFilters'],
+            [
+                'showOnlyMatching',
+                'groupRepeatedItems',
+                'miniFiltersByKey',
+                'searchQuery',
+                'miniFiltersForTypeByKey',
+                'miniFilters',
+            ],
             sessionRecordingDataCoordinatorLogic(props),
             [
                 'sessionPlayerData',
@@ -670,17 +679,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                         windowNumber: windowNumberForID(windowId),
                                         key: `${itemTimestamp.valueOf()}-console-${level}-${consoleLogs.length - 1}`,
                                     })
-                                }
-                            } else {
-                                // Cache hit: same timestamp+content seen before (recording duplicate),
-                                // but still count it as an occurrence in the current group
-                                const lastLogLine = consoleLogs[consoleLogs.length - 1]
-                                if (lastLogLine?.content === content) {
-                                    lastLogLine.count = (lastLogLine.count ?? 1) + 1
-                                    if (!lastLogLine.occurrences) {
-                                        lastLogLine.occurrences = [lastLogLine.timestamp]
-                                    }
-                                    lastLogLine.occurrences.push(snapshot.timestamp)
                                 }
                             }
                         }
@@ -1059,6 +1057,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.allowMatchingEventsFilter,
                 s.trackedWindow,
                 s.hasEventsToDisplay,
+                s.groupRepeatedItems,
             ],
             (
                 allItemsData,
@@ -1066,7 +1065,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 showOnlyMatching,
                 allowMatchingEventsFilter,
                 trackedWindow,
-                hasEventsToDisplay
+                hasEventsToDisplay,
+                groupRepeatedItems
             ): InspectorListItem[] => {
                 const filteredItems = filterInspectorListItems({
                     allItems: allItemsData.items,
@@ -1077,7 +1077,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     hasEventsToDisplay,
                 })
 
-                return collapseAdjacentItems(filteredItems)
+                return collapseAdjacentItems(filteredItems, groupRepeatedItems)
             },
             { resultEqualityCheck: equal },
         ],

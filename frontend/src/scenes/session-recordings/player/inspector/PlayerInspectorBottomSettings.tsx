@@ -106,11 +106,30 @@ function ShowOnlyMatching(): JSX.Element {
     )
 }
 
+function GroupRepeatedItems(): JSX.Element {
+    const { groupRepeatedItems } = useValues(miniFiltersLogic)
+    const { setGroupRepeatedItems } = useActions(miniFiltersLogic)
+
+    return (
+        <SettingsToggle
+            title={
+                groupRepeatedItems
+                    ? 'Stop grouping similar events and console logs'
+                    : 'Group similar events and console logs into a single row'
+            }
+            label="Group similar"
+            onClick={() => setGroupRepeatedItems(!groupRepeatedItems)}
+            active={groupRepeatedItems}
+        />
+    )
+}
+
 export function PlayerInspectorBottomSettings(): JSX.Element {
     return (
         <SettingsBar border="top">
             <SyncScrolling />
             <ShowOnlyMatching />
+            <GroupRepeatedItems />
             <HideProperties />
         </SettingsBar>
     )
