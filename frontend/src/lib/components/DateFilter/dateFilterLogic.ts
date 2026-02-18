@@ -45,6 +45,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
         openFixedRangeWithTime: true,
         openDateToNow: true,
         openFixedDate: true,
+        openJumpToTimestamp: true,
         close: true,
         applyRange: true,
         setFixedRangeGranularity: (granularity: 'day' | 'minute') => ({ granularity }),
@@ -72,6 +73,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 openFixedRangeWithTime: () => DateFilterView.FixedRangeWithTime,
                 openDateToNow: () => DateFilterView.DateToNow,
                 openFixedDate: () => DateFilterView.FixedDate,
+                openJumpToTimestamp: () => DateFilterView.JumpToTimestamp,
             },
         ],
         isVisible: [
@@ -82,6 +84,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 openFixedRangeWithTime: () => true,
                 openDateToNow: () => true,
                 openFixedDate: () => true,
+                openJumpToTimestamp: () => true,
                 setDate: (_, { keepPopoverOpen }) => keepPopoverOpen,
                 close: () => false,
             },

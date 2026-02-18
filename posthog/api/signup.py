@@ -86,6 +86,9 @@ class SignupSerializer(serializers.Serializer):
         max_length=128, required=False, allow_blank=True, default=""
     )
     referral_source: serializers.Field = serializers.CharField(max_length=1000, required=False, allow_blank=True)
+    referral_source_ai_prompt: serializers.Field = serializers.CharField(
+        max_length=1000, required=False, allow_blank=True
+    )
 
     # Slightly hacky: self vars for internal use
     is_social_signup: bool
@@ -177,6 +180,7 @@ class SignupSerializer(serializers.Serializer):
         organization_name = validated_data.pop("organization_name", default_org_name)
         role_at_organization = validated_data.pop("role_at_organization", "")
         referral_source = validated_data.pop("referral_source", "")
+        referral_source_ai_prompt = validated_data.pop("referral_source_ai_prompt", "")
 
         # For passkey signup, set password to None and use the pre-generated UUID
         if passkey_credential:
@@ -244,6 +248,7 @@ class SignupSerializer(serializers.Serializer):
             org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
             role_at_organization=role_at_organization,
             referral_source=referral_source,
+            referral_source_ai_prompt=referral_source_ai_prompt,
         )
 
         verify_email_or_login(request, user)
@@ -538,6 +543,12 @@ class SocialSignupSerializer(serializers.Serializer):
     organization_name: serializers.Field = serializers.CharField(max_length=64)
     first_name: serializers.Field = serializers.CharField(max_length=128)
     role_at_organization: serializers.Field = serializers.CharField(max_length=123, required=False, default="")
+    referral_source: serializers.Field = serializers.CharField(
+        max_length=1000, required=False, allow_blank=True, default=""
+    )
+    referral_source_ai_prompt: serializers.Field = serializers.CharField(
+        max_length=1000, required=False, allow_blank=True, default=""
+    )
 
     def create(self, validated_data, **kwargs):
         request = self.context["request"]
@@ -550,6 +561,8 @@ class SocialSignupSerializer(serializers.Serializer):
         email = request.session.get("email")
         organization_name = validated_data["organization_name"]
         role_at_organization = validated_data["role_at_organization"]
+        referral_source = validated_data.get("referral_source", "")
+        referral_source_ai_prompt = validated_data.get("referral_source_ai_prompt", "")
         first_name = validated_data["first_name"]
 
         serializer = SignupSerializer(
@@ -559,6 +572,8 @@ class SocialSignupSerializer(serializers.Serializer):
                 "email": email,
                 "password": None,
                 "role_at_organization": role_at_organization,
+                "referral_source": referral_source,
+                "referral_source_ai_prompt": referral_source_ai_prompt,
             },
             context={"request": request},
         )

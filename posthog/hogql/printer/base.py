@@ -56,6 +56,8 @@ from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
 
+MAX_PLACEHOLDER_MACRO_EXPANSION_DEPTH = 8
+
 
 def get_channel_definition_dict():
     """Get the channel definition dictionary name with the correct database.
@@ -89,6 +91,7 @@ class HogQLPrinter(Visitor[str]):
         self._indent = -1
         self.tab_size = 4
         self._table_top_level_settings: dict[str, Any] = {}
+        self._placeholder_macro_expansion_depth = 0
 
     def indent(self, extra: int = 0):
         return " " * self.tab_size * (self._indent + extra)
@@ -103,6 +106,12 @@ class HogQLPrinter(Visitor[str]):
         self.stack.pop()
 
         return response
+
+    def visit_cte(self, node: ast.CTE):
+        if node.cte_type == "subquery":
+            return f"{node.name} AS {self.visit(node.expr)}"
+
+        return f"{self.visit(node.expr)} AS {node.name}"
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         self._indent -= 1
@@ -170,6 +179,8 @@ class HogQLPrinter(Visitor[str]):
         else:
             columns = ["1"]
 
+        ctes = [self.visit(cte) for cte in node.ctes.values()] if node.ctes else None
+
         window = (
             ", ".join(
                 [f"{self._print_identifier(name)} AS ({self.visit(expr)})" for name, expr in node.window_exprs.items()]
@@ -200,6 +211,7 @@ class HogQLPrinter(Visitor[str]):
         comma = f",\n{self.indent(1)}" if self.pretty else ", "
 
         clauses = [
+            f"WITH{space}{comma.join(ctes)}" if ctes else None,
             f"SELECT{space}{'DISTINCT ' if node.distinct else ''}{comma.join(columns)}",
             f"FROM{space}{space.join(joined_tables)}" if len(joined_tables) > 0 else None,
             array_join if array_join else None,
@@ -345,6 +357,13 @@ class HogQLPrinter(Visitor[str]):
 
         elif isinstance(node.type, ast.SelectSetQueryType):
             join_strings.append(self.visit(node.table))
+
+        elif isinstance(node.type, ast.CTETableType):
+            join_strings.append(self._print_identifier(node.type.name))
+
+        elif isinstance(node.type, ast.CTETableAliasType):
+            join_strings.append(self._print_identifier(node.type.cte_table_type.name))
+            join_strings.append(f"AS {self._print_identifier(node.type.alias)}")
 
         elif isinstance(node.type, ast.SelectViewType) and node.alias is not None:
             join_strings.append(self.visit(node.table))
@@ -553,23 +572,13 @@ class HogQLPrinter(Visitor[str]):
                     )
 
             # Handle format strings in function names before checking function type
-            if func_meta.using_placeholder_arguments:
-                # Check if using positional arguments (e.g. {0}, {1})
-                if func_meta.using_positional_arguments:
-                    # For positional arguments, pass the args as a dictionary
-                    arg_arr = [self.visit(arg) for arg in node.args]
-                    try:
-                        return func_meta.clickhouse_name.format(*arg_arr)
-                    except (KeyError, IndexError) as e:
-                        raise QueryError(f"Invalid argument reference in function '{node.name}': {str(e)}")
-                else:
-                    # Original sequential placeholder behavior
-                    placeholder_count = func_meta.clickhouse_name.count("{}")
-                    if len(node.args) != placeholder_count:
-                        raise QueryError(
-                            f"Function '{node.name}' requires exactly {placeholder_count} argument{'s' if placeholder_count != 1 else ''}"
-                        )
-                    return func_meta.clickhouse_name.format(*[self.visit(arg) for arg in node.args])
+            # For HogQL, don't expand the macro, just display it in its original shape.
+            if func_meta.using_placeholder_arguments and self.dialect != "hogql":
+                return self._render_placeholder_macro(
+                    node=node,
+                    clickhouse_name=func_meta.clickhouse_name,
+                    using_positional_arguments=func_meta.using_positional_arguments,
+                )
 
         if node.name in HOGQL_COMPARISON_MAPPING:
             op = HOGQL_COMPARISON_MAPPING[node.name]
@@ -840,6 +849,32 @@ class HogQLPrinter(Visitor[str]):
             raise QueryError("You can not use placeholders here")
         raise QueryError(f"Unresolved placeholder: {{{node.field}}}")
 
+    def _render_placeholder_macro(self, node: ast.Call, clickhouse_name: str, using_positional_arguments: bool) -> str:
+        self._placeholder_macro_expansion_depth += 1
+        try:
+            if self._placeholder_macro_expansion_depth > MAX_PLACEHOLDER_MACRO_EXPANSION_DEPTH:
+                raise QueryError(
+                    f"Function '{node.name}' exceeded maximum placeholder macro depth of {MAX_PLACEHOLDER_MACRO_EXPANSION_DEPTH}."
+                )
+
+            if using_positional_arguments:
+                arg_arr = [self.visit(arg) for arg in node.args]
+                try:
+                    rendered = clickhouse_name.format(*arg_arr)
+                except (KeyError, IndexError) as e:
+                    raise QueryError(f"Invalid argument reference in function '{node.name}': {str(e)}")
+            else:
+                placeholder_count = clickhouse_name.count("{}")
+                if len(node.args) != placeholder_count:
+                    raise QueryError(
+                        f"Function '{node.name}' requires exactly {placeholder_count} argument{'s' if placeholder_count != 1 else ''}"
+                    )
+                rendered = clickhouse_name.format(*[self.visit(arg) for arg in node.args])
+
+            return rendered
+        finally:
+            self._placeholder_macro_expansion_depth -= 1
+
     def visit_alias(self, node: ast.Alias):
         # Skip hidden aliases completely.
         if node.hidden:
@@ -919,9 +954,16 @@ class HogQLPrinter(Visitor[str]):
             or isinstance(type.table_type, ast.SelectQueryAliasType)
             or isinstance(type.table_type, ast.SelectViewType)
             or isinstance(type.table_type, ast.SelectSetQueryType)
+            or isinstance(type.table_type, ast.CTETableType)
+            or isinstance(type.table_type, ast.CTETableAliasType)
         ):
             field_sql = self._print_identifier(type.name)
-            if isinstance(type.table_type, ast.SelectQueryAliasType) or isinstance(type.table_type, ast.SelectViewType):
+            if (
+                isinstance(type.table_type, ast.SelectQueryAliasType)
+                or isinstance(type.table_type, ast.SelectViewType)
+                or isinstance(type.table_type, ast.CTETableType)
+                or isinstance(type.table_type, ast.CTETableAliasType)
+            ):
                 field_sql = f"{self.visit(type.table_type)}.{field_sql}"
 
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
@@ -1087,6 +1129,12 @@ class HogQLPrinter(Visitor[str]):
         return self._print_identifier(type.alias)
 
     def visit_select_view_type(self, type: ast.SelectViewType):
+        return self._print_identifier(type.alias)
+
+    def visit_ctetable_type(self, type: ast.CTETableType):
+        return self._print_identifier(type.name)
+
+    def visit_ctetable_alias_type(self, type: ast.CTETableAliasType):
         return self._print_identifier(type.alias)
 
     def visit_field_alias_type(self, type: ast.FieldAliasType):
