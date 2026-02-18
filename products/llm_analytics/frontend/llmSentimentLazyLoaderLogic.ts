@@ -67,6 +67,7 @@ export const llmSentimentLazyLoaderLogic = kea<llmSentimentLazyLoaderLogicType>(
             requestedTraceIds,
         }),
         loadSentimentBatchFailure: (requestedTraceIds: string[]) => ({ requestedTraceIds }),
+        clearLoadingTrace: (traceId: string) => ({ traceId }),
     }),
 
     reducers({
@@ -124,6 +125,14 @@ export const llmSentimentLazyLoaderLogic = kea<llmSentimentLazyLoaderLogicType>(
 
                     return newSet
                 },
+                clearLoadingTrace: (state, { traceId }) => {
+                    if (!state.has(traceId)) {
+                        return state
+                    }
+                    const newSet = new Set(state)
+                    newSet.delete(traceId)
+                    return newSet
+                },
             },
         ],
     }),
@@ -158,6 +167,7 @@ export const llmSentimentLazyLoaderLogic = kea<llmSentimentLazyLoaderLogicType>(
         return {
             ensureSentimentLoaded: ({ traceId, dateRange }) => {
                 if (values.sentimentByTraceId[traceId] !== undefined) {
+                    actions.clearLoadingTrace(traceId)
                     return
                 }
 

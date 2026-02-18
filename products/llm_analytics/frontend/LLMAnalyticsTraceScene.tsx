@@ -326,7 +326,6 @@ function TraceMetadata({
     const { personsCache, isDistinctIdLoading } = useValues(llmPersonsLazyLoaderLogic)
     const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
     const { getTraceSentiment, isTraceLoading } = useValues(llmSentimentLazyLoaderLogic)
-    const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
 
     const showSentiment = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
     const sentimentResult = showSentiment ? getTraceSentiment(trace.id) : undefined
@@ -334,7 +333,6 @@ function TraceMetadata({
     if (showSentiment && sentimentResult === undefined && !sentimentLoading) {
         ensureSentimentLoaded(trace.id)
     }
->>>>>>> ab34249ab8 (feat(llma): add sentiment UI to traces table and trace detail view)
 
     const cached = personsCache[trace.distinctId]
 

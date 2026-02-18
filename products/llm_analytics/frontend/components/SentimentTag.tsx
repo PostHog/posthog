@@ -100,7 +100,7 @@ export function SentimentBar({ label, score, loading, size = 'sm', messages }: S
         return <LemonSkeleton className={`h-1.5 ${size === 'full' ? 'w-3/4' : 'w-10'}`} />
     }
 
-    const sentimentLabel = (label as SentimentLabel) ?? 'neutral'
+    const sentimentLabel = (label as SentimentLabel) || 'neutral'
     const barColor = SENTIMENT_BAR_COLOR[sentimentLabel] ?? 'bg-border'
     const widthPercent = Math.round(score * 100)
     const { maxPositive, maxNegative } = computeExtremes(messages)
