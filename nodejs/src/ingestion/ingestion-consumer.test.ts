@@ -1391,4 +1391,107 @@ describe('IngestionConsumer', () => {
             TRANSFORMATION_TEST_TIMEOUT
         )
     })
+
+    describe('store flush behavior', () => {
+        it('should flush stores exactly once per batch regardless of number of events', async () => {
+            const flushSpy = jest.spyOn(ingester['personsStore'], 'flush')
+            const groupFlushSpy = jest.spyOn(ingester['groupStore'], 'flush')
+            const reportBatchSpy = jest.spyOn(ingester['personsStore'], 'reportBatch')
+            const resetSpy = jest.spyOn(ingester['personsStore'], 'reset')
+
+            const events: PipelineEvent[] = [
+                {
+                    distinct_id: 'user1',
+                    event: '$pageview',
+                    properties: {},
+                    timestamp: '2025-01-01 00:00:00',
+                    team_id: team.id,
+                    now: '2025-01-01 00:00:00',
+                    uuid: new UUIDT().toString(),
+                    token: team.api_token,
+                    ip: '127.0.0.1',
+                    site_url: 'https://example.com',
+                },
+                {
+                    distinct_id: 'user2',
+                    event: '$pageview',
+                    properties: {},
+                    timestamp: '2025-01-01 00:00:01',
+                    team_id: team.id,
+                    now: '2025-01-01 00:00:01',
+                    uuid: new UUIDT().toString(),
+                    token: team.api_token,
+                    ip: '127.0.0.1',
+                    site_url: 'https://example.com',
+                },
+                {
+                    distinct_id: 'user3',
+                    event: '$pageview',
+                    properties: {},
+                    timestamp: '2025-01-01 00:00:02',
+                    team_id: team.id,
+                    now: '2025-01-01 00:00:02',
+                    uuid: new UUIDT().toString(),
+                    token: team.api_token,
+                    ip: '127.0.0.1',
+                    site_url: 'https://example.com',
+                },
+            ]
+
+            const messages = createKafkaMessages(events)
+
+            await ingester.handleKafkaBatch(messages)
+
+            // Verify stores were flushed exactly once
+            expect(flushSpy).toHaveBeenCalledTimes(1)
+            expect(groupFlushSpy).toHaveBeenCalledTimes(1)
+
+            // Verify lifecycle methods called exactly once
+            expect(reportBatchSpy).toHaveBeenCalledTimes(1)
+            expect(resetSpy).toHaveBeenCalledTimes(1)
+
+            flushSpy.mockRestore()
+            groupFlushSpy.mockRestore()
+            reportBatchSpy.mockRestore()
+            resetSpy.mockRestore()
+        })
+
+        it('should call flush before reportBatch and reset', async () => {
+            const callOrder: string[] = []
+
+            const flushSpy = jest.spyOn(ingester['personsStore'], 'flush').mockImplementation(() => {
+                callOrder.push('flush')
+                return Promise.resolve([])
+            })
+            const reportBatchSpy = jest.spyOn(ingester['personsStore'], 'reportBatch').mockImplementation(() => {
+                callOrder.push('reportBatch')
+            })
+            const resetSpy = jest.spyOn(ingester['personsStore'], 'reset').mockImplementation(() => {
+                callOrder.push('reset')
+            })
+
+            const events: PipelineEvent[] = [
+                {
+                    distinct_id: 'user1',
+                    event: '$pageview',
+                    properties: {},
+                    timestamp: '2025-01-01 00:00:00',
+                    team_id: team.id,
+                    now: '2025-01-01 00:00:00',
+                    uuid: new UUIDT().toString(),
+                    token: team.api_token,
+                    ip: '127.0.0.1',
+                    site_url: 'https://example.com',
+                },
+            ]
+
+            await ingester.handleKafkaBatch(createKafkaMessages(events))
+
+            expect(callOrder).toEqual(['flush', 'reportBatch', 'reset'])
+
+            flushSpy.mockRestore()
+            reportBatchSpy.mockRestore()
+            resetSpy.mockRestore()
+        })
+    })
 })

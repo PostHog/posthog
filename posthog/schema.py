@@ -1634,6 +1634,109 @@ class ExternalDataSourceType(StrEnum):
     SHOPIFY = "Shopify"
     ATTIO = "Attio"
     SNAPCHAT_ADS = "SnapchatAds"
+    LINEAR = "Linear"
+    INTERCOM = "Intercom"
+    AMPLITUDE = "Amplitude"
+    MIXPANEL = "Mixpanel"
+    JIRA = "Jira"
+    ACTIVE_CAMPAIGN = "ActiveCampaign"
+    MARKETO = "Marketo"
+    ADJUST = "Adjust"
+    APPS_FLYER = "AppsFlyer"
+    FRESHDESK = "Freshdesk"
+    GOOGLE_ANALYTICS = "GoogleAnalytics"
+    PIPEDRIVE = "Pipedrive"
+    SEND_GRID = "SendGrid"
+    SLACK = "Slack"
+    PAGER_DUTY = "PagerDuty"
+    ASANA = "Asana"
+    NOTION = "Notion"
+    AIRTABLE = "Airtable"
+    GREENHOUSE = "Greenhouse"
+    BAMBOO_HR = "BambooHR"
+    LEVER = "Lever"
+    GIT_LAB = "GitLab"
+    DATADOG = "Datadog"
+    SENTRY = "Sentry"
+    PENDO = "Pendo"
+    FULL_STORY = "FullStory"
+    AMAZON_ADS = "AmazonAds"
+    PINTEREST_ADS = "PinterestAds"
+    APPLE_SEARCH_ADS = "AppleSearchAds"
+    QUICK_BOOKS = "QuickBooks"
+    XERO = "Xero"
+    NET_SUITE = "NetSuite"
+    WOO_COMMERCE = "WooCommerce"
+    BIG_COMMERCE = "BigCommerce"
+    PAY_PAL = "PayPal"
+    SQUARE = "Square"
+    ZOOM = "Zoom"
+    TRELLO = "Trello"
+    MONDAY = "Monday"
+    CLICK_UP = "ClickUp"
+    CONFLUENCE = "Confluence"
+    RECURLY = "Recurly"
+    SALES_LOFT = "SalesLoft"
+    OUTREACH = "Outreach"
+    GONG = "Gong"
+    CALENDLY = "Calendly"
+    TYPEFORM = "Typeform"
+    ITERABLE = "Iterable"
+    ZOHO_CRM = "ZohoCRM"
+    CLOSE = "Close"
+    ORACLE = "Oracle"
+    DYNAMO_DB = "DynamoDB"
+    ELASTICSEARCH = "Elasticsearch"
+    KAFKA = "Kafka"
+    LAUNCH_DARKLY = "LaunchDarkly"
+    BRAINTREE = "Braintree"
+    RECHARGE = "Recharge"
+    HELP_SCOUT = "HelpScout"
+    GORGIAS = "Gorgias"
+    INSTAGRAM = "Instagram"
+    YOU_TUBE_ANALYTICS = "YouTubeAnalytics"
+    FACEBOOK_PAGES = "FacebookPages"
+    TWITTER_ADS = "TwitterAds"
+    WORKDAY = "Workday"
+    SERVICE_NOW = "ServiceNow"
+    PARDOT = "Pardot"
+    COPPER = "Copper"
+    FRONT = "Front"
+    CHART_MOGUL = "ChartMogul"
+    ZUORA = "Zuora"
+    PADDLE = "Paddle"
+    CIRCLE_CI = "CircleCI"
+    COCKROACH_DB = "CockroachDB"
+    FIREBASE = "Firebase"
+    AZURE_BLOB = "AzureBlob"
+    GOOGLE_DRIVE = "GoogleDrive"
+    ONE_DRIVE = "OneDrive"
+    SHARE_POINT = "SharePoint"
+    BOX = "Box"
+    SFTP = "SFTP"
+    MICROSOFT_TEAMS = "MicrosoftTeams"
+    AIRCALL = "Aircall"
+    WEBFLOW = "Webflow"
+    OKTA = "Okta"
+    AUTH0 = "Auth0"
+    PRODUCTBOARD = "Productboard"
+    SMARTSHEET = "Smartsheet"
+    WRIKE = "Wrike"
+    PLAID = "Plaid"
+    SURVEY_MONKEY = "SurveyMonkey"
+    EVENTBRITE = "Eventbrite"
+    RING_CENTRAL = "RingCentral"
+    TWILIO = "Twilio"
+    FRESHSALES = "Freshsales"
+    SHORTCUT = "Shortcut"
+    CONVERT_KIT = "ConvertKit"
+    DRIP = "Drip"
+    CAMPAIGN_MONITOR = "CampaignMonitor"
+    MAILER_LITE = "MailerLite"
+    OMNISEND = "Omnisend"
+    BREVO = "Brevo"
+    POSTMARK = "Postmark"
+    GRANOLA = "Granola"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1934,17 +2037,44 @@ class HeatmapSettings(BaseModel):
     yAxisLabel: str | None = None
 
 
-class HedgehogColorOptions(StrEnum):
+class HedgehogActorAccessoryOption(StrEnum):
+    BERET = "beret"
+    CAP = "cap"
+    CHEF = "chef"
+    COWBOY = "cowboy"
+    EYEPATCH = "eyepatch"
+    FLAG = "flag"
+    GLASSES = "glasses"
+    GRADUATION = "graduation"
+    PARROT = "parrot"
+    PARTY = "party"
+    PINEAPPLE = "pineapple"
+    SUNGLASSES = "sunglasses"
+    TOPHAT = "tophat"
+    XMAS_HAT = "xmas-hat"
+    XMAS_ANTLERS = "xmas-antlers"
+    XMAS_SCARF = "xmas-scarf"
+
+
+class HedgehogActorColorOption(StrEnum):
     GREEN = "green"
     RED = "red"
     BLUE = "blue"
     PURPLE = "purple"
     DARK = "dark"
     LIGHT = "light"
+    GREYSCALE = "greyscale"
     SEPIA = "sepia"
     INVERT = "invert"
-    INVERT_HUE = "invert-hue"
-    GREYSCALE = "greyscale"
+    RAINBOW = "rainbow"
+
+
+class HedgehogActorSkinOption(StrEnum):
+    DEFAULT = "default"
+    SPIDERHOG = "spiderhog"
+    ROBOHOG = "robohog"
+    HOGZILLA = "hogzilla"
+    GHOST = "ghost"
 
 
 class HogCompileResponse(BaseModel):
@@ -2631,8 +2761,9 @@ class MinimalHedgehogConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    accessories: list[str]
-    color: HedgehogColorOptions | None = None
+    accessories: list[HedgehogActorAccessoryOption] | None = None
+    color: HedgehogActorColorOption | None = None
+    skin: HedgehogActorSkinOption | None = None
     use_as_profile: bool
 
 
@@ -3131,6 +3262,11 @@ class QueryLogTags(BaseModel):
             " churn the Schema when we add a new Scene *"
         ),
     )
+
+
+class LimitContext(Enum):
+    POSTHOG_AI = "posthog_ai"
+    NONE_TYPE_NONE = None
 
 
 class QueryResponseAlternative7(BaseModel):
@@ -18848,6 +18984,10 @@ class QueryRequest(BaseModel):
         description=("Client provided query ID. Can be used to retrieve the status or cancel the query."),
     )
     filters_override: DashboardFilter | None = None
+    limit_context: LimitContext | None = Field(
+        default=None,
+        description=("Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value."),
+    )
     name: str | None = Field(
         default=None,
         description=(
