@@ -520,13 +520,15 @@ jobs:
                   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
                   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
               run: |
-                  BRANCH=${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || 'master' }}
+                  BRANCH="${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || 'master' }}"
                   npx --yes wrangler@3 pages deploy playwright/playwright-report \
                     --project-name=playwright-report \
                     --branch="$BRANCH" \
                     --commit-dirty=true 2>&1 | tee /tmp/wrangler-output.txt
-                  URL=$(grep -oP 'https://\S+\.pages\.dev' /tmp/wrangler-output.txt | tail -1)
-                  echo "deployment-url=$URL" >> $GITHUB_OUTPUT
+                  URL=$(grep -oP 'https://\S+\.pages\.dev' /tmp/wrangler-output.txt | tail -1 || true)
+                  if [ -n "$URL" ]; then
+                      echo "deployment-url=$URL" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Write report URL to job summary
               if: always() && steps.cf-deploy.outputs.deployment-url != ''
@@ -540,20 +542,25 @@ jobs:
 
             - name: Upsert report URL comment on PR
               if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               with:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   script: |
                       const fs = require('fs');
                       const marker = '<!-- playwright-report-comment -->';
                       const reportUrl = '${{ steps.cf-deploy.outputs.deployment-url }}';
-                      const passed = '${{ job.status }}' === 'success';
-                      const icon = passed ? '✅' : '❌';
+                      const jobPassed = '${{ job.status }}' === 'success';
 
-                      // Collect failed and flaky tests from JSON report
+                      // Collect failed and flaky tests from JSON report — only populated when
+                      // results.json exists (i.e. tests actually ran). If the file is missing
+                      // (setup failure, cancelled, etc.) extraLines stays empty and we treat
+                      // it the same as "no failures found", so we don't delete an existing
+                      // comment that may have relevant info from a previous run.
                       let extraLines = '';
+                      let resultsRead = false;
                       try {
                           const results = JSON.parse(fs.readFileSync('playwright/results.json', 'utf8'));
+                          resultsRead = true;
                           const failed = [];
                           const flaky = [];
                           function collect(suites) {
@@ -586,8 +593,8 @@ jobs:
                       });
                       const existing = comments.find(c => c.body.includes(marker));
 
-                      // Delete the comment when all tests pass — no noise for green PRs
-                      if (!extraLines) {
+                      // Only clean up the comment when we actually read results and they're clean
+                      if (resultsRead && !extraLines) {
                           if (existing) {
                               await github.rest.issues.deleteComment({
                                   owner: context.repo.owner,
@@ -598,8 +605,12 @@ jobs:
                           return;
                       }
 
+                      // Skip posting if there's nothing useful to show
+                      if (!extraLines && !reportUrl) return;
+
+                      const reportLink = reportUrl ? ` · [View test results →](${reportUrl})` : '';
                       const footer = '\n\n---\n*Annoyed by this comment? Make the tests green and it\'ll disappear!*';
-                      const body = `${marker}\n🎭 Playwright report · [View test results →](${reportUrl})${extraLines}${footer}`;
+                      const body = `${marker}\n🎭 Playwright report${reportLink}${extraLines}${footer}`;
 
                       if (existing) {
                           await github.rest.issues.updateComment({
