@@ -5,13 +5,14 @@ import { useMemo, useState } from 'react'
 import { IconPlus } from '@posthog/icons'
 
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { VerticalNestedDND } from 'lib/components/VerticalNestedDND/VerticalNestedDND'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Link } from 'lib/lemon-ui/Link'
 import { UnexpectedNeverError, genericOperatorMap, uuid } from 'lib/utils'
-import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -23,13 +24,7 @@ import {
     CustomChannelRule,
     DefaultChannelTypes,
 } from '~/queries/schema/schema-general'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    FilterLogicalOperator,
-    PropertyFilterType,
-    PropertyOperator,
-} from '~/types'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 const combinerOptions = [
     { label: 'All', value: FilterLogicalOperator.And },
@@ -153,7 +148,10 @@ export function CustomChannelTypes(): JSX.Element {
             .map((channelType) => ({ label: channelType, key: channelType }))
     }, [customChannelTypeRules])
 
-    const canEdit = userHasAccess(AccessControlResourceType.WebAnalytics, AccessControlLevel.Editor)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     return (
         <div>
@@ -186,7 +184,7 @@ export function CustomChannelTypes(): JSX.Element {
                     setSavedCustomChannelTypeRules(customChannelTypeRules)
                 }}
                 isSaveDisabled={isEqual(customChannelTypeRules, savedCustomChannelTypeRules)}
-                canEdit={canEdit}
+                canEdit={!restrictedReason}
             />
         </div>
     )
