@@ -37,7 +37,6 @@ from posthog.models.comment.utils import (
     build_mention_display_name_lookup,
     extract_plain_text_from_rich_content,
     is_ticket_comment_scope,
-    replace_mention_placeholders,
 )
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.utils import UUIDT
@@ -829,8 +828,6 @@ def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], s
 
         mention_display_names = build_mention_display_name_lookup(mentioned_user_ids)
         comment_content = extract_plain_text_from_rich_content(comment.rich_content, mention_display_names)
-        if not comment_content and comment.content:
-            comment_content = replace_mention_placeholders(comment.content, mention_display_names)
 
         href = build_comment_item_url(comment.scope, comment.item_id, slug, team_id=comment.team_id)
         is_ticket_mention = is_ticket_comment_scope(comment.scope)

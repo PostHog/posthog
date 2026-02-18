@@ -1,4 +1,3 @@
-import re
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -26,7 +25,6 @@ SCOPE_TO_PATH_MAPPING: dict[str, str] = {
 }
 
 TICKET_COMMENT_SCOPES = {"conversations_ticket", "Ticket"}
-MENTION_PLACEHOLDER_PATTERN = re.compile(r"@(?:member|user):(?P<id>\d+)")
 
 
 def is_ticket_comment_scope(scope: str) -> bool:
@@ -51,18 +49,6 @@ def build_mention_display_name_lookup(user_ids: Iterable[int]) -> dict[int, str]
 
     mentioned_users = User.objects.filter(id__in=unique_user_ids).only("id", "first_name", "email")
     return {mentioned_user.id: _get_user_display_name(mentioned_user) for mentioned_user in mentioned_users}
-
-
-def replace_mention_placeholders(content: str, mention_display_names: dict[int, str]) -> str:
-    if not content or not mention_display_names:
-        return content
-
-    def replace_mention(match: re.Match[str]) -> str:
-        mention_id = int(match.group("id"))
-        mention_display_name = mention_display_names.get(mention_id)
-        return f"@{mention_display_name}" if mention_display_name else match.group(0)
-
-    return MENTION_PLACEHOLDER_PATTERN.sub(replace_mention, content)
 
 
 def build_comment_item_url(
@@ -142,9 +128,9 @@ def produce_discussion_mention_events(
             mentioned_user.id: _get_user_display_name(mentioned_user) for mentioned_user in mentioned_users
         }
         item_url = build_comment_item_url(comment.scope, comment.item_id, slug, team_id=comment.team_id)
-        comment_content = extract_plain_text_from_rich_content(comment.rich_content, mention_display_names)
-        if not comment_content and comment.content:
-            comment_content = replace_mention_placeholders(comment.content, mention_display_names)
+        comment_content = (
+            extract_plain_text_from_rich_content(comment.rich_content, mention_display_names) or comment.content
+        )
 
         commenter_data = {
             "id": str(commenter.id),
