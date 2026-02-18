@@ -1,4 +1,3 @@
-import os
 import json
 import uuid
 import asyncio
@@ -12,11 +11,9 @@ from django.utils import timezone
 
 import structlog
 import temporalio
-from asgiref.sync import sync_to_async
 from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.workflow import ParentClosePolicy
 
 from posthog.schema import EmbeddingModelName
 
@@ -25,11 +22,13 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.embedding_worker import emit_embedding_request, generate_embedding
 from posthog.models import Team
+from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
 from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
 from products.signals.backend.temporal.types import (
+    WEIGHT_THRESHOLD,
     EmitSignalInputs,
     ExistingReportMatch,
     MatchResult,
@@ -43,7 +42,6 @@ from products.signals.backend.temporal.types import (
 logger = structlog.get_logger(__name__)
 
 EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
-WEIGHT_THRESHOLD = float(os.getenv("SIGNAL_WEIGHT_THRESHOLD", "1.0"))
 MAX_QUERIES = 3
 
 
@@ -186,7 +184,7 @@ class EmitSignalWorkflow:
                     SignalReportSummaryWorkflowInputs(team_id=inputs.team_id, report_id=assign_result.report_id),
                     id=SignalReportSummaryWorkflow.workflow_id_for(inputs.team_id, assign_result.report_id),
                     task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                    parent_close_policy=ParentClosePolicy.ABANDON,
+                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                     execution_timeout=timedelta(minutes=30),
                 )
@@ -212,7 +210,7 @@ async def get_embedding_activity(input: GenerateEmbeddingInput) -> GenerateEmbed
     """Generate embedding for signal content using the embedding worker API."""
     try:
         team = await Team.objects.aget(pk=input.team_id)
-        response = await sync_to_async(generate_embedding, thread_sensitive=False)(
+        response = await database_sync_to_async(generate_embedding, thread_sensitive=False)(
             team, input.content, model=EMBEDDING_MODEL.value
         )
         logger.debug(
@@ -277,7 +275,7 @@ async def fetch_signal_type_examples_activity(input: FetchSignalTypeExamplesInpu
             GROUP BY source_product, source_type
         """
 
-        result = await sync_to_async(execute_hogql_query, thread_sensitive=False)(
+        result = await database_sync_to_async(execute_hogql_query, thread_sensitive=False)(
             query_type="SignalsFetchTypeExamples",
             query=query,
             team=team,
@@ -475,7 +473,7 @@ async def run_signal_semantic_search_activity(input: RunSignalSemanticSearchInpu
             LIMIT {limit}
         """
 
-        result = await sync_to_async(execute_hogql_query, thread_sensitive=False)(
+        result = await database_sync_to_async(execute_hogql_query, thread_sensitive=False)(
             query_type="SignalsRunEmbeddingQuery",
             query=query,
             team=team,
@@ -722,10 +720,28 @@ async def assign_signal_to_report_activity(input: AssignSignalInput) -> AssignSi
                 report.save(update_fields=["status", "promoted_at", "updated_at"])
                 promoted = True
 
+            # Re-promote reports that have been summarized before if the signal count
+            # has grown to >= 2x the count at last run — triggers a fresh summary with
+            # the new signals (including a coherence re-check).
+            elif (
+                report.signals_at_run > 0
+                and report.signal_count >= 2 * report.signals_at_run
+                and report.status
+                in (
+                    SignalReport.Status.READY,
+                    SignalReport.Status.PENDING_INPUT,
+                    SignalReport.Status.FAILED,  # TODO - not sure about this one
+                )
+            ):
+                report.status = SignalReport.Status.CANDIDATE
+                report.promoted_at = timezone.now()
+                report.save(update_fields=["status", "promoted_at", "updated_at"])
+                promoted = True
+
             return str(report.id), promoted
 
     try:
-        report_id, promoted = await sync_to_async(do_assign, thread_sensitive=False)()
+        report_id, promoted = await database_sync_to_async(do_assign, thread_sensitive=False)()
         logger.debug(
             f"Assigned signal to report {report_id}",
             report_id=report_id,
@@ -911,14 +927,15 @@ async def _process_one_signal(inputs: EmitSignalInputs) -> str:
 
     if assign_result.promoted:
         try:
-            await workflow.start_child_workflow(
+            # We want to run the analysis flow to completion before processing the next signal for this team,
+            # as the processing of new signals is affected by the results of the analysis.
+            await workflow.execute_child_workflow(
                 SignalReportSummaryWorkflow.run,
                 SignalReportSummaryWorkflowInputs(team_id=inputs.team_id, report_id=assign_result.report_id),
                 id=SignalReportSummaryWorkflow.workflow_id_for(inputs.team_id, assign_result.report_id),
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                parent_close_policy=ParentClosePolicy.ABANDON,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                execution_timeout=timedelta(minutes=30),
+                execution_timeout=timedelta(hours=1),
             )
         except temporalio.exceptions.WorkflowAlreadyStartedError:
             pass

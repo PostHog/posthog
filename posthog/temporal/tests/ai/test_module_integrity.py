@@ -71,6 +71,8 @@ class TestAITemporalModuleIntegrity:
             "get_proactive_tasks_enabled_team_ids_activity",
             "actionability_judge_activity",
             "assign_signal_to_report_activity",
+            "classify_signals_activity",
+            "coherence_judge_activity",
             "emit_to_clickhouse_activity",
             "fetch_signal_type_examples_activity",
             "fetch_signals_for_report_activity",
@@ -83,8 +85,8 @@ class TestAITemporalModuleIntegrity:
             "mark_report_ready_activity",
             "reset_report_to_potential_activity",
             "run_signal_semantic_search_activity",
+            "save_reassignment_activity",
             "safety_judge_activity",
-            "summarize_signals_activity",
         ]
         actual_activity_names = [activity.__name__ for activity in ai.AI_ACTIVITIES + ai.SIGNALS_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (
