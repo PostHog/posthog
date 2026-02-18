@@ -319,37 +319,6 @@
         </dl>
     </div>
 
-    {% if certificate.deleted_recordings and certificate.deleted_recordings|length <= 100 %}
-    <div class="section">
-        <h2>Deleted Recordings ({{ certificate.deleted_recordings|length }})</h2>
-        {% if certificate.deleted_recordings|length > 20 %}
-        <details class="collapsible-section">
-            <summary>Show all {{ certificate.deleted_recordings|length }} deleted recordings</summary>
-        {% endif %}
-            <table class="recordings-table">
-                <thead>
-                    <tr>
-                        <th>#</th>
-                        <th>Session ID</th>
-                        <th>Deleted At</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for recording in certificate.deleted_recordings %}
-                    <tr>
-                        <td>{{ forloop.counter }}</td>
-                        <td class="session-id">{{ recording.session_id }}</td>
-                        <td>{{ recording.deleted_at|date:"Y-m-d H:i:s" }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        {% if certificate.deleted_recordings|length > 20 %}
-        </details>
-        {% endif %}
-    </div>
-    {% endif %}
-
     {% if certificate.failed %}
     <div class="section">
         <h2>Failed ({{ certificate.failed|length }})</h2>

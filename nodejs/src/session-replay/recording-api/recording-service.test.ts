@@ -191,6 +191,58 @@ describe('RecordingService', () => {
             })
         })
 
+        it('emits kafka events for newly deleted sessions', async () => {
+            mockKeyStore.deleteKey.mockResolvedValue({ deleted: true, deletedAt: 1700000000 })
+
+            await service.bulkDeleteRecordings(['session-1', 'session-2'], 1)
+
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledTimes(2)
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith([
+                expect.objectContaining({ sessionId: 'session-1', teamId: 1, isDeleted: true }),
+            ])
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith([
+                expect.objectContaining({ sessionId: 'session-2', teamId: 1, isDeleted: true }),
+            ])
+        })
+
+        it('does not emit kafka events for already deleted sessions', async () => {
+            mockKeyStore.deleteKey.mockResolvedValue({
+                deleted: false,
+                reason: 'already_deleted',
+                deletedAt: 1700000000,
+            })
+
+            await service.bulkDeleteRecordings(['session-1'], 1)
+
+            expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
+        })
+
+        it('bulk deletes postgres records for all successful sessions', async () => {
+            mockKeyStore.deleteKey.mockResolvedValue({ deleted: true, deletedAt: 1700000000 })
+
+            await service.bulkDeleteRecordings(['session-1', 'session-2'], 1)
+
+            expect(mockPostgres.query).toHaveBeenCalledTimes(3)
+            expect(mockPostgres.query).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringContaining('ee_single_session_summary'),
+                [1, ['session-1', 'session-2']],
+                'bulkDeleteSessionSummaries'
+            )
+            expect(mockPostgres.query).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringContaining('posthog_exportedrecording'),
+                [1, ['session-1', 'session-2']],
+                'bulkDeleteExportedRecordings'
+            )
+            expect(mockPostgres.query).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringContaining('posthog_comment'),
+                [1, ['session-1', 'session-2']],
+                'bulkDeleteRecordingComments'
+            )
+        })
+
         it('treats already_deleted as success', async () => {
             mockKeyStore.deleteKey.mockResolvedValue({
                 deleted: false,
@@ -230,6 +282,27 @@ describe('RecordingService', () => {
                     { session_id: 'session-1', error: 'unexpected_error' },
                     { session_id: 'session-2', error: 'unexpected_error' },
                 ],
+            })
+        })
+
+        it('skips postgres when no sessions succeeded', async () => {
+            mockKeyStore.deleteKey.mockRejectedValue(new Error('Database error'))
+
+            await service.bulkDeleteRecordings(['session-1'], 1)
+
+            expect(mockPostgres.query).not.toHaveBeenCalled()
+        })
+
+        it('continues on postgres failure', async () => {
+            mockKeyStore.deleteKey.mockResolvedValue({ deleted: true, deletedAt: 1700000000 })
+            mockPostgres.query.mockRejectedValue(new Error('Postgres down'))
+
+            const result = await service.bulkDeleteRecordings(['session-1'], 1)
+
+            // Key shredding succeeded, so the session is still counted as deleted
+            expect(result).toEqual({
+                deleted: ['session-1'],
+                failed: [],
             })
         })
     })

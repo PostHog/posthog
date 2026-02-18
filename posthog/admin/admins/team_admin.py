@@ -32,6 +32,7 @@ from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.storage.recordings import file_storage
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.delete_recordings.types import (
+    DeletionConfig,
     RecordingsWithPersonInput,
     RecordingsWithQueryInput,
     RecordingsWithSessionIdsInput,
@@ -639,6 +640,7 @@ class TeamAdmin(admin.ModelAdmin):
         try:
             temporal = sync_connect()
             workflow_id = f"delete-recordings-{team.id}-{uuid.uuid4()}"
+            config = DeletionConfig(reason=reason, dry_run=dry_run)
 
             if workflow_type == "person":
                 distinct_ids_raw = request.POST.get("distinct_ids", "").strip()
@@ -647,9 +649,7 @@ class TeamAdmin(admin.ModelAdmin):
                     return redirect(reverse("admin:posthog_team_delete_recordings", args=[object_id]))
 
                 distinct_ids = [d.strip() for d in distinct_ids_raw.split("\n") if d.strip()]
-                workflow_input = RecordingsWithPersonInput(
-                    team_id=team.id, distinct_ids=distinct_ids, reason=reason, dry_run=dry_run
-                )
+                workflow_input = RecordingsWithPersonInput(team_id=team.id, distinct_ids=distinct_ids, config=config)
 
                 asyncio.run(
                     temporal.start_workflow(
@@ -678,7 +678,7 @@ class TeamAdmin(admin.ModelAdmin):
                 )
 
             elif workflow_type == "team":
-                workflow_input = RecordingsWithTeamInput(team_id=team.id, reason=reason, dry_run=dry_run)
+                workflow_input = RecordingsWithTeamInput(team_id=team.id, config=config)
 
                 asyncio.run(
                     temporal.start_workflow(
@@ -771,7 +771,7 @@ class TeamAdmin(admin.ModelAdmin):
                     query_parts.append(f"properties={json.dumps(properties)}")
 
                 query = "&".join(query_parts)
-                workflow_input = RecordingsWithQueryInput(team_id=team.id, query=query, reason=reason, dry_run=dry_run)
+                workflow_input = RecordingsWithQueryInput(team_id=team.id, query=query, config=config)
 
                 asyncio.run(
                     temporal.start_workflow(
@@ -830,8 +830,7 @@ class TeamAdmin(admin.ModelAdmin):
                 workflow_input = RecordingsWithSessionIdsInput(
                     team_id=team.id,
                     session_ids=session_ids,
-                    reason=reason,
-                    dry_run=dry_run,
+                    config=config,
                     source_filename=upload_file.name,
                 )
 
@@ -937,10 +936,6 @@ class TeamAdmin(admin.ModelAdmin):
             for key in ("started_at", "completed_at"):
                 if isinstance(certificate.get(key), str):
                     certificate[key] = datetime.fromisoformat(certificate[key])
-            for recording in certificate.get("deleted_recordings", []):
-                if isinstance(recording.get("deleted_at"), str):
-                    recording["deleted_at"] = datetime.fromisoformat(recording["deleted_at"])
-
         context = {
             **self.admin_site.each_context(request),
             "team": team,

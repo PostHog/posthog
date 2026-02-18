@@ -6,37 +6,56 @@ from pydantic import BaseModel, Field
 MAX_BULK_DELETE_BATCH_SIZE = 100
 
 
+class DeletionProgress(BaseModel):
+    """Accumulated state across continue-as-new executions."""
+
+    cursor: str | None = None
+    total_found: int = 0
+    total_deleted: int = 0
+    total_failed: int = 0
+    failed: list["DeleteFailure"] = []
+    started_at: datetime | None = None
+
+
+class DeletionConfig(BaseModel):
+    dry_run: bool = False
+    batch_size: Annotated[int, Field(ge=1, le=MAX_BULK_DELETE_BATCH_SIZE)] = MAX_BULK_DELETE_BATCH_SIZE
+    max_deletions_per_second: float = 30
+    reason: str = ""
+
+
 class RecordingsWithPersonInput(BaseModel):
     distinct_ids: list[str]
     team_id: int
-    reason: str = ""
-    dry_run: bool = False
-    batch_size: Annotated[int, Field(ge=1, le=MAX_BULK_DELETE_BATCH_SIZE)] = MAX_BULK_DELETE_BATCH_SIZE
+    config: DeletionConfig = DeletionConfig()
+    cursor: str | None = None
+    page_size: int = 10_000
+    progress: DeletionProgress | None = None
 
 
 class RecordingsWithTeamInput(BaseModel):
     team_id: int
-    reason: str = ""
-    dry_run: bool = False
-    batch_size: Annotated[int, Field(ge=1, le=MAX_BULK_DELETE_BATCH_SIZE)] = MAX_BULK_DELETE_BATCH_SIZE
+    config: DeletionConfig = DeletionConfig()
+    cursor: str | None = None
+    page_size: int = 10_000
+    progress: DeletionProgress | None = None
 
 
 class RecordingsWithQueryInput(BaseModel):
     query: str
     team_id: int
-    reason: str = ""
-    dry_run: bool = False
-    batch_size: Annotated[int, Field(ge=1, le=MAX_BULK_DELETE_BATCH_SIZE)] = MAX_BULK_DELETE_BATCH_SIZE
+    config: DeletionConfig = DeletionConfig()
     query_limit: int = 100
+    cursor: str | None = None
+    progress: DeletionProgress | None = None
 
 
 class RecordingsWithSessionIdsInput(BaseModel):
     session_ids: list[str]
     team_id: int
-    reason: str = ""
-    dry_run: bool = False
-    batch_size: Annotated[int, Field(ge=1, le=MAX_BULK_DELETE_BATCH_SIZE)] = MAX_BULK_DELETE_BATCH_SIZE
+    config: DeletionConfig = DeletionConfig()
     source_filename: str | None = None
+    progress: DeletionProgress | None = None
 
 
 class BulkDeleteInput(BaseModel):
@@ -55,9 +74,9 @@ class BulkDeleteResult(BaseModel):
     failed: list[DeleteFailure]
 
 
-class DeleteSuccess(BaseModel):
-    session_id: str
-    deleted_at: datetime
+class LoadRecordingsPage(BaseModel):
+    session_ids: list[str]
+    next_cursor: str | None = None
 
 
 class DeletionCertificate(BaseModel):
@@ -82,7 +101,6 @@ class DeletionCertificate(BaseModel):
     total_failed: int
 
     # Detailed records
-    deleted_recordings: list[DeleteSuccess]
     failed: list[DeleteFailure]
 
 
