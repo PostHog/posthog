@@ -67,7 +67,7 @@ export function ProductTourComponent({ id }: ProductTourLogicProps): JSX.Element
                                 addText="Add authorized URL"
                                 productTourId={id}
                                 userIntent={toolbarMode === 'edit' ? 'edit-product-tour' : 'preview-product-tour'}
-                                launchInSameTab={isEditingProductTour}
+                                launchInSameTab={false}
                             />
                         </div>
                     </LemonModal>
