@@ -460,10 +460,10 @@ class AccessControlViewSetMixin(_GenericViewSet):
         role_resource_overrides: dict[tuple[str, APIScopeObject], AccessControlLevel] = {}
 
         for ac in access_controls:
-            level: AccessControlLevel = ac.access_level  # type: ignore[assignment]
-            resource_type: APIScopeObject = ac.resource  # type: ignore[assignment]
-            role_id = ac.role_id  # type: ignore[attr-defined]
-            is_default = ac.organization_member_id is None and role_id is None  # type: ignore[attr-defined]
+            level: AccessControlLevel = ac.access_level
+            resource_type: APIScopeObject = ac.resource
+            role_id = ac.role_id
+            is_default = ac.organization_member_id is None and role_id is None
 
             if is_default:
                 if ac.resource == "project":
@@ -550,10 +550,10 @@ class AccessControlViewSetMixin(_GenericViewSet):
         member_resource_overrides: dict[tuple[str, APIScopeObject], AccessControlLevel] = {}
 
         for ac in access_controls:
-            level: AccessControlLevel = ac.access_level  # type: ignore[assignment]
-            resource_type: APIScopeObject = ac.resource  # type: ignore[assignment]
-            role_id = ac.role_id  # type: ignore[attr-defined]
-            member_id = ac.organization_member_id  # type: ignore[attr-defined]
+            level: AccessControlLevel = ac.access_level
+            resource_type: APIScopeObject = ac.resource
+            role_id = ac.role_id
+            member_id = ac.organization_member_id
             is_default = member_id is None and role_id is None
 
             if is_default:
@@ -583,7 +583,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
         for membership in memberships:
             mid = str(membership.id)
             is_org_admin = membership.level >= OrganizationMembership.Level.ADMIN
-            member_role_ids = [str(rm.role_id) for rm in membership.role_memberships.all()]  # type: ignore[attr-defined]
+            member_role_ids = [str(rm.role_id) for rm in membership.role_memberships.all()]
 
             project_member_level = member_project_overrides.get(mid)
             project_role_levels: list[AccessControlLevel] = [
