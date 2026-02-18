@@ -258,6 +258,9 @@ export function ActionFilterRow({
     // Only use the funnel results when in funnel context
     const isStepOptional = isFunnelContext ? funnelIsStepOptional : () => false
 
+    // DWH events are not supported in inline events yet
+    const canCombine = showCombine && filter.type !== EntityTypes.DATA_WAREHOUSE
+
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
     const [isMenuVisible, setIsMenuVisible] = useState(false)
 
@@ -606,7 +609,7 @@ export function ActionFilterRow({
         !readOnly && !showPopupMenu
             ? [
                   !hideFilter && propertyFiltersButton,
-                  showCombine && combineInlineButton,
+                  canCombine && combineInlineButton,
                   !hideRename && renameRowButton,
                   !hideDuplicate && !singleFilter && duplicateRowButton,
                   !hideDeleteBtn && !singleFilter && deleteButton,
@@ -768,7 +771,7 @@ export function ActionFilterRow({
                                 {showPopupMenu ? (
                                     <>
                                         {!hideFilter && propertyFiltersButton}
-                                        {showCombine && combineInlineButton}
+                                        {canCombine && combineInlineButton}
                                         <div className="relative">
                                             <LemonMenu
                                                 placement={isTrendsContext ? 'bottom-end' : 'bottom-start'}
