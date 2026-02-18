@@ -108,7 +108,7 @@ export function SceneTitlePanelButton({
                     tooltip={
                         <>
                             Open context panel
-                            <RenderKeybind className="relative -top-px" keybind={[keyBinds.toggleRightNav]} />
+                            <RenderKeybind className="relative -top-px ml-1" keybind={[keyBinds.toggleRightNav]} />
                         </>
                     }
                     tooltipPlacement="bottom-end"
