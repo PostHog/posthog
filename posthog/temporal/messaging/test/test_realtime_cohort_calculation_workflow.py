@@ -4,7 +4,6 @@ from unittest.mock import Mock, patch
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow import flush_kafka_batch
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
     RealtimeCohortCalculationCoordinatorWorkflowInputs,
-    get_realtime_cohort_calculation_count_activity,
     get_realtime_cohort_selection_activity,
 )
 
@@ -288,71 +287,6 @@ class TestBatchFlushingBehavior:
 class TestRealtimeCohortCalculationCoordinator:
     """Tests for the coordinator workflow and percentage-based cohort selection."""
 
-    @pytest.mark.asyncio
-    async def test_count_activity_with_specific_cohort_id(self):
-        """When cohort_id is specified, should count only that cohort."""
-        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(cohort_id=123)
-
-        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
-            mock_queryset = Mock()
-            mock_queryset.count.return_value = 1
-            mock_cohort.objects.filter.return_value = mock_queryset
-
-            result = await get_realtime_cohort_calculation_count_activity(inputs)
-
-            assert result.count == 1
-            mock_cohort.objects.filter.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_count_activity_with_force_teams(self):
-        """Teams in force list should count all their cohorts."""
-        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(team_ids={2})
-
-        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
-            # Team 2 has 3 cohorts
-            team_queryset = Mock()
-            team_queryset.count.return_value = 3
-            mock_cohort.objects.filter.return_value = team_queryset
-
-            result = await get_realtime_cohort_calculation_count_activity(inputs)
-
-            assert result.count == 3
-
-    @pytest.mark.asyncio
-    async def test_count_activity_with_global_percentage_calculates_correctly(self):
-        """When global percentage is specified, should calculate percentage correctly."""
-        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(team_ids=set(), global_percentage=0.1)  # 10% global
-
-        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
-            # All teams have 20 cohorts, 10% = 2 cohorts
-            team_queryset = Mock()
-            team_queryset.count.return_value = 20
-            mock_cohort.objects.filter.return_value = team_queryset
-
-            result = await get_realtime_cohort_calculation_count_activity(inputs)
-
-            # Should be 2 (10% of 20)
-            assert result.count == 2
-
-    @pytest.mark.asyncio
-    async def test_count_activity_with_small_global_percentage_rounds_down_to_zero(self):
-        """When global percentage is small, should round down to 0 if result < 1."""
-        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
-            team_ids=set(),  # Explicitly set empty team_ids
-            global_percentage=0.05,  # 5%
-        )
-
-        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
-            # All teams have 10 cohorts, 5% = 0.5, should round down to 0
-            team_queryset = Mock()
-            team_queryset.count.return_value = 10
-            mock_cohort.objects.filter.return_value = team_queryset
-
-            result = await get_realtime_cohort_calculation_count_activity(inputs)
-
-            # Should be 0 (since int(5% of 10) = int(0.5) = 0)
-            assert result.count == 0
-
     def test_coordinator_workflow_inputs_includes_team_ids(self):
         """RealtimeCohortCalculationCoordinatorWorkflowInputs should include team_ids and global_percentage."""
         inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
@@ -456,52 +390,6 @@ class TestRealtimeCohortCalculationCoordinator:
 
             # Should use the fallback default
             assert result == {2: 0.0}
-
-    @pytest.mark.asyncio
-    async def test_count_activity_with_force_teams_plus_global_percentage(self):
-        """Should count specific teams + global percentage for other teams."""
-        # Team 2 and 3 get all cohorts, Global: 50% for others
-        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(team_ids={2, 3}, global_percentage=0.5)
-
-        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
-            # Combined teams queryset (teams 2 and 3 together)
-            combined_teams_queryset = Mock()
-            combined_teams_queryset.count.return_value = 30  # Team 2 + Team 3 = 10 + 20 = 30 cohorts
-
-            other_teams_queryset = Mock()
-            other_teams_queryset.count.return_value = 30  # Other teams have 30 cohorts
-
-            # Set up the exclude method chain
-            base_queryset = Mock()
-            base_queryset.exclude.return_value = other_teams_queryset
-
-            # Mock the filter calls in order: combined teams query, then other teams query
-            mock_cohort.objects.filter.side_effect = [combined_teams_queryset, base_queryset]
-
-            result = await get_realtime_cohort_calculation_count_activity(inputs)
-
-            # Combined teams (2+3): All 30 cohorts
-            # Global: 50% of 30 = 15 cohorts (int(30 * 0.5))
-            # Total: 30 + 15 = 45
-            assert result.count == 45
-
-    @pytest.mark.asyncio
-    async def test_count_activity_with_only_global_percentage(self):
-        """Should count global percentage when no specific teams are configured."""
-        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
-            team_ids=set(),  # Explicitly set empty team_ids
-            global_percentage=0.4,
-        )
-
-        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
-            queryset = Mock()
-            queryset.count.return_value = 25  # Total cohorts
-            mock_cohort.objects.filter.return_value = queryset
-
-            result = await get_realtime_cohort_calculation_count_activity(inputs)
-
-            # Global: 40% of 25 = 10 cohorts (int(25 * 0.4))
-            assert result.count == 10
 
     def test_worker_inputs_support_cohort_id_array(self):
         """Worker inputs should support receiving cohort ID arrays from coordinator."""

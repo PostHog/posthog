@@ -73,69 +73,10 @@ class RealtimeCohortCalculationCoordinatorWorkflowInputs:
 
 
 @dataclasses.dataclass
-class RealtimeCohortCalculationCountResult:
-    """Result from counting total cohorts."""
-
-    count: int
-
-
-@dataclasses.dataclass
 class RealtimeCohortSelectionResult:
     """Result from selecting cohorts with filtering applied."""
 
     cohort_ids: list[int]
-
-
-@temporalio.activity.defn
-async def get_realtime_cohort_calculation_count_activity(
-    inputs: RealtimeCohortCalculationCoordinatorWorkflowInputs,
-) -> RealtimeCohortCalculationCountResult:
-    """Get the total count of realtime cohorts."""
-
-    @database_sync_to_async
-    def get_cohort_count():
-        # If cohort_id is specified, just count that specific cohort
-        if inputs.cohort_id is not None:
-            queryset = Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME, id=inputs.cohort_id)
-            return queryset.count()
-
-        total_count = 0
-
-        # First, process teams that should include all cohorts
-        if inputs.team_ids:
-            # Filter out invalid team IDs
-            valid_team_ids = [team_id for team_id in inputs.team_ids if isinstance(team_id, int) and team_id > 0]
-
-            if valid_team_ids:
-                # Single query for all valid teams instead of N queries
-                team_cohorts_count = Cohort.objects.filter(
-                    deleted=False, cohort_type=CohortType.REALTIME, team_id__in=valid_team_ids
-                ).count()
-                total_count += team_cohorts_count
-
-        # Handle global percentage for all other teams
-        if inputs.global_percentage is not None and inputs.global_percentage > 0.0 and inputs.global_percentage <= 1.0:
-            # Get cohorts from teams not in the force list
-            if inputs.team_ids:
-                other_teams_cohorts_count = (
-                    Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME)
-                    .exclude(team_id__in=inputs.team_ids)
-                    .count()
-                )
-            else:
-                other_teams_cohorts_count = Cohort.objects.filter(
-                    deleted=False, cohort_type=CohortType.REALTIME
-                ).count()
-
-            if other_teams_cohorts_count > 0:
-                # Apply global percentage to other teams' cohorts
-                num_to_include = int(other_teams_cohorts_count * inputs.global_percentage)
-                total_count += min(num_to_include, other_teams_cohorts_count)
-
-        return total_count
-
-    count = await get_cohort_count()
-    return RealtimeCohortCalculationCountResult(count=count)
 
 
 @temporalio.activity.defn
