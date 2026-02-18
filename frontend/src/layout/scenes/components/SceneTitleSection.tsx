@@ -301,6 +301,7 @@ export function SceneTitleSection({
             <div
                 className={cn(
                     'bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 -mx-4 px-4 -mt-4 duration-300',
+                    noBorder ? '' : 'border-b border-transparent transition-border',
                     isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent',
                     isRemovingSidePanelFlag && 'pl-4 pr-2',
                     className
@@ -692,7 +693,7 @@ function SceneDescription({
     }
 
     return (
-        <div className="scene-description -mt-6 relative focus-within:z-50">
+        <div className="scene-description -mt-4 relative focus-within:z-50">
             <div className="-mx-[var(--button-padding-x-sm)] pb-2 flex items-center gap-0">{Element}</div>
         </div>
     )
