@@ -29,9 +29,9 @@ Issue:
 
 Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE"""
 
-REQUIRED_FIELDS = ("id", "title", "body", "state")
+REQUIRED_FIELDS = ("id", "title", "body")
 
-EXTRA_FIELDS = ("html_url", "number", "labels", "created_at", "updated_at", "comments", "locked")
+EXTRA_FIELDS = ("html_url", "number", "labels", "created_at", "updated_at", "comments", "locked", "state")
 
 
 def github_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterOutput | None:
@@ -45,12 +45,9 @@ def github_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterO
         )
         return None
     body = record.get("body")
-    state = record.get("state")
-    signal_description = f"New GitHub issue: {title}."
+    signal_description = title
     if body:
-        signal_description += f"\nDescription: {body}."
-    if state:
-        signal_description += f"\nState: {state}."
+        signal_description += f"\n{body}"
     return SignalEmitterOutput(
         source_type="github_issue",
         source_id=str(issue_id),

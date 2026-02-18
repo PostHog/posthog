@@ -31,10 +31,20 @@ Ticket:
 Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE"""
 
 # Fields the emitter needs to build the signal description
-REQUIRED_FIELDS = ("id", "subject", "description", "priority", "status")
+REQUIRED_FIELDS = ("id", "subject", "description")
 
 # Additional metadata to attach to the signal
-EXTRA_FIELDS = ("url", "type", "tags", "created_at", "requester_id", "organization_id", "brand_id")
+EXTRA_FIELDS = (
+    "url",
+    "type",
+    "tags",
+    "created_at",
+    "requester_id",
+    "organization_id",
+    "brand_id",
+    "priority",
+    "status",
+)
 
 
 def zendesk_ticket_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterOutput | None:
@@ -51,15 +61,7 @@ def zendesk_ticket_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitte
             signals_type="zendesk_ticket",
         )
         return None
-    priority = record.get("priority")
-    status = record.get("status")
-    # Build a rich description for embedding
-    signal_description = f"New Zendesk ticket: {subject}.\nDescription: {description}."
-    if status:
-        signal_description += f"\nStatus: {status}."
-    if priority:
-        # TODO: Decide if to define signal weight based on priority
-        signal_description += f"\nPriority: {priority}."
+    signal_description = f"{subject}\n{description}"
     return SignalEmitterOutput(
         source_type="zendesk_ticket",
         source_id=str(ticket_id),

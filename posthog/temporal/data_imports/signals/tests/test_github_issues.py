@@ -18,36 +18,21 @@ class TestGithubIssueEmitter:
         result = github_issue_emitter(team_id=1, record=github_issue_record)
 
         assert result is not None
-        assert "Description:" in result.description
         assert "blank white area" in result.description
-
-    def test_includes_state_in_description(self, github_issue_record):
-        result = github_issue_emitter(team_id=1, record=github_issue_record)
-
-        assert result is not None
-        assert "State: open." in result.description
 
     def test_omits_body_when_absent(self, github_issue_record):
         github_issue_record["body"] = None
         result = github_issue_emitter(team_id=1, record=github_issue_record)
 
         assert result is not None
-        assert "Description:" not in result.description
-        assert "Charts fail to render" in result.description
+        assert result.description == "Charts fail to render when filter contains special characters"
 
     def test_omits_body_when_empty(self, github_issue_record):
         github_issue_record["body"] = ""
         result = github_issue_emitter(team_id=1, record=github_issue_record)
 
         assert result is not None
-        assert "Description:" not in result.description
-
-    def test_omits_state_when_absent(self, github_issue_record):
-        github_issue_record["state"] = None
-        result = github_issue_emitter(team_id=1, record=github_issue_record)
-
-        assert result is not None
-        assert "State:" not in result.description
+        assert result.description == "Charts fail to render when filter contains special characters"
 
     @pytest.mark.parametrize("missing_field", ["id", "title"])
     def test_returns_none_when_required_field_missing(self, github_issue_record, missing_field):

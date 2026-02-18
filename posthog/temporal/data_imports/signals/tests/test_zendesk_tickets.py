@@ -18,33 +18,11 @@ class TestZendeskTicketEmitter:
         assert "Dashboard charts not loading" in result.description
         assert "403 errors" in result.description
 
-    def test_includes_status_in_description(self, zendesk_ticket_record):
-        zendesk_ticket_record["status"] = "pending"
+    def test_description_contains_only_subject_and_body(self, zendesk_ticket_record):
         result = zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)
 
         assert result is not None
-        assert "Status: pending." in result.description
-
-    def test_includes_priority_in_description(self, zendesk_ticket_record):
-        zendesk_ticket_record["priority"] = "urgent"
-        result = zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)
-
-        assert result is not None
-        assert "Priority: urgent." in result.description
-
-    def test_omits_status_when_absent(self, zendesk_ticket_record):
-        zendesk_ticket_record["status"] = None
-        result = zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)
-
-        assert result is not None
-        assert "Status:" not in result.description
-
-    def test_omits_priority_when_absent(self, zendesk_ticket_record):
-        zendesk_ticket_record["priority"] = None
-        result = zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)
-
-        assert result is not None
-        assert "Priority:" not in result.description
+        assert result.description == f"{zendesk_ticket_record['subject']}\n{zendesk_ticket_record['description']}"
 
     @pytest.mark.parametrize(
         "missing_field",
