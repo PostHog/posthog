@@ -20,43 +20,6 @@ class PostgresPrinter(HogQLPrinter):
     ):
         super().__init__(context=context, dialect=dialect, stack=stack, settings=settings, pretty=pretty)
 
-    def visit_select_query(self, node: ast.SelectQuery):
-        # Build WITH clause for CTEs if present
-        cte_clause = ""
-        if node.ctes:
-            has_recursive = any(cte.recursive for cte in node.ctes.values())
-            cte_defs = []
-            for name, cte in node.ctes.items():
-                # Temporarily clear stack and disable limit_top_select to:
-                # 1. Avoid double parentheses around CTE expressions
-                # 2. Prevent LIMIT from being added to CTE inner queries
-                original_stack = self.stack
-                original_limit_top_select = self.context.limit_top_select
-                self.stack = []
-                self.context.limit_top_select = False
-                cte_sql = self.visit(cte.expr)
-                self.context.limit_top_select = original_limit_top_select
-                self.stack = original_stack
-                cte_defs.append(f"{self._print_identifier(name)} AS ({cte_sql})")
-
-            keyword = "WITH RECURSIVE" if has_recursive else "WITH"
-            space = f"\n{self.indent()}" if self.pretty else " "
-            cte_clause = f"{keyword} {', '.join(cte_defs)}{space}"
-
-        # Temporarily clear CTEs to avoid re-printing them in parent
-        original_ctes = node.ctes
-        node.ctes = None
-
-        base_sql = super().visit_select_query(node)
-
-        node.ctes = original_ctes
-
-        return cte_clause + base_sql
-
-    def visit_cte_type(self, type: ast.CTEType):
-        """Print a reference to a CTE by its name."""
-        return self._print_identifier(type.name)
-
     def visit_field(self, node: ast.Field):
         if node.type is None:
             field = ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])

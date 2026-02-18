@@ -169,9 +169,6 @@ class LazyFinder(TraversingVisitor):
             self.visited_field_type_counts[node_ref] = visited_count + 1
             self.visit(node.table_type)
 
-    def visit_cte_type(self, node: ast.CTEType):
-        pass
-
 
 class LazyTableResolver(TraversingVisitor):
     lazy_finder_counter = 0

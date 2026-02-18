@@ -166,14 +166,27 @@ class Resolver(CloningVisitor):
     def visit_cte(self, node: ast.CTE):
         self.cte_counter += 1
 
-        # Visit the CTE expression (SELECT query) without creating a new CTE scope
-        # This allows the CTE to reference previously defined CTEs in the same WITH clause
-        # We clone the expr to avoid modifying the input node
         cte_expr = clone_expr(node.expr)
-        cte_expr = self.visit(cte_expr)
 
-        # Create a new CTE node instead of modifying the input
-        # This ensures we can resolve CTEs even if they appear multiple times
+        if node.recursive and isinstance(cte_expr, ast.SelectSetQuery):
+            # For recursive CTEs, resolve the base case first to determine column types,
+            # then register the CTE so the recursive branch can self-reference it.
+            base_select = clone_expr(cte_expr.initial_select_query)
+            base_select = self.visit(base_select)
+
+            placeholder = ast.CTE(
+                name=node.name,
+                expr=base_select,
+                cte_type=node.cte_type,
+                recursive=True,
+                type=ast.CTETableType(name=node.name, select_query_type=base_select.type),
+            )
+            self.ctes[node.name] = placeholder
+
+            cte_expr = self.visit(cte_expr)
+        else:
+            cte_expr = self.visit(cte_expr)
+
         new_node = ast.CTE(
             start=node.start,
             end=node.end,
@@ -181,6 +194,7 @@ class Resolver(CloningVisitor):
             name=node.name,
             expr=cte_expr,
             cte_type=node.cte_type,
+            recursive=node.recursive,
         )
 
         self.cte_counter -= 1

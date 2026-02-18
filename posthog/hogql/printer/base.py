@@ -374,12 +374,6 @@ class HogQLPrinter(Visitor[str]):
             join_strings.append(self.visit(node.table))
             join_strings.append(f"AS {self._print_identifier(node.alias)}")
 
-        elif isinstance(node.type, ast.CTEType):
-            # CTE reference - print the CTE name
-            join_strings.append(self.visit(node.type))
-            if node.alias is not None and node.alias != node.type.name:
-                join_strings.append(f"AS {self._print_identifier(node.alias)}")
-
         elif isinstance(node.type, ast.LazyTableType):
             if self.dialect == "hogql":
                 join_strings.append(self._print_identifier(node.type.table.to_printed_hogql()))
@@ -1156,9 +1150,6 @@ class HogQLPrinter(Visitor[str]):
 
     def visit_asterisk_type(self, type: ast.AsteriskType):
         return "*"
-
-    def visit_cte_type(self, type: ast.CTEType):
-        raise ImpossibleASTError("Unexpected ast.CTEType. CTEs should only be used with Postgres dialect.")
 
     def visit_lazy_join_type(self, type: ast.LazyJoinType):
         raise ImpossibleASTError("Unexpected ast.LazyJoinType. Make sure LazyJoinResolver has run on the AST.")

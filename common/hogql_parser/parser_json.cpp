@@ -704,7 +704,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
     // If RECURSIVE keyword is present, add recursive: true to each CTE
     if (ctx->RECURSIVE()) {
-      for (auto& [name, cte] : json.getObjectMut()) {
+      for (auto& cte : json.getArrayMut()) {
         if (cte.isObject()) {
           cte.getObjectMut()["recursive"] = true;
         }
