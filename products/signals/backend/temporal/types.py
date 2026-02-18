@@ -38,6 +38,14 @@ MatchResult = ExistingReportMatch | NewReportMatch
 
 
 @dataclass
+class TeamSignalGroupingInput:
+    """Inputs for the team signal grouping entity workflow."""
+
+    team_id: int
+    pending_signals: list["EmitSignalInputs"] = field(default_factory=list)
+
+
+@dataclass
 class SignalReportSummaryWorkflowInputs:
     """Inputs for the signal report summary workflow."""
 

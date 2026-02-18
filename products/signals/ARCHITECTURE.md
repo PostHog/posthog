@@ -12,11 +12,19 @@ There are two Temporal workflows. The grouping workflow is defined in `backend/t
 
 Both workflows and all activities are registered in `backend/temporal/__init__.py` and wired into the `VIDEO_EXPORT_TASK_QUEUE` worker via `posthog/temporal/ai/__init__.py`.
 
-### `EmitSignalWorkflow` (`emit-signal`)
+### `TeamSignalGroupingWorkflow` (`team-signal-grouping`)
 
-Processes a single incoming signal and assigns it to a report group.
+A long-running entity workflow that serializes all signal grouping for a single team. Exactly one instance per team, with workflow ID `team-signal-grouping-{team_id}`.
 
-**Flow:**
+**Architecture:**
+
+- New signals arrive via `@workflow.signal` (`submit_signal`). The workflow maintains an internal `signal_buffer: list[EmitSignalInputs]` as a FIFO queue.
+- `emit_signal()` in `api.py` uses `signal_with_start` to atomically create the workflow if it doesn't exist, or send a signal to the running instance.
+- The main loop waits for buffered signals, processes them one at a time via `_process_one_signal()`, and calls `continue_as_new` after `CONTINUE_AS_NEW_THRESHOLD` (20) signals to keep Temporal history bounded. Unprocessed signals in the buffer are carried over as workflow input.
+- Sequential processing eliminates race conditions where concurrent workflows could assign related signals to different reports (stale semantic search results, duplicate LLM matching decisions).
+- Errors processing a single signal are caught and logged — the workflow continues to the next signal.
+
+**Signal processing flow** (per signal, in `_process_one_signal()`):
 
 1. **Embed** the signal description + **fetch signal type examples** from ClickHouse (parallel) → `get_embedding_activity`, `fetch_signal_type_examples_activity`
 2. **Generate 1-3 search queries** via LLM (receives type examples for context) → `generate_search_queries_activity`
@@ -25,11 +33,18 @@ Processes a single incoming signal and assigns it to a report group.
 5. **LLM match** — decides if signal belongs to an existing report or needs a new group → `llm_match_signal_activity`
 6. **Assign** signal to a `SignalReport` in Postgres, increment weight/count, check promotion threshold → `assign_signal_to_report_activity`
 7. **Emit to ClickHouse** via Kafka (embedding worker) → `emit_to_clickhouse_activity`
-8. If promoted (weight ≥ `WEIGHT_THRESHOLD`, default `1.0`), **spawn child** `SignalReportSummaryWorkflow` (with `ALLOW_DUPLICATE_FAILED_ONLY` reuse policy, silently ignores `WorkflowAlreadyStartedError`)
+8. If promoted (weight ≥ `WEIGHT_THRESHOLD`, default `1.0`), **spawn child** `SignalReportSummaryWorkflow` (with `ALLOW_DUPLICATE_FAILED_ONLY` reuse policy, `ParentClosePolicy.ABANDON` so it survives `continue_as_new`, silently ignores `WorkflowAlreadyStartedError`)
 
 Step 1 runs two activities in parallel. Step 2 depends on step 1 (needs the type examples). Steps 3+4 fan out in parallel for each query/embedding.
 
-> **TODO:** Currently, multiple `EmitSignalWorkflow` instances can race for the same team. We should refactor to a single long-running "entity workflow" per team that receives signals via `@workflow.signal`, processes them sequentially, and uses `continue_as_new` to keep history bounded. `emit_signal()` would use `signal_with_start` to lazily create the workflow on first signal. This serializes grouping per team and gives a natural place to batch/debounce in the future.
+> **Note:** The legacy `EmitSignalWorkflow` (`emit-signal`) is kept registered temporarily for any in-flight workflows from before the migration. It runs the same `_process_one_signal()` logic but as a one-shot workflow per signal. It will be removed once all existing executions have completed.
+
+**Future opportunities the entity model unlocks:**
+
+- **Batching:** Process N signals in a single LLM call instead of 1:1.
+- **Debouncing:** Wait a short window after receiving a signal before processing, to batch burst arrivals.
+- **Per-team rate limiting:** Trivial — just add a sleep between iterations.
+- **Ordering guarantees:** Signals for a team are processed in arrival order.
 
 ### `SignalReportSummaryWorkflow` (`signal-report-summary`)
 
