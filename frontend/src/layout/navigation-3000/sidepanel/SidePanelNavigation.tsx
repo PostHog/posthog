@@ -61,7 +61,7 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
                                     <ButtonPrimitive
                                         {...props}
                                         onClick={() => openSidePanel(tab as SidePanelTab)}
-                                        tooltip={label}
+                                        tooltip={defaultLabel}
                                         className="size-[33px] @[540px]/side-panel:w-auto hover:bg-transparent group justify-center @[540px]/side-panel:justify-normal"
                                     >
                                         {tab === SidePanelTab.Max ? (
