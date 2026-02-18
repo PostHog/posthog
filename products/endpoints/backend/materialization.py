@@ -51,6 +51,7 @@ class MaterializableVariable:
     column_expression: str
     operator: ast.CompareOperationOp = ast.CompareOperationOp.Eq
     column_ast: Optional[ast.Expr] = None
+    value_wrapper_fns: Optional[list[str]] = None
 
 
 @dataclass
@@ -61,6 +62,7 @@ class VariableUsageInWhere:
     column_expression: str
     operator: ast.CompareOperationOp
     column_ast: Optional[ast.Expr] = None
+    value_wrapper_fns: Optional[list[str]] = None
 
 
 SUPPORTED_MATERIALIZATION_OPS = frozenset(
@@ -153,6 +155,7 @@ def analyze_variables_for_materialization(
                 column_expression=variable_usage.column_expression,
                 operator=variable_usage.operator,
                 column_ast=variable_usage.column_ast,
+                value_wrapper_fns=variable_usage.value_wrapper_fns,
             )
         )
 
@@ -211,13 +214,18 @@ class VariableInWhereFinder(TraversingVisitor):
             return
 
         field_side = None
-        if isinstance(node.right, ast.Placeholder) and node.right.chain == self.target.chain:
+        variable_side = None
+        if self._contains_target_placeholder(node.right):
             field_side = node.left
-        elif isinstance(node.left, ast.Placeholder) and node.left.chain == self.target.chain:
+            variable_side = node.right
+        elif self._contains_target_placeholder(node.left):
             field_side = node.right
+            variable_side = node.left
 
         if not field_side:
             return
+
+        wrapper_fns = self._extract_wrapper_fns(variable_side)
 
         if isinstance(field_side, ast.Field):
             column_chain = [str(item) for item in field_side.chain]
@@ -225,6 +233,7 @@ class VariableInWhereFinder(TraversingVisitor):
                 column_chain=column_chain,
                 column_expression=".".join(column_chain),
                 operator=node.op,
+                value_wrapper_fns=wrapper_fns,
             )
         elif isinstance(field_side, ast.Call):
             column_chain = self._extract_column_chain_from_call(field_side)
@@ -233,7 +242,29 @@ class VariableInWhereFinder(TraversingVisitor):
                 column_expression=".".join(column_chain) if column_chain else str(field_side),
                 operator=node.op,
                 column_ast=field_side if not column_chain else None,
+                value_wrapper_fns=wrapper_fns,
             )
+
+    def _contains_target_placeholder(self, node: ast.Expr) -> bool:
+        """Check if an expression is or contains the target placeholder (e.g. inside toDate(...))."""
+        if isinstance(node, ast.Placeholder) and node.chain == self.target.chain:
+            return True
+        if isinstance(node, ast.Call):
+            return any(self._contains_target_placeholder(arg) for arg in node.args)
+        return False
+
+    @staticmethod
+    def _extract_wrapper_fns(node: Optional[ast.Expr]) -> Optional[list[str]]:
+        """Extract the chain of wrapping function names from outermost to innermost.
+
+        For toDate(toStartOfMonth({variables.x})), returns ["toDate", "toStartOfMonth"].
+        """
+        fns: list[str] = []
+        current = node
+        while isinstance(current, ast.Call) and len(current.args) == 1:
+            fns.append(current.name)
+            current = current.args[0]
+        return fns or None
 
     def _extract_column_chain_from_call(self, call: ast.Call) -> list[str]:
         if call.name == "JSONExtractString" and len(call.args) >= 2:
@@ -415,7 +446,11 @@ class MaterializationTransformer(CloningVisitor):
         return where_node
 
     def _is_variable_comparison(self, node: ast.CompareOperation) -> bool:
-        return any(
-            isinstance(side, ast.Placeholder) and side.chain and side.chain[0] == "variables"
-            for side in (node.left, node.right)
-        )
+        return any(self._expr_contains_variable(side) for side in (node.left, node.right))
+
+    def _expr_contains_variable(self, node: ast.Expr) -> bool:
+        if isinstance(node, ast.Placeholder) and node.chain and node.chain[0] == "variables":
+            return True
+        if isinstance(node, ast.Call):
+            return any(self._expr_contains_variable(arg) for arg in node.args)
+        return False

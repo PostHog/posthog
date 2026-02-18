@@ -342,9 +342,14 @@ class TimeSensitiveActionPermission(BasePermission):
         if not isinstance(request.successful_authenticator, SessionAuthentication):
             return True
 
+        exclude_actions = getattr(view, "time_sensitive_exclude_actions", [])
+        if getattr(view, "action", None) in exclude_actions:
+            return True
+
         allow_safe_methods = getattr(view, "time_sensitive_allow_safe_methods", True)
 
         allow_if_only_fields = getattr(view, "time_sensitive_allow_if_only_fields", None)
+        allow_actions = getattr(view, "time_sensitive_allow_actions", None)
         if allow_if_only_fields and request.method not in SAFE_METHODS:
             data = getattr(request, "data", None)
             data_keys: set[str] = set()
@@ -353,6 +358,9 @@ class TimeSensitiveActionPermission(BasePermission):
 
             if data_keys and data_keys.issubset(set(allow_if_only_fields)):
                 return True
+
+        if allow_actions and view.action in allow_actions:
+            return True
 
         if allow_safe_methods and request.method in SAFE_METHODS:
             return True

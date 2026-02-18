@@ -33,6 +33,23 @@ import {
     VercelSDKTextMessage,
 } from './types'
 
+export interface PagedSearchOrderFilters {
+    page: number
+    search: string
+    order_by: string
+}
+
+export function cleanPagedSearchOrderParams(
+    filters: PagedSearchOrderFilters,
+    defaultOrderBy: string = '-created_at'
+): Record<string, unknown> {
+    return {
+        page: filters.page === 1 ? undefined : filters.page,
+        search: filters.search || undefined,
+        order_by: filters.order_by === defaultOrderBy ? undefined : filters.order_by,
+    }
+}
+
 function formatUsage(inputTokens: number, outputTokens?: number | null): string | null {
     return `${inputTokens} → ${outputTokens || 0} (∑ ${inputTokens + (outputTokens || 0)})`
 }
@@ -648,9 +665,10 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
     }
     // Tool result completion
     if (isAnthropicToolResultMessage(rawMessage)) {
+        const toolResultRole = normalizeRole('assistant (tool result)', roleToUse)
         if (Array.isArray(rawMessage.content)) {
             return rawMessage.content
-                .map((content) => normalizeMessage(content, roleToUse))
+                .map((content) => normalizeMessage(content, toolResultRole))
                 .flat()
                 .map((msg) => ({
                     ...msg,
@@ -659,7 +677,7 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
         }
         return [
             {
-                role: roleToUse,
+                role: toolResultRole,
                 content: rawMessage.content,
                 tool_call_id: rawMessage.tool_use_id,
             },

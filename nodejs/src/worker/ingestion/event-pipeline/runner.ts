@@ -2,9 +2,8 @@ import { DateTime } from 'luxon'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { HogTransformerService, TransformationResult } from '../../../cdp/hog-transformations/hog-transformer.service'
 import { PipelineWarning } from '../../../ingestion/pipelines/pipeline.interface'
-import { PipelineResult, dlq, drop, isOkResult, ok } from '../../../ingestion/pipelines/results'
+import { PipelineResult, dlq, isOkResult, ok } from '../../../ingestion/pipelines/results'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { EventHeaders, Person, PipelineEvent, PreIngestionEvent, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
@@ -13,7 +12,7 @@ import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { TeamManager } from '../../../utils/team-manager'
 import { GroupTypeManager } from '../group-type-manager'
-import { GroupStoreForBatch } from '../groups/group-store-for-batch.interface'
+import { BatchWritingGroupStore } from '../groups/batch-writing-group-store'
 import { MergeMode, PersonMergeLimitExceededError, determineMergeMode } from '../persons/person-merge-types'
 import { PersonsStore } from '../persons/persons-store'
 import { EventsProcessor } from '../process-event'
@@ -24,11 +23,9 @@ import {
     pipelineStepStalledCounter,
     pipelineStepThrowCounter,
 } from './metrics'
-import { normalizeEventStep } from './normalizeEventStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonlessStep } from './processPersonlessStep'
 import { processPersonsStep } from './processPersonsStep'
-import { transformEventStep } from './transformEventStep'
 
 export type RunnerResult<T = object> = T & {
     // Only used in tests
@@ -80,9 +77,8 @@ export class EventPipelineRunner {
         teamManager: TeamManager,
         groupTypeManager: GroupTypeManager,
         private originalEvent: PipelineEvent,
-        private hogTransformer: HogTransformerService | null = null,
         private personsStore: PersonsStore,
-        private groupStoreForBatch: GroupStoreForBatch,
+        private groupStore: BatchWritingGroupStore,
         private headers?: EventHeaders
     ) {
         this.eventsProcessor = new EventsProcessor(
@@ -116,7 +112,7 @@ export class EventPipelineRunner {
 
         const prepareResult = await this.runStep<PreIngestionEvent, typeof prepareEventStep>(
             prepareEventStep,
-            [this.kafkaProducer, this.eventsProcessor, this.groupStoreForBatch, normalizedEvent, processPerson, team],
+            [this.kafkaProducer, this.eventsProcessor, this.groupStore, normalizedEvent, processPerson, team],
             team.id,
             true,
             kafkaAcks,
@@ -163,19 +159,22 @@ export class EventPipelineRunner {
     }
 
     async runEventPipeline(
-        event: PipelineEvent,
+        normalizedEvent: PluginEvent,
+        timestamp: DateTime,
         team: Team,
         processPerson: boolean = true,
         forceDisablePersonProcessing: boolean = false
     ): Promise<EventPipelinePipelineResult> {
-        this.originalEvent = event
+        this.originalEvent = normalizedEvent
 
         try {
-            const pluginEvent: PluginEvent = {
-                ...event,
-                team_id: team.id,
-            }
-            return await this.runEventPipelineSteps(pluginEvent, team, processPerson, forceDisablePersonProcessing)
+            return await this.runEventPipelineSteps(
+                normalizedEvent,
+                timestamp,
+                team,
+                processPerson,
+                forceDisablePersonProcessing
+            )
         } catch (error) {
             if (error instanceof StepErrorNoRetry) {
                 // At the step level we have chosen to drop these events and send them to DLQ
@@ -192,46 +191,14 @@ export class EventPipelineRunner {
     }
 
     async runEventPipelineSteps(
-        event: PluginEvent,
+        normalizedEvent: PluginEvent,
+        timestamp: DateTime,
         team: Team,
         processPerson: boolean,
         forceDisablePersonProcessing: boolean
     ): Promise<EventPipelinePipelineResult> {
         const kafkaAcks: Promise<unknown>[] = []
         const warnings: PipelineWarning[] = []
-
-        const transformResult = await this.runStep<TransformationResult, typeof transformEventStep>(
-            transformEventStep,
-            [event, this.hogTransformer],
-            team.id,
-            true,
-            kafkaAcks,
-            warnings
-        )
-        if (!isOkResult(transformResult)) {
-            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
-            return transformResult
-        }
-        const { event: transformedEvent } = transformResult.value
-
-        if (transformedEvent === null) {
-            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
-            return drop('dropped_by_transformation', kafkaAcks, warnings)
-        }
-
-        const normalizeResult = await this.runStep<[PluginEvent, DateTime], typeof normalizeEventStep>(
-            normalizeEventStep,
-            [transformedEvent, processPerson, this.headers, this.options.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE],
-            team.id,
-            true,
-            kafkaAcks,
-            warnings
-        )
-        if (!isOkResult(normalizeResult)) {
-            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
-            return normalizeResult
-        }
-        const [normalizedEvent, timestamp] = normalizeResult.value
 
         const personProcessingResult = await this.processPersonForEvent(
             normalizedEvent,
@@ -253,7 +220,7 @@ export class EventPipelineRunner {
 
         const prepareResult = await this.runStep<PreIngestionEvent, typeof prepareEventStep>(
             prepareEventStep,
-            [this.kafkaProducer, this.eventsProcessor, this.groupStoreForBatch, postPersonEvent, processPerson, team],
+            [this.kafkaProducer, this.eventsProcessor, this.groupStore, postPersonEvent, processPerson, team],
             team.id,
             true,
             kafkaAcks,

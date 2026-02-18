@@ -617,6 +617,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 .values_list("id", flat=True)
             )
 
+            # nosemgrep: idor-lookup-without-team (IDs from team-scoped queryset)
             failed_runs = BatchExportRun.objects.filter(
                 id__in=latest_run_ids,
                 status__in=[
