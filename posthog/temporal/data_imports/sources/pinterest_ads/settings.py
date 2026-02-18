@@ -16,51 +16,51 @@ DEFAULT_LOOKBACK_DAYS = 89
 # Full column reference: https://developers.pinterest.com/docs/api/v5/ads-analytics/
 ANALYTICS_COLUMNS = [
     # Spend
-    "SPEND_IN_DOLLAR",  # Total ad spend in dollars
-    "SPEND_IN_MICRO_DOLLAR",  # Total ad spend in micro-dollars (1/1,000,000 of a dollar)
+    "SPEND_IN_DOLLAR",
+    "SPEND_IN_MICRO_DOLLAR",
     # Impressions
-    "PAID_IMPRESSION",  # Paid impressions
-    "IMPRESSION_1",  # Total paid + earned impressions
-    "IMPRESSION_2",  # Earned impressions only
-    "TOTAL_IMPRESSION",  # Total impressions across all types
+    "PAID_IMPRESSION",
+    "IMPRESSION_1",
+    "IMPRESSION_2",
+    "TOTAL_IMPRESSION",
     # Clicks
-    "CLICKTHROUGH_1",  # Total paid + earned clicks
-    "CLICKTHROUGH_2",  # Earned clicks only
-    "TOTAL_CLICKTHROUGH",  # Total clicks across all types
-    "OUTBOUND_CLICK_1",  # Clicks leaving Pinterest to external URL
+    "CLICKTHROUGH_1",
+    "CLICKTHROUGH_2",
+    "TOTAL_CLICKTHROUGH",
+    "OUTBOUND_CLICK_1",
     # Engagement
-    "TOTAL_ENGAGEMENT",  # Total engagements (clicks, saves, closeups, etc.)
-    "ENGAGEMENT_1",  # Total paid + earned engagements
-    "ENGAGEMENT_2",  # Earned engagements only
-    "ENGAGEMENT_RATE",  # Engagements / impressions
-    "EENGAGEMENT_RATE",  # Effective engagement rate including earned
-    "REPIN_RATE",  # Save rate (saves / impressions)
+    "TOTAL_ENGAGEMENT",
+    "ENGAGEMENT_1",
+    "ENGAGEMENT_2",
+    "ENGAGEMENT_RATE",
+    "EENGAGEMENT_RATE",
+    "REPIN_RATE",
     # Rates
-    "CTR",  # Click-through rate (clicks / impressions)
-    "ECTR",  # Effective CTR including earned
-    "CTR_2",  # Earned CTR
-    "OUTBOUND_CTR_1",  # Outbound CTR (clicks leaving Pinterest / impressions)
+    "CTR",
+    "ECTR",
+    "CTR_2",
+    "OUTBOUND_CTR_1",
     # Cost metrics
-    "CPC_IN_MICRO_DOLLAR",  # Cost per click in micro-dollars
-    "ECPC_IN_MICRO_DOLLAR",  # Effective cost per click in micro-dollars
-    "ECPC_IN_DOLLAR",  # Effective cost per click in dollars
-    "ECPM_IN_MICRO_DOLLAR",  # Effective cost per 1000 impressions in micro-dollars
-    "CPM_IN_MICRO_DOLLAR",  # Cost per 1000 impressions in micro-dollars
-    "CPM_IN_DOLLAR",  # Cost per 1000 impressions in dollars
-    "ECPE_IN_DOLLAR",  # Effective cost per engagement in dollars
+    "CPC_IN_MICRO_DOLLAR",
+    "ECPC_IN_MICRO_DOLLAR",
+    "ECPC_IN_DOLLAR",
+    "ECPM_IN_MICRO_DOLLAR",
+    "CPM_IN_MICRO_DOLLAR",
+    "CPM_IN_DOLLAR",
+    "ECPE_IN_DOLLAR",
     # Conversions
-    "TOTAL_CONVERSIONS",  # Total conversions across all types
-    "TOTAL_CHECKOUT",  # Total checkout conversions
-    "TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR",  # Total value of checkouts in micro-dollars
-    "CHECKOUT_ROAS",  # Return on ad spend for checkouts
-    "TOTAL_SIGNUP",  # Total signup conversions
-    "TOTAL_LEAD",  # Total lead conversions
-    "TOTAL_PAGE_VISIT",  # Total page visit conversions
+    "TOTAL_CONVERSIONS",
+    "TOTAL_CHECKOUT",
+    "TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR",
+    "CHECKOUT_ROAS",
+    "TOTAL_SIGNUP",
+    "TOTAL_LEAD",
+    "TOTAL_PAGE_VISIT",
     # Video
-    "TOTAL_VIDEO_3SEC_VIEWS",  # 3-second video views
-    "TOTAL_VIDEO_MRC_VIEWS",  # MRC standard video views (2sec+ and 50%+ visible)
-    "TOTAL_VIDEO_AVG_WATCHTIME_IN_SECOND",  # Average video watch time in seconds
-    "TOTAL_VIDEO_P100_COMPLETE",  # Video watched to 100%
+    "TOTAL_VIDEO_3SEC_VIEWS",
+    "TOTAL_VIDEO_MRC_VIEWS",
+    "TOTAL_VIDEO_AVG_WATCHTIME_IN_SECOND",
+    "TOTAL_VIDEO_P100_COMPLETE",
 ]
 
 
