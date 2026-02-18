@@ -3,8 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonLabel, Link } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -35,6 +36,10 @@ function EventSelector({ filters, setFilters, title, caption, prompt }: EventSel
     const { eventsToHighlight } = useValues(customerAnalyticsDashboardEventsLogic)
     const highlight = eventsToHighlight.includes(title) ? 'border rounded border-dashed border-danger' : ''
     const { reportCustomerAnalyticsDashboardEventPickerClicked } = useActions(eventUsageLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const shouldShowAIButton =
         !filters || isPageviewWithoutFilters(actionsAndEventsToSeries(filters as any, true, MathAvailability.None)[0])
@@ -44,7 +49,9 @@ function EventSelector({ filters, setFilters, title, caption, prompt }: EventSel
             <div className="ml-1">
                 <div className="flex items-center gap-2">
                     <LemonLabel>{title}</LemonLabel>
-                    {shouldShowAIButton && <ConfigureWithAIButton event={title} prompt={prompt} />}
+                    {shouldShowAIButton && (
+                        <ConfigureWithAIButton event={title} prompt={prompt} disabledReason={restrictedReason} />
+                    )}
                 </div>
                 <p className="text-xs text-muted-alt">{caption}</p>
             </div>
@@ -65,6 +72,7 @@ function EventSelector({ filters, setFilters, title, caption, prompt }: EventSel
                         actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
                         buttonCopy="Select event or action"
                         entitiesLimit={1}
+                        disabled={!!restrictedReason}
                     />
                 </div>
             ) : (
@@ -84,6 +92,7 @@ function EventSelector({ filters, setFilters, title, caption, prompt }: EventSel
                             })
                             reportCustomerAnalyticsDashboardEventPickerClicked({ event: title })
                         }}
+                        disabledReason={restrictedReason}
                     >
                         Select event or action
                     </LemonButton>
@@ -102,6 +111,10 @@ export function CustomerAnalyticsDashboardEvents(): JSX.Element {
     const { reportCustomerAnalyticsDashboardConfigurationViewed, reportCustomerAnalyticsDashboardEventsSaved } =
         useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const handleSave = (): void => {
         saveEvents()
@@ -150,14 +163,18 @@ export function CustomerAnalyticsDashboardEvents(): JSX.Element {
             </div>
 
             <div className="flex flex-row gap-2 pt-4">
-                <LemonButton type="secondary" onClick={handleClear} disabledReason={hasChanges ? null : 'No changes'}>
+                <LemonButton
+                    type="secondary"
+                    onClick={handleClear}
+                    disabledReason={hasChanges ? restrictedReason : 'No changes'}
+                >
                     Clear changes
                 </LemonButton>
                 <LemonButton
                     data-attr="save-customer-analytics-dashboard-events"
                     type="primary"
                     onClick={handleSave}
-                    disabledReason={hasChanges ? null : 'No changes'}
+                    disabledReason={hasChanges ? restrictedReason : 'No changes'}
                 >
                     Save events
                 </LemonButton>
