@@ -55,7 +55,6 @@ export enum PluginServerMode {
     cdp_cohort_membership = 'cdp-cohort-membership',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_api = 'cdp-api',
-    cdp_warehouse_source_webhooks = 'cdp_warehouse_source_webhooks',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
@@ -570,7 +569,6 @@ export interface PluginServerCapabilities {
     sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean
     cdpDataWarehouseEvents?: boolean
-    cdpWarehouseSourceWebhooks?: boolean
     cdpPersonUpdates?: boolean
     cdpInternalEvents?: boolean
     cdpLegacyOnEvent?: boolean
