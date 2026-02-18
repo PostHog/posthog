@@ -81,7 +81,6 @@ export function NotebookScene(): JSX.Element {
         type: 'notebook',
         ref: notebook?.short_id,
         enabled: Boolean(notebook?.short_id && notebookId !== 'new' && !loading && !conflictWarningVisible),
-        deps: [notebook?.short_id, notebookId, loading, conflictWarningVisible],
     })
 
     if (accessDeniedToNotebook) {

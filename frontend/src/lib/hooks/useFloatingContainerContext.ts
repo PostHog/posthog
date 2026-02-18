@@ -1,4 +1,4 @@
-import { RefObject, createContext, useContext, useEffect, useState } from 'react'
+import { RefObject, createContext, useContext, useLayoutEffect, useState } from 'react'
 
 /**
  * Typically floating things like popovers and tooltips are portaled to the root of the document, but sometimes
@@ -15,8 +15,8 @@ export const useFloatingContainer = (): HTMLElement | null | undefined => {
     const ref = useContext(FloatingContainerContext)
     const [el, setEl] = useState<HTMLElement | null | undefined>(undefined)
 
-    useEffect(() => {
-        setEl(ref?.current)
+    useLayoutEffect(() => {
+        setEl(ref?.current ?? null)
     }, [ref])
 
     return el

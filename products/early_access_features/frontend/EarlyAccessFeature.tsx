@@ -112,7 +112,6 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
         type: 'early_access_feature',
         ref: earlyAccessFeatureId,
         enabled: Boolean(currentTeamId && earlyAccessFeatureId && !earlyAccessFeatureLoading),
-        deps: [currentTeamId, earlyAccessFeatureId, earlyAccessFeatureLoading],
     })
 
     if (earlyAccessFeatureMissing) {
