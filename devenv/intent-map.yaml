@@ -224,7 +224,7 @@ intents:
         capabilities: [mcp_server]
 
     multi_thread_ingestion:
-        description: 'Multi-threaded ingestion prototype (Rust consumer + 4 Node.js API workers)'
+        description: 'Multi-threaded ingestion prototype (Rust consumer + 8 Node.js API workers)'
         capabilities: [multi_thread_ingestion, event_ingestion, property_definitions]
 
     dagster:

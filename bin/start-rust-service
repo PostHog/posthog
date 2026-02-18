@@ -156,8 +156,8 @@ case "$RS_SVC" in
     export RUST_BACKTRACE=1
     export KAFKA_HOSTS=localhost:9092
     export KAFKA_TOPIC=events_plugin_ingestion
-    export KAFKA_GROUP_ID=ingestion-consumer-rust
-    export INGESTION_API_ADDRESSES=http://localhost:3400,http://localhost:3401,http://localhost:3402,http://localhost:3403
+    export KAFKA_GROUP_ID=clickhouse-ingestion
+    export INGESTION_API_ADDRESSES=http://localhost:3400,http://localhost:3401,http://localhost:3402,http://localhost:3403,http://localhost:3404,http://localhost:3405,http://localhost:3406,http://localhost:3407
     export BIND_PORT=3310
     ;;
 

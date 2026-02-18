@@ -170,6 +170,38 @@ procs:
             ./bin/posthog-node
         capability: multi_thread_ingestion
 
+    ingestion-5:
+        shell: |-
+            bin/wait-for-docker && bin/check_ducklake_up && \
+            PLUGIN_SERVER_MODE=ingestion-api \
+            INGESTION_API_PORT=3404 \
+            ./bin/posthog-node
+        capability: multi_thread_ingestion
+
+    ingestion-6:
+        shell: |-
+            bin/wait-for-docker && bin/check_ducklake_up && \
+            PLUGIN_SERVER_MODE=ingestion-api \
+            INGESTION_API_PORT=3405 \
+            ./bin/posthog-node
+        capability: multi_thread_ingestion
+
+    ingestion-7:
+        shell: |-
+            bin/wait-for-docker && bin/check_ducklake_up && \
+            PLUGIN_SERVER_MODE=ingestion-api \
+            INGESTION_API_PORT=3406 \
+            ./bin/posthog-node
+        capability: multi_thread_ingestion
+
+    ingestion-8:
+        shell: |-
+            bin/wait-for-docker && bin/check_ducklake_up && \
+            PLUGIN_SERVER_MODE=ingestion-api \
+            INGESTION_API_PORT=3407 \
+            ./bin/posthog-node
+        capability: multi_thread_ingestion
+
     llm-gateway:
         shell: 'bin/wait-for-docker && bin/start-llm-gateway'
         autostart: true
