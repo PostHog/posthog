@@ -3,6 +3,7 @@ import { Layouts } from 'react-grid-layout'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
+import { TAILWIND_BREAKPOINTS } from 'lib/constants'
 import { currentSessionId } from 'lib/internalMetrics'
 import { objectClean, shouldCancelQuery, toParams } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
@@ -10,17 +11,10 @@ import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'
 import { DashboardFilter, HogQLVariable, TileFilters } from '~/queries/schema/schema-general'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    DashboardLayoutSize,
-    InsightModel,
-    QueryBasedInsightModel,
-    TileLayout,
-} from '~/types'
+import { DashboardLayoutSize } from '~/types'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
-    sm: 1024,
+    sm: TAILWIND_BREAKPOINTS.md - 1,
     xs: 0,
 }
 export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { sm: 12, xs: 1 }
