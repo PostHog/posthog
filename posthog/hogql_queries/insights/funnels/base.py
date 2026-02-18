@@ -343,10 +343,10 @@ class FunnelBase(ABC):
         )
 
     def get_breakdown_limit(self):
-        limit = self.context.breakdownFilter.breakdown_limit or get_breakdown_limit_for_context(
-            self.context.limit_context
-        )
-        return min(limit, MAX_BREAKDOWN_VALUES_LIMIT)
+        user_limit = self.context.breakdownFilter.breakdown_limit
+        if user_limit:
+            return min(user_limit, MAX_BREAKDOWN_VALUES_LIMIT)
+        return get_breakdown_limit_for_context(self.context.limit_context)
 
     def _get_timestamp_outer_select(self) -> list[ast.Expr]:
         if self.context.includePrecedingTimestamp:

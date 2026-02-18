@@ -7,7 +7,12 @@ from parameterized import parameterized
 from posthog.schema import BreakdownFilter, BreakdownType, DateRange, EventsNode, TrendsQuery
 
 from posthog.hogql import ast
-from posthog.hogql.constants import BREAKDOWN_VALUE_MAX_LENGTH, MAX_BREAKDOWN_VALUES_LIMIT
+from posthog.hogql.constants import (
+    BREAKDOWN_VALUE_MAX_LENGTH,
+    CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL,
+    MAX_BREAKDOWN_VALUES_LIMIT,
+    LimitContext,
+)
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
 
@@ -54,6 +59,33 @@ class TestBreakdownLimitCap(BaseTest):
         )
         builder = self._build_query_builder(trends_query)
         assert builder._get_breakdown_limit() == expected
+
+    def test_export_context_uses_system_default_not_capped(self):
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[EventsNode(event="$pageview")],
+            breakdownFilter=BreakdownFilter(
+                breakdown="$browser",
+                breakdown_type=BreakdownType.EVENT,
+            ),
+        )
+        query_date_range = QueryDateRange(
+            date_range=trends_query.dateRange,
+            team=self.team,
+            interval=trends_query.interval,
+            now=datetime.now(),
+        )
+        builder = TrendsQueryBuilder(
+            trends_query=trends_query,
+            team=self.team,
+            query_date_range=query_date_range,
+            series=trends_query.series[0],
+            timings=HogQLTimings(),
+            modifiers=create_default_modifiers_for_team(self.team),
+            limit_context=LimitContext.EXPORT,
+        )
+        assert builder._get_breakdown_limit() == CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 
 
 class TestBreakdownValueTruncation(BaseTest):
