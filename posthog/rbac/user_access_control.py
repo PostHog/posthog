@@ -43,6 +43,7 @@ AccessControlLevelNone = Literal["none"]
 AccessControlLevelMember = Literal[AccessControlLevelNone, "member", "admin"]
 AccessControlLevelResource = Literal[AccessControlLevelNone, "viewer", "editor", "manager"]
 AccessControlLevel = Literal[AccessControlLevelMember, AccessControlLevelResource]
+EffectiveAccessLevelReason = Literal["member_override", "role_override", "project_default", "organization_admin"]
 
 NO_ACCESS_LEVEL = "none"
 ACCESS_CONTROL_LEVELS_MEMBER: tuple[AccessControlLevelMember, ...] = get_args(AccessControlLevelMember)
@@ -156,36 +157,48 @@ def access_level_satisfied_for_resource(
     return ordered_access_levels(resource).index(current_level) >= ordered_access_levels(resource).index(required_level)
 
 
-EffectiveAccessLevelReason = Literal["project_default", "member_override", "role_override", "organization_admin"]
-
-
-def compute_effective_access_level(
+def get_effective_access_level_for_role(
     resource: APIScopeObject,
-    saved_level: AccessControlLevel,
-    saved_reason: EffectiveAccessLevelReason,
+    role_level: AccessControlLevel | None,
+    default_level: AccessControlLevel,
+) -> tuple[AccessControlLevel, EffectiveAccessLevelReason]:
+    """
+    Compute effective access for a role from role override and default.
+    """
+    levels = ordered_access_levels(resource)
+
+    if role_level is None:
+        return default_level, "project_default"
+
+    if levels.index(default_level) > levels.index(role_level):
+        return default_level, "project_default"
+
+    return role_level, "role_override"
+
+
+def get_effective_access_level_for_member(
+    resource: APIScopeObject,
+    member_level: AccessControlLevel | None,
     default_level: AccessControlLevel,
     role_levels: list[AccessControlLevel],
     is_org_admin: bool,
 ) -> tuple[AccessControlLevel, EffectiveAccessLevelReason]:
     """
-    Compute the effective access level for a resource from all sources.
-
-    Args:
-        resource: The resource type (determines level ordering)
-        saved_level: The explicitly saved level on this access control row
-        saved_reason: The reason label for the saved level (e.g. "member_override" or "role_override")
-        default_level: The default level for this resource
-        role_levels: Access levels from roles the member belongs to
-        is_org_admin: Whether the member is an organization admin
+    Compute effective access for a member from member override, default, and role levels.
     """
     if is_org_admin:
         return highest_access_level(resource), "organization_admin"
 
     levels = ordered_access_levels(resource)
-    effective = saved_level
-    reason: EffectiveAccessLevelReason = saved_reason
 
-    if levels.index(default_level) > levels.index(effective):
+    if member_level is not None:
+        effective = member_level
+        reason: EffectiveAccessLevelReason = "member_override"
+    else:
+        effective = default_level
+        reason = "project_default"
+
+    if member_level is not None and levels.index(default_level) > levels.index(effective):
         effective = default_level
         reason = "project_default"
 
