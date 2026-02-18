@@ -39,10 +39,7 @@ checked at the parent workflow level before spawning the child.
 
 Run tests: `pytest posthog/temporal/data_imports/signals/tests/`
 
-## Conventions
+## Maintaining this file
 
-- Emitter functions must be pure: no database calls, no side effects — only transform the record dict
-- Don't duplicate data already in the signal description into the extra metadata
-- The actionability prompt uses `{description}` placeholder and classifies as `ACTIONABLE` / `NOT_ACTIONABLE`;
-  on LLM failure, records pass through (fail-open)
-- Use structlog for warnings about insufficient data in emitters
+If the pipeline architecture, registry pattern, or conventions change significantly,
+update this AGENTS.md to reflect the new reality.
