@@ -26,6 +26,7 @@ HogFunctionTemplateType = Literal[
     "site_destination",
     "internal_destination",
     "source_webhook",
+    "warehouse_source_webhook",
     "site_app",
     "transformation",
 ]
