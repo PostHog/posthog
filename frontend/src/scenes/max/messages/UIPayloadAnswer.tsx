@@ -1,6 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { IconCheck } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
@@ -97,6 +98,7 @@ export function RecordingsWidget({
     toolCallId: string
     filters: RecordingUniversalFilters
 }): JSX.Element {
+    const { onAcceptSessionFilters } = useValues(maxLogic)
     const logicProps: SessionRecordingPlaylistLogicProps = {
         logicKey: `ai-recordings-widget-${toolCallId}`,
         filters,
@@ -109,8 +111,25 @@ export function RecordingsWidget({
             <MessageTemplate type="ai" wrapperClassName="w-full" boxClassName="p-0 overflow-hidden">
                 <RecordingsFiltersSummary filters={filters} />
                 <RecordingsListContent />
+                {onAcceptSessionFilters && <AcceptFiltersBar filters={filters} onAccept={onAcceptSessionFilters} />}
             </MessageTemplate>
         </BindLogic>
+    )
+}
+
+function AcceptFiltersBar({
+    filters,
+    onAccept,
+}: {
+    filters: RecordingUniversalFilters
+    onAccept: (filters: RecordingUniversalFilters) => void
+}): JSX.Element {
+    return (
+        <div className="border-t px-3 py-2 flex items-center justify-end">
+            <LemonButton type="primary" size="small" icon={<IconCheck />} onClick={() => onAccept(filters)}>
+                Use these filters for session analysis
+            </LemonButton>
+        </div>
     )
 }
 
