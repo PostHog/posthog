@@ -1,5 +1,8 @@
 {
     "name": "@posthog/products-tasks",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests backend/services -v --tb=short"
+    },
     "peerDependencies": {
         "@dnd-kit/core": "*",
         "@dnd-kit/modifiers": "*",

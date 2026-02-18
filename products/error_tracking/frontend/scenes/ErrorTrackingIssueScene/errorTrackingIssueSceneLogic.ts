@@ -32,6 +32,12 @@ import {
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery, errorTrackingSimilarIssuesQuery } from '../../queries'
 import { syncSearchParams } from '../../utils'
 import { ERROR_TRACKING_DETAILS_RESOLUTION } from '../../utils'
+import {
+    DEFAULT_CATEGORY,
+    ErrorTrackingIssueSceneCategory,
+    VALID_CATEGORIES,
+    errorTrackingIssueSceneConfigurationLogic,
+} from './errorTrackingIssueSceneConfigurationLogic'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 
 export interface ErrorTrackingIssueSceneLogicProps {
@@ -60,12 +66,16 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         values: [
             issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }),
             ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery'],
+            errorTrackingIssueSceneConfigurationLogic,
+            ['category'],
         ],
         actions: [
             issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }),
             ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup', 'setSearchQuery'],
             issueActionsLogic,
             ['updateIssueAssignee', 'updateIssueStatus', 'updateIssueName', 'updateIssueDescription'],
+            errorTrackingIssueSceneConfigurationLogic,
+            ['setCategory'],
         ],
     })),
 
@@ -100,6 +110,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         initialEventTimestamp: null as string | null,
         initialEventLoading: true as boolean,
         similarIssuesMaxDistance: 0.2 as number,
+        similarIssuesError: null as string | null,
     }),
 
     reducers(({ values }) => ({
@@ -115,6 +126,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         },
         similarIssuesMaxDistance: {
             setSimilarIssuesMaxDistance: (_, { distance }) => distance,
+        },
+        similarIssuesError: {
+            loadSimilarIssues: () => null,
+            loadSimilarIssuesSuccess: () => null,
+            loadSimilarIssuesFailure: (_, { error }) => error,
         },
         initialEventTimestamp: {
             setInitialEventTimestamp: (state, { timestamp }) => {
@@ -423,19 +439,35 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 
     urlToAction(({ actions, values }) => {
         return {
-            '**/error_tracking/:id': (_, params) => triggerFilterActions(params, values, actions),
+            '**/error_tracking/:id': (_, params) => {
+                triggerFilterActions(params, values, actions)
+                const tab = params.tab as ErrorTrackingIssueSceneCategory | undefined
+                const category = tab && VALID_CATEGORIES.includes(tab) ? tab : DEFAULT_CATEGORY
+                if (category !== values.category) {
+                    actions.setCategory(category)
+                }
+            },
         }
     }),
 
     actionToUrl(({ values }) => {
         const buildURL = (): ReturnType<typeof syncSearchParams> =>
-            syncSearchParams(router, (params: Params) => updateFilterSearchParams(params, values))
+            syncSearchParams(router, (params: Params) => {
+                updateFilterSearchParams(params, values)
+                if (values.category === DEFAULT_CATEGORY) {
+                    delete params.tab
+                } else {
+                    params.tab = values.category
+                }
+                return params
+            })
 
         return {
             setDateRange: buildURL,
             setFilterGroup: buildURL,
             setSearchQuery: buildURL,
             setFilterTestAccounts: buildURL,
+            setCategory: buildURL,
         }
     }),
 ])
