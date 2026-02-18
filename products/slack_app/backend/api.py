@@ -149,7 +149,7 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
                 )
                 return
             if get_instance_region() == "DEV":
-                # In dev deploymenet, always go to the test account - this is to let the Slack folks test on the test account
+                # In dev deployment, always go to the test account - this is to let the Slack folks test on the test account
                 slack_email = "michael+slacktest@posthog.com"
             # Find PostHog user by email
             membership = (
