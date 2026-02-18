@@ -18,7 +18,7 @@ export function ExceptionAutocaptureToggle(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam, addProductIntent } = useActions(teamLogic)
     const { reportAutocaptureExceptionsToggled } = useActions(eventUsageLogic)
-    const { showSurvey } = useActions(disableSurveyLogic)
+    const { showSurvey, hideSurvey } = useActions(disableSurveyLogic)
 
     return (
         <>
@@ -35,7 +35,9 @@ export function ExceptionAutocaptureToggle(): JSX.Element {
                         autocapture_exceptions_opt_in: checked,
                     })
                     reportAutocaptureExceptionsToggled(checked)
-                    if (!checked) {
+                    if (checked) {
+                        hideSurvey()
+                    } else {
                         showSurvey()
                     }
                 }}

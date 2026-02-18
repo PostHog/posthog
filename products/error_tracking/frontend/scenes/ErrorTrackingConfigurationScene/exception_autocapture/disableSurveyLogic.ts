@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 
 import type { disableSurveyLogicType } from './disableSurveyLogicType'
 
-const SURVEY_ID = '019c72ac-3098-0000-8da2-c133ed9d9b9b'
+const SURVEY_ID = '019c7121-f593-0000-2a0f-963ae6b3f5df'
 
 export const disableSurveyLogic = kea<disableSurveyLogicType>([
     path(['scenes', 'error-tracking', 'configuration', 'disableSurveyLogic']),
@@ -40,8 +40,12 @@ export const disableSurveyLogic = kea<disableSurveyLogicType>([
         ],
     }),
 
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
         showSurvey: () => {
+            if (cache.hideTimeout) {
+                clearTimeout(cache.hideTimeout)
+                cache.hideTimeout = null
+            }
             posthog.capture('survey shown', {
                 $survey_id: SURVEY_ID,
             })
@@ -51,7 +55,10 @@ export const disableSurveyLogic = kea<disableSurveyLogicType>([
                 $survey_id: SURVEY_ID,
                 $survey_response: values.response,
             })
-            setTimeout(() => actions.hideSurvey(), 3000)
+            cache.hideTimeout = setTimeout(() => {
+                actions.hideSurvey()
+                cache.hideTimeout = null
+            }, 3000)
         },
     })),
 ])
