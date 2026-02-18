@@ -17,7 +17,6 @@ export interface BlastRadiusPersonsResponse {
 
 export interface HogFlowBatchPersonQueryServiceHub {
     SITE_URL: string
-    INTERNAL_API_SECRET?: string
 }
 
 /**
@@ -26,7 +25,7 @@ export interface HogFlowBatchPersonQueryServiceHub {
  * Endpoints: /internal/hog_flows/user_blast_radius and /internal/hog_flows/user_blast_radius_persons
  */
 export class HogFlowBatchPersonQueryService {
-    constructor(private hub: Pick<Hub, 'SITE_URL' | 'INTERNAL_API_SECRET' | 'internalFetchService'>) {}
+    constructor(private hub: Pick<Hub, 'SITE_URL' | 'internalFetchService'>) {}
 
     /**
      * Get count of users affected by filters
@@ -38,21 +37,11 @@ export class HogFlowBatchPersonQueryService {
     ): Promise<BlastRadiusResponse> {
         const url = `${this.hub.SITE_URL}/api/projects/${team.id}/internal/hog_flows/user_blast_radius`
 
-        const headers: Record<string, string> = {
-            'Content-Type': 'application/json',
-        }
-
-        // Add internal service token if configured
-        if (this.hub.INTERNAL_API_SECRET) {
-            headers['Authorization'] = `Bearer ${this.hub.INTERNAL_API_SECRET}`
-        }
-
         try {
             const { fetchResponse, fetchError } = await this.hub.internalFetchService.fetch({
                 url,
                 fetchParams: {
                     method: 'POST',
-                    headers,
                     body: JSON.stringify({
                         filters,
                         group_type_index: groupTypeIndex,
@@ -98,21 +87,11 @@ export class HogFlowBatchPersonQueryService {
     ): Promise<BlastRadiusPersonsResponse> {
         const url = `${this.hub.SITE_URL}/api/projects/${team.id}/internal/hog_flows/user_blast_radius_persons`
 
-        const headers: Record<string, string> = {
-            'Content-Type': 'application/json',
-        }
-
-        // Add internal service token if configured
-        if (this.hub.INTERNAL_API_SECRET) {
-            headers['Authorization'] = `Bearer ${this.hub.INTERNAL_API_SECRET}`
-        }
-
         try {
             const { fetchResponse, fetchError } = await this.hub.internalFetchService.fetch({
                 url,
                 fetchParams: {
                     method: 'POST',
-                    headers,
                     body: JSON.stringify({
                         filters,
                         group_type_index: groupTypeIndex,
