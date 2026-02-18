@@ -27,10 +27,14 @@ from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput
 from products.data_warehouse.backend.models import ExternalDataSchema
 from products.signals.backend.api import emit_signal
 
-# Concurrent LLM calls limit for actionability checks
+# Default model to use for LLM calls
+GEMINI_MODEL = "models/gemini-3-flash-preview"
+# Concurrent LLM calls limit for actionability/summarization checks
 LLM_CONCURRENCY_LIMIT = 20
 # Concurrent workflow spawns for signal emission
 EMIT_CONCURRENCY_LIMIT = 50
+# Maximum number of attempts to summarize a description, if it exceeds the threshold
+SUMMARIZATION_MAX_ATTEMPTS = 3
 
 
 @dataclasses.dataclass(frozen=True)
@@ -99,6 +103,14 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
             records=records,
             emitter=config.emitter,
         )
+        # Summarize long descriptions before actionability check
+        if config.summarization_prompt and config.description_summarization_threshold:
+            outputs = await _summarize_long_descriptions(
+                outputs=outputs,
+                summarization_prompt=config.summarization_prompt,
+                threshold=config.description_summarization_threshold,
+                extra=inputs.properties_to_log,
+            )
         # Keep only actionable signals, when the prompt is defined
         if config.actionability_prompt:
             # Actionability prompt could be a security issue, as it contains user-generated content,
@@ -180,6 +192,83 @@ def _build_emitter_outputs(
     return outputs
 
 
+async def _summarize_description(
+    client: AsyncClient,
+    output: SignalEmitterOutput,
+    summarization_prompt: str,
+    threshold: int,
+) -> SignalEmitterOutput:
+    prompt_parts = [types.Part(text=summarization_prompt.format(description=output.description))]
+    for attempt in range(SUMMARIZATION_MAX_ATTEMPTS):
+        try:
+            response = await client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt_parts,
+            )
+            summary = (response.text or "").strip()
+            if not summary:
+                raise ValueError("Empty response from LLM")
+            if len(summary) >= threshold:
+                raise ValueError(f"Summary is {len(summary)} characters, must be under {threshold}")
+            # Continue if the updated summary is under the threshold
+            return dataclasses.replace(output, description=summary)
+        except Exception as e:
+            posthoganalytics.capture_exception(
+                e,
+                properties={
+                    "tag": "data_warehouse_signals_import",
+                    "error_type": "summarization_failed",
+                    "source_type": output.source_type,
+                    "source_id": output.source_id,
+                    "attempt": attempt + 1,
+                },
+            )
+            prompt_parts.append(
+                types.Part(text=f"\n\nAttempt {attempt + 1} failed with error: {e!r}\nPlease fix your output.")
+            )
+    # Hard-truncate the description to the threshold if all attempts failed
+    return dataclasses.replace(output, description=output.description[:threshold])
+
+
+async def _summarize_long_descriptions(
+    outputs: list[SignalEmitterOutput],
+    summarization_prompt: str,
+    threshold: int,
+    extra: dict[str, Any],
+) -> list[SignalEmitterOutput]:
+    needs_summary = [i for i, output in enumerate(outputs) if len(output.description) >= threshold]
+    if not needs_summary:
+        # Continue if all descriptions are under the threshold
+        return outputs
+    client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
+    semaphore = asyncio.Semaphore(LLM_CONCURRENCY_LIMIT)
+    activity.heartbeat()
+    completed_count = 0
+
+    async def _bounded_summarize(output: SignalEmitterOutput) -> SignalEmitterOutput:
+        nonlocal completed_count
+        async with semaphore:
+            result = await _summarize_description(client, output, summarization_prompt, threshold)
+            completed_count += 1
+            if completed_count % LLM_CONCURRENCY_LIMIT == 0:
+                activity.heartbeat()
+            return result
+
+    tasks: dict[int, asyncio.Task[SignalEmitterOutput]] = {}
+    async with asyncio.TaskGroup() as tg:
+        for i in needs_summary:
+            tasks[i] = tg.create_task(_bounded_summarize(outputs[i]))
+    # Update the outputs with the summarized descriptions
+    result = list(outputs)
+    for i, task in tasks.items():
+        result[i] = task.result()
+    activity.logger.info(
+        f"Summarized {len(needs_summary)} long descriptions (threshold={threshold})",
+        extra=extra,
+    )
+    return result
+
+
 async def _check_actionability(
     client: AsyncClient,
     output: SignalEmitterOutput,
@@ -187,9 +276,10 @@ async def _check_actionability(
 ) -> bool:
     """Check if the signal is actionable through LLM-as-a-judge call"""
     try:
+        # One-shotting it, as the task is simple, so adding retry logic would be excessive
         prompt = actionability_prompt.format(description=output.description)
         response = await client.models.generate_content(
-            model="models/gemini-3-flash-preview",
+            model=GEMINI_MODEL,
             contents=[prompt],
             # Limiting the output in hopes it will force LLM to give a short response
             config=types.GenerateContentConfig(max_output_tokens=128),
