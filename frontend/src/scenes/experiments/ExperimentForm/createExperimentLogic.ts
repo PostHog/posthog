@@ -154,13 +154,15 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 ['updateFlag'],
                 teamLogic,
                 ['addProductIntent'],
+                router,
+                ['locationChanged'],
             ],
         }
     }),
     actions(() => ({
         setExperiment: (experiment: Experiment) => ({ experiment }),
         setExperimentValue: (name: string, value: any) => ({ name, value }),
-        resetExperiment: true,
+        resetExperiment: (experiment?: Experiment) => ({ experiment }),
         clearDraft: true,
         setExposureCriteria: (criteria: ExperimentExposureCriteria) => ({ criteria }),
         setFeatureFlagConfig: (config: {
@@ -210,7 +212,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     },
                 }),
                 updateFeatureFlagKey: (state, { key }) => ({ ...state, feature_flag_key: key }),
-                resetExperiment: () => props.experiment ?? { ...NEW_EXPERIMENT },
+                resetExperiment: (_, { experiment }) => experiment ?? props.experiment ?? { ...NEW_EXPERIMENT },
             },
         ],
         sharedMetrics: [
@@ -315,6 +317,17 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             if (props.experiment || values.experiment.id !== 'new') {
                 return
             }
+            const { searchParams } = router.values.currentLocation
+            const urlMetric = searchParams.metric
+            const urlName = searchParams.name
+            if (urlMetric || urlName) {
+                actions.setExperiment({
+                    ...NEW_EXPERIMENT,
+                    metrics: urlMetric ? [urlMetric] : [],
+                    name: urlName ?? '',
+                })
+                return
+            }
             const draft = readDraftFromStorage(props.tabId)
             if (draft) {
                 actions.setExperiment(draft)
@@ -328,6 +341,23 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
         },
     })),
     listeners(({ values, actions, props }) => ({
+        locationChanged: ({ searchParams, pathname }) => {
+            if (props.experiment || values.experiment.id !== 'new') {
+                return
+            }
+            if (!pathname.includes('/experiments/new')) {
+                return
+            }
+            const urlMetric = searchParams.metric
+            const urlName = searchParams.name
+            if (urlMetric || urlName) {
+                actions.setExperiment({
+                    ...NEW_EXPERIMENT,
+                    metrics: urlMetric ? [urlMetric] : [],
+                    name: urlName ?? '',
+                })
+            }
+        },
         clearDraft: () => {
             if (props.experiment || values.experiment.id !== 'new') {
                 return
