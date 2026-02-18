@@ -263,6 +263,30 @@ describe('calculateInputCost()', () => {
             // Total: 0.0039918 + 0.00262875 + 0.000018 = 0.00663855
             expectCostToBeCloseTo(result, 0.00663855, 8)
         })
+
+        it('falls back to exclusive accounting when Vercel gateway tokens are provably not inclusive', () => {
+            // When inputTokens < cacheReadTokens + cacheWriteTokens, the tokens can't be inclusive.
+            // This happens when SDKs (e.g., posthog-ai) report Anthropic-style exclusive counts
+            // through the Vercel gateway. Without this guard, uncachedTokens goes negative.
+            const event = createTestEvent({
+                properties: {
+                    $ai_provider: 'gateway',
+                    $ai_framework: 'vercel',
+                    $ai_model: 'anthropic/claude-opus-4.6',
+                    $ai_input_tokens: 247,
+                    $ai_cache_read_input_tokens: 6287,
+                },
+            })
+
+            const result = calculateInputCost(event, ANTHROPIC_MODEL)
+
+            // Exclusive accounting (same as standard Anthropic):
+            // Read: 6287 * 3e-7 = 0.0018861
+            // Regular: 247 * 0.000003 = 0.000741
+            // Total: 0.0018861 + 0.000741 = 0.0026271
+            expectCostToBeCloseTo(result, 0.0026271, 5)
+            expect(parseFloat(result)).toBeGreaterThan(0)
+        })
     })
 
     describe('openai provider - cache handling', () => {
