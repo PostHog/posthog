@@ -93,7 +93,7 @@ function FiltersDropdown({ disabledReason }: { disabledReason?: string }): JSX.E
                     </IconWithCount>
                 }
                 disabledReason={disabledReason}
-                tooltipDocLink={disabledReason ? 'https://posthog.com/docs/hogql#filters' : undefined}
+                tooltipDocLink={disabledReason ? 'https://posthog.com/docs/data-warehouse/sql/filters' : undefined}
                 type="tertiary"
                 size="xsmall"
                 className="overflow-visible"
