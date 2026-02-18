@@ -54,7 +54,7 @@ jobs:
             - name: Format generated files
               run: |
                   cd nodejs
-                  pnpm prettier --write src/ingestion/ai/costs/providers/canonical-providers.ts src/ingestion/ai/costs/providers/llm-costs.json
+                  pnpm exec oxfmt src/ingestion/ai/costs/providers/canonical-providers.ts src/ingestion/ai/costs/providers/llm-costs.json
 
             - name: Check for changes
               id: check-changes

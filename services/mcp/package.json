@@ -2,6 +2,16 @@
     "name": "@posthog/mcp",
     "version": "1.0.0",
     "description": "PostHog MCP server",
+    "keywords": [
+        "agents",
+        "ai",
+        "analytics",
+        "feature-flags",
+        "mcp",
+        "posthog"
+    ],
+    "license": "MIT",
+    "author": "PostHog Inc.",
     "scripts": {
         "build:ui-apps": "tsx scripts/build-ui-apps.ts",
         "build:ui-apps:watch": "tsx scripts/build-ui-apps.ts --watch",
@@ -17,16 +27,6 @@
         "typecheck": "tsc --noEmit",
         "generate-client": "tsx scripts/update-openapi-client.ts"
     },
-    "keywords": [
-        "posthog",
-        "mcp",
-        "ai",
-        "agents",
-        "analytics",
-        "feature-flags"
-    ],
-    "author": "PostHog Inc.",
-    "license": "MIT",
     "dependencies": {
         "@modelcontextprotocol/ext-apps": "^1.0.1",
         "@modelcontextprotocol/sdk": "^1.26.0",
@@ -50,8 +50,8 @@
         "ajv-formats": "^3.0.1",
         "chokidar": "^3.6.0",
         "dotenv": "^16.4.7",
+        "oxfmt": "^0.33.0",
         "oxlint": "^1.8.0",
-        "prettier": "^3.4.2",
         "react": "^18.2.0",
         "react-dom": "^18.2.0",
         "tsx": "^4.20.5",

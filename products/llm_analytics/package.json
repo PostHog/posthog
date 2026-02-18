@@ -26,7 +26,6 @@
         "clsx": "*",
         "eslint": "*",
         "jest": "*",
-        "prettier": "*",
         "react": "*",
         "stylelint": "*",
         "typescript": "*",
