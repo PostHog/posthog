@@ -1,4 +1,4 @@
-import '../../tests/helpers/mocks/producer.mock'
+import { MockKafkaProducerWrapper } from '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
@@ -634,6 +634,13 @@ describe('CDP API', () => {
     describe('batch hogflow invocations', () => {
         let batchHogFlow: HogFlow
         let originalCdpKafkaProducer: any
+
+        it('creates CDP kafka producer with CDP_PRODUCER mode on start', async () => {
+            const freshApi = new CdpApi(hub)
+            await freshApi.start()
+            expect(MockKafkaProducerWrapper.create).toHaveBeenCalledWith(hub.KAFKA_CLIENT_RACK, 'CDP_PRODUCER')
+            await freshApi.stop()
+        })
 
         beforeEach(async () => {
             originalCdpKafkaProducer = api['cdpKafkaProducer']
