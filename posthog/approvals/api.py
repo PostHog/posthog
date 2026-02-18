@@ -15,8 +15,13 @@ from posthog.approvals.models import ApprovalPolicy, ChangeRequest
 from posthog.approvals.permissions import CanApprove, CanCancel
 from posthog.approvals.serializers import ApprovalPolicySerializer, ChangeRequestSerializer
 from posthog.approvals.services import ChangeRequestService
+from posthog.constants import AvailableFeature
 from posthog.models import User
-from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
+from posthog.permissions import (
+    OrganizationAdminWritePermissions,
+    OrganizationMemberPermissions,
+    PremiumFeaturePermission,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +29,8 @@ logger = logging.getLogger(__name__)
 class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "INTERNAL"
     queryset = ChangeRequest.objects.all().order_by("-created_at")
-    permission_classes = [OrganizationMemberPermissions]
+    permission_classes = [OrganizationMemberPermissions, PremiumFeaturePermission]
+    premium_feature_on_cloud = AvailableFeature.APPROVALS
     serializer_class = ChangeRequestSerializer
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
@@ -153,7 +159,8 @@ class ApprovalPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = ApprovalPolicy.objects.all().order_by("-created_at")
     serializer_class = ApprovalPolicySerializer
-    permission_classes = [OrganizationMemberPermissions, OrganizationAdminWritePermissions]
+    permission_classes = [OrganizationMemberPermissions, OrganizationAdminWritePermissions, PremiumFeaturePermission]
+    premium_feature_on_cloud = AvailableFeature.APPROVALS
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         filters = self.request.query_params

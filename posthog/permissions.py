@@ -22,7 +22,7 @@ from posthog.auth import (
 )
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
-from posthog.exceptions import Conflict, EnterpriseFeatureException
+from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
 from posthog.scopes import APIScopeObject, APIScopeObjectOrNotSupported
@@ -279,20 +279,38 @@ class IsStaffUserOrImpersonating(BasePermission):
 class PremiumFeaturePermission(BasePermission):
     """
     Requires the user to have proper permission for the feature.
-    `premium_feature` must be defined as a view attribute.
     Permission class requires a user in context, should generally be used in conjunction with IsAuthenticated.
+
+    Two modes via view attributes:
+    - `premium_feature`: always enforced, raises EnterpriseFeatureException when missing.
+    - `premium_feature_on_cloud`: only enforced on Cloud, raises PaidFeatureException when missing.
+      Self-hosted instances are not gated.
+
+    Exactly one of the two attributes must be set on the view.
     """
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        assert hasattr(view, "premium_feature"), (
-            "this permission class requires the `premium_feature` attribute to be set in the view."
+        cloud_only_feature = getattr(view, "premium_feature_on_cloud", None)
+        always_feature = getattr(view, "premium_feature", None)
+
+        assert cloud_only_feature or always_feature, (
+            "this permission class requires `premium_feature` or `premium_feature_on_cloud` to be set in the view."
         )
+
+        if cloud_only_feature:
+            if not is_cloud():
+                return True
+            feature = cloud_only_feature
+        else:
+            feature = always_feature
 
         if not request.user or not request.user.organization:  # type: ignore
             return True
 
-        if not request.user.organization.is_feature_available(view.premium_feature):  # type: ignore
-            raise EnterpriseFeatureException()
+        if not request.user.organization.is_feature_available(feature):  # type: ignore
+            if cloud_only_feature:
+                raise PaidFeatureException(feature)
+            raise EnterpriseFeatureException(feature)
 
         return True
 

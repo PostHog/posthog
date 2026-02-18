@@ -19,6 +19,31 @@ from posthog.constants import AvailableFeature
 from posthog.models import User
 
 
+class TestApprovalsFeatureGating(APIBaseTest):
+    @patch("posthog.permissions.is_cloud", return_value=True)
+    def test_change_requests_require_approvals_feature_on_cloud(self, _mock_is_cloud):
+        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/")
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+
+    @patch("posthog.permissions.is_cloud", return_value=True)
+    def test_approval_policies_require_approvals_feature_on_cloud(self, _mock_is_cloud):
+        response = self.client.get(f"/api/environments/{self.team.id}/approval_policies/")
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+
+    @patch("posthog.permissions.is_cloud", return_value=True)
+    def test_change_requests_accessible_with_approvals_feature_on_cloud(self, _mock_is_cloud):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/")
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_change_requests_accessible_without_feature_when_not_cloud(self):
+        response = self.client.get(f"/api/environments/{self.team.id}/change_requests/")
+        assert response.status_code == status.HTTP_200_OK
+
+
 class TestChangeRequestViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
