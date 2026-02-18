@@ -3,11 +3,11 @@ import { useActions, useValues } from 'kea'
 import { IconInfo } from '@posthog/icons'
 import { LemonLabel, LemonSegmentedButton, LemonSegmentedButtonOption, Tooltip } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 
-import { AccessControlLevel, MultivariateFlagOptions } from '~/types'
+import { MultivariateFlagOptions } from '~/types'
 
-import { ingestionControlsLogic } from '../../ingestionControlsLogic'
 import { flagTriggerLogic } from './flagTriggerLogic'
 
 export const ANY_VARIANT = 'any'
@@ -36,9 +36,12 @@ export function variantOptions(
 }
 
 export const FlagTriggerVariantSelector = ({ tooltip }: { tooltip: JSX.Element }): JSX.Element | null => {
-    const { resourceType } = useValues(ingestionControlsLogic)
     const { flag, featureFlagLoading, linkedFlag, flagHasVariants } = useValues(flagTriggerLogic)
     const { onChange } = useActions(flagTriggerLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     if (!flagHasVariants) {
         return null
@@ -52,29 +55,25 @@ export const FlagTriggerVariantSelector = ({ tooltip }: { tooltip: JSX.Element }
                     <IconInfo className="text-muted-alt cursor-help" />
                 </Tooltip>
             </LemonLabel>
-            <AccessControlAction resourceType={resourceType} minAccessLevel={AccessControlLevel.Editor}>
-                {({ disabledReason }) => (
-                    <LemonSegmentedButton
-                        className="min-w-1/3"
-                        value={flag?.variant ?? ANY_VARIANT}
-                        options={variantOptions(
-                            linkedFlag?.filters.multivariate,
-                            (disabledReason ?? featureFlagLoading) ? 'Loading...' : undefined
-                        )}
-                        onChange={(variant) => {
-                            if (!linkedFlag) {
-                                return
-                            }
-
-                            onChange({
-                                id: linkedFlag?.id,
-                                key: linkedFlag?.key,
-                                variant: variant === ANY_VARIANT ? null : variant,
-                            })
-                        }}
-                    />
+            <LemonSegmentedButton
+                className="min-w-1/3"
+                value={flag?.variant ?? ANY_VARIANT}
+                options={variantOptions(
+                    linkedFlag?.filters.multivariate,
+                    (restrictedReason ?? featureFlagLoading) ? 'Loading...' : undefined
                 )}
-            </AccessControlAction>
+                onChange={(variant) => {
+                    if (!linkedFlag) {
+                        return
+                    }
+
+                    onChange({
+                        id: linkedFlag?.id,
+                        key: linkedFlag?.key,
+                        variant: variant === ANY_VARIANT ? null : variant,
+                    })
+                }}
+            />
         </>
     )
 }
