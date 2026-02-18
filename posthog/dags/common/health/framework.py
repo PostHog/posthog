@@ -144,6 +144,7 @@ def create_health_check(
     detect_fn: BatchDetectFn,
     owner: JobOwners,
     *,
+    team_ids: list[int] | None = ...,
     schedule: str | None = ...,
     batch_size: int = ...,
     max_concurrent: int = ...,
@@ -159,6 +160,7 @@ def create_health_check(
     owner: JobOwners,
     *,
     per_team: Literal[True],
+    team_ids: list[int] | None = ...,
     schedule: str | None = ...,
     batch_size: int = ...,
     max_concurrent: int = ...,
@@ -173,6 +175,7 @@ def create_health_check(
     owner: JobOwners,
     *,
     per_team: bool = False,
+    team_ids: list[int] | None = None,
     schedule: str | None = None,
     batch_size: int = 1000,
     max_concurrent: int = 5,
@@ -191,6 +194,7 @@ def create_health_check(
             which is more efficient but means an unhandled exception fails the entire batch.
             Use `per_team=True` when `detect_fn` may raise for individual teams.
             Use `per_team=False` when the detection logic is a single bulk query.
+        team_ids: If provided, only process these team IDs. If None, processes all teams.
         schedule: Optional cron expression for scheduling.
         batch_size: Number of team IDs per batch.
         max_concurrent: Maximum parallel batch operations.
@@ -207,12 +211,14 @@ def create_health_check(
     batch_op = _create_check_batch_op(name, kind, detect_fn, per_team)
     aggregate_op = _create_aggregate_op(name, kind, not_processed_threshold)
 
+    op_config: dict = {"batch_size": batch_size}
+    if team_ids is not None:
+        op_config["team_ids"] = team_ids
+
     job_config = {
         "ops": {
             "get_all_team_ids_op": {
-                "config": {
-                    "batch_size": batch_size,
-                }
+                "config": op_config,
             }
         }
     }

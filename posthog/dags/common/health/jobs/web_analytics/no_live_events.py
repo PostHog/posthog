@@ -55,4 +55,5 @@ no_live_events_check = create_health_check(
     kind="no_live_events",
     detect_fn=detect_no_live_events,
     owner=JobOwners.TEAM_WEB_ANALYTICS,
+    team_ids=[2],
 )
