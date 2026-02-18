@@ -57,7 +57,6 @@ import {
 } from '~/types'
 
 import { SurveyHeadline } from './SurveyHeadline'
-import { SurveysDisabledBanner } from './SurveySettings'
 import { getSurveyResponse, isThumbQuestion } from './utils'
 
 const RESOURCE_TYPE = 'survey'
@@ -183,7 +182,6 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
                         )}
                     </ScenePanel>
 
-                    <SurveysDisabledBanner />
                     <SceneTitleSection
                         name={survey.name}
                         description={survey.description}

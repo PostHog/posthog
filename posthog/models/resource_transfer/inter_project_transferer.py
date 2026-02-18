@@ -243,33 +243,62 @@ def get_suggested_substitutions(
         if visitor.is_immutable():
             continue
 
-        transfer_record = (
-            ResourceTransfer.objects.filter(
-                resource_kind=visitor.kind,
-                resource_id=str(vertex.source_resource.pk),
-                destination_team=new_team,
-            )
-            .order_by("-last_transferred_at")
-            .first()
-        )
+        suggested_resource = _find_resource_with_transfer_record(visitor, vertex, new_team)
 
-        if transfer_record is None:
-            continue
+        if suggested_resource is None:
+            suggested_resource = _find_resource_with_same_name(visitor, vertex, new_team)
 
-        model = visitor.get_model()
-        try:
-            previously_duplicated_resource = model.objects.get(pk=transfer_record.duplicated_resource_id)
-        except ObjectDoesNotExist:
+        if suggested_resource is None:
             continue
 
         source_key: ResourceTransferKey = (visitor.kind, vertex.source_resource.pk)
         dest_key: ResourceTransferKey = (
-            cast(ResourceKind, transfer_record.resource_kind),
-            previously_duplicated_resource.pk,
+            cast(ResourceKind, visitor.kind),
+            suggested_resource.pk,
         )
         recommendations.append((source_key, dest_key))
 
     return recommendations
+
+
+def _find_resource_with_transfer_record(
+    visitor: type[ResourceTransferVisitor], vertex: ResourceTransferVertex, new_team: Team
+) -> Any | None:
+    transfer_record = (
+        ResourceTransfer.objects.filter(
+            resource_kind=visitor.kind,
+            resource_id=str(vertex.source_resource.pk),
+            destination_team=new_team,
+        )
+        .order_by("-last_transferred_at")
+        .first()
+    )
+
+    if transfer_record is None:
+        return None
+
+    model = visitor.get_model()
+    try:
+        previously_duplicated_resource = model.objects.get(pk=transfer_record.duplicated_resource_id)
+
+        return previously_duplicated_resource
+    except ObjectDoesNotExist:
+        return None
+
+
+def _find_resource_with_same_name(
+    visitor: type[ResourceTransferVisitor], vertex: ResourceTransferVertex, new_team: Team
+) -> Any | None:
+    model = visitor.get_model()
+
+    resource = cast(Any, vertex.source_resource)
+
+    if not hasattr(resource, "name") or not resource.name or not hasattr(resource, "team"):
+        return None
+
+    matching_resource = model.objects.filter(name=resource.name, team=new_team).first()
+
+    return matching_resource
 
 
 def _get_mapped_substitutions(
