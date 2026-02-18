@@ -2,8 +2,6 @@ import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import { EventType } from '@posthog/rrweb-types'
-
 import api, { RecordingDeletedError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import 'lib/dayjs'

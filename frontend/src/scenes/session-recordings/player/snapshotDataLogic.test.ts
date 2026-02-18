@@ -5,7 +5,6 @@ import { expectLogic } from 'kea-test-utils'
 import { EventType, IncrementalSource, NodeType, mutationData } from '@posthog/rrweb-types'
 
 import { RecordingDeletedError } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
