@@ -161,9 +161,10 @@ function SessionSceneWrapper(): JSX.Element {
                     <div className="bg-surface-primary border rounded p-4">
                         <h3 className="font-semibold text-sm mb-3">Traces in this session</h3>
                         <div className="space-y-2">
-                            {traces.map((trace) => {
+                            {traces.map((trace, index) => {
                                 const isTraceExpanded = expandedTraceIds.has(trace.id)
                                 const summary: TraceSummary | undefined = traceSummaries[trace.id]
+                                const turnNumber = index + 1
 
                                 return (
                                     <div key={trace.id} className="border rounded">
@@ -180,6 +181,9 @@ function SessionSceneWrapper(): JSX.Element {
                                             </div>
                                             <div className="flex-1">
                                                 <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                                    <span className="text-xs font-semibold text-muted">
+                                                        #{turnNumber}
+                                                    </span>
                                                     <strong className="font-mono text-xs">
                                                         {trace.id.slice(0, 8)}...
                                                     </strong>
