@@ -248,7 +248,6 @@ export const LineGraph = (props: LineGraphProps): JSX.Element => {
  * Chart.js in log scale refuses to render points that are 0 - as log(0) is undefined - hence a special value for that case.
  */
 const LOG_ZERO = 1e-10
-const MAX_CHART_DATASETS = 50
 
 export function LineGraph_({
     datasets: _datasets,
@@ -524,9 +523,6 @@ export function LineGraph_({
             let filteredDatasets = datasets
             if (!isHorizontal) {
                 filteredDatasets = filteredDatasets.filter((data) => !getTrendsHidden(data as IndexedTrendResult))
-            }
-            if (filteredDatasets.length > MAX_CHART_DATASETS) {
-                filteredDatasets = filteredDatasets.slice(0, MAX_CHART_DATASETS)
             }
 
             const processedDatasets = filteredDatasets.map(processDataset)
