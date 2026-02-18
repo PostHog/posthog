@@ -1842,6 +1842,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         stopAnimation: () => {
             cache.disposables.dispose('animationTimer')
             cache.lastFrameTime = undefined
+            cache._stuckFrames = 0
+            cache._lastAnimTimestamp = undefined
         },
         pauseIframePlayback: () => {
             const iframe = values.rootFrame?.querySelector('iframe')

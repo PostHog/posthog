@@ -122,7 +122,7 @@ export function Seekbar(): JSX.Element {
     const { timestampFormat } = useValues(playerSettingsLogic)
 
     const { handleDown, setSlider, setThumb } = useActions(seekbarLogic(logicProps))
-    const { sessionPlayerData, sessionPlayerMetaData, sourceLoadingStates } = useValues(
+    const { sessionPlayerData, sessionPlayerMetaData, sourceLoadingStates, snapshotStore } = useValues(
         sessionRecordingDataCoordinatorLogic(logicProps)
     )
 
@@ -141,7 +141,7 @@ export function Seekbar(): JSX.Element {
 
     const allowPreviewScrubbing = useFeatureFlag('SEEKBAR_PREVIEW_SCRUBBING')
 
-    const useSnapshotStore = sourceLoadingStates.length > 0
+    const useSnapshotStore = !!snapshotStore
 
     return (
         <div className="flex flex-col items-end mx-4 mt-2 h-8" data-attr="rrweb-controller">

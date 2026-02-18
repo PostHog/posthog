@@ -239,15 +239,20 @@ describe('snapshotDataLogic (store-based loading)', () => {
         it('is a no-op when store is not enabled', async () => {
             // Mount without store flag
             featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], {})
             logic = snapshotDataLogic({
                 sessionRecordingId: 'no-store-update-test',
                 blobV2PollingDisabled: true,
             })
             logic.mount()
 
-            // Should not crash or trigger loading
+            expect(logic.values.snapshotStore).toBeNull()
+
             logic.actions.updatePlaybackPosition(tsMs(0))
-            // No assertion needed — just verifying no error
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.snapshotStore).toBeNull()
+            expect(logic.values.snapshotsForSourceLoading).toBe(false)
         })
     })
 

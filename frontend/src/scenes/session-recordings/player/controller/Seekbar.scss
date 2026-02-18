@@ -138,7 +138,7 @@
 
             .PlayerSeekbar__sources__item {
                 height: 100%;
-                background-color: hsl(0deg 0% 88%);
+                background-color: var(--color-neutral-100);
                 transition: background-color 150ms ease;
 
                 &--loaded {

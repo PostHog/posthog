@@ -196,10 +196,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         }
                     }
                     if (cache.useSnapshotStore) {
-                        // Store path: stash parsed snapshots for the success handler to bucket
-                        if (cache.pendingBatch) {
-                            console.warn('pendingBatch overwritten before consumption')
-                        }
                         cache.pendingBatch = { sources, snapshots: parsedSnapshots }
                     } else {
                         // Legacy path: accumulate in cache.snapshotsBySource
