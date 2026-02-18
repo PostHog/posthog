@@ -1,3 +1,5 @@
+import * as PartialJSON from 'partial-json'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
@@ -765,6 +767,26 @@ export function normalizeMessages(messages: unknown, defaultRole: string, tools?
     }
 
     return normalizedMessages
+}
+
+const JSON_PREVIEW_LENGTH = 300
+
+// We are deliberately cutting off the JSON instead of the parsed final content
+// because we will soon be sending an actual truncated version of the field
+// through a materialized column. This forces us to handle partial JSON.
+function simulateNaiveTruncation(raw: unknown): string {
+    const jsonStr = typeof raw === 'string' ? raw : JSON.stringify(raw)
+    return jsonStr.slice(0, JSON_PREVIEW_LENGTH)
+}
+
+export function parsePartialJSON(json: string): unknown {
+    const flags = PartialJSON.STR | PartialJSON.OBJ | PartialJSON.ARR
+    return PartialJSON.parse(json, flags)
+}
+
+export function parseJSONPreview(raw: unknown): unknown {
+    const truncated = simulateNaiveTruncation(raw)
+    return parsePartialJSON(truncated)
 }
 
 export function removeMilliseconds(timestamp: string): string {
