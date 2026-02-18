@@ -1,10 +1,59 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
+
+const HOG_EXAMPLES: { label: string; source: string }[] = [
+    {
+        label: 'Output not empty',
+        source: `// Check that the output is not empty
+let result := len(output) > 0
+if (not result) {
+    print('Output is empty')
+}
+return result`,
+    },
+    {
+        label: 'Min output length',
+        source: `// Check that the output is at least 100 characters
+let result := len(output) >= 100
+if (not result) {
+    print('Output too short:', len(output), 'chars')
+}
+return result`,
+    },
+    {
+        label: 'Contains keyword',
+        source: `// Check that the output contains an expected keyword
+let keyword := 'hello'
+let result := output ilike concat('%', keyword, '%')
+if (not result) {
+    print('Missing keyword:', keyword)
+}
+return result`,
+    },
+    {
+        label: 'Valid JSON output',
+        source: `// Check that the output is valid JSON
+fn isValidJSON(s) {
+    try {
+        jsonParse(s)
+        return true
+    } catch (e) {
+        return false
+    }
+}
+
+let result := isValidJSON(output)
+if (not result) {
+    print('Output is not valid JSON')
+}
+return result`,
+    },
+]
 
 const HOG_EVAL_GLOBALS: Record<string, any> = {
     input: {
@@ -66,6 +115,21 @@ export function EvaluationCodeEditor(): JSX.Element {
             </div>
 
             <div className="bg-bg-light border rounded p-3">
+                <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-sm font-semibold m-0">Examples</h4>
+                </div>
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                    {HOG_EXAMPLES.map((example) => (
+                        <LemonButton
+                            key={example.label}
+                            type="secondary"
+                            size="xsmall"
+                            onClick={() => setHogSource(example.source)}
+                        >
+                            {example.label}
+                        </LemonButton>
+                    ))}
+                </div>
                 <h4 className="text-sm font-semibold mb-2">Available globals</h4>
                 <div className="text-sm text-muted space-y-1">
                     <div>

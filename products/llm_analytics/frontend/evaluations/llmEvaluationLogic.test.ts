@@ -5,7 +5,7 @@ import { initKeaTests } from '~/test/init'
 
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
-import { llmEvaluationLogic } from './llmEvaluationLogic'
+import { DEFAULT_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
 import { EvaluationConfig, EvaluationRun } from './types'
 
 const mockProviderKeys: LLMProviderKey[] = [
@@ -675,7 +675,7 @@ describe('llmEvaluationLogic', () => {
             await expectLogic(logic).toMatchValues({
                 evaluation: expect.objectContaining({
                     evaluation_type: 'hog',
-                    evaluation_config: { source: '' },
+                    evaluation_config: { source: DEFAULT_HOG_SOURCE },
                     model_configuration: null,
                 }),
             })
@@ -715,12 +715,17 @@ describe('llmEvaluationLogic', () => {
             logic.actions.setEvaluationName('Valid Name')
             logic.actions.setTriggerConditions([{ id: 'c1', rollout_percentage: 50, properties: [] }])
 
+            // Default source is non-empty -> valid
+            await expectLogic(logic).toMatchValues({ formValid: true })
+
+            logic.actions.setHogSource('')
+
             // Empty source -> invalid
             await expectLogic(logic).toMatchValues({ formValid: false })
 
             logic.actions.setHogSource('return true')
 
-            // Non-empty source -> valid
+            // Non-empty source -> valid again
             await expectLogic(logic).toMatchValues({ formValid: true })
         })
 
@@ -751,7 +756,7 @@ describe('llmEvaluationLogic', () => {
             logic.actions.saveEvaluationSuccess({
                 ...mockEvaluation,
                 evaluation_type: 'hog',
-                evaluation_config: { source: '' },
+                evaluation_config: { source: DEFAULT_HOG_SOURCE },
             } as any)
 
             logic.actions.setHogSource('return true')

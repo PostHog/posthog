@@ -26,6 +26,13 @@ import {
     ModelConfiguration,
 } from './types'
 
+export const DEFAULT_HOG_SOURCE = `// Check that the output is not empty
+let result := len(output) > 0
+if (not result) {
+    print('Output is empty')
+}
+return result`
+
 export interface AvailableModel {
     id: string
     posthog_available: boolean
@@ -185,7 +192,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         return {
                             ...state,
                             evaluation_type: 'hog',
-                            evaluation_config: { source: '' },
+                            evaluation_config: { source: DEFAULT_HOG_SOURCE },
                             model_configuration: null,
                             output_config: { ...state.output_config, allows_na: false },
                         }
