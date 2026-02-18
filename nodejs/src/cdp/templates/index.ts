@@ -38,6 +38,7 @@ import { template as hashPropertiesTemplate } from './_transformations/hash-prop
 import { template as ipAnonymizationTemplate } from './_transformations/ip-anonymization/ip-anonymization.template'
 import { template as piiHashingTemplate } from './_transformations/pii-hashing/pii-hashing.template'
 import { template as removeNullPropertiesTemplate } from './_transformations/remove-null-properties/remove-null-properties.template'
+import { template as secureEventsTemplate } from './_transformations/secure-events/secure-events.template'
 import { template as urlMaskingTemplate } from './_transformations/url-masking/url-masking.template'
 import { template as urlNormalizationTemplate } from './_transformations/url-normalization/url-normalization.template'
 
@@ -74,6 +75,7 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     geoipTemplate,
     ipAnonymizationTemplate,
     removeNullPropertiesTemplate,
+    secureEventsTemplate,
     urlMaskingTemplate,
     piiHashingTemplate,
     botDetectionTemplate,

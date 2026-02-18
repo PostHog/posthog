@@ -24,5 +24,7 @@
         "editor.codeActionsOnSave": {
             "source.organizeImports.ruff": "explicit"
         }
-    }
+    },
+    "jest.rootPath": "plugin-server",
+    "jest.jestCommandLine": "flox activate && pnpm test"
 }
