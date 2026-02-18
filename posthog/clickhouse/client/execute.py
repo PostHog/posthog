@@ -205,23 +205,6 @@ def sync_execute(
     if team_id is not None:
         tags.team_id = team_id
 
-    if not TEST and (tags.team_id is None or tags.product is None or tags.kind is None or tags.query_type is None):
-        missing = []
-        if tags.team_id is None:
-            missing.append("team_id")
-        if tags.product is None:
-            missing.append("product")
-        if tags.kind is None:
-            missing.append("kind")
-        if tags.query_type is None:
-            missing.append("query_type")
-
-        logger.warning(
-            "sync_execute called with missing query tags: %s\n%s",
-            ", ".join(missing),
-            "".join(traceback.format_stack()),
-        )
-
     prepared_sql, prepared_args, tags = _prepare_query(query=query, args=args, workload=workload)
     query_id = validated_client_query_id()
     core_settings = {
@@ -247,6 +230,27 @@ def sync_execute(
         ch_user = ClickHouseUser.MAX_AI
     elif tags.product == Product.ENDPOINTS:
         ch_user = ClickHouseUser.ENDPOINTS
+
+    if (
+        not TEST
+        and ch_user == ClickHouseUser.APP
+        and (tags.team_id is None or tags.product is None or tags.kind is None or tags.query_type is None)
+    ):
+        missing = []
+        if tags.team_id is None:
+            missing.append("team_id")
+        if tags.product is None:
+            missing.append("product")
+        if tags.kind is None:
+            missing.append("kind")
+        if tags.query_type is None:
+            missing.append("query_type")
+
+        logger.warning(
+            "sync_execute called with missing query tags: %s\n%s",
+            ", ".join(missing),
+            "".join(traceback.format_stack()),
+        )
 
     settings = {
         **core_settings,
