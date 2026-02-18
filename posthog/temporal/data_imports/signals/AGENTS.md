@@ -23,7 +23,7 @@ The pipeline is a Temporal child workflow, fire-and-forget from the main import 
    - Looks up the config from the registry for the given source type and schema
    - Queries new records via HogQL (filtered by partition field since last sync)
    - Runs each record through the source's **emitter function** to produce signal outputs
-   - Optionally **summarizes long descriptions** via LLM if the config defines a `summarization_prompt` and `description_summarization_threshold`.
+   - Optionally **summarizes long descriptions** via LLM if the config defines a `summarization_prompt` and `description_summarization_threshold_chars`.
      Descriptions exceeding the threshold are summarized; if the summary is still too long, retries once with error context; truncates as last resort.
    - Optionally filters through an **LLM actionability check** if the config defines a prompt (runs after summarization)
    - Emits surviving outputs as Signals via `products/signals/backend/api/emit_signal`
