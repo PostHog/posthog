@@ -116,9 +116,9 @@ export function Timestamp({
         <Tooltip title={tooltipContent} placement="top" visible={isHovered}>
             <LemonButton
                 data-attr="recording-timestamp"
-                className="text-center whitespace-nowrap font-mono text-xs inline"
+                className="text-center whitespace-nowrap font-mono text-xs inline [--lemon-button-gap:0.125rem]"
                 noPadding={noPadding}
-                icon={<IconClock className="text-muted" />}
+                icon={<IconClock className="text-muted text-sm" />}
                 onMouseEnter={() => setIsHovered(true)}
                 onMouseLeave={() => setIsHovered(false)}
                 onClick={() => {
