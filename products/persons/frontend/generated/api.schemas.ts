@@ -212,6 +212,35 @@ export interface PatchedPersonApi {
     readonly last_seen_at?: string | null
 }
 
+/**
+ * Person properties as they existed at the specified time
+ */
+export type PersonPropertiesAtTimeResponseApiProperties = { [key: string]: string | null }
+
+/**
+ * Serializer for the point-in-time person properties response.
+ */
+export interface PersonPropertiesAtTimeResponseApi {
+    /** Person properties as they existed at the specified time */
+    properties: PersonPropertiesAtTimeResponseApiProperties
+    /**
+     * The distinct_id parameter used in the request
+     * @nullable
+     */
+    distinct_id_used: string | null
+    /**
+     * The person_id parameter used in the request
+     * @nullable
+     */
+    person_id_used: string | null
+    /** Whether the query used 'distinct_id' or 'person_id' mode */
+    query_mode: string
+    /** All distinct_ids that were queried for this person */
+    distinct_ids_queried: string[]
+    /** Number of distinct_ids associated with this person */
+    distinct_ids_count: number
+}
+
 export type PersonsListParams = {
     /**
      * Filter list by distinct id.
@@ -473,6 +502,38 @@ export type PersonsLifecycleRetrieveFormat =
     (typeof PersonsLifecycleRetrieveFormat)[keyof typeof PersonsLifecycleRetrieveFormat]
 
 export const PersonsLifecycleRetrieveFormat = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type PersonsPropertiesAtTimeRetrieveParams = {
+    /**
+     * Whether to include debug information with raw events (default: false)
+     */
+    debug?: boolean
+    /**
+     * The distinct_id of the person (mutually exclusive with person_id)
+     */
+    distinct_id?: string
+    format?: PersonsPropertiesAtTimeRetrieveFormat
+    /**
+     * Whether to handle $set_once operations (default: false)
+     */
+    include_set_once?: boolean
+    /**
+     * The person_id (UUID) to build properties for (mutually exclusive with distinct_id)
+     */
+    person_id?: string
+    /**
+     * ISO datetime string for the point in time (e.g., '2023-06-15T14:30:00Z')
+     */
+    timestamp: string
+}
+
+export type PersonsPropertiesAtTimeRetrieveFormat =
+    (typeof PersonsPropertiesAtTimeRetrieveFormat)[keyof typeof PersonsPropertiesAtTimeRetrieveFormat]
+
+export const PersonsPropertiesAtTimeRetrieveFormat = {
     csv: 'csv',
     json: 'json',
 } as const
@@ -785,6 +846,38 @@ export type PersonsLifecycleRetrieve2Format =
     (typeof PersonsLifecycleRetrieve2Format)[keyof typeof PersonsLifecycleRetrieve2Format]
 
 export const PersonsLifecycleRetrieve2Format = {
+    csv: 'csv',
+    json: 'json',
+} as const
+
+export type PersonsPropertiesAtTimeRetrieve2Params = {
+    /**
+     * Whether to include debug information with raw events (default: false)
+     */
+    debug?: boolean
+    /**
+     * The distinct_id of the person (mutually exclusive with person_id)
+     */
+    distinct_id?: string
+    format?: PersonsPropertiesAtTimeRetrieve2Format
+    /**
+     * Whether to handle $set_once operations (default: false)
+     */
+    include_set_once?: boolean
+    /**
+     * The person_id (UUID) to build properties for (mutually exclusive with distinct_id)
+     */
+    person_id?: string
+    /**
+     * ISO datetime string for the point in time (e.g., '2023-06-15T14:30:00Z')
+     */
+    timestamp: string
+}
+
+export type PersonsPropertiesAtTimeRetrieve2Format =
+    (typeof PersonsPropertiesAtTimeRetrieve2Format)[keyof typeof PersonsPropertiesAtTimeRetrieve2Format]
+
+export const PersonsPropertiesAtTimeRetrieve2Format = {
     csv: 'csv',
     json: 'json',
 } as const
