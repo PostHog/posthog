@@ -17,11 +17,9 @@ An issue is ACTIONABLE if it describes:
 - A performance problem or regression
 
 An issue is NOT_ACTIONABLE if it is:
-- A bot-generated issue (dependency bumps, automated security alerts, CI notifications)
+- A bot-generated issue (like dependency bumps)
 - Spam, abuse, or profanity with no real feedback
-- A duplicate of another issue with no additional context
-- A generic "how do I" question answerable by docs
-- A "works for me" or "cannot reproduce" report with no actionable detail
+- A "works for me" report with no actionable detail
 - A stale issue with no meaningful content
 
 Issue:
