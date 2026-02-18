@@ -490,6 +490,67 @@ export interface PatchedLLMProviderKeyApi {
     readonly last_used_at?: string | null
 }
 
+export interface SentimentRequestApi {
+    trace_id: string
+    force_refresh?: boolean
+    /** @nullable */
+    date_from?: string | null
+    /** @nullable */
+    date_to?: string | null
+}
+
+export type SentimentResponseApiScores = { [key: string]: number }
+
+export type MessageSentimentApiScores = { [key: string]: number }
+
+export interface MessageSentimentApi {
+    label: string
+    score: number
+    scores: MessageSentimentApiScores
+}
+
+export type GenerationSentimentApiScores = { [key: string]: number }
+
+export type GenerationSentimentApiMessages = { [key: string]: MessageSentimentApi }
+
+export interface GenerationSentimentApi {
+    label: string
+    score: number
+    scores: GenerationSentimentApiScores
+    messages: GenerationSentimentApiMessages
+}
+
+export type SentimentResponseApiGenerations = { [key: string]: GenerationSentimentApi }
+
+export interface SentimentResponseApi {
+    trace_id: string
+    label: string
+    score: number
+    scores: SentimentResponseApiScores
+    generations: SentimentResponseApiGenerations
+    generation_count: number
+    message_count: number
+}
+
+export interface SentimentBatchRequestApi {
+    /**
+     * @minItems 1
+     * @maxItems 25
+     */
+    trace_ids: string[]
+    force_refresh?: boolean
+    /** @nullable */
+    date_from?: string | null
+    /** @nullable */
+    date_to?: string | null
+}
+
+export type SentimentBatchResponseApiResults = { [key: string]: SentimentResponseApi }
+
+export interface SentimentBatchResponseApi {
+    results: SentimentBatchResponseApiResults
+}
+
 /**
  * * `trace` - trace
  * `event` - event
@@ -776,6 +837,14 @@ export type LlmAnalyticsProviderKeysListParams = {
      */
     offset?: number
 }
+
+export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown }
+
+export type LlmAnalyticsSentimentBatchCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsSentimentBatchCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown }
 
