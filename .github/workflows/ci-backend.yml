@@ -130,9 +130,16 @@ jobs:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
                         - 'products/*/frontend/generated/**/*'
+                        - 'services/mcp/src/generated/**/*'
                         # Generation tooling - changes here could affect output
                         - 'frontend/bin/generate-openapi-types.mjs'
                         - 'frontend/src/lib/api-orval-mutator.ts'
+                        - 'services/mcp/scripts/generate-orval-schemas.mjs'
+                        - 'services/mcp/scripts/generate-tools.ts'
+                        - 'services/mcp/definitions/**/*.yaml'
+                        - 'products/*/mcp/**/*.yaml'
+                        - 'services/mcp/src/tools/generated/**/*'
+                        - 'services/mcp/schema/generated-tool-definitions.json'
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -512,6 +519,21 @@ jobs:
                       echo "More info: https://posthog.com/handbook/engineering/type-system"
                       echo ""
                       echo "Questions? #team-devex on Slack"
+                      exit 1
+                  fi
+
+            - name: Check if MCP generated output is up to date
+              run: |
+                  pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+                  if ! git diff --exit-code; then
+                      echo ""
+                      echo "::error::MCP generated output is out of date!"
+                      echo ""
+                      echo "YAML definitions, tool handlers, or Zod schemas are out of sync."
+                      echo "Run locally:"
+                      echo "  hogli build:openapi"
+                      echo "  pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all"
+                      echo "Then commit the updated generated files."
                       exit 1
                   fi
 

@@ -1,0 +1,97 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Actions
+feature: actions
+url_prefix: /data-management/actions
+tools:
+    actions-get-all:
+        operation: actions_list
+        enabled: true
+        scopes:
+            - action:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: Get all actions
+        description: >
+            Get all actions in the project. Actions are reusable event definitions that can combine multiple trigger
+            conditions (page views, clicks, form submissions) into a single trackable event for use in insights and
+            funnels.
+    action-create:
+        operation: actions_create
+        enabled: true
+        scopes:
+            - action:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Create action
+        description: >
+            Create a new action in the project. Actions define reusable event triggers based on page views, clicks, form
+            submissions, or custom events. At least one step is required.
+        exclude_params:
+            - deleted
+            - is_calculating
+            - bytecode_error
+            - creation_context
+            - last_calculated_at
+        param_overrides:
+            name:
+                description: Name of the action (must be unique within the project)
+    action-get:
+        operation: actions_retrieve
+        enabled: true
+        scopes:
+            - action:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get action
+        description: >
+            Get a specific action by ID. Returns the action configuration including all steps and their trigger
+            conditions.
+    actions-update:
+        operation: actions_update
+        enabled: false
+    action-update:
+        operation: actions_partial_update
+        enabled: true
+        scopes:
+            - action:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update action
+        description: |
+            Update an existing action by ID. Can update name, description, steps, tags, and Slack notification settings.
+        exclude_params:
+            - deleted
+            - is_calculating
+            - bytecode_error
+            - creation_context
+            - last_calculated_at
+    action-delete:
+        operation: actions_destroy
+        enabled: true
+        scopes:
+            - action:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Delete action
+        description: |
+            Delete an action by ID. The action will no longer appear in lists but historical data is preserved.
