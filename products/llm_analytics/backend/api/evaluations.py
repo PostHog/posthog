@@ -21,6 +21,7 @@ from ..models.evaluation_configs import validate_evaluation_configs
 from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
+from .metrics import llma_track_latency
 
 logger = structlog.get_logger(__name__)
 
@@ -304,22 +305,27 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 self.team,
             )
 
+    @llma_track_latency("llma_evaluations_list")
     @monitor(feature=None, endpoint="llma_evaluations_list", method="GET")
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
 
+    @llma_track_latency("llma_evaluations_retrieve")
     @monitor(feature=None, endpoint="llma_evaluations_retrieve", method="GET")
     def retrieve(self, request, *args, **kwargs):
         return super().retrieve(request, *args, **kwargs)
 
+    @llma_track_latency("llma_evaluations_create")
     @monitor(feature=None, endpoint="llma_evaluations_create", method="POST")
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
 
+    @llma_track_latency("llma_evaluations_update")
     @monitor(feature=None, endpoint="llma_evaluations_update", method="PUT")
     def update(self, request, *args, **kwargs):
         return super().update(request, *args, **kwargs)
 
+    @llma_track_latency("llma_evaluations_partial_update")
     @monitor(feature=None, endpoint="llma_evaluations_partial_update", method="PATCH")
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
