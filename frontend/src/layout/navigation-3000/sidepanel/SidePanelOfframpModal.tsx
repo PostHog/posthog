@@ -78,7 +78,7 @@ export function SidePanelOfframpModal(): JSX.Element {
             onOpenChange={(open) => {
                 if (!open) {
                     hideOfframpModal('close')
-                    dismissOfframpModal(activeIndex, details?.reason || 'unknown')
+                    dismissOfframpModal()
                 }
             }}
             className="group bg-surface-popover w-[300px] md:w-[640px] max-h-[none]"
@@ -169,7 +169,7 @@ export function SidePanelOfframpModal(): JSX.Element {
                         <LemonButton
                             type="primary"
                             size="small"
-                            onClick={() => dismissOfframpModal(activeIndex)}
+                            onClick={() => dismissOfframpModal()}
                             className="justify-self-end"
                             data-attr="context-panel-offramp-dont-show-again-button"
                         >
