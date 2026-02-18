@@ -15,18 +15,17 @@ class TestToolbarOAuthAuthorize(APIBaseTest):
     def _get_authorize(self, redirect_url: str = "https://mysite.com/page"):
         return self.client.get(f"/toolbar_oauth/authorize/?redirect={redirect_url}")
 
-    def _assert_authorize_ok(self, response):
-        assert response.status_code == 200, (
-            f"Expected 200 from toolbar_oauth/authorize, got {response.status_code}. Body: {response.content[:500]!r}"
+    def _assert_authorize_redirects(self, response):
+        assert response.status_code == 302, (
+            f"Expected 302 redirect from toolbar_oauth/authorize, got {response.status_code}. Body: {response.content[:500]!r}"
         )
 
     def _get_authorization_url(self, response) -> str:
-        # Use template context (not rendered HTML) because layout.html isn't available in CI
-        return response.context["authorization_url"]
+        return response["Location"]
 
-    def test_renders_oauth_authorize_url(self):
+    def test_redirects_to_oauth_authorize_url(self):
         response = self._get_authorize()
-        self._assert_authorize_ok(response)
+        self._assert_authorize_redirects(response)
         auth_url = self._get_authorization_url(response)
         assert "/oauth/authorize" in auth_url
         assert "code_challenge" in auth_url
@@ -46,7 +45,7 @@ class TestToolbarOAuthAuthorize(APIBaseTest):
 
     def test_oauth_url_contains_state_and_pkce_params(self):
         response = self._get_authorize()
-        self._assert_authorize_ok(response)
+        self._assert_authorize_redirects(response)
         auth_url = self._get_authorization_url(response)
         qs = parse_qs(urlparse(auth_url).query)
         assert "state" in qs
@@ -55,7 +54,7 @@ class TestToolbarOAuthAuthorize(APIBaseTest):
 
     def test_oauth_url_contains_correct_redirect_uri(self):
         response = self._get_authorize()
-        self._assert_authorize_ok(response)
+        self._assert_authorize_redirects(response)
         auth_url = self._get_authorization_url(response)
         qs = parse_qs(urlparse(auth_url).query)
         assert "redirect_uri" in qs
@@ -65,7 +64,7 @@ class TestToolbarOAuthAuthorize(APIBaseTest):
 
     def test_code_verifier_is_stored_in_session(self):
         response = self._get_authorize()
-        self._assert_authorize_ok(response)
+        self._assert_authorize_redirects(response)
 
         session = self.client.session
         assert "toolbar_oauth_code_verifier" in session

@@ -16,6 +16,7 @@ from rest_framework.request import Request
 from posthog.api.oauth.toolbar_service import (
     CALLBACK_PATH,
     ToolbarOAuthError,
+    _post_to_token_endpoint,
     get_or_create_toolbar_oauth_application,
     toolbar_oauth_state_cache,
 )
@@ -394,7 +395,7 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
             content_type="application/json",
         )
         assert second.status_code == 400
-        assert second.json()["code"] == "state_replay"
+        assert second.json()["code"] == "invalid_state"
 
     @override_settings(TOOLBAR_OAUTH_STATE_TTL_SECONDS=0)
     def test_exchange_rejects_expired_state(self):
@@ -408,6 +409,62 @@ class TestToolbarOAuthPrimitives(APIBaseTest):
         )
         assert response.status_code == 400
         assert response.json()["code"] == "invalid_state"
+
+    @parameterized.expand(
+        [
+            ("javascript_scheme", "javascript:alert(1)"),
+            ("ftp_scheme", "ftp://example.com"),
+            ("data_scheme", "data:text/html,<h1>hi</h1>"),
+            ("file_scheme", "file:///etc/passwd"),
+            ("no_host", "https://"),
+        ]
+    )
+    def test_start_rejects_dangerous_url_schemes(self, _name, app_url):
+        self.team.app_urls = [*self.team.app_urls, app_url]
+        self.team.save(update_fields=["app_urls"])
+
+        response = self.client.post(
+            "/api/user/toolbar_oauth_start/",
+            data=json.dumps({"app_url": app_url, "code_challenge": "x", "code_challenge_method": "S256"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+
+    def test_start_rejects_get_method(self):
+        response = self.client.get("/api/user/toolbar_oauth_start/")
+        assert response.status_code == 405
+
+    def test_exchange_rejects_get_method(self):
+        response = self.client.get("/api/user/toolbar_oauth_exchange/")
+        assert response.status_code == 405
+
+    @patch("posthog.api.oauth.toolbar_service.requests.post")
+    def test_exchange_response_includes_app_url(self, mock_post):
+        start_data = self._start()
+        state = parse_qs(urlparse(start_data["authorization_url"]).query)["state"][0]
+
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "pha_abc",
+            "refresh_token": "phr_abc",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "scope": "openid",
+        }
+
+        response = self.client.post(
+            "/api/user/toolbar_oauth_exchange/",
+            data=json.dumps({"code": "test_code", "state": state, "code_verifier": "test_verifier"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        assert response.json()["app_url"] == "https://example.com"
+
+    def test_get_or_create_is_idempotent_within_org(self):
+        first = get_or_create_toolbar_oauth_application(user=self.user)
+        second = get_or_create_toolbar_oauth_application(user=self.user)
+        assert first.pk == second.pk
+        assert first.client_id == second.client_id
 
 
 class TestToolbarOAuthStateCache(APIBaseTest):
@@ -581,6 +638,18 @@ class TestToolbarOAuthRefresh(APIBaseTest):
         assert response.status_code == 405
 
     @patch("posthog.api.oauth.toolbar_service.requests.post")
+    def test_refresh_handles_network_failure(self, mock_post):
+        mock_post.side_effect = requests.RequestException("connection refused")
+
+        response = self.client.post(
+            "/api/user/toolbar_oauth_refresh/",
+            data=json.dumps({"refresh_token": "phr_old", "client_id": "test_client_id"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 500
+        assert response.json()["code"] == "token_refresh_failed"
+
+    @patch("posthog.api.oauth.toolbar_service.requests.post")
     def test_refresh_rate_limits_after_30_requests(self, mock_post):
         from django.core.cache import cache
 
@@ -604,6 +673,27 @@ class TestToolbarOAuthRefresh(APIBaseTest):
         assert response.status_code == 429
 
 
+class TestTokenEndpointStatusRemapping(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("401_becomes_400", 401, 400),
+            ("403_becomes_400", 403, 400),
+            ("400_passes_through", 400, 400),
+            ("500_passes_through", 500, 500),
+            ("502_passes_through", 502, 502),
+        ]
+    )
+    @patch("posthog.api.oauth.toolbar_service.requests.post")
+    def test_internal_oauth_status_remapping(self, _name, internal_status, expected_status, mock_post):
+        mock_post.return_value.status_code = internal_status
+        mock_post.return_value.content = b'{"error": "test_error", "error_description": "test"}'
+        mock_post.return_value.json.return_value = {"error": "test_error", "error_description": "test"}
+
+        with self.assertRaises(ToolbarOAuthError) as cm:
+            _post_to_token_endpoint({"grant_type": "refresh_token"}, error_code="token_refresh_failed")
+        assert cm.exception.status_code == expected_status
+
+
 class TestToolbarOAuthCallbackExchange(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -615,10 +705,9 @@ class TestToolbarOAuthCallbackExchange(APIBaseTest):
             "/toolbar_oauth/authorize/",
             {"redirect": "https://example.com/page"},
         )
-        assert response.status_code == 200
+        assert response.status_code == 302
 
-        # Use template context (not rendered HTML) because layout.html isn't available in CI
-        auth_url = response.context["authorization_url"]
+        auth_url = response["Location"]
         qs = parse_qs(urlparse(auth_url).query)
         return qs["state"][0]
 
@@ -705,3 +794,39 @@ class TestToolbarOAuthCallbackExchange(APIBaseTest):
 
         assert response.status_code == 200
         assert b'"client_id":' in response.content
+
+    def test_callback_escapes_html_in_error_description(self):
+        xss_payload = "</script><script>alert(document.cookie)</script>"
+        response = self.client.get(f"/toolbar_oauth/callback?error=test&error_description={xss_payload}")
+        assert response.status_code == 200
+        # json_script filter escapes </script> as \u003C/script\u003E
+        assert b"</script><script>alert" not in response.content
+        assert b"\\u003C/script\\u003E" in response.content
+
+    @patch("posthog.api.oauth.toolbar_service.requests.post")
+    def test_callback_consumes_code_verifier_from_session(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "pha_abc",
+            "refresh_token": "phr_abc",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "scope": "read",
+        }
+
+        state = self._authorize_and_get_state()
+        assert "toolbar_oauth_code_verifier" in self.client.session
+
+        self.client.get(f"/toolbar_oauth/callback?code=auth_code&state={state}")
+        assert "toolbar_oauth_code_verifier" not in self.client.session
+
+    def test_authorize_rejects_post_method(self):
+        response = self.client.post("/toolbar_oauth/authorize/")
+        assert response.status_code == 405
+
+    def test_authorize_rejects_disallowed_redirect(self):
+        response = self.client.get(
+            "/toolbar_oauth/authorize/",
+            {"redirect": "https://evil.com/page"},
+        )
+        assert response.status_code == 403
