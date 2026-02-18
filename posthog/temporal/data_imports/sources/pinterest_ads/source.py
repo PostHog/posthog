@@ -23,7 +23,7 @@ class PinterestAdsSource(SimpleSource[PinterestAdsSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.PINTEREST_ADS,
             label="Pinterest Ads",
-            iconPath="/static/services/pinterest.com.png",
+            iconPath="/static/services/pinterest_ads.png",
             fields=cast(list[FieldType], []),
             unreleasedSource=True,
             featureFlag="pinterest-ads-source",

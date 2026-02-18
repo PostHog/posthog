@@ -1,5 +1,6 @@
 import os
 import json
+import asyncio
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -14,6 +15,7 @@ from confluent_kafka import (
     Message,
     Producer as ConfluentProducer,
 )
+from confluent_kafka.aio import AIOProducer
 from kafka import KafkaConsumer as KC
 from statshog.defaults.django import statsd
 from structlog import get_logger
@@ -320,6 +322,91 @@ class _KafkaProducer:
         self.producer.flush()
 
 
+class _AsyncKafkaProducer:
+    producer: AIOProducer
+    _closed: bool
+
+    def __init__(
+        self,
+        kafka_hosts: list[str] | str | None = None,
+        kafka_security_protocol: str | None = None,
+        max_request_size: int | None = None,
+        compression_type: str | None = None,
+    ):
+        if kafka_security_protocol is None:
+            kafka_security_protocol = settings.KAFKA_SECURITY_PROTOCOL
+        if kafka_hosts is None:
+            kafka_hosts = settings.KAFKA_HOSTS
+
+        config: dict[str, Any] = {
+            "bootstrap.servers": ",".join(kafka_hosts) if isinstance(kafka_hosts, list) else kafka_hosts,
+            "security.protocol": kafka_security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
+            "acks": 1,
+            "message.send.max.retries": KAFKA_PRODUCER_RETRIES,
+            "retry.backoff.ms": 100,
+            "connections.max.idle.ms": 60000,
+            "reconnect.backoff.ms": 50,
+            "reconnect.backoff.max.ms": 1000,
+            "socket.timeout.ms": 60000,
+            "request.timeout.ms": 30000,
+            "api.version.request": True,
+            "broker.version.fallback": "2.8.0",
+            "socket.keepalive.enable": True,
+            **_confluent_sasl_params(),
+            **_convert_kafka_python_settings(settings.KAFKA_PRODUCER_SETTINGS),
+        }
+
+        if compression_type:
+            config["compression.type"] = compression_type
+
+        if max_request_size:
+            config["message.max.bytes"] = max_request_size
+
+        self.producer = AIOProducer(config)
+        self._closed = False
+
+    @staticmethod
+    def json_serializer(d: Any) -> bytes:
+        return json.dumps(d).encode("utf-8")
+
+    async def produce(
+        self,
+        topic: str,
+        data: Any,
+        key: Any = None,
+        value_serializer: Callable[[Any], Any] | None = None,
+        headers: list[tuple[str, str]] | None = None,
+    ) -> asyncio.Future[Any]:
+        if not value_serializer:
+            value_serializer = self.json_serializer
+        b = value_serializer(data)
+        if key is not None:
+            if not isinstance(key, bytes):
+                key = str(key).encode("utf-8")
+        encoded_headers: list[tuple[str, str | bytes | None]] | None = (
+            [(header[0], header[1].encode("utf-8")) for header in headers] if headers is not None else None
+        )
+
+        future = await self.producer.produce(
+            topic=topic,
+            value=b,
+            key=key,
+            headers=encoded_headers,
+        )
+        return future
+
+    async def flush(self, timeout: float | None = None) -> None:
+        if timeout is not None:
+            await self.producer.flush(timeout)
+        else:
+            await self.producer.flush()
+
+    async def close(self) -> None:
+        if not self._closed:
+            await self.producer.close()
+            self._closed = True
+
+
 def can_connect():
     """
     This is intended to validate if we are able to connect to kafka, without
@@ -345,6 +432,29 @@ def can_connect():
 
 KafkaProducer = SingletonDecorator(_KafkaProducer)
 SessionRecordingKafkaProducer = SingletonDecorator(_KafkaProducer)
+_WarpStreamKafkaProducer = SingletonDecorator(_KafkaProducer)
+
+
+def get_warpstream_kafka_producer(
+    kafka_hosts: list[str] | str,
+    kafka_security_protocol: str,
+) -> _KafkaProducer:
+    """Get a singleton Kafka producer configured for WarpStream/warehouse pipelines."""
+    return _WarpStreamKafkaProducer(
+        kafka_hosts=kafka_hosts,
+        kafka_security_protocol=kafka_security_protocol,
+    )
+
+
+def get_async_warpstream_kafka_producer(
+    kafka_hosts: list[str] | str,
+    kafka_security_protocol: str,
+) -> _AsyncKafkaProducer:
+    """Create an async Kafka producer configured for WarpStream/warehouse pipelines."""
+    return _AsyncKafkaProducer(
+        kafka_hosts=kafka_hosts,
+        kafka_security_protocol=kafka_security_protocol,
+    )
 
 
 def session_recording_kafka_producer() -> _KafkaProducer:

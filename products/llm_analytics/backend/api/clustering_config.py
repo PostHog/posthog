@@ -12,6 +12,7 @@ from posthog.event_usage import report_user_action
 from posthog.models import User
 
 from ..models.clustering_config import ClusteringConfig
+from .metrics import llma_track_latency
 
 
 class ClusteringConfigSerializer(serializers.ModelSerializer):
@@ -34,6 +35,7 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
     permission_classes = [IsAuthenticated]
 
+    @llma_track_latency("llma_clustering_config_list")
     @monitor(feature=None, endpoint="llma_clustering_config_list", method="GET")
     def list(self, request: Request, **kwargs) -> Response:
         config, _ = ClusteringConfig.objects.get_or_create(team_id=self.team_id)
@@ -41,6 +43,7 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(serializer.data)
 
     @action(detail=False, methods=["post"])
+    @llma_track_latency("llma_clustering_config_set_event_filters")
     @monitor(feature=None, endpoint="llma_clustering_config_set_event_filters", method="POST")
     def set_event_filters(self, request: Request, **kwargs) -> Response:
         event_filters = request.data.get("event_filters")

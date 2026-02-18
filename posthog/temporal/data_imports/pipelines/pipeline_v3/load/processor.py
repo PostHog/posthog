@@ -43,7 +43,7 @@ def _apply_partitioning(
         return pa_table
 
     if existing_delta_table:
-        delta_schema = existing_delta_table.schema().to_pyarrow()
+        delta_schema = existing_delta_table.schema().to_arrow()
         if PARTITION_KEY not in delta_schema.names:
             logger.debug("Delta table already exists without partitioning, skipping partitioning")
             return pa_table
@@ -149,7 +149,8 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
         id=export_signal.job_id
     )
     schema = job.schema
-    assert schema is not None
+    if schema is None:
+        raise ValueError(f"ExternalDataJob {export_signal.job_id} has no schema")
 
     delta_table_helper = DeltaTableHelper(
         resource_name=export_signal.resource_name,
@@ -185,7 +186,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
 
 
 def process_message(message: Any) -> None:
-    export_signal = ExportSignalMessage.from_dict(message.value)
+    export_signal = ExportSignalMessage.from_dict(message)
 
     already_processed = is_batch_already_processed(
         export_signal.team_id, export_signal.schema_id, export_signal.run_uuid, export_signal.batch_index
@@ -228,7 +229,8 @@ def process_message(message: Any) -> None:
         id=export_signal.job_id
     )
     schema = job.schema
-    assert schema is not None
+    if schema is None:
+        raise ValueError(f"ExternalDataJob {export_signal.job_id} has no schema")
 
     delta_table_helper = DeltaTableHelper(
         resource_name=export_signal.resource_name,
