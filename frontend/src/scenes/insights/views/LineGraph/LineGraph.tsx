@@ -20,6 +20,7 @@ import {
     GridLineOptions,
     InteractionItem,
     LegendOptions,
+    Plugin,
     ScaleOptions,
     ScriptableLineSegmentContext,
     TickOptions,
@@ -285,6 +286,16 @@ function sumAxisValues(points: unknown[], isHorizontal: boolean): number {
     return points.reduce<number>((total, point) => total + (getAxisValue(point, isHorizontal) ?? 0), 0)
 }
 
+function toPreparedPoint(
+    value: unknown,
+    pointIndex: number,
+    isHorizontal: boolean
+): { x: number | null; y: number | null } {
+    const axisValue = getAxisValue(value, isHorizontal)
+
+    return isHorizontal ? { x: axisValue, y: pointIndex } : { x: pointIndex, y: axisValue }
+}
+
 export function LineGraph_({
     datasets: _datasets,
     labels,
@@ -343,7 +354,6 @@ export function LineGraph_({
     const isBackgroundBasedGraphType = [GraphType.Bar].includes(type)
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
     const isPreparedDataFlagEnabled = useFeatureFlag('PRODUCT_ANALYTICS_CHARTJS_PREPARED_DATA')
-    const shouldUsePreparedData = isPreparedDataFlagEnabled && !isPercentStackView
     const showAnnotations = ((isTrends && !isHorizontal) || isFunnels) && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
     const isHighlightBarMode = isBar && isStacked && isShiftPressed
@@ -424,10 +434,8 @@ export function LineGraph_({
             const count = dataset.count
             adjustedData = adjustedData.map((value) => (typeof value === 'number' ? (value / count) * 100 : value))
         }
-        const chartData = shouldUsePreparedData
-            ? adjustedData.map((value, pointIndex) =>
-                  isHorizontal ? { x: value ?? null, y: pointIndex } : { x: pointIndex, y: value ?? null }
-              )
+        const chartData = isPreparedDataFlagEnabled
+            ? adjustedData.map((value, pointIndex) => toPreparedPoint(value, pointIndex, isHorizontal))
             : adjustedData
         const datasetPointCount = adjustedData.length
 
@@ -471,7 +479,7 @@ export function LineGraph_({
             ...(type === GraphType.Histogram ? { barPercentage: 1 } : {}),
             ...dataset,
             data: chartData,
-            parsing: shouldUsePreparedData ? false : dataset.parsing,
+            parsing: isPreparedDataFlagEnabled ? false : dataset.parsing,
             hoverBorderWidth: isBar ? 0 : 2,
             hoverBorderRadius: isBar ? 0 : 2,
             type: (isHorizontal ? GraphType.Bar : type) as ChartType,
@@ -565,6 +573,26 @@ export function LineGraph_({
 
     const { canvasRef, chartRef } = useChart({
         getConfig: () => {
+            const stack100PreparedDataPlugin: Plugin = {
+                id: 'stacked100-prepared-data',
+                beforeElementsUpdate: (chart) => {
+                    if (!(isPreparedDataFlagEnabled && isPercentStackView)) {
+                        return
+                    }
+
+                    const isHorizontalChart = chart.options?.indexAxis === 'y'
+                    chart.data.datasets.forEach((dataset) => {
+                        if (!Array.isArray(dataset.data)) {
+                            return
+                        }
+
+                        dataset.data = dataset.data.map((value, pointIndex) =>
+                            toPreparedPoint(value, pointIndex, isHorizontalChart)
+                        )
+                    })
+                },
+            }
+
             let filteredDatasets = datasets
             if (!isHorizontal) {
                 filteredDatasets = filteredDatasets.filter((data) => !getTrendsHidden(data as IndexedTrendResult))
@@ -902,7 +930,7 @@ export function LineGraph_({
                     onChartClick(event, chart, processedDatasets, onClick)
                 },
             }
-            if (shouldUsePreparedData) {
+            if (isPreparedDataFlagEnabled) {
                 options.parsing = false
                 options.normalized = true
             }
@@ -1073,7 +1101,11 @@ export function LineGraph_({
                 type: (isBar ? GraphType.Bar : type) as ChartType,
                 data: { labels, datasets: processedDatasets },
                 options,
-                plugins: [ChartDataLabels, ...(showTrendLines ? [chartTrendline as any] : [])],
+                plugins: [
+                    ChartDataLabels,
+                    ...(showTrendLines ? [chartTrendline as any] : []),
+                    ...(isPreparedDataFlagEnabled && isPercentStackView ? [stack100PreparedDataPlugin] : []),
+                ],
             }
         },
         deps: [
@@ -1083,6 +1115,8 @@ export function LineGraph_({
             formula,
             showValuesOnSeries,
             showPercentStackView,
+            supportsPercentStackView,
+            isPreparedDataFlagEnabled,
             showMultipleYAxes,
             _goalLines,
             theme,
