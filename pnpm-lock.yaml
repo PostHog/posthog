@@ -1910,26 +1910,7 @@ importers:
 
   products/data_warehouse: {}
 
-  products/desktop_recordings:
-    dependencies:
-      '@posthog/icons':
-        specifier: '*'
-        version: 0.36.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@types/react':
-        specifier: 18.3.27
-        version: 18.3.27
-      kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.3.1)
-      kea-loaders:
-        specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.3.1))
-      kea-router:
-        specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.3.1))
-      react:
-        specifier: 18.3.1
-        version: 18.3.1
+  products/desktop_recordings: {}
 
   products/early_access_features:
     dependencies:
@@ -15498,11 +15479,6 @@ packages:
     peerDependencies:
       kea: '>= 3'
 
-  kea@3.1.7:
-    resolution: {integrity: sha512-BN9bS4NMI57TwJRANL55H5Cl2Px0ciyv58wtnzzfwH7d2R9fEmcuRREpLfp3blglSrgfGUWM4b+Pz6CwxJxjzQ==}
-    peerDependencies:
-      react: 18.3.1
-
   kea@4.0.0-pre.3:
     resolution: {integrity: sha512-ijiU26sDD7W55B7tGQSBiDkcmj8j97hVyyyp9HeyoMk/i4tppKLKmKQNh+o8rsY+mYvMVOxyjupwvt/gs+2v9w==}
     peerDependencies:
@@ -18578,9 +18554,6 @@ packages:
   redis@4.6.13:
     resolution: {integrity: sha512-MHgkS4B+sPjCXpf+HfdetBwbRz6vCtsceTmw1pHNYJAsYxrfpOP6dz+piJWGos8wqG7qb3vj/Rrc5qOlmInUuA==}
 
-  redux@4.2.1:
-    resolution: {integrity: sha512-LAUYz4lc+Do8/g7aeRa8JkyDErK6ekstQaqWQrNRW//MY1TvCEpMtpTWvlQ+FPbWCx+Xixu/6SHt5N0HR+SB4w==}
-
   redux@5.0.1:
     resolution: {integrity: sha512-M9/ELqF6fy8FwmkpnF0S3YKOqMyoWJ4+CS5Efg2ct3oY9daQvd/Pc71FpGZsVsbl3Cpb+IIcjBDUnnyBdQbq4w==}
 
@@ -18667,9 +18640,6 @@ packages:
 
   requires-port@1.0.0:
     resolution: {integrity: sha512-KigOCHcocU3XODJxsu8i/j8T9tzT4adHiecwORRQ0ZZFcp7ahwXuRU1m+yuO90C5ZUyGeGfocHDI14M3L3yDAQ==}
-
-  reselect@4.1.8:
-    resolution: {integrity: sha512-ab9EmR80F/zQTMNeneUr4cv+jSwPJgIlvEmVwLerwrWVbpLlBuls9XHzIeTFy4cegU2NHBp3va0LKOzU5qFEYQ==}
 
   reselect@5.1.1:
     resolution: {integrity: sha512-K/BG6eIky/SBpzfHZv/dd+9JBFiS4SWV7FIujVyJRux6e45+73RaUHXLmIR1f7WOMaQ0U1km6qwklRQxpJJY0w==}
@@ -37935,10 +37905,6 @@ snapshots:
     dependencies:
       kea: 4.0.0-pre.3(react@18.3.1)
 
-  kea-loaders@3.1.1(kea@3.1.7(react@18.3.1)):
-    dependencies:
-      kea: 3.1.7(react@18.3.1)
-
   kea-loaders@3.1.1(kea@4.0.0-pre.3(react@18.3.1)):
     dependencies:
       kea: 4.0.0-pre.3(react@18.3.1)
@@ -37946,11 +37912,6 @@ snapshots:
   kea-localstorage@3.1.0(kea@4.0.0-pre.3(react@18.3.1)):
     dependencies:
       kea: 4.0.0-pre.3(react@18.3.1)
-
-  kea-router@3.4.1(kea@3.1.7(react@18.3.1)):
-    dependencies:
-      kea: 3.1.7(react@18.3.1)
-      url-pattern: 1.0.3
 
   kea-router@3.4.1(kea@4.0.0-pre.3(react@18.3.1)):
     dependencies:
@@ -37986,13 +37947,6 @@ snapshots:
   kea-window-values@3.0.1(kea@4.0.0-pre.3(react@18.3.1)):
     dependencies:
       kea: 4.0.0-pre.3(react@18.3.1)
-
-  kea@3.1.7(react@18.3.1):
-    dependencies:
-      react: 18.3.1
-      redux: 4.2.1
-      reselect: 4.1.8
-      use-sync-external-store: 1.6.0(react@18.3.1)
 
   kea@4.0.0-pre.3(react@18.3.1):
     dependencies:
@@ -41858,10 +41812,6 @@ snapshots:
       '@redis/search': 1.1.6(@redis/client@1.5.14)
       '@redis/time-series': 1.0.5(@redis/client@1.5.14)
 
-  redux@4.2.1:
-    dependencies:
-      '@babel/runtime': 7.28.6
-
   redux@5.0.1: {}
 
   refractor@3.6.0:
@@ -41974,8 +41924,6 @@ snapshots:
   require-main-filename@2.0.0: {}
 
   requires-port@1.0.0: {}
-
-  reselect@4.1.8: {}
 
   reselect@5.1.1: {}
 
