@@ -26,7 +26,6 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
-import { type ModifiedField } from 'scenes/feature-flags/FeatureFlagTemplates'
 import { FeatureFlagsTab, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -386,8 +385,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setShowImplementation: (show: boolean) => ({ show }),
         setOpenVariants: (openVariants: string[]) => ({ openVariants }),
         setPayloadExpanded: (expanded: boolean) => ({ expanded }),
-        setHighlightedFields: (fields: ModifiedField[]) => ({ fields }),
-        clearHighlight: (field: ModifiedField) => ({ field }),
         setTemplateExpanded: (expanded: boolean) => ({ expanded }),
         applyUrlTemplate: (templateId: string) => ({ templateId }),
         applyTemplate: (templateId: string) => ({ templateId }),
@@ -727,15 +724,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             {
                 setPayloadExpanded: (_, { expanded }) => expanded,
                 loadFeatureFlagSuccess: (_, { featureFlag }) => !!featureFlag?.filters?.payloads?.['true'],
-            },
-        ],
-        highlightedFields: [
-            [] as ModifiedField[],
-            {
-                setHighlightedFields: (_, { fields }) => fields,
-                clearHighlight: (state, { field }) => state.filter((f: ModifiedField) => f !== field),
-                // Reset when loading a new flag to avoid stale highlights
-                loadFeatureFlag: () => [],
             },
         ],
         templateExpanded: [
@@ -1416,7 +1404,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             } as FeatureFlagType)
 
             actions.setTemplateExpanded(false)
-            actions.setHighlightedFields(template.modifiedFields)
             actions.applyUrlTemplate(templateId)
         },
         copyFlagSuccess: ({ featureFlagCopy }) => {
@@ -1772,14 +1759,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 id: string
                 name: string
                 description: string
-                modifiedFields: ModifiedField[]
                 getValues: (flag: FeatureFlagType) => Partial<FeatureFlagType>
             }> => [
                 {
                     id: 'simple',
                     name: 'Simple flag',
                     description: 'On/off for all users',
-                    modifiedFields: ['key', 'rollout'],
                     getValues: (flag) => ({
                         key: 'my-feature',
                         is_remote_configuration: false,
@@ -1794,7 +1779,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     id: 'targeted',
                     name: 'Targeted release',
                     description: 'Release to specific users',
-                    modifiedFields: ['key', 'conditions', 'rollout'],
                     getValues: (flag) => ({
                         key: 'targeted-release',
                         is_remote_configuration: false,
@@ -1822,7 +1806,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     id: 'multivariate',
                     name: 'Multivariate',
                     description: 'Multiple variants',
-                    modifiedFields: ['key', 'flagType', 'rollout'],
                     getValues: (flag) => ({
                         key: 'multivariate-flag',
                         is_remote_configuration: false,
@@ -1842,7 +1825,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     id: 'targeted-multivariate',
                     name: 'Targeted multivariate',
                     description: 'Variants for specific users',
-                    modifiedFields: ['key', 'flagType', 'conditions', 'rollout'],
                     getValues: (flag) => ({
                         key: 'targeted-multivariate',
                         is_remote_configuration: false,
