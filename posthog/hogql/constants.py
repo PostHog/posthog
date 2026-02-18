@@ -19,7 +19,7 @@ KEYWORDS = ["true", "false", "null"]
 RESERVED_KEYWORDS = [*KEYWORDS, "team_id"]
 
 # Limit applied to SELECT statements without LIMIT clause when queried via the API
-DEFAULT_RETURNED_ROWS = 2000
+DEFAULT_RETURNED_ROWS = 100
 # Max limit for all SELECT queries, and the default for CSV exports
 # Sync with frontend/src/queries/nodes/DataTable/DataTableExport.tsx
 MAX_SELECT_RETURNED_ROWS = 50000
@@ -44,6 +44,7 @@ CSV_EXPORT_BREAKDOWN_LIMIT_LOW = 64  # The lowest limit we want to go to
 
 BREAKDOWN_VALUES_LIMIT = 25
 BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
+BREAKDOWN_VALUE_MAX_LENGTH = 400
 
 type HogQLDialect = Literal["hogql", "clickhouse", "postgres"]
 
@@ -88,7 +89,7 @@ def get_default_limit_for_context(limit_context: LimitContext) -> int:
     if limit_context == LimitContext.EXPORT:
         return CSV_EXPORT_LIMIT
     elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC):
-        return DEFAULT_RETURNED_ROWS  # 2000
+        return DEFAULT_RETURNED_ROWS  # 100
     elif limit_context == LimitContext.POSTHOG_AI:
         return DEFAULT_POSTHOG_AI_RETURNED_ROWS  # 100
     elif limit_context == LimitContext.HEATMAPS:

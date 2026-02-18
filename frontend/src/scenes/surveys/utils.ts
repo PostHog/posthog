@@ -1,17 +1,21 @@
 import DOMPurify from 'dompurify'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
+import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils'
 import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE, SURVEY_RATING_SCALE } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
+import { urls } from 'scenes/urls'
 
 import {
     BasicSurveyQuestion,
     EventPropertyFilter,
     LinkSurveyQuestion,
     MultipleSurveyQuestion,
+    PropertyFilterType,
+    PropertyOperator,
     QuestionProcessedResponses,
     RatingSurveyQuestion,
     Survey,
@@ -666,4 +670,122 @@ export const isThumbQuestion = (question: SurveyQuestion): boolean => {
         question.display === 'emoji' &&
         question.scale === SURVEY_RATING_SCALE.THUMB_2_POINT
     )
+}
+
+export type SurveyConditionType =
+    | 'url'
+    | 'selector'
+    | 'device'
+    | 'events'
+    | 'actions'
+    | 'flag'
+    | 'targeting'
+    | 'wait_period'
+
+export interface SurveyConditionSummary {
+    type: SurveyConditionType
+    label: string
+    value: string
+}
+
+export interface SurveyCollectionLimitSummary {
+    label: 'Response limit' | 'Sampling limit'
+    value: string
+}
+
+export function getSurveyCollectionLimitSummary(survey: Survey | NewSurvey): SurveyCollectionLimitSummary | null {
+    if (survey.responses_limit && survey.responses_limit > 0) {
+        return {
+            label: 'Response limit',
+            value: String(survey.responses_limit),
+        }
+    }
+
+    if (
+        survey.response_sampling_limit &&
+        survey.response_sampling_limit > 0 &&
+        survey.response_sampling_interval &&
+        survey.response_sampling_interval > 0 &&
+        survey.response_sampling_interval_type
+    ) {
+        return {
+            label: 'Sampling limit',
+            value: `${survey.response_sampling_limit} / ${survey.response_sampling_interval} ${survey.response_sampling_interval_type}`,
+        }
+    }
+
+    return null
+}
+
+export function getSurveyDisplayConditionsSummary(survey: Survey | NewSurvey): SurveyConditionSummary[] {
+    const parts: SurveyConditionSummary[] = []
+    const conditions = survey.conditions
+
+    if (conditions?.url) {
+        parts.push({
+            type: 'url',
+            label: 'URL',
+            value: `${conditions.urlMatchType === 'exact' ? 'is' : 'contains'} "${conditions.url}"`,
+        })
+    }
+    if (conditions?.selector) {
+        parts.push({ type: 'selector', label: 'Selector', value: conditions.selector })
+    }
+    if (conditions?.deviceTypes?.length) {
+        parts.push({ type: 'device', label: 'Device', value: conditions.deviceTypes.join(', ') })
+    }
+    if ((conditions?.events?.values?.length ?? 0) > 0) {
+        parts.push({
+            type: 'events',
+            label: 'Events',
+            value: conditions!.events!.values.map((e) => e.name).join(', '),
+        })
+    }
+    if ((conditions?.actions?.values?.length ?? 0) > 0) {
+        parts.push({
+            type: 'actions',
+            label: 'Actions',
+            value: conditions!.actions!.values.map((a) => a.name).join(', '),
+        })
+    }
+    if (survey.linked_flag?.key) {
+        parts.push({ type: 'flag', label: 'Feature flag', value: survey.linked_flag.key })
+    } else if (survey.linked_flag_id) {
+        parts.push({ type: 'flag', label: 'Feature flag', value: 'Linked' })
+    }
+    if (
+        (survey.targeting_flag_filters && Object.keys(survey.targeting_flag_filters).length > 0) ||
+        (survey.targeting_flag && Object.keys(survey.targeting_flag).length > 0)
+    ) {
+        parts.push({ type: 'targeting', label: 'Targeting', value: 'User properties' })
+    }
+    if (conditions?.seenSurveyWaitPeriodInDays) {
+        parts.push({
+            type: 'wait_period',
+            label: 'Wait period',
+            value: `${conditions.seenSurveyWaitPeriodInDays} days since last survey`,
+        })
+    }
+
+    return parts
+}
+
+export function newSurveyNotificationUrl(surveyId: string, templateId: string = 'template-webhook'): string {
+    const filters = {
+        events: [
+            {
+                id: SurveyEventName.SENT,
+                type: 'events',
+                properties: [
+                    {
+                        key: SurveyEventProperties.SURVEY_ID,
+                        type: PropertyFilterType.Event,
+                        value: surveyId,
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            },
+        ],
+    }
+    return combineUrl(urls.hogFunctionNew(templateId), {}, { configuration: { filters } }).url
 }
