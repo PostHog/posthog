@@ -8,35 +8,44 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
+import { DisableSurvey } from './DisableSurvey'
 import { ErrorTrackingIngestionControls } from './IngestionControls'
 import { ErrorTrackingClientSuppression } from './SuppressionRules'
+import { disableSurveyLogic } from './disableSurveyLogic'
 
 export function ExceptionAutocaptureToggle(): JSX.Element {
     const { userLoading } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam, addProductIntent } = useActions(teamLogic)
     const { reportAutocaptureExceptionsToggled } = useActions(eventUsageLogic)
+    const { showSurvey } = useActions(disableSurveyLogic)
 
     return (
-        <LemonSwitch
-            id="posthog-autocapture-exceptions-switch"
-            onChange={(checked) => {
-                if (checked) {
-                    addProductIntent({
-                        product_type: ProductKey.ERROR_TRACKING,
-                        intent_context: ProductIntentContext.ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED,
+        <>
+            <LemonSwitch
+                id="posthog-autocapture-exceptions-switch"
+                onChange={(checked) => {
+                    if (checked) {
+                        addProductIntent({
+                            product_type: ProductKey.ERROR_TRACKING,
+                            intent_context: ProductIntentContext.ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED,
+                        })
+                    }
+                    updateCurrentTeam({
+                        autocapture_exceptions_opt_in: checked,
                     })
-                }
-                updateCurrentTeam({
-                    autocapture_exceptions_opt_in: checked,
-                })
-                reportAutocaptureExceptionsToggled(checked)
-            }}
-            checked={!!currentTeam?.autocapture_exceptions_opt_in}
-            disabled={userLoading}
-            label="Enable exception autocapture"
-            bordered
-        />
+                    reportAutocaptureExceptionsToggled(checked)
+                    if (!checked) {
+                        showSurvey()
+                    }
+                }}
+                checked={!!currentTeam?.autocapture_exceptions_opt_in}
+                disabled={userLoading}
+                label="Enable exception autocapture"
+                bordered
+            />
+            <DisableSurvey />
+        </>
     )
 }
 
