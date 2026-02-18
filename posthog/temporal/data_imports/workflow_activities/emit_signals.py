@@ -101,6 +101,8 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
         )
         # Keep only actionable signals, when the prompt is defined
         if config.actionability_prompt:
+            # Actionability prompt could be a security issue, as it contains user-generated content,
+            # but it should be covered by the Signals pipeline security checks
             outputs = await _filter_actionable(
                 outputs=outputs,
                 actionability_prompt=config.actionability_prompt,
@@ -255,10 +257,10 @@ async def _emit_signals(
 ) -> int:
     semaphore = asyncio.Semaphore(EMIT_CONCURRENCY_LIMIT)
     activity.heartbeat()
-    emitted_count = 0
+    completed_count = 0
 
     async def _bounded_emit(output: SignalEmitterOutput) -> bool:
-        nonlocal emitted_count
+        nonlocal completed_count
         async with semaphore:
             try:
                 await emit_signal(
@@ -270,13 +272,14 @@ async def _emit_signals(
                     weight=output.weight,
                     extra=output.extra,
                 )
-                emitted_count += 1
-                if emitted_count % EMIT_CONCURRENCY_LIMIT == 0:
-                    activity.heartbeat()
                 return True
             except Exception as e:
                 activity.logger.exception(f"Error emitting signal for record: {e}", extra=extra)
                 return False
+            finally:
+                completed_count += 1
+                if completed_count % EMIT_CONCURRENCY_LIMIT == 0:
+                    activity.heartbeat()
 
     results: dict[int, asyncio.Task[bool]] = {}
     async with asyncio.TaskGroup() as tg:
