@@ -269,13 +269,21 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         },
 
         setSnapshots: ({ snapshots }: { snapshots: RecordingSnapshot[] }) => {
-            cache.snapshotsBySource = {
-                'file-file': {
-                    snapshots: snapshots,
-                    source: { source: SnapshotSourceType.file },
-                    sourceLoaded: true,
-                },
+            if (cache.useSnapshotStore && cache.store) {
+                const fileSource = { source: SnapshotSourceType.file } as SessionRecordingSnapshotSource
+                cache.store.setSources([fileSource])
+                cache.store.markLoaded(0, snapshots)
+                cache.pendingBatch = { snapshots, sources: [fileSource] }
+            } else {
+                cache.snapshotsBySource = {
+                    'file-file': {
+                        snapshots: snapshots,
+                        source: { source: SnapshotSourceType.file },
+                        sourceLoaded: true,
+                    },
+                }
             }
+
             // Set sources first, then trigger the success action
             // Otherwise processSnapshotsAsync will see null sources
             actions.loadSnapshotSourcesSuccess([{ source: SnapshotSourceType.file }])

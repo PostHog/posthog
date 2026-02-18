@@ -142,7 +142,7 @@
                 transition: background-color 150ms ease;
 
                 &--loaded {
-                    background-color: hsl(0deg 0% 55%);
+                    background-color: var(--color-neutral-450);
                 }
             }
         }

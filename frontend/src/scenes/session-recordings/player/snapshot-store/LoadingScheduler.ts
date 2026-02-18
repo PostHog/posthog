@@ -3,6 +3,8 @@ import { LoadBatch, Mode } from './types'
 
 const DEFAULT_BATCH_SIZE = 10
 const BUFFER_AHEAD_SOURCES = 30
+const SEEK_WINDOW_BEHIND = 3
+const SEEK_WINDOW_AHEAD = 7
 
 export class LoadingScheduler {
     private mode: Mode = { kind: 'buffer_ahead' }
@@ -51,8 +53,8 @@ export class LoadingScheduler {
 
         // Step 1: Load window around target if not loaded
         const targetIndex = store.getSourceIndexForTimestamp(targetTs)
-        const windowStart = Math.max(0, targetIndex - 3)
-        const windowEnd = Math.min(store.sourceCount - 1, targetIndex + 7)
+        const windowStart = Math.max(0, targetIndex - SEEK_WINDOW_BEHIND)
+        const windowEnd = Math.min(store.sourceCount - 1, targetIndex + SEEK_WINDOW_AHEAD)
 
         const unloadedInWindow = store.getUnloadedIndicesInRange(windowStart, windowEnd)
         if (unloadedInWindow.length > 0) {
