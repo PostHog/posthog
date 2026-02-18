@@ -929,6 +929,7 @@ def toolbar_oauth_exchange(request):
         return JsonResponse({"code": exc.code, "detail": exc.detail}, status=exc.status_code)
 
 
+@require_http_methods(["GET"])
 def toolbar_oauth_authorize(request):
     """
     Start the toolbar OAuth flow.
