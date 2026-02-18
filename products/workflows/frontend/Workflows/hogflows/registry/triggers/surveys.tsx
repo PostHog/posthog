@@ -299,7 +299,6 @@ registerTriggerType({
     label: 'Survey response',
     icon: <IconMessage />,
     description: 'Trigger when a user submits a survey response',
-    featureFlag: FEATURE_FLAGS.WORKFLOWS_SURVEY_TRIGGERS,
     matchConfig: (config) => isSurveyTriggerConfig(config),
     buildConfig: () => ({
         type: 'event',
