@@ -59,7 +59,7 @@ export function AddInsightToDashboardModal(): JSX.Element {
                 className="bg-surface-secondary"
             >
                 <div className="-mt-1 space-y-3">
-                    <LemonBanner type="info" className="p-4">
+                    <LemonBanner type="info" hideIcon className="p-4">
                         <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                             <div className="min-w-0">
                                 <div className="font-semibold">Create a new insight</div>
