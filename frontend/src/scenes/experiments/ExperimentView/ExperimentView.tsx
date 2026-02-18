@@ -4,6 +4,7 @@ import { LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
+import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from 'scenes/experiments/constants'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
@@ -101,7 +102,7 @@ const MetricsTab = (): JSX.Element => {
                     <SummarizeExperimentButton
                         disabledReason={
                             !hasMinimumExposureForResults
-                                ? 'Experiment needs at least 50 exposures to summarize results.'
+                                ? `Experiment needs at least ${EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS} exposures to summarize results.`
                                 : undefined
                         }
                     />
