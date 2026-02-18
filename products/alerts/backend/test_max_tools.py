@@ -1,5 +1,6 @@
 import pytest
 from posthog.test.base import BaseTest
+from unittest import mock
 
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
@@ -458,6 +459,26 @@ class TestUpsertAlertTool(BaseTest):
 
         assert "threshold" in content.lower()
         assert artifact["error"] == "validation_failed"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_rejects_when_alert_limit_reached(self):
+        insight = await self._create_trends_insight()
+        await self._create_alert(insight)
+        tool = self._setup_tool()
+
+        with mock.patch.object(AlertConfiguration, "ALERTS_ALLOWED_ON_FREE_TIER", 1):
+            content, artifact = await tool._arun_impl(
+                action=CreateAlertAction(
+                    name="Over limit",
+                    condition_type=AlertConditionType.ABSOLUTE_VALUE,
+                    insight_id=insight.id,
+                    lower_threshold=100.0,
+                )
+            )
+
+        assert "limited to 1 alerts" in content.lower()
+        assert artifact["error"] == "plan_limit_reached"
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

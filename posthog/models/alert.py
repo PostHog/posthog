@@ -172,7 +172,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
         if alerts_feature:
             allowed = alerts_feature.get("limit")
-            # If allowed_alerts_count is None then the user is allowed unlimited alertss
+            # If allowed is None then the user is allowed unlimited alerts
             if allowed is not None and existing_count >= allowed:
                 raise ValidationError(f"Your team has reached the limit of {allowed} alerts on your plan.")
         else:
