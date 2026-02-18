@@ -22,7 +22,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { DashboardHeader } from './DashboardHeader'
@@ -65,7 +65,6 @@ function DashboardScene(): JSX.Element {
         canEditDashboard,
         tiles,
         itemsLoading,
-        dashboardMode,
         dashboardFailedToLoad,
         accessDeniedToDashboard,
         hasVariables,
@@ -144,9 +143,9 @@ function DashboardScene(): JSX.Element {
                                     >
                                         {[DashboardPlacement.Public].includes(placement) ? (
                                             <LastRefreshText />
-                                        ) : !(dashboardMode === DashboardMode.Edit) ? (
+                                        ) : (
                                             <DashboardReloadAction />
-                                        ) : null}
+                                        )}
                                     </div>
                                 </div>
                             )}
