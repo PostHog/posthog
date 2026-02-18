@@ -55,7 +55,7 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
 
         return queryset.select_related("created_by", "applied_by").prefetch_related("approvals")
 
-    @action(methods=["POST"], detail=True, permission_classes=[CanApprove])
+    @action(methods=["POST"], detail=True, permission_classes=[PremiumFeaturePermission, CanApprove])
     def approve(self, request: Request, pk=None, **kwargs) -> Response:
         """
         Approve a change request.
@@ -90,7 +90,7 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
 
         return Response(response_data, status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=True, permission_classes=[CanApprove])
+    @action(methods=["POST"], detail=True, permission_classes=[PremiumFeaturePermission, CanApprove])
     def reject(self, request: Request, pk=None, **kwargs) -> Response:
         """Reject a change request."""
         change_request: ChangeRequest = self.get_object()
@@ -123,7 +123,7 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
             status=status.HTTP_200_OK,
         )
 
-    @action(methods=["POST"], detail=True, permission_classes=[CanCancel])
+    @action(methods=["POST"], detail=True, permission_classes=[PremiumFeaturePermission, CanCancel])
     def cancel(self, request: Request, pk=None, **kwargs) -> Response:
         """
         Cancel a change request.
