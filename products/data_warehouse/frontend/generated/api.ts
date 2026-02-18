@@ -116,7 +116,7 @@ export const dataModelingJobsRetrieve = async (
 }
 
 /**
- * Get recently completed/failed jobs (paginated).
+ * Get the most recent non-running job for each saved query from the v2 backend.
  */
 export const getDataModelingJobsRecentRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/data_modeling_jobs/recent/`
@@ -133,7 +133,7 @@ export const dataModelingJobsRecentRetrieve = async (
 }
 
 /**
- * Get all currently running jobs.
+ * Get all currently running jobs from the v2 backend.
  */
 export const getDataModelingJobsRunningRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/data_modeling_jobs/running/`
@@ -1330,7 +1330,7 @@ export const dataModelingJobsRetrieve2 = async (
 }
 
 /**
- * Get recently completed/failed jobs (paginated).
+ * Get the most recent non-running job for each saved query from the v2 backend.
  */
 export const getDataModelingJobsRecentRetrieve2Url = (projectId: string) => {
     return `/api/projects/${projectId}/data_modeling_jobs/recent/`
@@ -1347,7 +1347,7 @@ export const dataModelingJobsRecentRetrieve2 = async (
 }
 
 /**
- * Get all currently running jobs.
+ * Get all currently running jobs from the v2 backend.
  */
 export const getDataModelingJobsRunningRetrieve2Url = (projectId: string) => {
     return `/api/projects/${projectId}/data_modeling_jobs/running/`

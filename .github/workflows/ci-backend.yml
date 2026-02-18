@@ -112,11 +112,9 @@ jobs:
                         - docker-compose.dev.yml
                         - docker-compose.profiles.yml
                         - docker-compose.base.yml
+                        - bin/wait-for-docker
                         - frontend/public/email/*
                         - docker/clickhouse
-                        # These scripts are used in the CI
-                        - bin/check_temporal_up
-                        - bin/check_kafka_clickhouse_up
                       migrations:
                         - docker/clickhouse
                         - 'posthog/migrations/*.py'
@@ -258,10 +256,8 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev
 
-            - name: Wait for services to be available
-              run: |
-                  bin/check_postgres_up
-                  bin/check_kafka_clickhouse_up
+            - name: Wait for Docker services
+              run: bin/wait-for-docker
 
             - name: Run migrations up to master
               run: |
@@ -499,10 +495,36 @@ jobs:
                   npm_config_fetch_retry_maxtimeout: 60000
               run: pnpm install --frozen-lockfile
 
-            - name: Check if OpenAPI types are up to date
+            - name: Get app token for OpenAPI type commits
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
+              id: openapi-app-token
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              with:
+                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
+            - name: Check and update OpenAPI types
+              env:
+                  EVENT_NAME: ${{ github.event_name }}
+                  HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+                  BRANCH: ${{ github.event.pull_request.head.ref }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  REPOSITORY: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  APP_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
+                  GH_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
               run: |
                   ./bin/hogli build:openapi
-                  if ! git diff --exit-code; then
+                  if git diff --exit-code; then
+                      echo "OpenAPI types are up to date"
+                      exit 0
+                  fi
+
+                  echo "OpenAPI types are out of date"
+
+                  # On non-PR builds or fork PRs, fail with instructions
+                  if [ "$EVENT_NAME" != "pull_request" ] || \
+                     [ "$HEAD_REPO" != "PostHog/posthog" ]; then
                       echo ""
                       echo "::error::OpenAPI types are out of date!"
                       echo ""
@@ -518,6 +540,39 @@ jobs:
                       echo "Questions? #team-devex on Slack"
                       exit 1
                   fi
+
+                  echo "::notice::Committing updated OpenAPI types to PR branch"
+
+                  # Verify branch hasn't advanced since CI started
+                  CURRENT_SHA=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
+                  if [ "$CURRENT_SHA" != "$HEAD_SHA" ]; then
+                      echo "::warning::Branch advanced during workflow ($HEAD_SHA -> $CURRENT_SHA) — skipping auto-commit"
+                      echo "The new commit will trigger its own workflow run."
+                      exit 0
+                  fi
+
+                  # Disable auto-merge before pushing to prevent unreviewed code from merging
+                  gh pr merge --disable-auto "$PR_NUMBER" || echo "Auto-merge was not enabled"
+
+                  git remote set-url origin "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git"
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+
+                  # Switch to PR branch and regenerate types there
+                  git fetch origin "$BRANCH"
+                  git checkout -f -B "$BRANCH" "origin/$BRANCH"
+                  ./bin/hogli build:openapi
+
+                  if git diff --exit-code; then
+                      echo "Types already up to date on PR branch"
+                      exit 0
+                  fi
+
+                  git add frontend/src/generated/
+                  git add products/*/frontend/generated/ 2>/dev/null || true
+                  git commit -m "chore: update OpenAPI generated types"
+                  git push origin "$BRANCH"
+                  echo "::notice::Pushed updated OpenAPI types to $BRANCH"
 
     django:
         needs: [changes, detect-snapshot-mode, get_clickhouse_versions]
@@ -824,17 +879,13 @@ jobs:
                   touch frontend/dist/exporter.html
                   ./bin/download-mmdb
 
-            - name: Wait for services to be available
+            - name: Wait for Docker services
               shell: bash
-              run: |
-                  bin/check_kafka_clickhouse_up
-                  bin/check_postgres_up
-
-            - name: Wait for Temporal
-              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
-              shell: bash
-              run: |
-                  bin/check_temporal_up
+              # Read-only health poll for core services only. Can't use --wait here
+              # because it blocks on ALL project containers including temporal, which
+              # boots slowly (auto-setup runs DB migrations). Temporal was started in
+              # background above and will be ready by the time temporal tests run.
+              run: bin/wait-for-docker
 
             - name: Determine if --snapshot-update should be on
               # UPDATE mode: human commits - update snapshots
@@ -1035,6 +1086,8 @@ jobs:
             oldest_supported_image: ${{ steps.read-versions.outputs.oldest_supported_image }}
             # All unique versions for compat tests
             all: ${{ steps.read-versions.outputs.all }}
+            # Whether to skip compat tests (all versions identical = no extra coverage)
+            skip_compat: ${{ steps.check-compat.outputs.skip }}
         steps:
             - uses: actions/checkout@v6
               with:
@@ -1062,10 +1115,22 @@ jobs:
                   echo "all=$all" >> $GITHUB_OUTPUT
                   echo "All versions for compat tests: $all"
 
+            - name: Check if compat tests are needed
+              id: check-compat
+              run: |
+                  UNIQUE=$(jq -r '[.[]] | unique | length' .github/clickhouse-versions.json)
+                  if [ "$UNIQUE" -eq 1 ]; then
+                    echo "skip=true" >> $GITHUB_OUTPUT
+                    echo "All CH versions identical — compat tests provide no additional coverage, skipping"
+                  else
+                    echo "skip=false" >> $GITHUB_OUTPUT
+                    echo "Multiple CH versions found — compat tests needed"
+                  fi
+
     clickhouse-compat:
         name: ClickHouse compat tests - ${{ matrix.clickhouse-server-image }}
         needs: [changes, get_clickhouse_versions]
-        if: needs.changes.outputs.backend == 'true'
+        if: needs.changes.outputs.backend == 'true' && needs.get_clickhouse_versions.outputs.skip_compat != 'true'
         runs-on: depot-ubuntu-latest
         strategy:
             fail-fast: false
@@ -1294,11 +1359,9 @@ jobs:
                   touch frontend/dist/layout.html
                   touch frontend/dist/exporter.html
 
-            - name: Wait for services to be available
+            - name: Wait for Docker services
               shell: bash
-              run: |
-                  bin/check_kafka_clickhouse_up
-                  bin/check_postgres_up
+              run: bin/wait-for-docker
 
             - name: Run async migrations tests
               run: |

@@ -8,6 +8,8 @@ from posthog.test.base import BaseTest
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
@@ -189,53 +191,61 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(node) == self.snapshot
 
+    def test_resolve_cte_types(self):
+        node = self._select("with cte as (select event from events) select event from cte")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        assert isinstance(node.select[0], ast.Alias)
+
+        printed = self._print_hogql("with cte as (select event from events) select event from cte")
+
+        assert printed == "WITH cte AS (SELECT event FROM events) SELECT event FROM cte LIMIT 50000"
+
     def test_ctes_loop(self):
         with self.assertRaises(QueryError) as e:
             self._print_hogql("with cte as (select * from cte) select * from cte")
-        self.assertIn("Too many CTE expansions (50+). Probably a CTE loop.", str(e.exception))
+        self.assertIn("Unknown table `cte`.", str(e.exception))
 
     def test_ctes_basic_column(self):
         expr = self._print_hogql("with 1 as cte select cte from events")
-        expected = self._print_hogql("select 1 from events")
-        self.assertEqual(expr, expected)
+        self.assertEqual(expr, "WITH 1 AS cte SELECT cte FROM events LIMIT 50000")
 
     def test_ctes_recursive_column(self):
         self.assertEqual(
             self._print_hogql("with 1 as cte, cte as soap select soap from events"),
-            self._print_hogql("select 1 from events"),
+            "WITH 1 AS cte, cte AS soap SELECT soap FROM events LIMIT 50000",
         )
 
     def test_ctes_field_access(self):
         with self.assertRaises(QueryError) as e:
             self._print_hogql("with properties as cte select cte.$browser from events")
-        self.assertIn("Cannot access fields on CTE cte yet", str(e.exception))
+        self.assertIn("No scope or CTE available", str(e.exception))
 
     def test_ctes_subqueries(self):
         self.assertEqual(
-            self._print_hogql("with my_table as (select * from events) select * from my_table"),
-            self._print_hogql("select * from (select * from events) my_table"),
+            self._print_hogql("with my_table as (select event from events) select event from my_table"),
+            "WITH my_table AS (SELECT event FROM events) SELECT event FROM my_table LIMIT 50000",
         )
 
         self.assertEqual(
-            self._print_hogql("with my_table as (select * from events) select my_table.timestamp from my_table"),
-            self._print_hogql("select my_table.timestamp from (select * from events) my_table"),
+            self._print_hogql(
+                "with my_table as (select timestamp from events) select my_table.timestamp from my_table"
+            ),
+            "WITH my_table AS (SELECT timestamp FROM events) SELECT my_table.timestamp FROM my_table LIMIT 50000",
         )
 
         self.assertEqual(
-            self._print_hogql("with my_table as (select * from events) select timestamp from my_table"),
-            self._print_hogql("select timestamp from (select * from events) my_table"),
+            self._print_hogql("with my_table as (select timestamp from events) select timestamp from my_table"),
+            "WITH my_table AS (SELECT timestamp FROM events) SELECT timestamp FROM my_table LIMIT 50000",
         )
 
     def test_ctes_subquery_deep(self):
         self.assertEqual(
             self._print_hogql(
-                "with my_table as (select * from events), "
-                "other_table as (select * from (select * from (select * from my_table))) "
-                "select * from other_table"
+                "with my_table as (select event from events), "
+                "other_table as (select event from (select event from (select event from my_table))) "
+                "select event from other_table"
             ),
-            self._print_hogql(
-                "select * from (select * from (select * from (select * from (select * from events) as my_table))) as other_table"
-            ),
+            "WITH my_table AS (SELECT event FROM events), other_table AS (SELECT event FROM (SELECT event FROM (SELECT event FROM my_table))) SELECT event FROM other_table LIMIT 50000",
         )
 
     def test_ctes_subquery_recursion(self):
@@ -243,9 +253,7 @@ class TestResolver(BaseTest):
             self._print_hogql(
                 "with users as (select event, timestamp as tt from events ), final as ( select tt from users ) select * from final"
             ),
-            self._print_hogql(
-                "select * from (select tt from (select event, timestamp as tt from events) AS users) AS final"
-            ),
+            "WITH users AS (SELECT event, timestamp AS tt FROM events), final AS (SELECT tt FROM users) SELECT tt FROM final LIMIT 50000",
         )
 
     def test_ctes_with_aliases(self):
@@ -253,32 +261,195 @@ class TestResolver(BaseTest):
             self._print_hogql(
                 "WITH initial_alias AS (SELECT 1 AS a) SELECT a FROM initial_alias AS new_alias WHERE new_alias.a=1"
             ),
-            self._print_hogql("SELECT a FROM (SELECT 1 AS a) AS new_alias WHERE new_alias.a=1"),
+            "WITH initial_alias AS (SELECT 1 AS a) SELECT a FROM initial_alias AS new_alias WHERE equals(new_alias.a, 1) LIMIT 50000",
         )
 
-    def test_ctes_with_union_all(self):
+    def test_ctes_with_aliases_in_joins(self):
         self.assertEqual(
             self._print_hogql(
                 """
-                    WITH cte1 AS (SELECT 1 AS a)
-                    SELECT 1 AS a
-                    UNION ALL
-                    WITH cte2 AS (SELECT 2 AS a)
-                    SELECT * FROM cte2
-                    UNION ALL
-                    SELECT * FROM cte1
-                        """
+                WITH
+                    exposures AS (SELECT event AS person_id, timestamp AS exposure_time FROM events),
+                    conversions AS (SELECT event AS person_id, timestamp AS conversion_time FROM events)
+                SELECT
+                    e.person_id,
+                    e.exposure_time,
+                    c.conversion_time
+                FROM exposures AS e
+                LEFT JOIN conversions AS c ON e.person_id = c.person_id AND c.conversion_time >= e.exposure_time
+                """
             ),
+            "WITH exposures AS (SELECT event AS person_id, timestamp AS exposure_time FROM events), "
+            "conversions AS (SELECT event AS person_id, timestamp AS conversion_time FROM events) "
+            "SELECT e.person_id, e.exposure_time, c.conversion_time "
+            "FROM exposures AS e LEFT JOIN conversions AS c "
+            "ON and(equals(e.person_id, c.person_id), greaterOrEquals(c.conversion_time, e.exposure_time)) "
+            "LIMIT 50000",
+        )
+
+        self.assertEqual(
             self._print_hogql(
                 """
-                    SELECT 1 AS a
-                    UNION ALL
-                    SELECT * FROM (SELECT 2 AS a) AS cte2
-                    UNION ALL
-                    SELECT * FROM (SELECT 1 AS a) AS cte1
-                        """
+                WITH
+                    users AS (SELECT event AS user_id FROM events)
+                SELECT
+                    users.user_id,
+                    u2.user_id
+                FROM users
+                LEFT JOIN users AS u2 ON users.user_id = u2.user_id
+                """
             ),
+            "WITH users AS (SELECT event AS user_id FROM events) "
+            "SELECT users.user_id, u2.user_id "
+            "FROM users LEFT JOIN users AS u2 ON equals(users.user_id, u2.user_id) "
+            "LIMIT 50000",
         )
+
+    def test_ctes_with_union_all(self):
+        union_printed = self._print_hogql(
+            """
+                WITH cte1 AS (SELECT 1 AS a)
+                SELECT 1 AS a
+                UNION ALL
+                WITH cte2 AS (SELECT 2 AS a)
+                SELECT * FROM cte2
+                UNION ALL
+                WITH cte1 AS (SELECT 1 AS a)
+                SELECT * FROM cte1
+                    """
+        )
+
+        self.assertEqual(
+            union_printed,
+            "WITH cte1 AS (SELECT 1 AS a) SELECT 1 AS a LIMIT 50000 UNION ALL WITH cte2 AS (SELECT 2 AS a) SELECT a FROM cte2 LIMIT 50000 UNION ALL WITH cte1 AS (SELECT 1 AS a) SELECT a FROM cte1 LIMIT 50000",
+        )
+
+    def test_root_ctes_propagate_to_union_branches(self):
+        # Root WITH propagates to all branches; branch-level CTEs shadow root CTEs
+        printed = self._print_hogql(
+            """
+            WITH page_view_stats AS (SELECT 1 AS a)
+            SELECT * FROM page_view_stats
+            UNION ALL
+            WITH purchase_stats AS (SELECT 2 AS a)
+            SELECT * FROM page_view_stats
+            """
+        )
+        self.assertEqual(
+            printed,
+            "WITH page_view_stats AS (SELECT 1 AS a) SELECT a FROM page_view_stats LIMIT 50000 UNION ALL WITH purchase_stats AS (SELECT 2 AS a) SELECT a FROM page_view_stats LIMIT 50000",
+        )
+
+    def test_ctes_scalar_subquery(self):
+        self.assertEqual(
+            self._print_hogql("WITH (SELECT 1) AS x SELECT x FROM events"),
+            "WITH (SELECT 1) AS x SELECT x FROM events LIMIT 50000",
+        )
+
+        self.assertEqual(
+            self._print_hogql("WITH (SELECT count() FROM events) AS event_count SELECT event_count FROM events"),
+            "WITH (SELECT count() FROM events) AS event_count SELECT event_count FROM events LIMIT 50000",
+        )
+
+        self.assertEqual(
+            self._print_hogql(
+                "WITH params AS (SELECT 1 AS a, 2 AS b), "
+                "(SELECT a FROM params) AS val_a, "
+                "(SELECT b FROM params) AS val_b "
+                "SELECT val_a + val_b FROM events"
+            ),
+            "WITH params AS (SELECT 1 AS a, 2 AS b), (SELECT a FROM params) AS val_a, (SELECT b FROM params) AS val_b SELECT plus(val_a, val_b) FROM events LIMIT 50000",
+        )
+
+    def test_ctes_table_subquery_as_scalar_error(self):
+        with self.assertRaises(QueryError) as e:
+            self._print_hogql("WITH x AS (SELECT 1) SELECT x FROM events")
+        self.assertIn("Cannot use table CTE", str(e.exception))
+
+    def test_ctes_in_subquery_for_clickhouse(self):
+        # Test that CTEs defined in a subquery remain with that subquery for ClickHouse
+        # This is necessary because CTEs get resolved with context-specific JOINs
+        # (e.g., person_id triggers events__override LEFT JOIN)
+
+        # Parse and prepare for ClickHouse dialect
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.printer import prepare_and_print_ast
+
+        query_str = "SELECT * FROM (WITH cte1 AS (SELECT 1 AS x) SELECT x FROM cte1) AS source"
+        query = self._select(query_str)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+
+        # Prepare and print in one go
+        sql, prepared = prepare_and_print_ast(query, context, "clickhouse")
+
+        # Verify the subquery still has its CTE
+        assert isinstance(prepared, ast.SelectQuery)
+        assert prepared.select_from is not None
+        assert isinstance(prepared.select_from, ast.JoinExpr)
+        assert isinstance(prepared.select_from.table, ast.SelectQuery)
+        subquery = prepared.select_from.table
+        assert subquery.ctes is not None
+        assert "cte1" in subquery.ctes
+
+        # The CTE should appear inside the subquery parentheses in the SQL
+        assert "WITH cte1 AS" in sql
+        assert "FROM (WITH cte1 AS" in sql  # CTE is inside the subquery parentheses
+        assert ") AS source" in sql  # Subquery is aliased as source
+
+    def test_ctes_in_subquery_prevent_name_conflicts(self):
+        # Test that CTEs in nested scopes can have the same name without conflict
+        # since they're not hoisted
+        query_str = (
+            "WITH cte1 AS (SELECT 1 AS a) "
+            "SELECT source.b, cte1.a FROM (WITH cte1 AS (SELECT 2 AS b) SELECT b FROM cte1) AS source, cte1"
+        )
+
+        # This should not raise an error since CTEs are in different scopes
+        result = self._print_hogql(query_str)
+        # Both CTEs should be present in the output
+        assert "cte1" in result
+        # The outer CTE and inner CTE should both exist
+        assert "WITH cte1 AS (SELECT 1 AS a)" in result
+        assert "(WITH cte1 AS (SELECT 2 AS b)" in result
+
+    def test_ctes_with_person_id_in_subquery(self):
+        # Test that mimics the experiment query structure where a CTE references person_id
+        # and the query gets wrapped as a subquery. This tests that events__override JOIN
+        # is added correctly within the CTE's scope.
+        from posthog.hogql.printer import prepare_and_print_ast
+
+        # Build a query with a CTE that references person_id, then wrap it
+        query_str = """
+            SELECT * FROM (
+                WITH exposures AS (
+                    SELECT person_id AS entity_id, event
+                    FROM events
+                    WHERE team_id = 1
+                )
+                SELECT entity_id FROM exposures
+            ) AS source
+        """
+        query = self._select(query_str)
+
+        # Prepare and print in one go
+        sql, prepared = prepare_and_print_ast(query, self.context, "clickhouse")
+
+        # Check that the subquery has the CTE
+        assert isinstance(prepared, ast.SelectQuery)
+        assert prepared.select_from is not None
+        assert isinstance(prepared.select_from, ast.JoinExpr)
+        assert isinstance(prepared.select_from.table, ast.SelectQuery)
+        subquery = prepared.select_from.table
+        assert subquery.ctes is not None
+        assert "exposures" in subquery.ctes
+
+        # The CTE should be in the subquery
+        assert "FROM (WITH exposures AS" in sql or "FROM (\n    WITH exposures AS" in sql.replace("  ", " ")
+
+        # The CTE should have the events__override LEFT JOIN
+        # (The resolver automatically adds this when it sees person_id references)
+        assert "events__override" in sql
+        assert "LEFT" in sql.upper()
 
     def test_join_using(self):
         node = self._select(
@@ -291,7 +462,7 @@ class TestResolver(BaseTest):
         assert isinstance(node.select_from.next_join.constraint, ast.JoinConstraint)
         constraint = node.select_from.next_join.constraint
         assert constraint.constraint_type == "USING"
-        assert cast(ast.Field, cast(ast.Alias, constraint.expr).expr).chain == ["a"]
+        assert cast(ast.Alias, constraint.expr).alias == "a"
 
         node = self._select("SELECT q1.event FROM events AS q1 INNER JOIN events AS q2 USING event")
         node = resolve_types(node, self.context, dialect="clickhouse")
@@ -647,6 +818,23 @@ class TestResolver(BaseTest):
         node = self._select("select plus(1, 2) from events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
+
+    @parameterized.expand(
+        [
+            ("year", ast.DateType),
+            ("quarter", ast.DateType),
+            ("month", ast.DateType),
+            ("week", ast.DateType),
+            ("day", ast.DateTimeType),
+            ("hour", ast.DateTimeType),
+            ("minute", ast.DateTimeType),
+            ("second", ast.DateTimeType),
+        ]
+    )
+    def test_date_trunc_return_type(self, unit, expected_type):
+        node = self._select(f"select dateTrunc('{unit}', timestamp) from events")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        self._assert_first_columm_is_type(node, expected_type(nullable=False))
 
     def test_assume_not_null_type(self):
         node = self._select(f"SELECT assumeNotNull(toDateTime('2020-01-01 00:00:00'))")

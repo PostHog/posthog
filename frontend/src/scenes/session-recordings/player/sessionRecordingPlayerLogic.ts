@@ -211,6 +211,41 @@ export function findNewEvents(allSnapshots: eventWithTime[], currentEvents: even
     return newEvents
 }
 
+/** Find the segment containing this timestamp, falling back to the nearest valid one if out of range. */
+export function findSegmentForTimestamp(segments: RecordingSegment[], timestamp?: number): RecordingSegment | null {
+    if (timestamp === undefined) {
+        return null
+    }
+    if (segments.length) {
+        for (const segment of segments) {
+            if (segment.startTimestamp <= timestamp && timestamp <= segment.endTimestamp) {
+                return segment
+            }
+        }
+        // Timestamp doesn't fall in any segment (e.g. timezone mismatch).
+        // Pick the nearest segment that has a windowId so the player can still boot.
+        const nearest =
+            timestamp < segments[0].startTimestamp
+                ? segments.find((s) => s.windowId !== undefined)
+                : [...segments].reverse().find((s) => s.windowId !== undefined)
+
+        if (nearest) {
+            return nearest
+        }
+
+        return {
+            kind: 'buffer',
+            startTimestamp: timestamp,
+            endTimestamp:
+                timestamp < segments[0].startTimestamp
+                    ? segments[0].startTimestamp - 1
+                    : segments[segments.length - 1].endTimestamp + 1,
+            isActive: false,
+        } as RecordingSegment
+    }
+    return null
+}
+
 function isUserActivity(snapshot: eventWithTime): boolean {
     return (
         snapshot.type === INCREMENTAL_SNAPSHOT_EVENT_TYPE &&
@@ -935,23 +970,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (s) => [s.sessionPlayerData],
             (sessionPlayerData: SessionPlayerData) => {
                 return (timestamp?: number): RecordingSegment | null => {
-                    if (timestamp === undefined) {
-                        return null
-                    }
-                    if (sessionPlayerData.segments.length) {
-                        for (const segment of sessionPlayerData.segments) {
-                            if (segment.startTimestamp <= timestamp && timestamp <= segment.endTimestamp) {
-                                return segment
-                            }
-                        }
-                        return {
-                            kind: 'buffer',
-                            startTimestamp: timestamp,
-                            endTimestamp: sessionPlayerData.segments[0].startTimestamp - 1,
-                            isActive: false,
-                        } as RecordingSegment
-                    }
-                    return null
+                    return findSegmentForTimestamp(sessionPlayerData.segments, timestamp)
                 }
             },
         ],
@@ -1343,7 +1362,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setPlayer: ({ player }) => {
             if (player) {
                 if (values.currentTimestamp !== undefined) {
-                    actions.seekToTimestamp(values.currentTimestamp)
+                    actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
                 }
                 actions.syncPlayerSpeed()
                 // Ensure we respect the persisted playing state when the player is reinitialized
@@ -1386,7 +1405,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // Otherwise keep existing player visible (last valid frame)
             }
             if (values.currentTimestamp !== undefined) {
-                actions.seekToTimestamp(values.currentTimestamp)
+                actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
             }
         },
         setSkipInactivitySetting: ({ skipInactivitySetting }) => {
@@ -1412,7 +1431,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (values.currentPlayerState === SessionPlayerState.BUFFER && !isBuffering) {
                 actions.endBuffer()
-                actions.seekToTimestamp(values.currentTimestamp)
+                actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
             }
         },
         initializePlayerFromStart: () => {
@@ -1486,6 +1505,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.initializePlayerFromStart()
             }
             actions.checkBufferingCompleted()
+
+            // If snapshot data arrived but the replayer hasn't been created yet,
+            // try initializing it now. This handles the race condition where
+            // setRootFrame fired before data was available (e.g. in modals where
+            // the DOM is ready before network requests complete).
+            if (!values.player && values.rootFrame) {
+                actions.tryInitReplayer()
+            }
+
             breakpoint()
         },
         loadRecordingMetaSuccess: () => {

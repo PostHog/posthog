@@ -99,17 +99,8 @@ export const privilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
 export const PERSON_DISPLAY_NAME_COLUMN_NAME = 'person_display_name -- Person'
 
-// Sync with .../api/person.py and .../ingestion/webhook-formatter.ts
-export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
-    'email',
-    'Email',
-    '$email',
-    'name',
-    'Name',
-    'username',
-    'Username',
-    'UserName',
-]
+// Sync with .../api/person.py and cdp/utils.ts
+export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = ['email', 'name', 'username']
 
 // Feature Flags & Experiments
 export const INSTANTLY_AVAILABLE_PROPERTIES = [
@@ -234,6 +225,7 @@ export const FEATURE_FLAGS = {
     APPROVALS: 'approvals', // owner: @yasen-posthog #team-platform-features
     AI_ONLY_MODE: 'ai-only-mode', // owner: #team-posthog-ai
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
+    ALERTS_INLINE_NOTIFICATIONS: 'alerts-inline-notifications', // owner: @vdekrijger
     AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion
     BATCH_EXPORT_NEW_LOGS: 'batch-export-new-logs', // owner: #team-batch-exports
     BATCH_EXPORTS_AZURE_BLOB: 'azure-blob-batch-exports', // owner: #team-batch-exports
@@ -269,9 +261,11 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_INGESTION_CONTROLS: 'error-tracking-ingestion-controls', // owner: #team-error-tracking
     ERROR_TRACKING_REVENUE_SORTING: 'error-tracking-revenue-sorting', // owner: @david #team-error-tracking
     ERROR_TRACKING_SPIKE_ALERTING: 'error-tracking-spike-alerting', // owner: #team-error-tracking
+    EVENT_MEDIA_PREVIEWS: 'event-media-previews', // owner: @alexlider
     EXPERIMENT_AI_SUMMARY: 'experiment-ai-summary', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_SESSION_REPLAY_SUMMARY: 'experiments-session-replay-summary', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_FF_CROSS_SELL: 'experiments-ff-cross-sell', // owner: @rodrigoi #team-experiments
+    EXPERIMENT_QUERY_PREAGGREGATION: 'experiment-query-preaggregation', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: #team-feature-flags
     FEATURE_FLAGS_V2: 'feature-flags-v2', // owner: @dmarticus #team-feature-flags
@@ -282,8 +276,10 @@ export const FEATURE_FLAGS = {
     FLAGGED_FEATURE_INDICATOR: 'flagged-feature-indicator', // owner: @benjackwhite
     INCIDENT_IO_STATUS_PAGE: 'incident-io-status-page', // owner: @benjackwhite
     INSIGHT_OPTIONS_PAGE: 'insight-options-page', // owner: @rafaeelaudibert #team-growth multivariate=true
+    INTER_PROJECT_TRANSFERS: 'inter-project-transfers', // owner: @reecejones #team-platform-features
     LINKS: 'links', // owner: @marconlp #team-link (team doesn't exist for now, maybe will come back in the future)
     LIVE_DEBUGGER: 'live-debugger', // owner: @marcecoll
+    LIVESTREAM_TUI: 'livestream-tui', // owner: @rafaeelaudibert #team-growth
     LLM_ANALYTICS_DATASETS: 'llm-analytics-datasets', // owner: #team-llm-analytics #team-posthog-ai
     LLM_ANALYTICS_DISCUSSIONS: 'llm-analytics-discussions', // owner: #team-llm-analytics
     LLM_ANALYTICS_EARLY_ADOPTERS: 'llm-analytics-early-adopters', // owner: #team-llm-analytics
@@ -308,7 +304,6 @@ export const FEATURE_FLAGS = {
     LOGS_SETTINGS_JSON: 'logs-settings-json', // owner: #team-logs
     LOGS_SETTINGS_RETENTION: 'logs-settings-retention', // owner: #team-logs
     LOGS_SPARKLINE_SERVICE_BREAKDOWN: 'logs-sparkline-service-breakdown', // owner: #team-logs
-    MANAGE_INSIGHTS_THROUGH_TERRAFORM: 'manage-insights-through-terraform', // owner: @vasco #team-analytics-platform
     MANAGED_VIEWSETS: 'managed-viewsets', // owner: @rafaeelaudibert #team-revenue-analytics
     MAX_AI_INSIGHT_SEARCH: 'max-ai-insight-search', // owner: #team-posthog-ai
     MAX_BILLING_CONTEXT: 'max-billing-context', // owner: @pawel-cebula #team-billing
@@ -343,7 +338,6 @@ export const FEATURE_FLAGS = {
     ONBOARDING_SKIP_INSTALL_STEP: 'onboarding-skip-install-step', // owner: @rafaeelaudibert #team-growth multivariate=true
     PASSKEY_SIGNUP_ENABLED: 'passkey-signup-enabled', // owner: @reecejones #team-platform-features
     PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
-    PRODUCT_ANALYTICS_ADD_INSIGHT_TO_DASHBOARD_MODAL: 'product-analytics-insight-to-dashboard-modal', // owner: @sam #team-product-analytics
     PRODUCT_TOURS: 'product-tours-2025', // owner: @adboio #team-surveys
     PRODUCT_TOURS_RICH_TEXT: 'product-tours-rich-text', // owner: @adboio #team-surveys
     PROJECT_UPGRADE_MODAL_REDESIGN: 'project-upgrade-modal-redesign', // owner: @reecejones #team-platform-features
