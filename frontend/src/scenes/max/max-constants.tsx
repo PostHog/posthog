@@ -595,7 +595,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         name: 'Summarize experiment results',
         description: 'Summarize experiment results for a comprehensive rundown',
         product: Scene.Experiment,
-        flag: 'experiment-ai-summary',
         icon: iconForType('experiment'),
         modes: [AgentMode.Flags],
         displayFormatter: (toolCall) => {
