@@ -875,3 +875,39 @@ class TestUpsertAlertTool(BaseTest):
         threshold = await sync_to_async(lambda: alert.threshold)()
         assert threshold.configuration["type"] == InsightThresholdType.PERCENTAGE
         assert threshold.configuration["bounds"]["lower"] == 0.5
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_update_alert_rejects_lower_greater_than_upper(self):
+        insight = await self._create_trends_insight()
+        alert = await self._create_alert(insight, lower_threshold=50.0, upper_threshold=200.0)
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(
+            action=UpdateAlertAction(alert_id=str(alert.id), lower_threshold=300.0)
+        )
+
+        assert "lower threshold must be less than upper threshold" in content.lower()
+        assert artifact["error"] == "validation_failed"
+
+        # original threshold unchanged
+        await sync_to_async(alert.refresh_from_db)()
+        threshold = await sync_to_async(lambda: alert.threshold)()
+        assert threshold.configuration["bounds"]["lower"] == 50.0
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_update_alert_moves_threshold_insight_on_insight_change(self):
+        insight_a = await self._create_trends_insight(name="Insight A")
+        insight_b = await self._create_trends_insight(name="Insight B")
+        alert = await self._create_alert(insight_a)
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(
+            action=UpdateAlertAction(alert_id=str(alert.id), insight_id=insight_b.id)
+        )
+
+        assert "updated successfully" in content
+        await sync_to_async(alert.refresh_from_db)()
+        threshold = await sync_to_async(lambda: alert.threshold)()
+        assert await sync_to_async(lambda: threshold.insight_id)() == insight_b.id
