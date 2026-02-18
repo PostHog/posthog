@@ -728,7 +728,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 !cache.generationController
             ) {
                 if (!values.multiQuestionFormPending) {
-                    actions.reconnectToStream()
+                    setTimeout(() => {
+                        actions.reconnectToStream()
+                    }, 0)
                 }
             }
         },
