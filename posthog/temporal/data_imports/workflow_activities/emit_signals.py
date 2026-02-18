@@ -198,7 +198,7 @@ async def _summarize_description(
     summarization_prompt: str,
     threshold: int,
 ) -> SignalEmitterOutput:
-    prompt_parts = [types.Part(text=summarization_prompt.format(description=output.description))]
+    prompt_parts = [types.Part(text=summarization_prompt.format(description=output.description, max_length=threshold))]
     for attempt in range(SUMMARIZATION_MAX_ATTEMPTS):
         try:
             response = await client.models.generate_content(

@@ -9,6 +9,16 @@ logger = get_logger(__name__)
 # We don't want to analyze tickets that were already solved
 ZENDESK_IGNORED_STATUSES = ("closed", "solved")
 
+ZENDESK_SUMMARIZATION_PROMPT = """Summarize this support ticket into a concise description for semantic search.
+Capture the core problem or request, the product area affected, and any relevant context like error messages or what the customer already tried.
+Strip email signatures, legal disclaimers, and system-generated footers — but keep quoted replies or conversation fragments if they add context about the issue.
+Keep the summary under {max_length} characters. Respond with only the summary text.
+
+Ticket:
+```
+{description}
+```"""
+
 ZENDESK_ACTIONABILITY_PROMPT = """You are a product feedback analyst. Given a customer support ticket, determine if it contains actionable product feedback.
 
 A ticket is ACTIONABLE if it describes:
@@ -81,4 +91,6 @@ ZENDESK_TICKETS_CONFIG = SignalSourceTableConfig(
     max_records=100,
     first_sync_lookback_days=7,
     actionability_prompt=ZENDESK_ACTIONABILITY_PROMPT,
+    summarization_prompt=ZENDESK_SUMMARIZATION_PROMPT,
+    description_summarization_threshold_chars=2000,
 )

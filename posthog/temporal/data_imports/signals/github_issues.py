@@ -8,6 +8,16 @@ logger = get_logger(__name__)
 
 GITHUB_IGNORED_STATES = ("closed",)
 
+GITHUB_SUMMARIZATION_PROMPT = """Summarize this GitHub issue into a concise description for semantic search.
+Capture the core problem or request, the product area affected, and key context like error messages or what the user was doing when the issue occurred.
+Strip raw logs, full stack traces, and large code blocks — but keep specific error messages and high-level reproduction context if they clarify the issue.
+Keep the summary under {max_length} characters. Respond with only the summary text.
+
+Issue:
+```
+{description}
+```"""
+
 GITHUB_ACTIONABILITY_PROMPT = """You are a product feedback analyst. Given a GitHub issue, determine if it contains actionable product feedback.
 
 An issue is ACTIONABLE if it describes:
@@ -65,4 +75,6 @@ GITHUB_ISSUES_CONFIG = SignalSourceTableConfig(
     max_records=100,
     first_sync_lookback_days=7,
     actionability_prompt=GITHUB_ACTIONABILITY_PROMPT,
+    summarization_prompt=GITHUB_SUMMARIZATION_PROMPT,
+    description_summarization_threshold_chars=2000,
 )
