@@ -20,7 +20,7 @@ logger = structlog.get_logger(__name__)
 async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str, dict[str, Any]]:
     """Fetch $ai_generation events for traces and classify sentiment on user messages."""
     from posthog.sync import database_sync_to_async
-    from posthog.temporal.llm_analytics.sentiment.constants import MAX_TOTAL_CLASSIFICATIONS
+    from posthog.temporal.llm_analytics.sentiment.constants import MAX_CLASSIFICATIONS_PER_TRACE
     from posthog.temporal.llm_analytics.sentiment.data import fetch_generations
     from posthog.temporal.llm_analytics.sentiment.model import classify
 
@@ -34,7 +34,7 @@ async def classify_sentiment_activity(input: ClassifySentimentInput) -> dict[str
     # Collect all texts to classify across all traces
     pending: list[PendingClassification] = []
     for trace_id in input.trace_ids:
-        pending.extend(collect_pending(rows_by_trace.get(trace_id, []), trace_id, MAX_TOTAL_CLASSIFICATIONS))
+        pending.extend(collect_pending(rows_by_trace.get(trace_id, []), trace_id, MAX_CLASSIFICATIONS_PER_TRACE))
 
     # Batch classify all texts across all traces in one call
     all_results = await asyncio.to_thread(classify, [p.text for p in pending]) if pending else []

@@ -30,7 +30,7 @@ def _single_input(trace_id: str = "trace-1", **kwargs) -> ClassifySentimentInput
 _PATCH_HOGQL = "posthog.hogql.query.execute_hogql_query"
 _PATCH_TEAM = "posthog.models.team.Team.objects"
 _PATCH_CLASSIFY = "posthog.temporal.llm_analytics.sentiment.model.classify"
-_PATCH_CAP = "posthog.temporal.llm_analytics.sentiment.constants.MAX_TOTAL_CLASSIFICATIONS"
+_PATCH_CAP = "posthog.temporal.llm_analytics.sentiment.constants.MAX_CLASSIFICATIONS_PER_TRACE"
 
 
 @pytest.fixture(autouse=True)
