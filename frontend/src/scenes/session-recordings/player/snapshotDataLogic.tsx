@@ -95,37 +95,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 stopPolling: () => false,
             },
         ],
-        // Timestamp-based loading state
-        targetTimestamp: [
-            null as number | null,
-            {
-                setTargetTimestamp: (_, { timestamp }) => timestamp,
-                resetTimestampLoading: () => null,
-            },
-        ],
-        loadingPhase: [
-            'sequential' as LoadingPhase,
-            {
-                setLoadingPhase: (_, { phase }) => phase,
-                resetTimestampLoading: () => 'sequential',
-            },
-        ],
-        // Tracks FullSnapshot + Meta timestamps before processing clears cache
-        // This persists even after processAllSnapshots clears snapshotsBySource
-        // NOTE: Do NOT reset on resetTimestampLoading - these markers should persist
-        // for the lifetime of the recording since they're metadata about the data itself
-        playabilityMarkers: [
-            { fullSnapshots: [] as number[], metas: [] as number[] },
-            {
-                recordPlayabilityMarkers: (state, { markers }) => ({
-                    fullSnapshots: [...new Set([...state.fullSnapshots, ...markers.fullSnapshots])].sort(
-                        (a, b) => a - b
-                    ),
-                    metas: [...new Set([...state.metas, ...markers.metas])].sort((a, b) => a - b),
-                }),
-                // Only reset when loading a new recording (logic is keyed by sessionRecordingId)
-            },
-        ],
         snapshotLoadError: [
             null as Error | null,
             {
