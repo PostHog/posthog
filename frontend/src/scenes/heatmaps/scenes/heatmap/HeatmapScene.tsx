@@ -182,6 +182,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                         <img
                                             id="heatmap-screenshot"
                                             src={screenshotUrl}
+                                            alt="Website screenshot for heatmap analysis"
                                             style={{
                                                 width: '100%',
                                                 height: 'auto',

@@ -108,6 +108,7 @@ export function VariantScreenshot({
                                     <img
                                         className="w-full h-full object-cover"
                                         src={mediaId.startsWith('data:') ? mediaId : `/uploaded_media/${mediaId}`}
+                                        alt={`Variant screenshot thumbnail ${index + 1}`}
                                         onError={() => handleImageError(mediaId)}
                                         onLoad={() => handleImageLoad(mediaId)}
                                     />
