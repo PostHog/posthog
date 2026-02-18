@@ -70,7 +70,7 @@ async fn main() {
     let _profiling_agent = match config.continuous_profiling.start_agent() {
         Ok(agent) => agent,
         Err(e) => {
-            eprintln!("Failed to start continuous profiling agent: {e}");
+            eprintln!("Failed to start continuous profiling agent: {e:#}");
             None
         }
     };
