@@ -364,7 +364,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                 propertyName: '$current_url',
                 propertyGroupType: TaxonomicFilterGroupType.EventProperties,
                 eventName: '$pageview',
-                eventDescription: 'When a user loads (or reloads) a page.',
+                eventDescription: 'Pageview filtered by current URL.',
             },
             [TaxonomicFilterGroupType.PageviewUrls]: {
                 propertyName: '$current_url',
@@ -374,7 +374,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                 propertyName: '$screen_name',
                 propertyGroupType: TaxonomicFilterGroupType.EventProperties,
                 eventName: '$screen',
-                eventDescription: 'When a user loads a screen in a mobile app.',
+                eventDescription: 'Screen event filtered by screen name.',
             },
             [TaxonomicFilterGroupType.Screens]: {
                 propertyName: '$screen_name',
@@ -384,7 +384,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                 propertyName: '$el_text',
                 propertyGroupType: TaxonomicFilterGroupType.EventProperties,
                 eventName: '$autocapture',
-                eventDescription: 'When a user clicks or interacts with an element.',
+                eventDescription: 'Autocapture filtered by element text.',
             },
             [TaxonomicFilterGroupType.EmailAddresses]: {
                 propertyName: 'email',
