@@ -649,12 +649,12 @@ class TeamAdmin(admin.ModelAdmin):
                     return redirect(reverse("admin:posthog_team_delete_recordings", args=[object_id]))
 
                 distinct_ids = [d.strip() for d in distinct_ids_raw.split("\n") if d.strip()]
-                workflow_input = RecordingsWithPersonInput(team_id=team.id, distinct_ids=distinct_ids, config=config)
+                person_input = RecordingsWithPersonInput(team_id=team.id, distinct_ids=distinct_ids, config=config)
 
                 asyncio.run(
                     temporal.start_workflow(
                         "delete-recordings-with-person",
-                        workflow_input,
+                        person_input,
                         id=workflow_id,
                         task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                         retry_policy=common.RetryPolicy(
@@ -678,12 +678,12 @@ class TeamAdmin(admin.ModelAdmin):
                 )
 
             elif workflow_type == "team":
-                workflow_input = RecordingsWithTeamInput(team_id=team.id, config=config)
+                team_input = RecordingsWithTeamInput(team_id=team.id, config=config)
 
                 asyncio.run(
                     temporal.start_workflow(
                         "delete-recordings-with-team",
-                        workflow_input,
+                        team_input,
                         id=workflow_id,
                         task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                         retry_policy=common.RetryPolicy(
@@ -771,12 +771,12 @@ class TeamAdmin(admin.ModelAdmin):
                     query_parts.append(f"properties={json.dumps(properties)}")
 
                 query = "&".join(query_parts)
-                workflow_input = RecordingsWithQueryInput(team_id=team.id, query=query, config=config)
+                query_input = RecordingsWithQueryInput(team_id=team.id, query=query, config=config)
 
                 asyncio.run(
                     temporal.start_workflow(
                         "delete-recordings-with-query",
-                        workflow_input,
+                        query_input,
                         id=workflow_id,
                         task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                         retry_policy=common.RetryPolicy(
@@ -807,7 +807,7 @@ class TeamAdmin(admin.ModelAdmin):
                     messages.error(request, "CSV file is required for session ID-based deletion")
                     return redirect(reverse("admin:posthog_team_delete_recordings", args=[object_id]))
 
-                if not upload_file.name.endswith(".csv"):
+                if not upload_file.name or not upload_file.name.endswith(".csv"):
                     messages.error(request, "File must be a .csv file")
                     return redirect(reverse("admin:posthog_team_delete_recordings", args=[object_id]))
 
@@ -827,17 +827,17 @@ class TeamAdmin(admin.ModelAdmin):
                     messages.error(request, "No session IDs found in CSV file")
                     return redirect(reverse("admin:posthog_team_delete_recordings", args=[object_id]))
 
-                workflow_input = RecordingsWithSessionIdsInput(
+                session_ids_input = RecordingsWithSessionIdsInput(
                     team_id=team.id,
                     session_ids=session_ids,
                     config=config,
-                    source_filename=upload_file.name,
+                    source_filename=upload_file.name or "unknown.csv",
                 )
 
                 asyncio.run(
                     temporal.start_workflow(
                         "delete-recordings-with-session-ids",
-                        workflow_input,
+                        session_ids_input,
                         id=workflow_id,
                         task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                         retry_policy=common.RetryPolicy(
@@ -888,7 +888,7 @@ class TeamAdmin(admin.ModelAdmin):
                 workflow_type=workflow_type,
                 error=str(e),
             )
-            messages.error(request, f"Failed to trigger workflow: {e}")
+            messages.error(request, "Failed to trigger workflow. Check server logs for details.")
 
         return redirect(reverse("admin:posthog_team_delete_recordings", args=[object_id]))
 
@@ -904,9 +904,10 @@ class TeamAdmin(admin.ModelAdmin):
                 handle = temporal.get_workflow_handle(workflow_id)
                 desc = await handle.describe()
                 if desc.status != WorkflowExecutionStatus.COMPLETED:
+                    status_name = desc.status.name.lower() if desc.status else "unknown"
                     return (
                         None,
-                        f"Workflow is {desc.status.name.lower()}, certificate is only available after completion",
+                        f"Workflow is {status_name}, certificate is only available after completion",
                     )
                 return await handle.result(), None
 
@@ -914,9 +915,9 @@ class TeamAdmin(admin.ModelAdmin):
             if error:
                 return None, error
             return certificate, None
-        except Exception as e:
-            logger.warning("Failed to fetch deletion certificate", workflow_id=workflow_id, error=str(e))
-            return None, str(e)
+        except Exception:
+            logger.exception("Failed to fetch deletion certificate", workflow_id=workflow_id)
+            return None, "Internal error"
 
     def deletion_certificate_view(self, request, object_id, workflow_id):
         """Display a deletion certificate as a printable HTML page."""
@@ -924,7 +925,7 @@ class TeamAdmin(admin.ModelAdmin):
 
         certificate, error = self._get_deletion_certificate(team.id, workflow_id)
         if error:
-            messages.error(request, f"Failed to fetch certificate: {error}")
+            messages.error(request, "Failed to fetch certificate. Check server logs for details.")
             return redirect(reverse("admin:posthog_team_delete_recordings", args=[object_id]))
 
         # workflow_id is "delete-recordings-{team_id}-{uuid}" — extract just the UUID
@@ -951,7 +952,7 @@ class TeamAdmin(admin.ModelAdmin):
 
         certificate, error = self._get_deletion_certificate(team.id, workflow_id)
         if error:
-            messages.error(request, f"Failed to fetch certificate: {error}")
+            messages.error(request, "Failed to fetch certificate. Check server logs for details.")
             return redirect(reverse("admin:posthog_team_delete_recordings", args=[object_id]))
 
         response = HttpResponse(

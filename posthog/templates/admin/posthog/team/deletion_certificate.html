@@ -116,29 +116,6 @@
         letter-spacing: 0.5px;
     }
 
-    .recordings-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 13px;
-    }
-
-    .recordings-table th,
-    .recordings-table td {
-        padding: 6px 12px;
-        text-align: left;
-        border-bottom: 1px solid #ddd;
-    }
-
-    .recordings-table th {
-        font-weight: 600;
-        color: #555;
-    }
-
-    .recordings-table .session-id {
-        font-family: monospace;
-        font-size: 12px;
-    }
-
     .method-list {
         list-style: none;
         padding: 0;
@@ -177,20 +154,6 @@
     }
 
     .actions-bar a:hover, .actions-bar button:hover {
-        background: #f5f5f5;
-    }
-
-    .collapsible-section {
-        margin-top: 10px;
-    }
-
-    .collapsible-section summary {
-        cursor: pointer;
-        padding: 8px;
-        font-weight: 500;
-    }
-
-    .collapsible-section summary:hover {
         background: #f5f5f5;
     }
 
@@ -318,33 +281,6 @@
             <dd>{{ certificate.completed_at|date:"Y-m-d H:i:s T" }}</dd>
         </dl>
     </div>
-
-    {% if certificate.failed %}
-    <div class="section">
-        <h2>Failed ({{ certificate.failed|length }})</h2>
-        <details class="collapsible-section" open>
-            <summary>Show {{ certificate.failed|length }} failures</summary>
-            <table class="recordings-table">
-                <thead>
-                    <tr>
-                        <th>#</th>
-                        <th>Session ID</th>
-                        <th>Error</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for error in certificate.failed %}
-                    <tr>
-                        <td>{{ forloop.counter }}</td>
-                        <td class="session-id">{{ error.session_id }}</td>
-                        <td>{{ error.error }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </details>
-    </div>
-    {% endif %}
 
     <div class="section">
         <h2>Data Protection Officer</h2>

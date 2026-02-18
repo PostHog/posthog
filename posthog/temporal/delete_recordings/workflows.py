@@ -1,6 +1,6 @@
 import json
 import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from itertools import batched
 from typing import Literal
 
@@ -38,7 +38,7 @@ async def _delete_page(
 ) -> None:
     """Batch-delete a page of session IDs and update progress."""
     if page.session_ids:
-        batch_start = datetime.now(UTC)
+        batch_start = workflow.now()
         progress.total_found += len(page.session_ids)
 
         for batch in batched(page.session_ids, config.batch_size):
@@ -53,11 +53,10 @@ async def _delete_page(
                 ),
             )
             progress.total_deleted += len(result.deleted)
-            progress.total_failed += len(result.failed)
-            progress.failed.extend(result.failed)
+            progress.total_failed += result.failed_count
 
         if config.max_deletions_per_second > 0:
-            elapsed = (datetime.now(UTC) - batch_start).total_seconds()
+            elapsed = (workflow.now() - batch_start).total_seconds()
             target = len(page.session_ids) / config.max_deletions_per_second
             if elapsed < target:
                 await asyncio.sleep(target - elapsed)
@@ -79,8 +78,8 @@ def _build_certificate(
         workflow_type=workflow_type,
         workflow_id=workflow_id,
         team_id=team_id,
-        started_at=progress.started_at or datetime.now(UTC),
-        completed_at=datetime.now(UTC),
+        started_at=progress.started_at or workflow.now(),
+        completed_at=workflow.now(),
         dry_run=config.dry_run,
         reason=config.reason,
         distinct_ids=distinct_ids,
@@ -89,7 +88,6 @@ def _build_certificate(
         total_recordings_found=progress.total_found,
         total_deleted=progress.total_deleted,
         total_failed=progress.total_failed,
-        failed=progress.failed,
     )
 
 
@@ -102,7 +100,7 @@ class DeleteRecordingsWithPersonWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, input: RecordingsWithPersonInput) -> DeletionCertificate:
-        progress = input.progress or DeletionProgress(started_at=datetime.now(UTC))
+        progress = input.progress or DeletionProgress(started_at=workflow.now())
 
         while True:
             page: LoadRecordingsPage = await workflow.execute_activity(
@@ -151,7 +149,7 @@ class DeleteRecordingsWithTeamWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, input: RecordingsWithTeamInput) -> DeletionCertificate:
-        progress = input.progress or DeletionProgress(started_at=datetime.now(UTC))
+        progress = input.progress or DeletionProgress(started_at=workflow.now())
 
         while True:
             page: LoadRecordingsPage = await workflow.execute_activity(
@@ -197,7 +195,7 @@ class DeleteRecordingsWithQueryWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, input: RecordingsWithQueryInput) -> DeletionCertificate:
-        progress = input.progress or DeletionProgress(started_at=datetime.now(UTC))
+        progress = input.progress or DeletionProgress(started_at=workflow.now())
 
         while True:
             page: LoadRecordingsPage = await workflow.execute_activity(
@@ -246,7 +244,7 @@ class DeleteRecordingsWithSessionIdsWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, input: RecordingsWithSessionIdsInput) -> DeletionCertificate:
-        progress = input.progress or DeletionProgress(started_at=datetime.now(UTC))
+        progress = input.progress or DeletionProgress(started_at=workflow.now())
 
         offset = progress.total_found
         while offset < len(input.session_ids):
