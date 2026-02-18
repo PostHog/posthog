@@ -27,8 +27,10 @@ export const ExperimentTemplateCard = ({ template, onSelect }: ExperimentTemplat
                     <LemonTag size="small" type="success">
                         {template.metrics.length} metrics
                     </LemonTag>
-                    {template.metrics.map((metric) => (
-                        <span className="text-xs text-muted truncate">{metric.name}</span>
+                    {template.metrics.map((metric, index) => (
+                        <span key={index} className="text-xs text-muted truncate">
+                            {metric.name}
+                        </span>
                     ))}
                 </div>
             </div>
