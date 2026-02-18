@@ -2,7 +2,6 @@ from datetime import timedelta
 
 from django.conf import settings
 
-import posthoganalytics
 import temporalio.exceptions
 from asgiref.sync import sync_to_async
 from temporalio.common import WorkflowIDReusePolicy
@@ -12,30 +11,6 @@ from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.temporal.types import EmitSignalInputs
 from products.signals.backend.temporal.workflow import EmitSignalWorkflow
-
-
-async def product_autonomy_enabled(team: Team) -> bool:
-    organization = await sync_to_async(lambda: team.organization)()
-    if not organization.is_ai_data_processing_approved:
-        return False
-
-    return posthoganalytics.feature_enabled(
-        "product-autonomy",
-        str(team.uuid),
-        groups={
-            "organization": str(team.organization_id),
-            "project": str(team.id),
-        },
-        group_properties={
-            "organization": {
-                "id": str(team.organization_id),
-            },
-            "project": {
-                "id": str(team.id),
-            },
-        },
-        send_feature_flag_events=False,
-    )
 
 
 async def emit_signal(
@@ -70,7 +45,8 @@ async def emit_signal(
             extra={"variant": "B", "p_value": 0.003},
         )
     """
-    if not await product_autonomy_enabled(team):
+    organization = await sync_to_async(lambda: team.organization)()
+    if not organization.is_ai_data_processing_approved:
         return
 
     client = await async_connect()

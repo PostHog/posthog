@@ -91,10 +91,10 @@ class TestProductTour(APIBaseTest):
         assert call_args[0][2]["tour_name"] == "Updated name"
 
     @patch("products.product_tours.backend.api.product_tour.report_user_action")
-    def test_delete_archives_tour(self, mock_report):
+    def test_delete_hard_deletes_tour(self, mock_report):
         tour = ProductTour.objects.create(
             team=self.team,
-            name="To be archived",
+            name="To be deleted",
             content={"steps": []},
             created_by=self.user,
         )
@@ -103,12 +103,7 @@ class TestProductTour(APIBaseTest):
         response = self.client.delete(f"/api/projects/{self.team.id}/product_tours/{tour.id}/")
         assert response.status_code == status.HTTP_204_NO_CONTENT
 
-        # Tour should be archived, not deleted
-        tour = ProductTour.all_objects.get(id=tour_id)
-        assert tour.archived
-
-        # Should not appear in normal list
-        assert not ProductTour.objects.filter(id=tour_id).exists()
+        assert not ProductTour.all_objects.filter(id=tour_id).exists()
 
         mock_report.assert_called_once()
         call_args = mock_report.call_args

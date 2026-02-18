@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
+import { TextMorph } from 'torph/react'
 
 import { IconCheck, IconCopy, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonModal } from '@posthog/lemon-ui'
@@ -199,7 +200,7 @@ export function BulkDeleteResultsModal(): JSX.Element | null {
                                             icon={copied ? <IconCheck /> : <IconCopy />}
                                             onClick={handleCopyPrompt}
                                         >
-                                            {copied ? 'Copied!' : 'Copy prompt'}
+                                            <TextMorph as="span">{copied ? 'Copied prompt!' : 'Copy prompt'}</TextMorph>
                                         </LemonButton>
                                     </div>
                                 ),
