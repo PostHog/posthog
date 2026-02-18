@@ -550,9 +550,14 @@ class TestRealtimeCohortSelectionActivity:
 
             # Should include:
             # - All cohorts from team 2: [10, 20]
-            # - 50% of other teams: [1, 2] (first 2 of 4)
-            # Sorted result: [1, 2, 10, 20]
-            assert result.cohort_ids == [1, 2, 10, 20]
+            # - 50% of other teams: 2 out of [1, 2, 3, 4] (random selection)
+            assert len(result.cohort_ids) == 4
+            # Must include all team 2 cohorts
+            assert 10 in result.cohort_ids
+            assert 20 in result.cohort_ids
+            # Must include exactly 2 from other teams
+            other_team_cohorts = [id for id in result.cohort_ids if id in [1, 2, 3, 4]]
+            assert len(other_team_cohorts) == 2
 
     @pytest.mark.asyncio
     async def test_selection_activity_deduplication(self):
