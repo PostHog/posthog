@@ -145,7 +145,7 @@ describe('event-pipeline-runner-v1-step', () => {
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                normalizedEvent: mockEvent,
+                eventWithPerson: mockEvent,
                 timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
@@ -192,7 +192,7 @@ describe('event-pipeline-runner-v1-step', () => {
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                normalizedEvent: mockEvent,
+                eventWithPerson: mockEvent,
                 timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
@@ -217,7 +217,7 @@ describe('event-pipeline-runner-v1-step', () => {
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                normalizedEvent: mockEvent,
+                eventWithPerson: mockEvent,
                 timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
@@ -241,7 +241,7 @@ describe('event-pipeline-runner-v1-step', () => {
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                normalizedEvent: mockEvent,
+                eventWithPerson: mockEvent,
                 timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
@@ -270,7 +270,7 @@ describe('event-pipeline-runner-v1-step', () => {
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                normalizedEvent: mockEvent,
+                eventWithPerson: mockEvent,
                 timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
@@ -301,7 +301,7 @@ describe('event-pipeline-runner-v1-step', () => {
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                normalizedEvent: mockEvent,
+                eventWithPerson: mockEvent,
                 timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
@@ -332,7 +332,7 @@ describe('event-pipeline-runner-v1-step', () => {
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                normalizedEvent: mockEvent,
+                eventWithPerson: mockEvent,
                 timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
@@ -367,7 +367,7 @@ describe('event-pipeline-runner-v1-step', () => {
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                normalizedEvent: mockEvent,
+                eventWithPerson: mockEvent,
                 timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
