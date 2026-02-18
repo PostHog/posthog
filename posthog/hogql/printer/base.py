@@ -974,10 +974,6 @@ class HogQLPrinter(Visitor[str]):
                 else:
                     field_sql = "person_props"
 
-        elif isinstance(type.table_type, ast.CTEType):
-            # Field on a CTE - print as cte_name.field_name
-            field_sql = f"{self.visit(type.table_type)}.{self._print_identifier(type.name)}"
-
         else:
             error = f"Can't access field '{type.name}' on a table with type '{type.table_type.__class__.__name__}'."
             if isinstance(type.table_type, ast.LazyJoinType):

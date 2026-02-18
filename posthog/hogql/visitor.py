@@ -12,12 +12,7 @@ T_AST = TypeVar("T_AST", bound=AST)
 T_Expr = TypeVar("T_Expr", bound=Expr)
 
 
-def clone_expr(
-    expr: T_AST,
-    clear_types=False,
-    clear_locations=False,
-    inline_subquery_field_names=False,
-) -> T_AST:
+def clone_expr(expr: T_AST, clear_types=False, clear_locations=False, inline_subquery_field_names=False) -> T_AST:
     """Clone an expression node."""
     return CloningVisitor(
         clear_types=clear_types,
@@ -586,7 +581,7 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             name=node.name,
             args=[self.visit(arg) for arg in node.args],
-            params=([self.visit(param) for param in node.params] if node.params is not None else None),
+            params=[self.visit(param) for param in node.params] if node.params is not None else None,
             distinct=node.distinct,
         )
 
@@ -624,7 +619,7 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             table=self.visit(node.table),
-            table_args=([self.visit(expr) for expr in node.table_args] if node.table_args is not None else None),
+            table_args=[self.visit(expr) for expr in node.table_args] if node.table_args is not None else None,
             next_join=self.visit(node.next_join),
             table_final=node.table_final,
             alias=node.alias,
@@ -639,16 +634,16 @@ class CloningVisitor(Visitor[Any]):
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
-            ctes=({key: self.visit(expr) for key, expr in node.ctes.items()} if node.ctes else None),  # to not traverse
+            ctes={key: self.visit(expr) for key, expr in node.ctes.items()} if node.ctes else None,  # to not traverse
             select_from=self.visit(node.select_from),  # keep "select_from" before "select" to resolve tables first
             select=[self.visit(expr) for expr in node.select] if node.select else [],
             array_join_op=node.array_join_op,
-            array_join_list=([self.visit(expr) for expr in node.array_join_list] if node.array_join_list else None),
+            array_join_list=[self.visit(expr) for expr in node.array_join_list] if node.array_join_list else None,
             where=self.visit(node.where),
             prewhere=self.visit(node.prewhere),
             having=self.visit(node.having),
-            group_by=([self.visit(expr) for expr in node.group_by] if node.group_by else None),
-            order_by=([self.visit(expr) for expr in node.order_by] if node.order_by else None),
+            group_by=[self.visit(expr) for expr in node.group_by] if node.group_by else None,
+            order_by=[self.visit(expr) for expr in node.order_by] if node.order_by else None,
             limit_by=self.visit(node.limit_by),
             limit=self.visit(node.limit),
             limit_with_ties=node.limit_with_ties,
@@ -668,10 +663,7 @@ class CloningVisitor(Visitor[Any]):
             type=None if self.clear_types else node.type,
             initial_select_query=self.visit(node.initial_select_query),
             subsequent_select_queries=[
-                SelectSetNode(
-                    set_operator=expr.set_operator,
-                    select_query=self.visit(expr.select_query),
-                )
+                SelectSetNode(set_operator=expr.set_operator, select_query=self.visit(expr.select_query))
                 for expr in node.subsequent_select_queries
             ],
         )
@@ -681,8 +673,8 @@ class CloningVisitor(Visitor[Any]):
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
-            partition_by=([self.visit(expr) for expr in node.partition_by] if node.partition_by else None),
-            order_by=([self.visit(expr) for expr in node.order_by] if node.order_by else None),
+            partition_by=[self.visit(expr) for expr in node.partition_by] if node.partition_by else None,
+            order_by=[self.visit(expr) for expr in node.order_by] if node.order_by else None,
             frame_method=node.frame_method,
             frame_start=self.visit(node.frame_start),
             frame_end=self.visit(node.frame_end),
@@ -719,9 +711,7 @@ class CloningVisitor(Visitor[Any]):
         if isinstance(node.value, list):
             return ast.HogQLXAttribute(
                 name=node.name,
-                value=[
-                    (self.visit(ast.Constant(value=v)) if is_simple_value(v) else self.visit(v)) for v in node.value
-                ],
+                value=[self.visit(ast.Constant(value=v)) if is_simple_value(v) else self.visit(v) for v in node.value],
             )
 
         value = node.value
@@ -846,7 +836,7 @@ class CloningVisitor(Visitor[Any]):
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             n=self.visit(node.n),
-            offset_value=(self.visit(node.offset_value) if node.offset_value is not None else None),
+            offset_value=self.visit(node.offset_value) if node.offset_value is not None else None,
             exprs=[self.visit(expr) for expr in node.exprs],
         )
 
