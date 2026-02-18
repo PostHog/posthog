@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBug, IconExpand, IconGear, IconSearch } from '@posthog/icons'
+import { IconArrowLeft, IconBug, IconExpand, IconGear, IconSearch } from '@posthog/icons'
 import {
     LemonBadge,
     LemonBanner,
@@ -92,11 +92,15 @@ function ReportListSkeleton(): JSX.Element {
 }
 
 function ReportListPane(): JSX.Element {
-    const { filteredReports, reportsLoading, searchQuery, reports } = useValues(inboxSceneLogic)
+    const { filteredReports, reportsLoading, searchQuery, reports, selectedReportId } = useValues(inboxSceneLogic)
     const { setSearchQuery } = useActions(inboxSceneLogic)
 
     return (
-        <div className="w-120 flex-shrink-0 h-full p-3 overflow-y-auto">
+        <div
+            className={`flex-shrink-0 h-full p-3 overflow-y-auto w-full @[860px]/main-content-container:w-120 @[860px]/main-content-container:border-r border-primary ${
+                selectedReportId != null ? 'hidden @[860px]/main-content-container:block' : ''
+            }`}
+        >
             <div className="pb-2">
                 <LemonInput
                     type="search"
@@ -156,11 +160,13 @@ function ArtefactCard({ artefact }: { artefact: SignalReportArtefact }): JSX.Ele
 function ReportDetailPane(): JSX.Element {
     const { selectedReport, artefacts, artefactsLoading } = useValues(inboxSceneLogic)
 
-    const stickyClasses = 'flex-1 min-w-0 h-full self-start bg-surface-primary overflow-y-auto flex flex-col'
+    const baseClasses = 'flex-1 min-w-0 h-full self-start bg-surface-primary overflow-y-auto flex flex-col'
 
     if (!selectedReport) {
         return (
-            <div className={`${stickyClasses} items-center justify-center text-center p-8`}>
+            <div
+                className={`${baseClasses} items-center justify-center text-center p-8 hidden @[860px]/main-content-container:flex`}
+            >
                 <IconExpand className="size-12 text-tertiary mb-4" />
                 <h3 className="text-lg font-semibold mb-1">Welcome to Inbox</h3>
                 <p className="text-sm text-secondary max-w-md mb-4">
@@ -179,8 +185,15 @@ function ReportDetailPane(): JSX.Element {
     const reportArtefacts = artefacts[selectedReport.id]
 
     return (
-        <div className={stickyClasses} style={{ height: 'calc(100vh - 11rem)' }}>
-            <div className="flex-1 overflow-y-auto py-8 px-4 mx-auto max-w-240">
+        <div className={baseClasses} style={{ height: 'calc(100vh - 11rem)' }}>
+            <div className="flex-1 overflow-y-auto py-8 px-4 mx-auto max-w-240 max-w-[50%]">
+                <Link
+                    to={urls.inbox()}
+                    className="inline-flex items-center gap-1 text-sm text-secondary mb-4 -mt-8 @[860px]/main-content-container:hidden"
+                >
+                    <IconArrowLeft className="size-4" />
+                    All reports
+                </Link>
                 <div className="mb-4">
                     <div className="flex items-center gap-2 mb-1">
                         <h2 className="text-lg font-semibold m-0 flex-1">
@@ -276,7 +289,7 @@ export function InboxScene(): JSX.Element {
                 </LemonBanner>
             )}
 
-            <div className="flex items-start divide-x -mx-4 h-[calc(100vh-6.375rem)]">
+            <div className="flex items-start -mx-4 h-[calc(100vh-6.375rem)]">
                 <ReportListPane />
                 <ReportDetailPane />
             </div>
