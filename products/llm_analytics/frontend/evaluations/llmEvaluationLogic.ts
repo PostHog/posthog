@@ -170,7 +170,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setEvaluationPrompt: (state, { prompt }) =>
                     state && state.evaluation_type === 'llm_judge'
                         ? { ...state, evaluation_config: { ...state.evaluation_config, prompt } }
-                        : null,
+                        : state,
                 setEvaluationEnabled: (state, { enabled }) => (state ? { ...state, enabled } : null),
                 setAllowsNA: (state, { allowsNA }) =>
                     state ? { ...state, output_config: { ...state.output_config, allows_na: allowsNA } } : null,
@@ -199,7 +199,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setHogSource: (state, { source }) =>
                     state && state.evaluation_type === 'hog'
                         ? { ...state, evaluation_config: { ...state.evaluation_config, source } }
-                        : null,
+                        : state,
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation,
                 saveEvaluationSuccess: (_, { evaluation }) => evaluation,
             },
