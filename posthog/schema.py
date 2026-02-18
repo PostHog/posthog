@@ -369,6 +369,7 @@ class AssistantTool(StrEnum):
     MANAGE_MEMORIES = "manage_memories"
     CREATE_NOTEBOOK = "create_notebook"
     LIST_DATA = "list_data"
+    UPSERT_ALERT = "upsert_alert"
     FINALIZE_PLAN = "finalize_plan"
 
 

@@ -7,6 +7,7 @@ import {
     LemonBanner,
     LemonCheckbox,
     LemonCollapse,
+    LemonDivider,
     LemonInput,
     LemonSegmentedButton,
     LemonSelect,
@@ -487,6 +488,16 @@ export function EditAlertModal({
                                                             }
                                                         />
                                                     </LemonField>
+                                                    {inlineNotificationsEnabled && alertId && (
+                                                        <>
+                                                            <LemonDivider className="my-3" />
+                                                            <h4 className="mb-2">Notification destinations</h4>
+                                                            <AlertDestinationSelector
+                                                                alertId={alertId}
+                                                                insightShortId={insightShortId}
+                                                            />
+                                                        </>
+                                                    )}
                                                 </div>
                                             ),
                                         },
