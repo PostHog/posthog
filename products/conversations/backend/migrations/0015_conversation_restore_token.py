@@ -23,7 +23,7 @@ class Migration(migrations.Migration):
                 (
                     "team",
                     models.ForeignKey(
-                        on_delete=models.deletion.CASCADE, related_name="conversation_restore_tokens", to="posthog.team"
+                        on_delete=models.CASCADE, related_name="conversation_restore_tokens", to="posthog.team"
                     ),
                 ),
             ],
