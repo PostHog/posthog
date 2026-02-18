@@ -680,7 +680,7 @@ class ShortcutSourceConfig(config.Config):
 
 @config.config
 class SlackSourceConfig(config.Config):
-    pass
+    slack_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
