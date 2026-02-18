@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -7,6 +7,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import type { AnyPropertyFilter } from '~/types'
 
+import { clusteringConfigLogic } from './clusteringConfigLogic'
 import type { clustersAdminLogicType } from './clustersAdminLogicType'
 
 export interface ClusteringRunParams {
@@ -26,8 +27,8 @@ export interface ClusteringRunParams {
     run_label: string
     // Visualization params
     visualization_method: 'umap' | 'pca' | 'tsne'
-    // Trace filters - property filters to scope which traces are included
-    trace_filters: AnyPropertyFilter[]
+    // Event filters - property filters to scope which traces are included
+    event_filters: AnyPropertyFilter[]
 }
 
 export interface ClusteringRunResponse {
@@ -50,11 +51,15 @@ export const DEFAULT_CLUSTERING_PARAMS: ClusteringRunParams = {
     kmeans_max_k: 10,
     run_label: '',
     visualization_method: 'umap',
-    trace_filters: [],
+    event_filters: [],
 }
 
 export const clustersAdminLogic = kea<clustersAdminLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'clusters', 'clustersAdminLogic']),
+
+    connect({
+        values: [clusteringConfigLogic, ['config', 'configLoading']],
+    }),
 
     actions({
         openModal: true,
@@ -101,6 +106,15 @@ export const clustersAdminLogic = kea<clustersAdminLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        openModal: () => {
+            // Only sync event_filters once config has actually loaded from the API
+            // (created_at is empty in the initial state before loadConfig completes)
+            if (values.config?.created_at && !values.configLoading) {
+                const savedFilters = values.config.event_filters ?? []
+                actions.setParams({ event_filters: savedFilters })
+            }
+        },
+
         triggerClusteringRun: () => {
             posthog.capture('llma clusters admin run triggered', {
                 level: values.params.analysis_level,

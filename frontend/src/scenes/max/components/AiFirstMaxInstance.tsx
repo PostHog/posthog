@@ -1,11 +1,16 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
+import { IconOpenSidebar, IconShare } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 import { Intro } from '../Intro'
 import { Thread } from '../Thread'
+import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from '../maxThreadLogic'
 import { ChatHistoryPanel } from './ChatHistoryPanel'
@@ -19,6 +24,8 @@ interface AiFirstMaxInstanceProps {
 export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Element {
     const { threadVisible, threadLogicKey, conversation, conversationId } = useValues(maxLogic({ tabId }))
     const { startNewConversation } = useActions(maxLogic({ tabId }))
+    const { openSidePanelMax } = useActions(maxGlobalLogic)
+    const { closeTabId } = useActions(sceneLogic)
 
     const threadProps: MaxThreadLogicProps = {
         tabId,
@@ -31,12 +38,44 @@ export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Elem
             <ChatHistoryPanel tabId={tabId} />
             <BindLogic logic={maxLogic} props={{ tabId }}>
                 <BindLogic logic={maxThreadLogic} props={threadProps}>
-                    <ChatArea
-                        threadVisible={threadVisible}
-                        conversationId={conversationId}
-                        conversation={conversation}
-                        onStartNewConversation={startNewConversation}
-                    />
+                    <div className="flex flex-col grow overflow-hidden">
+                        <div className="flex w-full gap-2 py-2 border-b border-primary items-center justify-end px-2">
+                            {tabId && conversationId ? (
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    sideIcon={<IconShare />}
+                                    onClick={() => {
+                                        copyToClipboard(
+                                            urls.absolute(urls.currentProject(urls.ai(conversationId ?? undefined))),
+                                            'conversation sharing link'
+                                        )
+                                    }}
+                                >
+                                    Copy link to chat
+                                </LemonButton>
+                            ) : undefined}
+                            {tabId ? (
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    sideIcon={<IconOpenSidebar />}
+                                    onClick={() => {
+                                        openSidePanelMax(conversationId ?? undefined)
+                                        closeTabId(tabId, { source: 'open_in_side_panel' })
+                                    }}
+                                >
+                                    Open in side panel
+                                </LemonButton>
+                            ) : undefined}
+                        </div>
+                        <ChatArea
+                            threadVisible={threadVisible}
+                            conversationId={conversationId}
+                            conversation={conversation}
+                            onStartNewConversation={startNewConversation}
+                        />
+                    </div>
                 </BindLogic>
             </BindLogic>
         </div>
