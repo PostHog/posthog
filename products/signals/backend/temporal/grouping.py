@@ -941,6 +941,19 @@ class TeamSignalGroupingWorkflow:
     def __init__(self) -> None:
         self._signal_buffer: list[EmitSignalInputs] = []
         self._signals_processed: int = 0
+        meter = workflow.metric_meter()
+        self._signals_received_counter = meter.create_counter(
+            "signals_grouping_signals_received",
+            "Total number of signals received for grouping",
+        )
+        self._buffer_size_gauge = meter.create_gauge(
+            "signals_grouping_buffer_size",
+            "Current number of signals buffered for processing",
+        )
+        self._signals_dropped_counter = meter.create_counter(
+            "signals_grouping_signals_dropped",
+            "Total number of signals dropped due to processing failure",
+        )
 
     @staticmethod
     def workflow_id_for(team_id: int) -> str:
@@ -950,19 +963,24 @@ class TeamSignalGroupingWorkflow:
     async def submit_signal(self, signal: EmitSignalInputs) -> None:
         # TODO - add some kind of limiting here, to prevent this growing forever
         self._signal_buffer.append(signal)
+        self._signals_received_counter.add(1)
+        self._buffer_size_gauge.set(len(self._signal_buffer))
 
     @temporalio.workflow.run
     async def run(self, input: TeamSignalGroupingInput) -> None:
         self._signal_buffer.extend(input.pending_signals)
+        self._buffer_size_gauge.set(len(self._signal_buffer))
 
         while True:
             await workflow.wait_condition(lambda: len(self._signal_buffer) > 0)
             signal = self._signal_buffer.pop(0)
+            self._buffer_size_gauge.set(len(self._signal_buffer))
 
             try:
                 await _process_one_signal(signal)
             except Exception:
-                logger.exception(
+                self._signals_dropped_counter.add(1)
+                workflow.logger.exception(
                     "Failed to process signal",
                     team_id=input.team_id,
                     source_product=signal.source_product,
