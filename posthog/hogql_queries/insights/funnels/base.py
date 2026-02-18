@@ -17,7 +17,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_BREAKDOWN_VALUES_LIMIT, get_breakdown_limit_for_context
+from posthog.hogql.constants import get_breakdown_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.clickhouse.materialized_columns import ColumnName
@@ -343,10 +343,9 @@ class FunnelBase(ABC):
         )
 
     def get_breakdown_limit(self):
-        user_limit = self.context.breakdownFilter.breakdown_limit
-        if user_limit:
-            return min(user_limit, MAX_BREAKDOWN_VALUES_LIMIT)
-        return get_breakdown_limit_for_context(self.context.limit_context)
+        return self.context.breakdownFilter.breakdown_limit or get_breakdown_limit_for_context(
+            self.context.limit_context
+        )
 
     def _get_timestamp_outer_select(self) -> list[ast.Expr]:
         if self.context.includePrecedingTimestamp:
