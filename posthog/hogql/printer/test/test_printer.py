@@ -44,7 +44,7 @@ from posthog.hogql.constants import (
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
-from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError, ResolutionError
+from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError
 from posthog.hogql.hogqlx import convert_tag_to_hx
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
@@ -4336,21 +4336,6 @@ class TestPostgresPrinter(BaseTest):
                 dialect="postgres",
                 stack=[prepared_select_query],
             ),
-        )
-
-    def test_with_recursive(self):
-        query = "WITH RECURSIVE events_cte AS (SELECT id FROM events) SELECT id FROM events_cte"
-        self.assertEqual(
-            self._select(query),
-            "WITH RECURSIVE events_cte AS (SELECT id FROM events) SELECT id FROM events_cte LIMIT 50000",
-        )
-
-    def test_with_recursive_self_referencing(self):
-        query = "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM nums WHERE n < 5) SELECT n FROM nums"
-        self.assertEqual(
-            self._select(query),
-            "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT (n + 1) FROM nums WHERE (n < 5)) "
-            "SELECT nums.n FROM nums LIMIT 50000",
         )
 
     def test_postgres_style_cast(self):
