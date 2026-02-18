@@ -30,7 +30,7 @@ from posthog.rate_limit import (
 )
 from posthog.tasks.email import send_conversation_restore_email
 
-from products.conversations.backend.api.serializers import validate_origin
+from products.conversations.backend.api.serializers import validate_origin, validate_url_domain
 from products.conversations.backend.cache import invalidate_tickets_cache
 from products.conversations.backend.services.restore import RestoreService
 
@@ -95,6 +95,11 @@ class WidgetRestoreRequestView(APIView):
 
         email = serializer.validated_data["email"]
         request_url = serializer.validated_data["request_url"]
+
+        # Validate request_url domain against team's allowlist to prevent phishing
+        if not validate_url_domain(request_url, team):
+            logger.warning(f"Restore request_url domain not in allowlist: {request_url}")
+            return Response({"error": "URL domain not allowed"}, status=status.HTTP_403_FORBIDDEN)
 
         # Request restore link (may return None if no tickets found)
         raw_token = RestoreService.request_restore_link(team, email)

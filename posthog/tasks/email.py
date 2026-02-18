@@ -1306,7 +1306,7 @@ def send_conversation_restore_email(email: str, team_id: int, restore_url: str) 
         logger.warning(f"Skipping conversation restore email: team not found (team_id={team_id})")
         return
 
-    campaign_key = f"conversation_restore_{team_id}_{email}"
+    campaign_key = f"conversation_restore_{team_id}_{email}_{timezone.now().timestamp()}"
     message = EmailMessage(
         use_http=True,
         campaign_key=campaign_key,

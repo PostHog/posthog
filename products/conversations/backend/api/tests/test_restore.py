@@ -167,8 +167,7 @@ class TestRestoreService(BaseTest):
             email=self.customer_email,
         )
 
-        self.assertIsNotNone(raw_token)
-        self.assertIsInstance(raw_token, str)
+        assert raw_token is not None
         self.assertEqual(len(raw_token), 43)  # 32 bytes base64url encoded
 
     def test_request_restore_link_does_not_invalidate_existing_tokens(self):
@@ -185,6 +184,7 @@ class TestRestoreService(BaseTest):
             team=self.team,
             email=self.customer_email,
         )
+        assert first_raw is not None
         first_token = ConversationRestoreToken.objects.get(token_hash=hash_token(first_raw))
 
         # Create second token (should NOT invalidate first)
@@ -192,6 +192,7 @@ class TestRestoreService(BaseTest):
             team=self.team,
             email=self.customer_email,
         )
+        assert second_raw is not None
         second_token = ConversationRestoreToken.objects.get(token_hash=hash_token(second_raw))
 
         # Both tokens should be valid
@@ -216,12 +217,14 @@ class TestRestoreService(BaseTest):
             team=self.team,
             email=self.customer_email,
         )
+        assert first_raw is not None
         first_token = ConversationRestoreToken.objects.get(token_hash=hash_token(first_raw))
 
         second_raw = RestoreService.request_restore_link(
             team=self.team,
             email=self.customer_email,
         )
+        assert second_raw is not None
         second_token = ConversationRestoreToken.objects.get(token_hash=hash_token(second_raw))
 
         # Redeem the first token
@@ -252,7 +255,7 @@ class TestRestoreService(BaseTest):
             anonymous_traits={"email": self.customer_email},
         )
 
-        token_record, raw_token = ConversationRestoreToken.create_token(
+        _, raw_token = ConversationRestoreToken.create_token(
             team=self.team,
             recipient_email=self.customer_email,
         )
@@ -265,6 +268,7 @@ class TestRestoreService(BaseTest):
 
         self.assertEqual(result.status, "success")
         self.assertEqual(result.widget_session_id, new_session_id)
+        assert result.migrated_ticket_ids is not None
         self.assertEqual(len(result.migrated_ticket_ids), 1)
 
         # Verify ticket ownership transferred
@@ -325,7 +329,7 @@ class TestRestoreService(BaseTest):
         other_org = Organization.objects.create(name="Other Org")
         other_team = Team.objects.create(organization=other_org, name="Other Team")
 
-        token_record, raw_token = ConversationRestoreToken.create_token(
+        _, raw_token = ConversationRestoreToken.create_token(
             team=self.team,
             recipient_email=self.customer_email,
         )
@@ -427,6 +431,55 @@ class TestRestoreAPI(BaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("products.conversations.backend.api.restore.validate_origin", return_value=True)
+    def test_restore_request_url_domain_not_in_allowlist(self, mock_validate_origin):
+        """request_url domain must be in widget_domains allowlist when configured."""
+        self.team.conversations_settings = {
+            "widget_public_token": self.widget_token,
+            "widget_domains": ["allowed.com", "*.trusted.org"],
+        }
+        self.team.save()
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/restore/request",
+            {
+                "email": self.customer_email,
+                "request_url": "https://evil.com/phishing",
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("products.conversations.backend.api.restore.validate_origin", return_value=True)
+    @patch("products.conversations.backend.api.restore.send_conversation_restore_email")
+    def test_restore_request_url_domain_allowed(self, mock_send_email, mock_validate_origin):
+        """request_url domain in allowlist should be accepted."""
+        self.team.conversations_settings = {
+            "widget_public_token": self.widget_token,
+            "widget_domains": ["allowed.com"],
+        }
+        self.team.save()
+
+        Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id="user-1",
+            anonymous_traits={"email": self.customer_email},
+        )
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/restore/request",
+            {
+                "email": self.customer_email,
+                "request_url": "https://allowed.com/support",
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_send_email.delay.assert_called_once()
 
     def test_restore_redeem_success(self):
         old_session_id = str(uuid.uuid4())
