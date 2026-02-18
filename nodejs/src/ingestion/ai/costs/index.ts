@@ -36,7 +36,9 @@ const isBigDecimalInput = (value: unknown): value is string | number => {
 }
 
 const trackCostOutcome = (totalCost: number): void => {
-    if (totalCost < 0) {
+    if (Number.isNaN(totalCost)) {
+        aiCostTotalOutcomeCounter.labels({ outcome: 'error' }).inc()
+    } else if (totalCost < 0) {
         aiCostTotalOutcomeCounter.labels({ outcome: 'negative' }).inc()
     } else if (totalCost === 0) {
         aiCostTotalOutcomeCounter.labels({ outcome: 'zero' }).inc()
