@@ -15,6 +15,7 @@ on:
             - 'livestream/**'
             - 'nodejs/**'
     pull_request:
+        types: [opened, synchronize, reopened, labeled]
     workflow_dispatch:
 
 jobs:
@@ -22,7 +23,9 @@ jobs:
         name: Build and push container image
         if: |
             github.repository == 'PostHog/posthog' && (
-                github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'build-llm-analytics-image')
+                github.event_name == 'push' ||
+                github.event_name == 'workflow_dispatch' ||
+                contains(github.event.pull_request.labels.*.name, 'build-llm-analytics-image')
             )
         runs-on: depot-ubuntu-latest
         permissions:
