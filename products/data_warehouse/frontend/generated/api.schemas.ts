@@ -136,6 +136,109 @@ export interface PaginatedExternalDataSchemaListApi {
  * `Shopify` - Shopify
  * `Attio` - Attio
  * `SnapchatAds` - SnapchatAds
+ * `Linear` - Linear
+ * `Intercom` - Intercom
+ * `Amplitude` - Amplitude
+ * `Mixpanel` - Mixpanel
+ * `Jira` - Jira
+ * `ActiveCampaign` - ActiveCampaign
+ * `Marketo` - Marketo
+ * `Adjust` - Adjust
+ * `AppsFlyer` - AppsFlyer
+ * `Freshdesk` - Freshdesk
+ * `GoogleAnalytics` - GoogleAnalytics
+ * `Pipedrive` - Pipedrive
+ * `SendGrid` - SendGrid
+ * `Slack` - Slack
+ * `PagerDuty` - PagerDuty
+ * `Asana` - Asana
+ * `Notion` - Notion
+ * `Airtable` - Airtable
+ * `Greenhouse` - Greenhouse
+ * `BambooHR` - BambooHR
+ * `Lever` - Lever
+ * `GitLab` - GitLab
+ * `Datadog` - Datadog
+ * `Sentry` - Sentry
+ * `Pendo` - Pendo
+ * `FullStory` - FullStory
+ * `AmazonAds` - AmazonAds
+ * `PinterestAds` - PinterestAds
+ * `AppleSearchAds` - AppleSearchAds
+ * `QuickBooks` - QuickBooks
+ * `Xero` - Xero
+ * `NetSuite` - NetSuite
+ * `WooCommerce` - WooCommerce
+ * `BigCommerce` - BigCommerce
+ * `PayPal` - PayPal
+ * `Square` - Square
+ * `Zoom` - Zoom
+ * `Trello` - Trello
+ * `Monday` - Monday
+ * `ClickUp` - ClickUp
+ * `Confluence` - Confluence
+ * `Recurly` - Recurly
+ * `SalesLoft` - SalesLoft
+ * `Outreach` - Outreach
+ * `Gong` - Gong
+ * `Calendly` - Calendly
+ * `Typeform` - Typeform
+ * `Iterable` - Iterable
+ * `ZohoCRM` - ZohoCRM
+ * `Close` - Close
+ * `Oracle` - Oracle
+ * `DynamoDB` - DynamoDB
+ * `Elasticsearch` - Elasticsearch
+ * `Kafka` - Kafka
+ * `LaunchDarkly` - LaunchDarkly
+ * `Braintree` - Braintree
+ * `Recharge` - Recharge
+ * `HelpScout` - HelpScout
+ * `Gorgias` - Gorgias
+ * `Instagram` - Instagram
+ * `YouTubeAnalytics` - YouTubeAnalytics
+ * `FacebookPages` - FacebookPages
+ * `TwitterAds` - TwitterAds
+ * `Workday` - Workday
+ * `ServiceNow` - ServiceNow
+ * `Pardot` - Pardot
+ * `Copper` - Copper
+ * `Front` - Front
+ * `ChartMogul` - ChartMogul
+ * `Zuora` - Zuora
+ * `Paddle` - Paddle
+ * `CircleCI` - CircleCI
+ * `CockroachDB` - CockroachDB
+ * `Firebase` - Firebase
+ * `AzureBlob` - AzureBlob
+ * `GoogleDrive` - GoogleDrive
+ * `OneDrive` - OneDrive
+ * `SharePoint` - SharePoint
+ * `Box` - Box
+ * `SFTP` - SFTP
+ * `MicrosoftTeams` - MicrosoftTeams
+ * `Aircall` - Aircall
+ * `Webflow` - Webflow
+ * `Okta` - Okta
+ * `Auth0` - Auth0
+ * `Productboard` - Productboard
+ * `Smartsheet` - Smartsheet
+ * `Wrike` - Wrike
+ * `Plaid` - Plaid
+ * `SurveyMonkey` - SurveyMonkey
+ * `Eventbrite` - Eventbrite
+ * `RingCentral` - RingCentral
+ * `Twilio` - Twilio
+ * `Freshsales` - Freshsales
+ * `Shortcut` - Shortcut
+ * `ConvertKit` - ConvertKit
+ * `Drip` - Drip
+ * `CampaignMonitor` - CampaignMonitor
+ * `MailerLite` - MailerLite
+ * `Omnisend` - Omnisend
+ * `Brevo` - Brevo
+ * `Postmark` - Postmark
+ * `Granola` - Granola
  */
 export type SourceTypeEnumApi = (typeof SourceTypeEnumApi)[keyof typeof SourceTypeEnumApi]
 
@@ -176,6 +279,109 @@ export const SourceTypeEnumApi = {
     Shopify: 'Shopify',
     Attio: 'Attio',
     SnapchatAds: 'SnapchatAds',
+    Linear: 'Linear',
+    Intercom: 'Intercom',
+    Amplitude: 'Amplitude',
+    Mixpanel: 'Mixpanel',
+    Jira: 'Jira',
+    ActiveCampaign: 'ActiveCampaign',
+    Marketo: 'Marketo',
+    Adjust: 'Adjust',
+    AppsFlyer: 'AppsFlyer',
+    Freshdesk: 'Freshdesk',
+    GoogleAnalytics: 'GoogleAnalytics',
+    Pipedrive: 'Pipedrive',
+    SendGrid: 'SendGrid',
+    Slack: 'Slack',
+    PagerDuty: 'PagerDuty',
+    Asana: 'Asana',
+    Notion: 'Notion',
+    Airtable: 'Airtable',
+    Greenhouse: 'Greenhouse',
+    BambooHR: 'BambooHR',
+    Lever: 'Lever',
+    GitLab: 'GitLab',
+    Datadog: 'Datadog',
+    Sentry: 'Sentry',
+    Pendo: 'Pendo',
+    FullStory: 'FullStory',
+    AmazonAds: 'AmazonAds',
+    PinterestAds: 'PinterestAds',
+    AppleSearchAds: 'AppleSearchAds',
+    QuickBooks: 'QuickBooks',
+    Xero: 'Xero',
+    NetSuite: 'NetSuite',
+    WooCommerce: 'WooCommerce',
+    BigCommerce: 'BigCommerce',
+    PayPal: 'PayPal',
+    Square: 'Square',
+    Zoom: 'Zoom',
+    Trello: 'Trello',
+    Monday: 'Monday',
+    ClickUp: 'ClickUp',
+    Confluence: 'Confluence',
+    Recurly: 'Recurly',
+    SalesLoft: 'SalesLoft',
+    Outreach: 'Outreach',
+    Gong: 'Gong',
+    Calendly: 'Calendly',
+    Typeform: 'Typeform',
+    Iterable: 'Iterable',
+    ZohoCRM: 'ZohoCRM',
+    Close: 'Close',
+    Oracle: 'Oracle',
+    DynamoDB: 'DynamoDB',
+    Elasticsearch: 'Elasticsearch',
+    Kafka: 'Kafka',
+    LaunchDarkly: 'LaunchDarkly',
+    Braintree: 'Braintree',
+    Recharge: 'Recharge',
+    HelpScout: 'HelpScout',
+    Gorgias: 'Gorgias',
+    Instagram: 'Instagram',
+    YouTubeAnalytics: 'YouTubeAnalytics',
+    FacebookPages: 'FacebookPages',
+    TwitterAds: 'TwitterAds',
+    Workday: 'Workday',
+    ServiceNow: 'ServiceNow',
+    Pardot: 'Pardot',
+    Copper: 'Copper',
+    Front: 'Front',
+    ChartMogul: 'ChartMogul',
+    Zuora: 'Zuora',
+    Paddle: 'Paddle',
+    CircleCI: 'CircleCI',
+    CockroachDB: 'CockroachDB',
+    Firebase: 'Firebase',
+    AzureBlob: 'AzureBlob',
+    GoogleDrive: 'GoogleDrive',
+    OneDrive: 'OneDrive',
+    SharePoint: 'SharePoint',
+    Box: 'Box',
+    SFTP: 'SFTP',
+    MicrosoftTeams: 'MicrosoftTeams',
+    Aircall: 'Aircall',
+    Webflow: 'Webflow',
+    Okta: 'Okta',
+    Auth0: 'Auth0',
+    Productboard: 'Productboard',
+    Smartsheet: 'Smartsheet',
+    Wrike: 'Wrike',
+    Plaid: 'Plaid',
+    SurveyMonkey: 'SurveyMonkey',
+    Eventbrite: 'Eventbrite',
+    RingCentral: 'RingCentral',
+    Twilio: 'Twilio',
+    Freshsales: 'Freshsales',
+    Shortcut: 'Shortcut',
+    ConvertKit: 'ConvertKit',
+    Drip: 'Drip',
+    CampaignMonitor: 'CampaignMonitor',
+    MailerLite: 'MailerLite',
+    Omnisend: 'Omnisend',
+    Brevo: 'Brevo',
+    Postmark: 'Postmark',
+    Granola: 'Granola',
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {

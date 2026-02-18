@@ -47,6 +47,8 @@ export type RequestProperties = {
     features?: string[]
     region?: string
     version?: number
+    organizationId?: string
+    projectId?: string
 }
 
 export class MCP extends McpAgent<Env> {
@@ -293,9 +295,26 @@ export class MCP extends McpAgent<Env> {
     }
 
     async init(): Promise<void> {
-        const { features, version } = this.requestProperties
+        const { features, version, organizationId, projectId } = this.requestProperties
         const instructions = version === 2 ? INSTRUCTIONS_V2 : INSTRUCTIONS_V1
         this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
+
+        // Pre-seed cache with org/project IDs from headers/query params
+        if (organizationId) {
+            await this.cache.set('orgId', organizationId)
+        }
+        if (projectId) {
+            await this.cache.set('projectId', projectId)
+        }
+
+        // When project ID is provided, both switch tools are removed (project implies org).
+        // When only organization ID is provided, only switch-organization is removed.
+        const excludeTools: string[] = []
+        if (projectId) {
+            excludeTools.push('switch-organization', 'switch-project')
+        } else if (organizationId) {
+            excludeTools.push('switch-organization')
+        }
 
         const context = await this.getContext()
 
@@ -305,7 +324,7 @@ export class MCP extends McpAgent<Env> {
         await registerUiAppResources(this.server, context)
 
         // Register tools
-        const allTools = await getToolsFromContext(context, { features, version })
+        const allTools = await getToolsFromContext(context, { features, version, excludeTools })
 
         for (const tool of allTools) {
             this.registerTool(tool, async (params) => tool.handler(context, params))

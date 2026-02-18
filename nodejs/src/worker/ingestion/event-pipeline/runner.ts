@@ -12,7 +12,7 @@ import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { TeamManager } from '../../../utils/team-manager'
 import { GroupTypeManager } from '../group-type-manager'
-import { GroupStoreForBatch } from '../groups/group-store-for-batch.interface'
+import { BatchWritingGroupStore } from '../groups/batch-writing-group-store'
 import { MergeMode, PersonMergeLimitExceededError, determineMergeMode } from '../persons/person-merge-types'
 import { PersonsStore } from '../persons/persons-store'
 import { EventsProcessor } from '../process-event'
@@ -23,9 +23,7 @@ import {
     pipelineStepStalledCounter,
     pipelineStepThrowCounter,
 } from './metrics'
-import { normalizeEventStep } from './normalizeEventStep'
 import { prepareEventStep } from './prepareEventStep'
-import { processPersonlessStep } from './processPersonlessStep'
 import { processPersonsStep } from './processPersonsStep'
 
 export type RunnerResult<T = object> = T & {
@@ -79,7 +77,7 @@ export class EventPipelineRunner {
         groupTypeManager: GroupTypeManager,
         private originalEvent: PipelineEvent,
         private personsStore: PersonsStore,
-        private groupStoreForBatch: GroupStoreForBatch,
+        private groupStore: BatchWritingGroupStore,
         private headers?: EventHeaders
     ) {
         this.eventsProcessor = new EventsProcessor(
@@ -113,7 +111,7 @@ export class EventPipelineRunner {
 
         const prepareResult = await this.runStep<PreIngestionEvent, typeof prepareEventStep>(
             prepareEventStep,
-            [this.kafkaProducer, this.eventsProcessor, this.groupStoreForBatch, normalizedEvent, processPerson, team],
+            [this.kafkaProducer, this.eventsProcessor, this.groupStore, normalizedEvent, processPerson, team],
             team.id,
             true,
             kafkaAcks,
@@ -160,19 +158,16 @@ export class EventPipelineRunner {
     }
 
     async runEventPipeline(
-        event: PipelineEvent,
+        normalizedEvent: PluginEvent,
+        timestamp: DateTime,
         team: Team,
         processPerson: boolean = true,
-        forceDisablePersonProcessing: boolean = false
+        personlessPerson?: Person
     ): Promise<EventPipelinePipelineResult> {
-        this.originalEvent = event
+        this.originalEvent = normalizedEvent
 
         try {
-            const pluginEvent: PluginEvent = {
-                ...event,
-                team_id: team.id,
-            }
-            return await this.runEventPipelineSteps(pluginEvent, team, processPerson, forceDisablePersonProcessing)
+            return await this.runEventPipelineSteps(normalizedEvent, timestamp, team, processPerson, personlessPerson)
         } catch (error) {
             if (error instanceof StepErrorNoRetry) {
                 // At the step level we have chosen to drop these events and send them to DLQ
@@ -189,34 +184,20 @@ export class EventPipelineRunner {
     }
 
     async runEventPipelineSteps(
-        event: PluginEvent,
+        normalizedEvent: PluginEvent,
+        timestamp: DateTime,
         team: Team,
         processPerson: boolean,
-        forceDisablePersonProcessing: boolean
+        personlessPerson?: Person
     ): Promise<EventPipelinePipelineResult> {
         const kafkaAcks: Promise<unknown>[] = []
         const warnings: PipelineWarning[] = []
-
-        const normalizeResult = await this.runStep<[PluginEvent, DateTime], typeof normalizeEventStep>(
-            normalizeEventStep,
-            [event, processPerson, this.headers, this.options.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE],
-            team.id,
-            true,
-            kafkaAcks,
-            warnings
-        )
-        if (!isOkResult(normalizeResult)) {
-            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
-            return normalizeResult
-        }
-        const [normalizedEvent, timestamp] = normalizeResult.value
 
         const personProcessingResult = await this.processPersonForEvent(
             normalizedEvent,
             team,
             timestamp,
-            processPerson,
-            forceDisablePersonProcessing,
+            personlessPerson,
             team.id,
             kafkaAcks,
             warnings
@@ -231,7 +212,7 @@ export class EventPipelineRunner {
 
         const prepareResult = await this.runStep<PreIngestionEvent, typeof prepareEventStep>(
             prepareEventStep,
-            [this.kafkaProducer, this.eventsProcessor, this.groupStoreForBatch, postPersonEvent, processPerson, team],
+            [this.kafkaProducer, this.eventsProcessor, this.groupStore, postPersonEvent, processPerson, team],
             team.id,
             true,
             kafkaAcks,
@@ -258,8 +239,7 @@ export class EventPipelineRunner {
         event: PluginEvent,
         team: Team,
         timestamp: DateTime,
-        processPerson: boolean,
-        forceDisablePersonProcessing: boolean,
+        personlessPerson: Person | undefined,
         teamId: number,
         kafkaAcks: Promise<unknown>[],
         warnings: PipelineWarning[]
@@ -267,30 +247,16 @@ export class EventPipelineRunner {
         let postPersonEvent = event
         let person: Person
         let personKafkaAck: Promise<void> = Promise.resolve()
-        let shouldProcessPerson = processPerson
+        let shouldProcessPerson = !personlessPerson
         let forceUpgrade = false
 
-        // If personless mode, check if we need to force upgrade
-        if (!processPerson) {
-            const personlessResult = await this.runPipelineStep<Person, typeof processPersonlessStep>(
-                processPersonlessStep,
-                [event, team, timestamp, this.personsStore, forceDisablePersonProcessing],
-                teamId,
-                true,
-                kafkaAcks,
-                warnings
-            )
-
-            if (!isOkResult(personlessResult)) {
-                return personlessResult
-            }
-
-            person = personlessResult.value
+        if (personlessPerson) {
+            person = personlessPerson
             forceUpgrade = !!person.force_upgrade
             shouldProcessPerson = forceUpgrade
         }
 
-        // Run full person processing if needed (either processPerson=true or force_upgrade)
+        // Run full person processing if needed
         if (shouldProcessPerson) {
             const personStepResult = await this.runPipelineStep<
                 [PluginEvent, Person, Promise<void>],

@@ -322,6 +322,115 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @parameterized.expand(
         [
+            ("contains",),
+            ("not_contains",),
+            ("ICONTAINS",),
+            ("foo",),
+        ]
+    )
+    def test_cant_create_flag_with_unknown_operator(self, operator: str) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Beta feature",
+                "key": "beta-unknown-op",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 65,
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "@posthog.com",
+                                    "operator": operator,
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_operator",
+                "detail": f"Invalid operator: {operator}",
+                "attr": "filters",
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("exact",),
+            ("icontains",),
+            ("regex",),
+            ("is_set",),
+            ("is_date_before",),
+            ("semver_gt",),
+        ]
+    )
+    def test_can_create_flag_with_valid_operator(self, operator: str) -> None:
+        value = "" if operator == "is_set" else "2025-01-01" if "date" in operator else "test"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": f"Flag with {operator}",
+                "key": f"flag-valid-op-{operator}",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": value,
+                                    "operator": operator,
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_can_create_flag_with_flag_evaluates_to_operator(self) -> None:
+        base_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="base-flag",
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Dependent flag",
+                "key": "dependent-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {
+                                    "key": str(base_flag.id),
+                                    "type": "flag",
+                                    "value": "true",
+                                    "operator": "flag_evaluates_to",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @parameterized.expand(
+        [
             ("in",),
             ("not_in",),
         ]
@@ -2642,6 +2751,36 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             response.json()["detail"]
             == f"Cannot delete a feature flag that is linked to active experiment(s) with ID(s): {exp.id}. Please delete the experiment(s) before deleting the flag."
         )
+
+    def test_soft_delete_flag_blocked_when_used_in_replay_settings(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-flag")
+        # Set the flag as the session recording linked flag
+        self.team.session_recording_linked_flag = {"id": flag.id, "key": flag.key}
+        self.team.save()
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 400
+        assert (
+            response.json()["detail"]
+            == "This feature flag is used in session replay settings. Please remove it from replay settings before deleting."
+        )
+
+    def test_is_used_in_replay_settings_serializer_field(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-flag")
+
+        # Initially should be False
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
+        assert response.status_code == 200
+        assert response.json()["is_used_in_replay_settings"] is False
+
+        # Set the flag as the session recording linked flag
+        self.team.session_recording_linked_flag = {"id": flag.id, "key": flag.key}
+        self.team.save()
+
+        # Now should be True
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
+        assert response.status_code == 200
+        assert response.json()["is_used_in_replay_settings"] is True
 
     def test_getting_flags_is_not_nplus1(self) -> None:
         self.client.post(
@@ -10283,3 +10422,135 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         assert "Unknown filter keys" in data["error"]
         assert "another_bad_key" in data["error"]
         assert "invalid_key" in data["error"]
+
+    def test_bulk_delete_creates_activity_logs_for_all_deleted_flags(self):
+        """Test that activity logs are created for each deleted flag."""
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        flags = [
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key=f"flag_{i}",
+                filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+            )
+            for i in range(5)
+        ]
+        flag_ids = {f.id for f in flags}
+
+        # Clear any existing activity logs
+        ActivityLog.objects.filter(team_id=self.team.id, scope="FeatureFlag").delete()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [f.id for f in flags]},
+        )
+
+        assert response.status_code == 200
+        assert len(response.json()["deleted"]) == 5
+
+        # Verify activity logs were created for each flag
+        activity_logs = ActivityLog.objects.filter(team_id=self.team.id, scope="FeatureFlag", activity="deleted")
+        assert activity_logs.count() == 5
+
+        logged_item_ids = {int(log.item_id) for log in activity_logs if log.item_id is not None}
+        assert logged_item_ids == flag_ids
+
+        # Verify each log has the correct structure
+        for log in activity_logs:
+            assert log.user == self.user
+            assert log.detail is not None
+            assert log.detail.get("name") is not None
+
+    def test_bulk_delete_sets_last_modified_by(self):
+        """Test that last_modified_by is set to the requesting user for all deleted flags."""
+        flags = [
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key=f"flag_{i}",
+                filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+                last_modified_by=None,
+            )
+            for i in range(3)
+        ]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [f.id for f in flags]},
+        )
+
+        assert response.status_code == 200
+        assert len(response.json()["deleted"]) == 3
+
+        # Verify last_modified_by is set on all flags
+        for flag in flags:
+            flag.refresh_from_db()
+            assert flag.deleted is True
+            assert flag.last_modified_by == self.user
+
+    def test_bulk_delete_invalidates_cache_efficiently(self):
+        """Test that cache invalidation happens once, not per flag."""
+        flags = [
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key=f"flag_{i}",
+                filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+            )
+            for i in range(10)
+        ]
+
+        # Mock on_commit to execute callbacks immediately (Django test transactions don't commit)
+        # Patch at source module since the import happens inside the function
+        with patch("posthog.api.feature_flag.transaction.on_commit", side_effect=lambda fn: fn()):
+            with patch("posthog.models.feature_flag.feature_flag.set_feature_flags_for_team_in_cache") as mock_cache:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+                    {"ids": [f.id for f in flags]},
+                )
+
+                assert response.status_code == 200
+                assert len(response.json()["deleted"]) == 10
+
+                # Cache should be invalidated only once, not 10 times
+                assert mock_cache.call_count == 1
+
+    def test_bulk_delete_handles_mixed_key_rename_scenarios(self):
+        """Test bulk delete correctly handles mix of flags needing key rename and not."""
+        # Flag without deleted experiment (no rename needed)
+        normal_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="normal_flag",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        # Flag with deleted experiment (rename needed)
+        flag_with_deleted_exp = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="flag_with_deleted_exp",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag_with_deleted_exp)
+        exp.deleted = True
+        exp.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [normal_flag.id, flag_with_deleted_exp.id]},
+        )
+
+        assert response.status_code == 200
+        assert len(response.json()["deleted"]) == 2
+
+        # Verify normal flag keeps its key
+        normal_flag.refresh_from_db()
+        assert normal_flag.deleted is True
+        assert normal_flag.key == "normal_flag"
+
+        # Verify flag with deleted experiment has renamed key
+        flag_with_deleted_exp.refresh_from_db()
+        assert flag_with_deleted_exp.deleted is True
+        assert flag_with_deleted_exp.key == f"flag_with_deleted_exp:deleted:{flag_with_deleted_exp.id}"

@@ -991,6 +991,9 @@ async fn test_checkpoint_metadata_consistency_across_threads() {
     let tmp_store_dir = TempDir::new().unwrap();
     let store = create_test_dedup_store(tmp_store_dir.path(), test_topic, test_partition);
 
+    // Use a fixed timestamp to ensure consistent keys across writes and reads
+    let fixed_timestamp = "1234567890";
+
     // Write known data to store
     let test_events = vec![
         ("user-1", "token-1", "event-1"),
@@ -1003,7 +1006,7 @@ async fn test_checkpoint_metadata_consistency_across_threads() {
             .distinct_id(user)
             .token(token)
             .event(event_name)
-            .current_timestamp()
+            .timestamp(fixed_timestamp)
             .build();
         let key = (&event).into();
         let metadata = TimestampMetadata::new(&event);
@@ -1047,7 +1050,7 @@ async fn test_checkpoint_metadata_consistency_across_threads() {
             .distinct_id(user)
             .token(token)
             .event(event_name)
-            .current_timestamp()
+            .timestamp(fixed_timestamp)
             .build();
         let key = (&event).into();
         let metadata = store.get_timestamp_record(&key).unwrap();
