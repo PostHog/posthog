@@ -127,6 +127,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         // Session context actions
         loadPerson: true,
         loadPreviousTickets: true,
+
+        initiateImpersonation: true,
     }),
     loaders(({ values, props }) => ({
         person: [
@@ -484,6 +486,37 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             } catch {
                 lemonToast.error('Failed to send message')
                 actions.setMessageSending(false)
+            }
+        },
+        initiateImpersonation: async () => {
+            const ticket = values.ticket
+            if (!ticket) {
+                return
+            }
+
+            try {
+                await api.create('admin/impersonation/from-ticket/', {
+                    ticket_id: ticket.id,
+                })
+                // Full page navigation to refresh user data with impersonation flags
+                window.location.replace('/')
+            } catch (error: any) {
+                const status = error?.status
+                const detail = error?.data?.error || 'Failed to impersonate user'
+                if (status === 404 && detail === 'No user found for this email') {
+                    const email = ticket.anonymous_traits?.email
+                    const euAdminUrl = email
+                        ? `https://eu.posthog.com/admin/posthog/user/?q=${encodeURIComponent(email)}`
+                        : 'https://eu.posthog.com/admin/posthog/user/'
+                    lemonToast.error('User not found in this region. They may be on EU.', {
+                        button: {
+                            label: 'Search EU admin',
+                            action: () => window.open(euAdminUrl, '_blank'),
+                        },
+                    })
+                } else {
+                    lemonToast.error(detail)
+                }
             }
         },
     })),

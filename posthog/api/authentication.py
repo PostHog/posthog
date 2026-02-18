@@ -54,6 +54,7 @@ from posthog.helpers.two_factor_session import (
     has_passkeys,
     set_two_factor_verified_in_session,
 )
+from posthog.middleware import IMPERSONATION_TICKET_ID_SESSION_KEY
 from posthog.models import OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # noqa: F401
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -118,7 +119,10 @@ def logout(request):
 
     if is_impersonated_session(request):
         impersonated_user_pk = request.user.pk
+        ticket_id = request.session.get(IMPERSONATION_TICKET_ID_SESSION_KEY)
         restore_original_login(request)
+        if ticket_id:
+            return redirect(f"/support/tickets/{ticket_id}")
         return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
 
     response = auth_views.logout_then_login(request)

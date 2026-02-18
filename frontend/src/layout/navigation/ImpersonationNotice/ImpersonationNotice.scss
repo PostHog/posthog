@@ -53,6 +53,16 @@
         }
     }
 
+    &--ticket-expanded {
+        width: 28rem;
+    }
+
+    // When expanded and on the right side, grow leftward by using margin-left: auto
+    // The transform shifts the element left by the width difference
+    &--ticket-expanded#{&}--expands-left {
+        transform: translateX(-2rem); // 28rem - 26rem = 2rem difference
+    }
+
     &__sidebar {
         display: flex;
         flex-shrink: 0;
