@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconFunnels, IconPlus, IconRetention, IconTrends } from '@posthog/icons'
+import { IconFunnels, IconRetention, IconTrends } from '@posthog/icons'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -59,7 +59,7 @@ export function AddInsightToDashboardModal(): JSX.Element {
                 className="bg-surface-secondary"
             >
                 <div className="-mt-1 space-y-3">
-                    <LemonBanner type="info" icon={<IconPlus />} className="p-4">
+                    <LemonBanner type="info" className="p-4">
                         <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                             <div className="min-w-0">
                                 <div className="font-semibold">Create a new insight</div>
@@ -72,7 +72,7 @@ export function AddInsightToDashboardModal(): JSX.Element {
                                     <LemonButton
                                         key={type}
                                         type="primary"
-                                        size="small"
+                                        size="xsmall"
                                         icon={<Icon />}
                                         to={urls.insightNew({ type: type, dashboardId: dashboard?.id })}
                                         tooltip={INSIGHT_TYPES_METADATA[type]?.description}
@@ -111,7 +111,7 @@ export function AddInsightToDashboardModal(): JSX.Element {
                                 >
                                     <LemonButton
                                         type="secondary"
-                                        size="small"
+                                        size="xsmall"
                                         onClick={() => toggleShowMoreInsightTypes()}
                                     >
                                         More
