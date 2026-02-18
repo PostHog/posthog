@@ -2,6 +2,7 @@ import { AnyPropertyFilter } from '~/types'
 
 import { LLMProvider } from '../settings/llmProviderKeysLogic'
 
+export type EvaluationType = 'llm_judge' | 'hog'
 export type EvaluationOutputType = 'boolean'
 
 export interface ModelConfiguration {
@@ -15,15 +16,20 @@ export interface EvaluationOutputConfig {
     allows_na?: boolean
 }
 
-export interface EvaluationConfig {
+export interface LLMJudgeEvaluationConfig {
+    prompt: string
+}
+
+export interface HogEvaluationConfig {
+    source: string
+    bytecode?: any[]
+}
+
+export interface BaseEvaluationConfig {
     id: string
     name: string
     description?: string
     enabled: boolean
-    evaluation_type: 'llm_judge'
-    evaluation_config: {
-        prompt: string
-    }
     output_type: EvaluationOutputType
     output_config: EvaluationOutputConfig
     conditions: EvaluationConditionSet[]
@@ -34,6 +40,18 @@ export interface EvaluationConfig {
     updated_at: string
     deleted?: boolean
 }
+
+export interface LLMJudgeEvaluation extends BaseEvaluationConfig {
+    evaluation_type: 'llm_judge'
+    evaluation_config: LLMJudgeEvaluationConfig
+}
+
+export interface HogEvaluation extends BaseEvaluationConfig {
+    evaluation_type: 'hog'
+    evaluation_config: HogEvaluationConfig
+}
+
+export type EvaluationConfig = LLMJudgeEvaluation | HogEvaluation
 
 export interface EvaluationConditionSet {
     id: string

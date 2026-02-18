@@ -191,6 +191,18 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
 
         return queryset
 
+    @staticmethod
+    def _get_config_length(instance) -> int:
+        """Get the relevant config content length for tracking."""
+        if instance.evaluation_config and isinstance(instance.evaluation_config, dict):
+            if instance.evaluation_type == "hog":
+                source = instance.evaluation_config.get("source", "")
+                return len(source) if isinstance(source, str) else 0
+            else:
+                prompt = instance.evaluation_config.get("prompt", "")
+                return len(prompt) if isinstance(prompt, str) else 0
+        return 0
+
     def perform_create(self, serializer):
         instance = serializer.save()
 
@@ -199,12 +211,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         condition_count = len(conditions)
         has_rollout_percentage = any(condition.get("rollout_percentage", 100) < 100 for condition in conditions)
 
-        # Get prompt length if available
-        prompt_length = 0
-        if instance.evaluation_config and isinstance(instance.evaluation_config, dict):
-            prompt = instance.evaluation_config.get("prompt", "")
-            if isinstance(prompt, str):
-                prompt_length = len(prompt)
+        config_length = self._get_config_length(instance)
 
         # Track evaluation created
         report_user_action(
@@ -219,7 +226,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 "enabled": instance.enabled,
                 "condition_count": condition_count,
                 "has_rollout_percentage": has_rollout_percentage,
-                "prompt_length": prompt_length,
+                "config_length": config_length,
             },
             self.team,
         )
@@ -237,7 +244,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         enabled_new_value = None
         condition_count_changed = False
         condition_count_new = 0
-        prompt_changed = False
+        config_content_changed = False
 
         for field in [
             "name",
@@ -263,11 +270,14 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                         condition_count_changed = True
                         condition_count_new = len(new_value) if new_value else 0
                     elif field == "evaluation_config":
-                        # Check if prompt changed
-                        old_prompt = old_value.get("prompt", "") if isinstance(old_value, dict) else ""
-                        new_prompt = new_value.get("prompt", "") if isinstance(new_value, dict) else ""
-                        if old_prompt != new_prompt:
-                            prompt_changed = True
+                        eval_type = serializer.validated_data.get(
+                            "evaluation_type", serializer.instance.evaluation_type
+                        )
+                        config_key = "source" if eval_type == "hog" else "prompt"
+                        old_content = old_value.get(config_key, "") if isinstance(old_value, dict) else ""
+                        new_content = new_value.get(config_key, "") if isinstance(new_value, dict) else ""
+                        if old_content != new_content:
+                            config_content_changed = True
 
         instance = serializer.save()
 
@@ -295,8 +305,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
             if condition_count_changed:
                 event_properties["condition_count_changed"] = True
                 event_properties["condition_count_new"] = condition_count_new
-            if prompt_changed:
-                event_properties["prompt_changed"] = True
+            if config_content_changed:
+                event_properties["config_content_changed"] = True
 
             report_user_action(
                 cast(User, self.request.user),

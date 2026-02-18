@@ -22,6 +22,7 @@ import {
     EvaluationRun,
     EvaluationSummary,
     EvaluationSummaryFilter,
+    EvaluationType,
     ModelConfiguration,
 } from './types'
 
@@ -54,6 +55,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setAllowsNA: (allowsNA: boolean) => ({ allowsNA }),
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => ({ modelConfiguration }),
+        setEvaluationType: (evaluationType: EvaluationType) => ({ evaluationType }),
+        setHogSource: (source: string) => ({ source }),
 
         // Evaluation management actions
         saveEvaluation: true,
@@ -165,13 +168,38 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setEvaluationName: (state, { name }) => (state ? { ...state, name } : null),
                 setEvaluationDescription: (state, { description }) => (state ? { ...state, description } : null),
                 setEvaluationPrompt: (state, { prompt }) =>
-                    state ? { ...state, evaluation_config: { ...state.evaluation_config, prompt } } : null,
+                    state && state.evaluation_type === 'llm_judge'
+                        ? { ...state, evaluation_config: { ...state.evaluation_config, prompt } }
+                        : null,
                 setEvaluationEnabled: (state, { enabled }) => (state ? { ...state, enabled } : null),
                 setAllowsNA: (state, { allowsNA }) =>
                     state ? { ...state, output_config: { ...state.output_config, allows_na: allowsNA } } : null,
                 setTriggerConditions: (state, { conditions }) => (state ? { ...state, conditions } : null),
                 setModelConfiguration: (state, { modelConfiguration }) =>
                     state ? { ...state, model_configuration: modelConfiguration } : null,
+                setEvaluationType: (state, { evaluationType }) => {
+                    if (!state) {
+                        return null
+                    }
+                    if (evaluationType === 'hog') {
+                        return {
+                            ...state,
+                            evaluation_type: 'hog',
+                            evaluation_config: { source: '' },
+                            model_configuration: null,
+                            output_config: { ...state.output_config, allows_na: false },
+                        }
+                    }
+                    return {
+                        ...state,
+                        evaluation_type: 'llm_judge',
+                        evaluation_config: { prompt: '' },
+                    }
+                },
+                setHogSource: (state, { source }) =>
+                    state && state.evaluation_type === 'hog'
+                        ? { ...state, evaluation_config: { ...state.evaluation_config, source } }
+                        : null,
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation,
                 saveEvaluationSuccess: (_, { evaluation }) => evaluation,
             },
@@ -229,6 +257,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setAllowsNA: () => true,
                 setTriggerConditions: () => true,
                 setModelConfiguration: () => true,
+                setEvaluationType: () => true,
+                setHogSource: () => true,
                 saveEvaluationSuccess: () => false,
                 loadEvaluationSuccess: () => false,
                 resetEvaluation: () => false,
@@ -312,8 +342,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         },
 
         loadEvaluationSuccess: ({ evaluation }) => {
-            // Load available models for the current provider/key combination
-            if (evaluation) {
+            // Load available models for the current provider/key combination (LLM judge only)
+            if (evaluation && evaluation.evaluation_type !== 'hog') {
                 const provider = evaluation.model_configuration?.provider || 'openai'
                 let keyId = evaluation.model_configuration?.provider_key_id || null
 
@@ -500,12 +530,19 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (!evaluation) {
                     return false
                 }
-                return (
-                    evaluation.name.length > 0 &&
-                    evaluation.evaluation_config.prompt.length > 0 &&
+                const hasValidName = evaluation.name.length > 0
+                const hasValidConditions =
                     evaluation.conditions.length > 0 &&
                     evaluation.conditions.every((c) => c.rollout_percentage > 0 && c.rollout_percentage <= 100)
-                )
+
+                let hasValidConfig = false
+                if (evaluation.evaluation_type === 'hog') {
+                    hasValidConfig = evaluation.evaluation_config.source.trim().length > 0
+                } else {
+                    hasValidConfig = evaluation.evaluation_config.prompt.length > 0
+                }
+
+                return hasValidName && hasValidConfig && hasValidConditions
             },
         ],
 

@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.db import models
 
 from pydantic import BaseModel, Field, field_validator
@@ -7,6 +9,7 @@ class EvaluationType(models.TextChoices):
     """How the evaluation is performed"""
 
     LLM_JUDGE = "llm_judge", "LLM as a judge"
+    HOG = "hog", "Hog"
 
 
 class OutputType(models.TextChoices):
@@ -28,6 +31,20 @@ class LLMJudgeConfig(BaseModel):
         return v.strip()
 
 
+class HogEvalConfig(BaseModel):
+    """Configuration for Hog code evaluations"""
+
+    source: str = Field(..., min_length=1, description="Hog source code")
+    bytecode: list[Any] = Field(default_factory=list, description="Compiled bytecode (set automatically on save)")
+
+    @field_validator("source")
+    @classmethod
+    def validate_source_not_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Source code cannot be empty")
+        return v
+
+
 class BooleanOutputConfig(BaseModel):
     """Configuration for boolean output type"""
 
@@ -35,8 +52,9 @@ class BooleanOutputConfig(BaseModel):
 
 
 # Mapping: (evaluation_type, output_type) -> (evaluation_config_model, output_config_model)
-EVALUATION_CONFIG_MODELS: dict[tuple[str, str], tuple[type[LLMJudgeConfig], type[BooleanOutputConfig]]] = {
+EVALUATION_CONFIG_MODELS: dict[tuple[str, str], tuple[type[BaseModel], type[BooleanOutputConfig]]] = {
     (EvaluationType.LLM_JUDGE.value, OutputType.BOOLEAN.value): (LLMJudgeConfig, BooleanOutputConfig),
+    (EvaluationType.HOG.value, OutputType.BOOLEAN.value): (HogEvalConfig, BooleanOutputConfig),
 }
 
 

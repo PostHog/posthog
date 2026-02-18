@@ -34,10 +34,12 @@ import {
     providerKeyStateSuffix,
     providerLabel,
 } from '../settings/providerKeyStateUtils'
+import { EvaluationCodeEditor } from './components/EvaluationCodeEditor'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
 import { LLMEvaluationLogicProps, llmEvaluationLogic } from './llmEvaluationLogic'
+import { EvaluationType } from './types'
 
 export function LLMAnalyticsEvaluation(): JSX.Element {
     const {
@@ -69,6 +71,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         setSelectedProvider,
         setSelectedKeyId,
         setSelectedModel,
+        setEvaluationType,
     } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
     const triggersRef = useRef<HTMLDivElement>(null)
@@ -82,7 +85,11 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         return <NotFound object="evaluation" />
     }
 
-    const basicFieldsValid = evaluation.name.length > 0 && evaluation.evaluation_config.prompt.length > 0
+    const isHog = evaluation.evaluation_type === 'hog'
+    const configValid = isHog
+        ? evaluation.evaluation_config.source.trim().length > 0
+        : evaluation.evaluation_config.prompt.length > 0
+    const basicFieldsValid = evaluation.name.length > 0 && configValid
     const percentageUnset = evaluation.conditions.some((c) => c.rollout_percentage === 0)
     const saveButtonDisabled = !basicFieldsValid
 
@@ -200,40 +207,69 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                 </div>
                             </Field>
 
-                            <Field
-                                name="allows_na"
-                                label={
-                                    <div className="flex items-center gap-1">
-                                        <span>Allow N/A responses</span>
-                                        <Tooltip title="Sometimes forcing a True or False is not enough and you want the LLM to decide if the eval is applicable or not. Enable this when the evaluation criteria may not apply to all generations.">
-                                            <IconInfo className="text-muted text-base" />
-                                        </Tooltip>
+                            {!isHog && (
+                                <Field
+                                    name="allows_na"
+                                    label={
+                                        <div className="flex items-center gap-1">
+                                            <span>Allow N/A responses</span>
+                                            <Tooltip title="Sometimes forcing a True or False is not enough and you want the LLM to decide if the eval is applicable or not. Enable this when the evaluation criteria may not apply to all generations.">
+                                                <IconInfo className="text-muted text-base" />
+                                            </Tooltip>
+                                        </div>
+                                    }
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <LemonSwitch
+                                            checked={evaluation.output_config.allows_na ?? false}
+                                            onChange={setAllowsNA}
+                                        />
+                                        <span className="text-muted text-sm">
+                                            {evaluation.output_config.allows_na
+                                                ? 'Evaluation can return "Not Applicable" when criteria doesn\'t apply'
+                                                : 'Evaluation returns true or false'}
+                                        </span>
                                     </div>
-                                }
-                            >
-                                <div className="flex items-center gap-2">
-                                    <LemonSwitch
-                                        checked={evaluation.output_config.allows_na ?? false}
-                                        onChange={setAllowsNA}
-                                    />
-                                    <span className="text-muted text-sm">
-                                        {evaluation.output_config.allows_na
-                                            ? 'Evaluation can return "Not Applicable" when criteria doesn\'t apply'
-                                            : 'Evaluation returns true or false'}
-                                    </span>
-                                </div>
-                            </Field>
+                                </Field>
+                            )}
                         </div>
                     </div>
 
-                    {/* Prompt Configuration */}
+                    {/* Evaluation Type */}
                     <div className="bg-bg-light border rounded p-6">
-                        <h3 className="text-lg font-semibold mb-4">Evaluation prompt</h3>
-                        <EvaluationPromptEditor />
+                        <h3 className="text-lg font-semibold mb-4">Evaluation type</h3>
+                        <LemonSelect
+                            value={evaluation.evaluation_type}
+                            onChange={(value) => setEvaluationType(value as EvaluationType)}
+                            options={[
+                                {
+                                    value: 'llm_judge',
+                                    label: 'LLM as a judge',
+                                },
+                                {
+                                    value: 'hog',
+                                    label: 'Hog',
+                                },
+                            ]}
+                            fullWidth
+                        />
+                        <p className="text-muted text-sm mt-2">
+                            {isHog
+                                ? 'Run deterministic Hog code against each generation. No LLM cost, instant results.'
+                                : 'Use an LLM to evaluate each generation against a natural-language prompt.'}
+                        </p>
                     </div>
 
-                    {/* Judge Model Configuration */}
-                    {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CUSTOM_MODELS] && (
+                    {/* Prompt / Code Configuration */}
+                    <div className="bg-bg-light border rounded p-6">
+                        <h3 className="text-lg font-semibold mb-4">
+                            {isHog ? 'Evaluation code' : 'Evaluation prompt'}
+                        </h3>
+                        {isHog ? <EvaluationCodeEditor /> : <EvaluationPromptEditor />}
+                    </div>
+
+                    {/* Judge Model Configuration (LLM judge only) */}
+                    {!isHog && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CUSTOM_MODELS] && (
                         <div className="bg-bg-light border rounded p-6">
                             <h3 className="text-lg font-semibold mb-2">Judge model</h3>
                             <p className="text-muted text-sm mb-4">
@@ -349,7 +385,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                         </div>
                                         <div className="text-muted">Success Rate</div>
                                     </div>
-                                    {evaluation.output_config.allows_na && (
+                                    {!isHog && evaluation.output_config.allows_na && (
                                         <div className="text-center">
                                             <div className="font-semibold text-lg">
                                                 {runsSummary.applicabilityRate}%
