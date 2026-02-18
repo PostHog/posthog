@@ -106,7 +106,7 @@ class Command(BaseCommand):
         total = 0
 
         while True:
-            params = {
+            params: dict[str, str | int] = {
                 "state": "open",
                 "per_page": PER_PAGE,
                 "page": page,
