@@ -29,6 +29,10 @@ import type {
     PatchedDatasetApi,
     PatchedDatasetItemApi,
     PatchedLLMProviderKeyApi,
+    SentimentBatchRequestApi,
+    SentimentBatchResponseApi,
+    SentimentRequestApi,
+    SentimentResponseApi,
     SummarizeRequestApi,
     SummarizeResponseApi,
     TextReprRequestApi,
@@ -405,6 +409,40 @@ export const llmAnalyticsProviderKeysValidateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(lLMProviderKeyApi),
+    })
+}
+
+export const getLlmAnalyticsSentimentCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/sentiment/`
+}
+
+export const llmAnalyticsSentimentCreate = async (
+    projectId: string,
+    sentimentRequestApi: SentimentRequestApi,
+    options?: RequestInit
+): Promise<SentimentResponseApi> => {
+    return apiMutator<SentimentResponseApi>(getLlmAnalyticsSentimentCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sentimentRequestApi),
+    })
+}
+
+export const getLlmAnalyticsSentimentBatchCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/sentiment/batch/`
+}
+
+export const llmAnalyticsSentimentBatchCreate = async (
+    projectId: string,
+    sentimentBatchRequestApi: SentimentBatchRequestApi,
+    options?: RequestInit
+): Promise<SentimentBatchResponseApi> => {
+    return apiMutator<SentimentBatchResponseApi>(getLlmAnalyticsSentimentBatchCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sentimentBatchRequestApi),
     })
 }
 
