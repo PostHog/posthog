@@ -274,8 +274,8 @@ export function AutoShowSection({ id }: { id: string }): JSX.Element | null {
 
     return (
         <div className="space-y-4">
-            <div>
-                <h5 className="font-semibold mb-2">Where to show</h5>
+            <div className="flex flex-col gap-3">
+                <h5 className="font-semibold mb-0">Where to show</h5>
                 <div className="flex gap-2 items-center">
                     <span className="text-sm whitespace-nowrap">URL</span>
                     <LemonSelect
@@ -332,6 +332,33 @@ export function AutoShowSection({ id }: { id: string }): JSX.Element | null {
                             tooltip="Clear URL"
                         />
                     )}
+                </div>
+                <div className="flex gap-2 items-center">
+                    <span className="text-sm whitespace-nowrap">Device types</span>
+                    <LemonInputSelect
+                        mode="multiple"
+                        value={conditions.deviceTypes || []}
+                        onChange={(values) => {
+                            onChange({ ...conditions, deviceTypes: values })
+                        }}
+                        options={[
+                            {
+                                key: 'Desktop',
+                                label: 'Desktop',
+                            },
+                            {
+                                key: 'Tablet',
+                                label: 'Tablet',
+                            },
+                            {
+                                key: 'Mobile',
+                                label: 'Mobile',
+                            },
+                        ]}
+                        placeholder="Select devices..."
+                        disablePrompting
+                        size="small"
+                    />
                 </div>
             </div>
 
