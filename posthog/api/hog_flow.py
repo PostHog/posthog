@@ -19,13 +19,19 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import log_activity_from_viewset
+from posthog.auth import InternalAPIAuthentication
 from posthog.cdp.validation import (
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     InputsSerializer,
     generate_template_bytecode,
 )
-from posthog.models.feature_flag.user_blast_radius import get_user_blast_radius
+from posthog.models import Team
+from posthog.models.feature_flag.user_blast_radius import (
+    PERSON_BATCH_SIZE,
+    get_user_blast_radius,
+    get_user_blast_radius_persons,
+)
 from posthog.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test
@@ -436,8 +442,9 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             raise exceptions.ValidationError("Missing filters for which to get blast radius")
 
         filters = request.data.get("filters", {})
+        group_type_index = request.data.get("group_type_index", None)
 
-        users_affected, total_users = get_user_blast_radius(self.team, filters)
+        users_affected, total_users = get_user_blast_radius(self.team, filters, group_type_index)
 
         return Response(
             {
@@ -466,3 +473,83 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             batch_jobs = HogFlowBatchJob.objects.filter(hog_flow=hog_flow, team=self.team).order_by("-created_at")
             serializer = HogFlowBatchJobSerializer(batch_jobs, many=True)
             return Response(serializer.data)
+
+
+class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
+    """
+    Internal endpoints for Node.js services to query user blast radius.
+    These endpoints require Bearer token authentication via INTERNAL_API_SECRET and are not exposed to Contour ingress
+    """
+
+    scope_object = "INTERNAL"
+    authentication_classes = [InternalAPIAuthentication]
+
+    PERSON_BATCH_SIZE = 500
+
+    # Internal service-to-service endpoints (authenticated with INTERNAL_API_SECRET)
+    def internal_user_blast_radius(self, request: Request, team_id: str) -> Response:
+        """
+        Internal endpoint for Node.js services to query user blast radius.
+        Requires Bearer token authentication via INTERNAL_API_SECRET.
+        """
+
+        if request.method != "POST":
+            return Response({"error": "Method not allowed"}, status=405)
+
+        try:
+            from posthog.models import Team
+
+            team = Team.objects.get(id=int(team_id))
+        except (Team.DoesNotExist, ValueError):
+            return Response({"error": "Team not found"}, status=404)
+
+        if "filters" not in request.data:
+            return Response({"error": "Missing filters for which to get blast radius"}, status=400)
+
+        filters = request.data.get("filters", {})
+        group_type_index = request.data.get("group_type_index", None)
+
+        try:
+            users_affected, total_users = get_user_blast_radius(team, filters, group_type_index)
+            return Response(
+                {
+                    "users_affected": users_affected,
+                    "total_users": total_users,
+                }
+            )
+        except Exception as e:
+            logger.exception("Error in internal_user_blast_radius", error=str(e), team_id=team_id)
+            return Response({"error": "Internal server error"}, status=500)
+
+    def internal_user_blast_radius_persons(self, request: Request, team_id: str) -> Response:
+        """
+        Internal endpoint for Node.js services to query user blast radius persons with pagination.
+        Requires Bearer token authentication via INTERNAL_API_SECRET.
+        """
+        if request.method != "POST":
+            return Response({"error": "Method not allowed"}, status=405)
+
+        try:
+            team = Team.objects.get(id=int(team_id))
+        except (Team.DoesNotExist, ValueError):
+            return Response({"error": "Team not found"}, status=404)
+
+        if "filters" not in request.data:
+            return Response({"error": "Missing filters for which to get blast radius"}, status=400)
+
+        filters = request.data.get("filters", {}) or {}
+        group_type_index = request.data.get("group_type_index", None)
+        cursor = request.data.get("cursor", None)
+
+        try:
+            users_affected = get_user_blast_radius_persons(team, filters, group_type_index, cursor)
+            return Response(
+                {
+                    "users_affected": users_affected,
+                    "cursor": users_affected[-1] if users_affected else None,
+                    "has_more": len(users_affected) == PERSON_BATCH_SIZE,  # Assuming page size of 100
+                }
+            )
+        except Exception as e:
+            logger.exception("Error in internal_user_blast_radius_persons", error=str(e), team_id=team_id)
+            return Response({"error": "Internal server error"}, status=500)
