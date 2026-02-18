@@ -101,7 +101,7 @@ export function SidePanelNavigation({ activeTab, onTabChange, children }: SidePa
                     data-attr="context-panel-close-button"
                     tooltip={
                         <>
-                            Close scene panel{' '}
+                            Close context panel{' '}
                             <RenderKeybind className="relative -top-px" keybind={[keyBinds.toggleRightNav]} />
                         </>
                     }
