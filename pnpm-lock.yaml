@@ -1659,12 +1659,12 @@ importers:
       jest:
         specifier: ^30.0.0
         version: 30.0.5(@types/node@22.18.8)(esbuild-register@3.5.0(esbuild@0.27.2))(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.4.5))
-      oxfmt:
-        specifier: 'catalog:'
-        version: 0.35.0
       pino-pretty:
         specifier: ^9.1.0
         version: 9.4.0
+      prettier:
+        specifier: ^3.6.2
+        version: 3.6.2
       supertest:
         specifier: ^7.0.0
         version: 7.0.0
@@ -30688,7 +30688,7 @@ snapshots:
       '@types/doctrine': 0.0.3
       assert: 2.1.0
       doctrine: 3.0.0
-      lodash: 4.17.21
+      lodash: 4.17.23
     transitivePeerDependencies:
       - encoding
       - supports-color
@@ -30809,9 +30809,9 @@ snapshots:
       '@storybook/types': 7.6.4
       '@types/qs': 6.9.18
       dequal: 2.0.3
-      lodash: 4.17.21
+      lodash: 4.17.23
       memoizerific: 1.11.3
-      qs: 6.14.0
+      qs: 6.14.1
       synchronous-promise: 2.0.17
       ts-dedent: 2.2.0
       util-deprecate: 1.0.2
