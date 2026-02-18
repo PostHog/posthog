@@ -1,7 +1,6 @@
 import { IconTrash } from '@posthog/icons'
 
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDetailedTime } from 'lib/utils'
 
 interface RecordingDeletedProps {
     deletedAt: number | null
@@ -17,7 +16,7 @@ export function RecordingDeleted({ deletedAt }: RecordingDeletedProps): JSX.Elem
             <p className="text-muted mb-0">This recording has been permanently deleted and cannot be recovered.</p>
             {deletedAt !== null && (
                 <p className="text-muted-3000 text-xs mt-2 mb-0">
-                    Deleted {humanFriendlyDetailedTime(dayjs.unix(deletedAt))}
+                    Deleted {dayjs.unix(deletedAt).fromNow()} ({dayjs.unix(deletedAt).format('MMMM D, YYYY h:mm A')})
                 </p>
             )}
         </div>
