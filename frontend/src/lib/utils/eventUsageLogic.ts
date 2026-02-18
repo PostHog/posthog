@@ -1812,9 +1812,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 has_browsing_history: properties?.hasBrowsingHistory,
             })
         },
-        reportAIChatOnboardingStarted: ({ productKey }) => {
+        reportAIChatOnboardingStarted: ({ variant }) => {
             posthog.capture('ai chat onboarding started', {
-                product_key: productKey,
+                variant,
             })
         },
         reportAIChatOnboardingMessageSent: ({ stepKey, messageType }) => {
