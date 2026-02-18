@@ -37,6 +37,18 @@ const APPLE_SYSTEM_MODULES: &[&str] = &[
     "WebKit",
     "IOKit",
     "GraphicsServices",
+    // Private/internal Apple frameworks
+    "UpdateCycle",      
+    "UIKitCore",        
+    "UIKitServices",
+    "UIFoundation",
+    "FrontBoardServices",
+    "BackBoardServices",
+    "SpringBoardServices",
+    "BaseBoard",
+    "AttributeGraph",
+    "SwiftUICore",
+    // System libraries
     "libsystem_",
     "libdispatch",
     "libswift",
