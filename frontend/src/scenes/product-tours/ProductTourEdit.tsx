@@ -15,8 +15,8 @@ import { ProductTourStepsEditor } from './editor'
 import { productTourLogic } from './productTourLogic'
 
 export function ProductTourEdit({ id }: { id: string }): JSX.Element {
-    const { productTour, productTourForm, pendingToolbarOpen } = useValues(productTourLogic({ id }))
-    const { discardDraft, publishDraft, setProductTourFormValue, submitAndOpenToolbar } = useActions(
+    const { productTour, productTourForm } = useValues(productTourLogic({ id }))
+    const { discardDraft, publishDraft, setProductTourFormValue, openToolbarModal } = useActions(
         productTourLogic({ id })
     )
 
@@ -42,12 +42,7 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                     actions={
                         <div className="flex items-center gap-2">
                             <ProductTourStatusTag tour={productTour} />
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={() => submitAndOpenToolbar('preview')}
-                                loading={pendingToolbarOpen}
-                            >
+                            <LemonButton type="secondary" size="small" onClick={() => openToolbarModal('preview')}>
                                 Preview
                             </LemonButton>
                             <LemonButton type="secondary" size="small" onClick={discardDraft}>
