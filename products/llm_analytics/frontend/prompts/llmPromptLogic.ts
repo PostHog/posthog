@@ -83,7 +83,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     loaders(({ props }) => ({
         prompt: {
             __default: null as LLMPrompt | PromptFormValues | null,
-            loadPrompt: () => api.llmPrompts.getByName(props.promptName),
+            loadPrompt: () => api.llmPrompts.resolveByName(props.promptName),
         },
     })),
 
