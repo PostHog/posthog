@@ -120,6 +120,20 @@ def set_refresh_cooldown(
     redis_client.set(cooldown_key, "1", ex=PROPERTY_VALUES_REFRESH_COOLDOWN)
 
 
+# Used for testing this PR only, should be removed
+def clear_refresh_cooldown(
+    team_id: int,
+    property_type: str,
+    property_key: str,
+    search_value: Optional[str] = None,
+    event_names: Optional[list[str]] = None,
+) -> bool:
+    """Delete the refresh cooldown key. Returns True if the key existed."""
+    redis_client = get_client()
+    cooldown_key = _make_cache_key(team_id, property_type, property_key, search_value, event_names) + ":refreshing"
+    return redis_client.delete(cooldown_key) > 0
+
+
 def cache_property_values(
     team_id: int,
     property_type: str,
