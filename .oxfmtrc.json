@@ -12,6 +12,8 @@
         "groups": [
             "side_effect_style",
             "style",
+            "mocks",
+            "spies",
             "side_effect",
             "external",
             "posthog-packages",
@@ -23,6 +25,14 @@
             ["sibling", "parent", "index"]
         ],
         "customGroups": [
+            {
+                "groupName": "mocks",
+                "elementNamePattern": ["*.mock", "*.mocks", "**/*.mock", "**/*.mocks"]
+            },
+            {
+                "groupName": "spies",
+                "elementNamePattern": ["*.spy", "**/*.spy"]
+            },
             {
                 "groupName": "posthog-packages",
                 "elementNamePattern": ["@posthog/*", "@posthog/**"]
@@ -50,6 +60,14 @@
             "files": ["*.md", "*.mdx"],
             "options": {
                 "tabWidth": 2
+            }
+        },
+        {
+            "files": ["products/workflows/frontend/Workflows/hogflows/panel/HogFlowEditorPanelBuild.tsx"],
+            "options": {
+                "experimentalSortImports": {
+                    "partitionByComment": true
+                }
             }
         }
     ],
@@ -86,6 +104,8 @@
         "frontend/src/products.json",
         "frontend/src/layout.html",
         "**/fixtures/**",
+        "products/*/frontend/generated/*.ts",
+        "frontend/src/generated/**/*.ts",
         "services/mcp/**/generated.ts",
         "services/mcp/worker-configuration.d.ts",
         "frontend/src/taxonomy/core-filter-definitions-by-group.json",
