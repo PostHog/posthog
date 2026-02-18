@@ -39,6 +39,10 @@ logger = logging.getLogger(__name__)
 
 TOUR_GENERATION_MODEL = "claude-haiku-4-5"
 
+DRAFTABLE_FIELDS = frozenset(
+    {"name", "description", "content", "auto_launch", "targeting_flag_filters", "linked_flag_id"}
+)
+
 
 def normalize_step(step: dict) -> dict:
     """Ensure elementTargeting and useManualSelector are consistent.
@@ -90,6 +94,8 @@ class ProductTourSerializer(serializers.ModelSerializer):
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     targeting_flag_filters = serializers.SerializerMethodField()
+    draft_content = serializers.JSONField(read_only=True, allow_null=True)
+    has_draft = serializers.SerializerMethodField()
 
     class Meta:
         model = ProductTour
@@ -101,6 +107,8 @@ class ProductTourSerializer(serializers.ModelSerializer):
             "linked_flag",
             "targeting_flag_filters",
             "content",
+            "draft_content",
+            "has_draft",
             "auto_launch",
             "start_date",
             "end_date",
@@ -118,6 +126,9 @@ class ProductTourSerializer(serializers.ModelSerializer):
             content["steps"] = [normalize_step(s) for s in content["steps"]]
             data["content"] = content
         return data
+
+    def get_has_draft(self, tour: ProductTour) -> bool:
+        return tour.draft_content is not None
 
     def get_targeting_flag_filters(self, tour: ProductTour) -> dict | None:
         """Return the targeting flag filters, excluding the base exclusion properties."""
@@ -381,6 +392,10 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
             report_user_action(user, ProductTourEventName.LAUNCHED, analytics_metadata, team)
         elif before_end_date is None and instance.end_date is not None:
             report_user_action(user, ProductTourEventName.STOPPED, analytics_metadata, team)
+
+        if instance.draft_content is not None:
+            instance.draft_content = None
+            instance.save(update_fields=["draft_content"])
 
         return instance
 
@@ -788,6 +803,99 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
                 {"error": "An internal error occurred while generating tour content."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+    def _get_or_init_draft(self, instance: ProductTour) -> dict[str, Any]:
+        """Return existing draft or initialize one from live fields."""
+        if instance.draft_content is not None:
+            return dict(instance.draft_content)
+        return {
+            "name": instance.name,
+            "description": instance.description,
+            "content": instance.content,
+            "auto_launch": instance.auto_launch,
+            "targeting_flag_filters": ProductTourSerializer(instance, context=self.get_serializer_context()).data.get(
+                "targeting_flag_filters"
+            ),
+            "linked_flag_id": instance.linked_flag_id,
+        }
+
+    def _merge_into_draft(self, instance: ProductTour, incoming: dict[str, Any]) -> None:
+        """Merge incoming data into draft_content and save. Filters to DRAFTABLE_FIELDS."""
+        filtered = {k: v for k, v in incoming.items() if k in DRAFTABLE_FIELDS}
+        if not filtered:
+            return
+        draft = self._get_or_init_draft(instance)
+        draft.update(filtered)
+        instance.draft_content = draft
+        instance.save(update_fields=["draft_content", "updated_at"])
+
+    @action(detail=True, methods=["PATCH"], url_path="draft")
+    def draft(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Save draft content (server-side merge). No side effects triggered."""
+        instance = self.get_object()
+
+        self._merge_into_draft(instance, request.data)
+
+        return Response(
+            ProductTourSerializer(instance, context=self.get_serializer_context()).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["POST"], url_path="publish_draft")
+    def publish_draft(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Commit draft to live tour. Runs full validation and triggers side effects.
+
+        Accepts an optional body payload. If provided, merges it into the draft
+        before publishing so the caller can save + publish in a single request.
+        """
+        instance = self.get_object()
+
+        # Merge optional payload into draft before publishing
+        self._merge_into_draft(instance, request.data)
+
+        if instance.draft_content is None:
+            return Response(
+                {"detail": "No draft to publish."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        update_serializer = ProductTourSerializerCreateUpdateOnly(
+            instance,
+            data=instance.draft_content,
+            partial=True,
+            context=self.get_serializer_context(),
+        )
+        update_serializer.is_valid(raise_exception=True)
+        instance = update_serializer.save()
+
+        return Response(
+            ProductTourSerializer(instance, context=self.get_serializer_context()).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["DELETE"], url_path="discard_draft")
+    def discard_draft(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Discard draft content."""
+        instance = self.get_object()
+
+        instance.draft_content = None
+        instance.save(update_fields=["draft_content", "updated_at"])
+
+        return Response(
+            ProductTourSerializer(instance, context=self.get_serializer_context()).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["GET"], url_path="draft_status")
+    def draft_status(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Lightweight polling endpoint for draft change detection."""
+        instance = self.get_object()
+        return Response(
+            {
+                "updated_at": instance.updated_at.isoformat(),
+                "has_draft": instance.draft_content is not None,
+            }
+        )
 
 
 class ProductTourAPISerializer(serializers.ModelSerializer):
