@@ -119,7 +119,6 @@ export function createValidateEventSchemaStep<T extends { event: PipelineEvent; 
             return ok(input)
         }
 
-        // O(1) lookup by event name
         const schema = enforcedSchemas.get(event.event)
         if (!schema) {
             return ok(input)

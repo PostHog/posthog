@@ -4,8 +4,9 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { SchemaEnforcementMode } from '~/types'
+import { EventDefinition, SchemaEnforcementMode } from '~/types'
 
+import { definitionLogic } from '../definition/definitionLogic'
 import { type SchemaPropertyGroup, schemaManagementLogic } from '../schema/schemaManagementLogic'
 import type { eventDefinitionSchemaLogicType } from './eventDefinitionSchemaLogicType'
 
@@ -57,7 +58,6 @@ export interface EventSchema {
 
 export interface EventDefinitionSchemaLogicProps {
     eventDefinitionId: string
-    enforcementMode: SchemaEnforcementMode
 }
 
 export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
@@ -65,7 +65,10 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
     props({} as EventDefinitionSchemaLogicProps),
     key((props) => props.eventDefinitionId),
     connect((props: EventDefinitionSchemaLogicProps) => ({
+        values: [definitionLogic({ id: props.eventDefinitionId }), ['definition']],
         actions: [
+            definitionLogic({ id: props.eventDefinitionId }),
+            ['setDefinition'],
             schemaManagementLogic({ key: `event-${props.eventDefinitionId}` }),
             ['updatePropertyGroupSuccess', 'createPropertyGroupSuccess'],
         ],
@@ -74,7 +77,6 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
         addPropertyGroup: (propertyGroupId: string) => ({ propertyGroupId }),
         removePropertyGroup: (eventSchemaId: string) => ({ eventSchemaId }),
         updateSchemaEnforcementMode: (mode: SchemaEnforcementMode) => ({ mode }),
-        updateSchemaEnforcementModeSuccess: (mode: SchemaEnforcementMode) => ({ mode }),
         setSchemaEnforcementModeUpdating: (updating: boolean) => ({ updating }),
     }),
     loaders(({ props }) => ({
@@ -93,18 +95,12 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
             },
         },
     })),
-    reducers(({ props }) => ({
+    reducers({
         eventSchemas: [
             [] as EventSchema[],
             {
                 removePropertyGroup: (state, { eventSchemaId }) =>
                     state.filter((schema: EventSchema) => schema.id !== eventSchemaId),
-            },
-        ],
-        schemaEnforcementMode: [
-            (props.enforcementMode ?? SchemaEnforcementMode.Allow) as SchemaEnforcementMode,
-            {
-                updateSchemaEnforcementModeSuccess: (_, { mode }) => mode,
             },
         ],
         schemaEnforcementModeUpdating: [
@@ -113,8 +109,13 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
                 setSchemaEnforcementModeUpdating: (_, { updating }) => updating,
             },
         ],
-    })),
+    }),
     selectors({
+        schemaEnforcementMode: [
+            (s) => [s.definition],
+            (definition): SchemaEnforcementMode =>
+                (definition as EventDefinition).enforcement_mode ?? SchemaEnforcementMode.Allow,
+        ],
         availablePropertyGroups: [
             (s) => [s.allPropertyGroups, s.eventSchemas],
             (allPropertyGroups: SchemaPropertyGroup[], eventSchemas: EventSchema[]): SchemaPropertyGroup[] => {
@@ -158,7 +159,7 @@ export const eventDefinitionSchemaLogic = kea<eventDefinitionSchemaLogicType>([
                     eventDefinitionId: props.eventDefinitionId,
                     eventDefinitionData: { enforcement_mode: mode },
                 })
-                actions.updateSchemaEnforcementModeSuccess(mode)
+                actions.setDefinition({ enforcement_mode: mode }, { merge: true })
                 if (mode === SchemaEnforcementMode.Reject) {
                     lemonToast.success('Schema enforcement enabled. Events that fail validation will be rejected.')
                 } else {
