@@ -8,8 +8,11 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { featureFlagTemplatesSceneLogic } from './featureFlagTemplatesSceneLogic'
+
 export const scene: SceneExport = {
     component: FeatureFlagTemplatesScene,
+    logic: featureFlagTemplatesSceneLogic,
 }
 
 export type TemplateKey = 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
@@ -94,6 +97,12 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
 
 export function FeatureFlagTemplatesScene(): JSX.Element {
     const { searchParams } = useValues(router)
+    const { featureFlagsV2Enabled } = useValues(featureFlagTemplatesSceneLogic)
+
+    // Show nothing while redirecting (redirect happens in logic afterMount)
+    if (!featureFlagsV2Enabled) {
+        return <></>
+    }
 
     return (
         <div className="flex flex-col items-center justify-center py-8" style={{ minHeight: '80vh' }}>

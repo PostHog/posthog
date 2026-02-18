@@ -1,78 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconFlask, IconPeople, IconTestTube, IconToggle, IconX } from '@posthog/icons'
-import { LemonButton, LemonCollapse, Tooltip } from '@posthog/lemon-ui'
+import { IconFlask, IconPeople, IconTestTube, IconToggle } from '@posthog/icons'
+import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
 
 import { featureFlagLogic } from './featureFlagLogic'
-
-export type ModifiedField = 'key' | 'flagType' | 'rollout' | 'conditions'
-
-interface TemplateFieldHighlightProps {
-    field: ModifiedField
-    highlightedFields: ModifiedField[]
-    onClearHighlight?: (field: ModifiedField) => void
-    children: React.ReactNode
-    className?: string
-}
-
-/**
- * Wraps a field to show a tooltip indicating it was set by a template.
- * The tooltip stays visible until the user clicks to dismiss it.
- */
-export function TemplateFieldHighlight({
-    field,
-    highlightedFields,
-    onClearHighlight,
-    children,
-    className = '',
-}: TemplateFieldHighlightProps): JSX.Element {
-    const isHighlighted = highlightedFields.includes(field)
-
-    if (!isHighlighted) {
-        return <div className={className}>{children}</div>
-    }
-
-    return (
-        <Tooltip
-            title={
-                <div className="flex items-center gap-2">
-                    <span>Set by template</span>
-                    <span className="text-muted-alt text-xs">Click to dismiss</span>
-                </div>
-            }
-            visible={true}
-            placement="top"
-            interactive
-        >
-            <div
-                className={`cursor-pointer ${className}`}
-                onClick={() => onClearHighlight?.(field)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                        onClearHighlight?.(field)
-                    }
-                }}
-            >
-                <div className="relative">
-                    {children}
-                    <button
-                        type="button"
-                        className="absolute -top-2 -right-2 bg-accent text-bg-light rounded-full p-0.5 shadow-sm hover:bg-accent-dark transition-colors"
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            onClearHighlight?.(field)
-                        }}
-                        aria-label="Dismiss template highlight"
-                    >
-                        <IconX className="text-xs" />
-                    </button>
-                </div>
-            </div>
-        </Tooltip>
-    )
-}
 
 const TEMPLATE_ICONS: Record<string, React.ReactNode> = {
     simple: <IconToggle className="text-2xl" />,

@@ -33,10 +33,12 @@ import {
 } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import 'lib/lemon-ui/Lettermark'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet } from 'lib/utils'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { urls } from 'scenes/urls'
@@ -78,7 +80,9 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         setPayloadExpanded,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
     const hasEvaluationTags = useFeatureFlag('FLAG_EVALUATION_TAGS')
+    const featureFlagsV2Enabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
 
     const isNewFeatureFlag = id === 'new' || id === undefined
     const implementationRef = useRef<HTMLDivElement>(null)
@@ -166,7 +170,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                         type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
                     }}
                     forceBackTo={
-                        isNewFeatureFlag
+                        isNewFeatureFlag && featureFlagsV2Enabled
                             ? { key: 'FeatureFlagTemplates', name: 'Templates', path: urls.featureFlagTemplates() }
                             : undefined
                     }
