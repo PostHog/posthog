@@ -1,13 +1,23 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import { MarketingAnalyticsTableQuery, NodeKind, VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
-
 import {
+    MARKETING_INTEGRATION_CONFIGS,
+    MarketingAnalyticsTableQuery,
+    NativeMarketingSource,
+    NodeKind,
+    VALID_NATIVE_MARKETING_SOURCES,
+} from '~/queries/schema/schema-general'
+import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
+
+import { NativeSource } from './marketingAnalyticsLogic'
+import {
+    createMarketingTile,
     getEnabledNativeMarketingSources,
     getOrderBy,
     getSortedColumnsByArray,
     orderArrayByPreference,
     rowMatchesSearch,
+    validColumnsForTiles,
 } from './utils'
 
 describe('marketing analytics utils', () => {
@@ -269,6 +279,136 @@ describe('marketing analytics utils', () => {
             const result = getSortedColumnsByArray(array, sortedArray)
 
             expect(result).toEqual(['a', 'b', 'c'])
+        })
+    })
+
+    describe('createMarketingTile snapshots', () => {
+        const ALL_TILE_COLUMNS: validColumnsForTiles[] = [
+            'cost',
+            'impressions',
+            'clicks',
+            'reported_conversion',
+            'reported_conversion_value',
+            'roas',
+        ]
+
+        // All fields each source could reference, so the mock table has them all
+        const sourceFields: Record<NativeMarketingSource, string[]> = {
+            GoogleAds: [
+                'metrics_cost_micros',
+                'metrics_impressions',
+                'metrics_clicks',
+                'metrics_conversions',
+                'metrics_conversions_value',
+                'customer_currency_code',
+            ],
+            RedditAds: [
+                'spend',
+                'impressions',
+                'clicks',
+                'conversion_purchase_total_items',
+                'conversion_purchase_total_value',
+                'conversion_signup_total_value',
+                'currency',
+            ],
+            LinkedinAds: [
+                'cost_in_usd',
+                'impressions',
+                'clicks',
+                'external_website_conversions',
+                'conversion_value_in_local_currency',
+            ],
+            MetaAds: ['spend', 'impressions', 'clicks', 'actions', 'action_values', 'account_currency'],
+            TikTokAds: ['spend', 'impressions', 'clicks', 'conversion', 'total_complete_payment_value', 'currency'],
+            BingAds: ['spend', 'impressions', 'clicks', 'conversions', 'revenue', 'currency_code'],
+            SnapchatAds: [
+                'spend',
+                'impressions',
+                'swipes',
+                'conversion_purchases',
+                'conversion_purchases_value',
+                'conversion_sign_ups',
+                'conversion_sign_ups_value',
+                'conversion_subscribe',
+                'conversion_subscribe_value',
+                'currency',
+            ],
+        }
+
+        // Minimal fields: only non-conversion columns (cost, impressions, clicks, currency)
+        const minimalSourceFields: Record<NativeMarketingSource, string[]> = {
+            GoogleAds: ['metrics_cost_micros', 'metrics_impressions', 'metrics_clicks', 'customer_currency_code'],
+            RedditAds: ['spend', 'impressions', 'clicks', 'currency'],
+            LinkedinAds: ['cost_in_usd', 'impressions', 'clicks'],
+            MetaAds: ['spend', 'impressions', 'clicks', 'account_currency'],
+            TikTokAds: ['spend', 'impressions', 'clicks', 'currency'],
+            BingAds: ['spend', 'impressions', 'clicks', 'currency_code'],
+            SnapchatAds: ['spend', 'impressions', 'swipes', 'currency'],
+        }
+
+        function makeMockSource(sourceType: NativeMarketingSource, fieldList: string[]): NativeSource {
+            const config = MARKETING_INTEGRATION_CONFIGS[sourceType]
+            const fields = Object.fromEntries(
+                fieldList.map((f) => [f, { name: f, type: 'string' }])
+            ) as DatabaseSchemaDataWarehouseTable['fields']
+
+            return {
+                source: {
+                    id: `${sourceType}-id`,
+                    source_id: `${sourceType}-source-id`,
+                    connection_id: `${sourceType}-conn`,
+                    status: 'completed',
+                    source_type: sourceType,
+                    prefix: null,
+                    description: null,
+                    latest_error: null,
+                    schemas: [],
+                } as any,
+                tables: [
+                    {
+                        id: `${sourceType}-stats-table-id`,
+                        name: `prefix.${config.statsTableName}`,
+                        type: 'data_warehouse',
+                        format: 'Parquet',
+                        url_pattern: '',
+                        fields,
+                    } as DatabaseSchemaDataWarehouseTable,
+                ],
+            }
+        }
+
+        const testCases = VALID_NATIVE_MARKETING_SOURCES.flatMap((sourceType) =>
+            ALL_TILE_COLUMNS.map(
+                (column) =>
+                    [`${sourceType} - ${column}`, sourceType, column] as [
+                        string,
+                        NativeMarketingSource,
+                        validColumnsForTiles,
+                    ]
+            )
+        )
+
+        it.each(testCases)('%s', (_name, sourceType, column) => {
+            const source = makeMockSource(sourceType, sourceFields[sourceType])
+            const result = createMarketingTile(source, column, 'USD')
+            expect(result).toMatchSnapshot()
+        })
+
+        const missingFieldsCases = VALID_NATIVE_MARKETING_SOURCES.flatMap((sourceType) =>
+            (['reported_conversion', 'reported_conversion_value', 'roas'] as validColumnsForTiles[]).map(
+                (column) =>
+                    [`${sourceType} - ${column} (missing conversion fields)`, sourceType, column] as [
+                        string,
+                        NativeMarketingSource,
+                        validColumnsForTiles,
+                    ]
+            )
+        )
+
+        it.each(missingFieldsCases)('%s', (_name, sourceType, column) => {
+            const source = makeMockSource(sourceType, minimalSourceFields[sourceType])
+            const result = createMarketingTile(source, column, 'USD')
+            expect(result).toMatchSnapshot()
         })
     })
 
