@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconInfo, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonSwitch, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { Query } from '~/queries/Query/Query'
@@ -147,19 +147,45 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
 
     const isEnforcementEnabled = schemaEnforcementMode === SchemaEnforcementMode.Reject
 
+    const hasPropertyGroups = eventSchemas.length > 0
+
     return (
         <SceneSection
             title="Schema"
             description="Define which property groups this event should have. Property groups establish a schema that helps document expected properties."
             actions={
-                <LemonButton
-                    type="primary"
-                    icon={<IconPlus />}
-                    onClick={() => setIsModalOpen(true)}
-                    disabled={eventSchemasLoading}
-                >
-                    Add Property Group
-                </LemonButton>
+                <>
+                    <LemonCheckbox
+                        label={
+                            <span className="flex items-center gap-1">
+                                Reject invalid events
+                                <Tooltip title="When enabled, events missing required properties or with wrong types will be rejected at ingestion time">
+                                    <IconInfo className="text-lg text-secondary" />
+                                </Tooltip>
+                            </span>
+                        }
+                        bordered
+                        size="small"
+                        checked={isEnforcementEnabled}
+                        onChange={(checked) =>
+                            updateSchemaEnforcementMode(
+                                checked ? SchemaEnforcementMode.Reject : SchemaEnforcementMode.Allow
+                            )
+                        }
+                        disabled={!hasPropertyGroups || schemaEnforcementModeUpdating}
+                        disabledReason={
+                            !hasPropertyGroups ? 'Define a schema before enabling schema enforcement' : undefined
+                        }
+                    />
+                    <LemonButton
+                        type="primary"
+                        icon={<IconPlus />}
+                        onClick={() => setIsModalOpen(true)}
+                        disabled={eventSchemasLoading}
+                    >
+                        Add Property Group
+                    </LemonButton>
+                </>
             }
         >
             <div className="space-y-4">
@@ -172,32 +198,6 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
                         loadAllPropertyGroups()
                     }}
                 />
-
-                <div className="flex items-center justify-between p-4 border rounded bg-bg-light">
-                    <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                            <span className="font-semibold">Reject invalid events</span>
-                            <Tooltip title="When enabled, events that don't match the schema (missing required properties or wrong types) will be rejected at ingestion time. Rejected events will not be stored.">
-                                <IconInfo className="text-lg text-secondary" />
-                            </Tooltip>
-                        </div>
-                        <p className="text-muted text-sm mt-1">
-                            {isEnforcementEnabled
-                                ? 'Events that fail schema validation will be rejected and not stored.'
-                                : 'All events are accepted regardless of schema compliance.'}
-                        </p>
-                    </div>
-                    <LemonSwitch
-                        checked={isEnforcementEnabled}
-                        onChange={(checked) =>
-                            updateSchemaEnforcementMode(
-                                checked ? SchemaEnforcementMode.Reject : SchemaEnforcementMode.Allow
-                            )
-                        }
-                        loading={schemaEnforcementModeUpdating}
-                        disabled={schemaEnforcementModeUpdating}
-                    />
-                </div>
 
                 {eventSchemas.length > 0 ? (
                     <div className="space-y-4">
