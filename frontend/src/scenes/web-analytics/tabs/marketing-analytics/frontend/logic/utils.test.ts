@@ -1,13 +1,14 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 
 import {
+    DatabaseSchemaDataWarehouseTable,
     MARKETING_INTEGRATION_CONFIGS,
+    MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsTableQuery,
     NativeMarketingSource,
     NodeKind,
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
-import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
 
 import { NativeSource } from './marketingAnalyticsLogic'
 import {
@@ -284,11 +285,11 @@ describe('marketing analytics utils', () => {
 
     describe('createMarketingTile snapshots', () => {
         const ALL_TILE_COLUMNS: validColumnsForTiles[] = [
-            'cost',
-            'impressions',
-            'clicks',
-            'reported_conversion',
-            'reported_conversion_value',
+            MarketingAnalyticsColumnsSchemaNames.Cost,
+            MarketingAnalyticsColumnsSchemaNames.Impressions,
+            MarketingAnalyticsColumnsSchemaNames.Clicks,
+            MarketingAnalyticsColumnsSchemaNames.ReportedConversion,
+            MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
             'roas',
         ]
 
@@ -394,8 +395,14 @@ describe('marketing analytics utils', () => {
             expect(result).toMatchSnapshot()
         })
 
+        const CONVERSION_TILE_COLUMNS: validColumnsForTiles[] = [
+            MarketingAnalyticsColumnsSchemaNames.ReportedConversion,
+            MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
+            'roas',
+        ]
+
         const missingFieldsCases = VALID_NATIVE_MARKETING_SOURCES.flatMap((sourceType) =>
-            (['reported_conversion', 'reported_conversion_value', 'roas'] as validColumnsForTiles[]).map(
+            CONVERSION_TILE_COLUMNS.map(
                 (column) =>
                     [`${sourceType} - ${column} (missing conversion fields)`, sourceType, column] as [
                         string,
