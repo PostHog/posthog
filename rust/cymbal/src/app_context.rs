@@ -20,6 +20,7 @@ use crate::{
     frames::resolver::Resolver,
     stages::resolution::symbol::{local::LocalSymbolResolver, SymbolResolver},
     symbol_store::{
+        apple::AppleProvider,
         caching::{Caching, SymbolSetCache},
         chunk_id::ChunkIdFetcher,
         concurrency,
@@ -197,12 +198,20 @@ impl AppContext {
         );
         let pgp_caching = Caching::new(pgp_chunk, ss_cache.clone());
 
+        let apple_chunk = ChunkIdFetcher::new(
+            AppleProvider {},
+            s3_client.clone(),
+            posthog_pool.clone(),
+            config.object_storage_bucket.clone(),
+        );
+        let apple_caching = Caching::new(apple_chunk, ss_cache.clone());
+
         info!(
             "AppContext initialized, subscribed to topic {}",
             config.consumer.kafka_consumer_topic
         );
 
-        let catalog = Arc::new(Catalog::new(smp_atmostonce, hmp_caching, pgp_caching));
+        let catalog = Arc::new(Catalog::new(smp_atmostonce, hmp_caching, pgp_caching, apple_caching));
         let resolver = Resolver::new(config);
 
         let team_manager = TeamManager::new(config);

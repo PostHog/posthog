@@ -92,7 +92,7 @@ impl LocalSymbolResolver {
 
         metrics::counter!(FRAME_DB_MISSES).increment(1);
 
-        let resolved = frame.resolve(raw_id.team_id, &self.catalog).await?;
+        let resolved = frame.resolve(raw_id.team_id, &self.catalog, &[]).await?;
 
         assert!(!resolved.is_empty()); // If this ever happens, we've got a data-dropping bug, and want to crash
 

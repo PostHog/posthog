@@ -14,6 +14,7 @@ use crate::fingerprinting::{
 use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
 use crate::frames::{Frame, RawFrame};
 use crate::issue_resolution::Issue;
+use crate::langs::apple::AppleDebugImage;
 use crate::metric_consts::POSTHOG_SDK_EXCEPTION_RESOLVED;
 
 mod exception;
@@ -136,6 +137,8 @@ pub struct RawErrProps {
     pub issue_description: Option<String>, // Clients can send us custom issue descriptions, which we'll use if present
     #[serde(rename = "$exception_handled", skip_serializing_if = "Option::is_none")]
     pub handled: Option<bool>, // Clients can send us handled status, which we'll use if present
+    #[serde(rename = "$debug_images", default, skip_serializing_if = "Vec::is_empty")]
+    pub debug_images: Vec<AppleDebugImage>, // Debug images from iOS/macOS crash reports for symbolication
     #[serde(flatten)]
     // A catch-all for all the properties we don't "care" about, so when we send back to kafka we don't lose any info
     pub other: HashMap<String, Value>,
