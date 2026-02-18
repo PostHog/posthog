@@ -398,10 +398,10 @@ fn draw(
         let table = Table::new(
             rows,
             [
-                Constraint::Length(10),
-                Constraint::Length(14),
-                Constraint::Length(18),
-                Constraint::Length(12),
+                Constraint::Min(10),
+                Constraint::Min(14),
+                Constraint::Min(18),
+                Constraint::Min(12),
             ],
         )
         .header(table_header)
@@ -673,8 +673,10 @@ fn render_loop(
     controls: &Arc<Controls>,
     work_handle: &mut Option<tokio::task::JoinHandle<anyhow::Result<()>>>,
 ) -> io::Result<()> {
-    let mut throughput_buf = RingBuffer::new(120);
-    let mut lag_buf = RingBuffer::new(120);
+    // Size ring buffers to terminal width (minus borders) so sparklines fill the screen
+    let buf_capacity = (terminal.size().map(|s| s.width).unwrap_or(120) as usize).saturating_sub(2).max(60);
+    let mut throughput_buf = RingBuffer::new(buf_capacity);
+    let mut lag_buf = RingBuffer::new(buf_capacity);
     let mut last_produced: usize = 0;
     let mut last_tick = Instant::now();
 
