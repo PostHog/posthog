@@ -29,7 +29,7 @@ interface OfframpStep {
 
 export function SidePanelOfframpModal(): JSX.Element {
     const { shouldShowOfframpModal } = useValues(sidePanelOfframpLogic)
-    const { dismissOfframpModal } = useActions(sidePanelOfframpLogic)
+    const { hideOfframpModal, dismissOfframpModal } = useActions(sidePanelOfframpLogic)
     const contentRef = useRef<HTMLDivElement>(null)
     const steps: OfframpStep[] = [
         {
@@ -77,7 +77,7 @@ export function SidePanelOfframpModal(): JSX.Element {
             open={shouldShowOfframpModal}
             onOpenChange={(open) => {
                 if (!open) {
-                    dismissOfframpModal()
+                    hideOfframpModal()
                 }
             }}
             className="group bg-surface-popover w-[300px] md:w-[640px] max-h-[none]"
