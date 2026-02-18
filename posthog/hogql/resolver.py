@@ -55,13 +55,10 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
         unique_types = {str(resolve_constant_data_type(item)) for item in constant}
         return ast.ArrayType(
             nullable=False,
-            item_type=(resolve_constant_data_type(constant[0]) if len(unique_types) == 1 else ast.UnknownType()),
+            item_type=resolve_constant_data_type(constant[0]) if len(unique_types) == 1 else ast.UnknownType(),
         )
     if isinstance(constant, tuple):
-        return ast.TupleType(
-            nullable=False,
-            item_types=[resolve_constant_data_type(item) for item in constant],
-        )
+        return ast.TupleType(nullable=False, item_types=[resolve_constant_data_type(item) for item in constant])
     if isinstance(constant, datetime) or type(constant).__name__ == "FakeDatetime":
         return ast.DateTimeType(nullable=False)
     if isinstance(constant, date) or type(constant).__name__ == "FakeDate":
@@ -507,9 +504,7 @@ class Resolver(CloningVisitor):
                         f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
                     )
                 node.type = ast.SelectViewType(
-                    alias=node.alias,
-                    view_name=node.table.view_name,
-                    select_query_type=node.table.type,
+                    alias=node.alias, view_name=node.table.view_name, select_query_type=node.table.type
                 )
                 scope.tables[node.alias] = node.type
             elif node.alias is not None:
@@ -599,12 +594,7 @@ class Resolver(CloningVisitor):
                 if events_alias is None:
                     raise QueryError("matchesAction can only be used with the events table")
                 return self.visit(
-                    matches_action(
-                        node=node,
-                        args=node.args,
-                        context=self.context,
-                        events_alias=events_alias,
-                    )
+                    matches_action(node=node, args=node.args, context=self.context, events_alias=events_alias)
                 )
             if node.name == "getSurveyResponse":
                 return self.visit(get_survey_response(node=node, args=node.args))
@@ -674,10 +664,7 @@ class Resolver(CloningVisitor):
 
         # Each Lambda is a new scope in field name resolution.
         # This type keeps track of all lambda arguments that are in scope.
-        node_type = ast.SelectQueryType(
-            parent=self.scopes[-1] if len(self.scopes) > 0 else None,
-            is_lambda_type=True,
-        )
+        node_type = ast.SelectQueryType(parent=self.scopes[-1] if len(self.scopes) > 0 else None, is_lambda_type=True)
 
         for arg in node.args:
             node_type.aliases[arg] = ast.FieldAliasType(alias=arg, type=ast.LambdaArgumentType(name=arg))
@@ -926,10 +913,7 @@ class Resolver(CloningVisitor):
             (isinstance(tuple.type, ast.PropertyType))
             or (
                 isinstance(tuple.type, ast.FieldType)
-                and isinstance(
-                    tuple.type.resolve_database_field(self.context),
-                    StringJSONDatabaseField,
-                )
+                and isinstance(tuple.type.resolve_database_field(self.context), StringJSONDatabaseField)
             )
         ):
             tuple.chain.append(node.index)

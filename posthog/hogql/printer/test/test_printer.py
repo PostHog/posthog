@@ -44,7 +44,7 @@ from posthog.hogql.constants import (
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
-from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError
+from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.hogqlx import convert_tag_to_hx
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
@@ -3407,17 +3407,17 @@ class TestPrinter(BaseTest):
         ]
     )
     def test_postgres_style_cast(self, name, expr, expected):
-        self.assertEqual(self._expr(expr, backend="cpp-json"), expected)
+        self.assertEqual(self._expr(expr), expected)
 
     def test_postgres_style_cast_datetime(self):
         # DateTime types include timezone, test separately
-        self.assertIn("toDateTime(events.event", self._expr("event::datetime", backend="cpp-json"))
-        self.assertIn("toDateTime(events.event", self._expr("event::timestamp", backend="cpp-json"))
-        self.assertIn("toDateTime(events.event", self._expr("event::timestamptz", backend="cpp-json"))
+        self.assertIn("toDateTime(events.event", self._expr("event::datetime"))
+        self.assertIn("toDateTime(events.event", self._expr("event::timestamp"))
+        self.assertIn("toDateTime(events.event", self._expr("event::timestamptz"))
 
     def test_postgres_style_cast_unsupported_type(self):
         with self.assertRaises(QueryError) as ctx:
-            self._expr("event::unsupported_type", backend="cpp-json")
+            self._expr("event::unsupported_type")
         self.assertIn("Unsupported type cast", str(ctx.exception))
 
 
@@ -4354,14 +4354,14 @@ class TestPostgresPrinter(BaseTest):
         )
 
     def test_postgres_style_cast(self):
-        self.assertEqual(self._expr("123::int", backend="cpp-json"), "CAST(123 AS int)")
-        self.assertEqual(self._expr("123.45::float", backend="cpp-json"), "CAST(123.45 AS float)")
-        self.assertEqual(self._expr("'2024-01-01'::date", backend="cpp-json"), "CAST('2024-01-01' AS date)")
-        self.assertEqual(self._expr("event::int", backend="cpp-json"), "CAST(events.event AS int)")
-        self.assertEqual(self._expr("event::text", backend="cpp-json"), "CAST(events.event AS text)")
-        self.assertEqual(self._expr("event::boolean", backend="cpp-json"), "CAST(events.event AS boolean)")
-        self.assertEqual(self._expr("event::INT", backend="cpp-json"), "CAST(events.event AS int)")
-        self.assertEqual(self._expr("(1 + 2)::int", backend="cpp-json"), "CAST((1 + 2) AS int)")
+        self.assertEqual(self._expr("123::int"), "CAST(123 AS int)")
+        self.assertEqual(self._expr("123.45::float"), "CAST(123.45 AS float)")
+        self.assertEqual(self._expr("'2024-01-01'::date"), "CAST('2024-01-01' AS date)")
+        self.assertEqual(self._expr("event::int"), "CAST(events.event AS int)")
+        self.assertEqual(self._expr("event::text"), "CAST(events.event AS text)")
+        self.assertEqual(self._expr("event::boolean"), "CAST(events.event AS boolean)")
+        self.assertEqual(self._expr("event::INT"), "CAST(events.event AS int)")
+        self.assertEqual(self._expr("(1 + 2)::int"), "CAST((1 + 2) AS int)")
 
     @parameterized.expand(
         [
@@ -4391,3 +4391,18 @@ class TestPostgresPrinter(BaseTest):
             type_name=type_name,
         )
         self.assertEqual(self._expr(node), f"CAST(123 AS {expected_escaped})")
+
+    def test_with_recursive(self):
+        query = "WITH RECURSIVE events_cte AS (SELECT id FROM events) SELECT id FROM events_cte"
+        self.assertEqual(
+            self._select(query),
+            "WITH RECURSIVE events_cte AS (SELECT id FROM events) SELECT id FROM events_cte LIMIT 50000",
+        )
+
+    def test_with_recursive_self_referencing(self):
+        query = "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM nums WHERE n < 5) SELECT n FROM nums"
+        self.assertEqual(
+            self._select(query),
+            "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT (nums.n + 1) FROM nums WHERE (nums.n < 5)) "
+            "SELECT nums.n FROM nums LIMIT 50000",
+        )

@@ -33,7 +33,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import ResolutionError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import ExperimentNoResultsErrorKeys
@@ -2376,7 +2376,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
         )
         with freeze_time("2023-01-07"):
-            with self.assertRaises(QueryError) as context:
+            with self.assertRaises(ResolutionError) as context:
                 query_runner.calculate()
 
         assert "invalid_table_name" in str(context.exception)
