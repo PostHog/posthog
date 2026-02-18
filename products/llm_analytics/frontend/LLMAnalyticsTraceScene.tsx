@@ -1013,6 +1013,7 @@ const EventContent = React.memo(
                                                         event.event === '$ai_generation' ? (
                                                             <EventContentGeneration
                                                                 eventId={event.id}
+                                                                traceId={trace.id}
                                                                 rawInput={event.properties.$ai_input}
                                                                 rawOutput={
                                                                     event.properties.$ai_output_choices ??
@@ -1023,6 +1024,7 @@ const EventContent = React.memo(
                                                                 httpStatus={event.properties.$ai_http_status}
                                                                 raisedError={event.properties.$ai_is_error}
                                                                 searchQuery={searchQuery}
+                                                                displayOption={displayOption}
                                                             />
                                                         ) : event.event === '$ai_embedding' ? (
                                                             <EventContentDisplayAsync

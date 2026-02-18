@@ -1,5 +1,3 @@
-import { BindLogic } from 'kea'
-
 import { IconPerson } from '@posthog/icons'
 
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -12,7 +10,6 @@ import { ConversationMessagesDisplay } from 'products/llm_analytics/frontend/Con
 import { LLMInputOutput } from 'products/llm_analytics/frontend/LLMInputOutput'
 import { AIDataLoading } from 'products/llm_analytics/frontend/components/AIDataLoading'
 import { useAIData } from 'products/llm_analytics/frontend/hooks/useAIData'
-import { llmAnalyticsTraceLogic } from 'products/llm_analytics/frontend/llmAnalyticsTraceLogic'
 import { normalizeMessages } from 'products/llm_analytics/frontend/utils'
 
 export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.Element {
@@ -32,15 +29,14 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
     return (
         <div>
             {isGeneration ? (
-                <BindLogic logic={llmAnalyticsTraceLogic}>
-                    <ConversationMessagesDisplay
-                        inputNormalized={normalizeMessages(input, 'user', event.properties.$ai_tools)}
-                        outputNormalized={normalizeMessages(output, 'assistant')}
-                        errorData={event.properties.$ai_error}
-                        httpStatus={event.properties.$ai_http_status}
-                        raisedError={raisedError}
-                    />
-                </BindLogic>
+                <ConversationMessagesDisplay
+                    inputNormalized={normalizeMessages(input, 'user', event.properties.$ai_tools)}
+                    outputNormalized={normalizeMessages(output, 'assistant')}
+                    errorData={event.properties.$ai_error}
+                    httpStatus={event.properties.$ai_http_status}
+                    raisedError={raisedError}
+                    traceId={event.properties.$ai_trace_id}
+                />
             ) : (
                 <LLMInputOutput
                     inputDisplay={
