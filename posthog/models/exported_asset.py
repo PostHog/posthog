@@ -5,7 +5,7 @@ from typing import Optional
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
 from django.utils.text import slugify
 from django.utils.timezone import now
 
@@ -191,12 +191,18 @@ def asset_for_token(token: str) -> ExportedAsset:
 
 
 def get_content_response(asset: ExportedAsset, download: bool = False):
-    content = asset.content
-    if not content and asset.content_location:
-        content = object_storage.read_bytes(asset.content_location)
+    if asset.content_location:
+        content_disposition = f'attachment; filename="{asset.filename}"' if download else None
+        presigned_url = object_storage.get_presigned_url(
+            asset.content_location,
+            content_type=asset.export_format,
+            content_disposition=content_disposition,
+        )
+        if presigned_url:
+            return HttpResponseRedirect(presigned_url)
 
+    content = asset.content
     if not content:
-        # Don't modify the asset here as the task might still be running concurrently
         raise NotFound()
 
     res = HttpResponse(content, content_type=asset.export_format)

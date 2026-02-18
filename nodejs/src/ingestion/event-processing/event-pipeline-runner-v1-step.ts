@@ -1,9 +1,10 @@
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { EventHeaders, Team } from '../../types'
+import { EventHeaders, Person, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import {
     EventPipelineResult,
@@ -18,11 +19,12 @@ import { ProcessingStep } from '../pipelines/steps'
 
 export interface EventPipelineRunnerInput {
     message: Message
-    event: PluginEvent
+    normalizedEvent: PluginEvent
+    timestamp: DateTime
     team: Team
     headers: EventHeaders
     processPerson: boolean
-    forceDisablePersonProcessing: boolean
+    personlessPerson?: Person
 }
 
 export type EventPipelineRunnerStepResult = EventPipelineResult & {
@@ -42,12 +44,13 @@ export function createEventPipelineRunnerV1Step(
         input: EventPipelineRunnerInput
     ): Promise<PipelineResult<EventPipelineRunnerStepResult>> {
         const {
-            event,
+            normalizedEvent,
+            timestamp,
             team,
             headers: inputHeaders,
             message: inputMessage,
             processPerson,
-            forceDisablePersonProcessing,
+            personlessPerson,
         } = input
 
         const runner = new EventPipelineRunner(
@@ -55,12 +58,12 @@ export function createEventPipelineRunnerV1Step(
             kafkaProducer,
             teamManager,
             groupTypeManager,
-            event,
+            normalizedEvent,
             personsStore,
             groupStore,
             inputHeaders
         )
-        const result = await runner.runEventPipeline(event, team, processPerson, forceDisablePersonProcessing)
+        const result = await runner.runEventPipeline(normalizedEvent, timestamp, team, processPerson, personlessPerson)
 
         if (isOkResult(result)) {
             const stepResult: EventPipelineRunnerStepResult = {
