@@ -71,6 +71,15 @@ class ChatAgentModeManager(AgentModeManager):
         context_manager: AssistantContextManager,
         state: AssistantState,
     ):
+        # Set _mode and _supermode before super().__init__ because the parent
+        # calls self.mode_registry which accesses these attributes.
+        if state.agent_mode == AgentMode.PLAN:
+            self._supermode: AgentMode | None = AgentMode.PLAN
+            self._mode = AgentMode.PRODUCT_ANALYTICS
+        else:
+            self._supermode = cast(AgentMode | None, state.supermode)
+            self._mode = state.agent_mode or AgentMode.PRODUCT_ANALYTICS
+
         super().__init__(
             team=team,
             user=user,
@@ -78,15 +87,6 @@ class ChatAgentModeManager(AgentModeManager):
             context_manager=context_manager,
             state=state,
         )
-
-        # Handle plan mode: agent_mode=PLAN from frontend means supermode=PLAN
-        self._supermode: AgentMode | None
-        if state.agent_mode == AgentMode.PLAN:
-            self._supermode = AgentMode.PLAN
-            self._mode = AgentMode.PRODUCT_ANALYTICS
-        else:
-            self._supermode = cast(AgentMode | None, state.supermode)
-            self._mode = state.agent_mode or AgentMode.PRODUCT_ANALYTICS
 
     @property
     def mode_registry(self) -> dict[AgentMode, AgentModeDefinition]:
