@@ -1,7 +1,6 @@
 import math
 from typing import Optional, cast
 
-import unittest
 from posthog.test.base import BaseTest, MemoryLeakTestMixin
 
 from posthog.hogql import ast
@@ -3107,10 +3106,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
-        @unittest.skipIf(
-            backend == "cpp",
-            "Recursive CTEs are not supported in the legacy C++ backend",
-        )
         def test_with_recursive(self):
             parsed = self._select("WITH RECURSIVE events AS (SELECT * FROM posthog_event) SELECT * FROM events;")
 
