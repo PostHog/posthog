@@ -100,7 +100,9 @@ export function ConversationMessagesDisplay({
 
     // Initialize message states when message counts or display option changes.
     React.useEffect(() => {
-        setMessageShowStates(getInitialMessageShowStates(inputNormalized.length, outputNormalized.length, displayOption))
+        setMessageShowStates(
+            getInitialMessageShowStates(inputNormalized.length, outputNormalized.length, displayOption)
+        )
     }, [inputNormalized.length, outputNormalized.length, displayOption])
 
     // Expand only messages matching the current search query.
@@ -117,7 +119,9 @@ export function ConversationMessagesDisplay({
             })
             setMessageShowStates({ input: inputMatches, output: outputMatches })
         } else if (previousSearchQueryRef.current) {
-            setMessageShowStates(getInitialMessageShowStates(inputNormalized.length, outputNormalized.length, displayOption))
+            setMessageShowStates(
+                getInitialMessageShowStates(inputNormalized.length, outputNormalized.length, displayOption)
+            )
         }
         previousSearchQueryRef.current = trimmedSearchQuery
     }, [searchQuery, inputNormalized, outputNormalized, inputNormalized.length, outputNormalized.length, displayOption])

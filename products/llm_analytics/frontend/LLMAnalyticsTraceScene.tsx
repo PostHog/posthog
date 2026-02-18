@@ -159,7 +159,7 @@ export function LLMAnalyticsTraceScene(): JSX.Element {
     const { traceId, query } = useValues(llmAnalyticsTraceLogic)
 
     return (
-        <BindLogic logic={llmPersonsLazyLoaderLogic}>
+        <BindLogic logic={llmPersonsLazyLoaderLogic} props={{}}>
             <BindLogic logic={llmAnalyticsTraceDataLogic} props={{ traceId, query, cachedResults: null }}>
                 <TraceSceneWrapper />
             </BindLogic>
