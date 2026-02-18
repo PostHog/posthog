@@ -8,6 +8,7 @@ from django.db import transaction
 from posthog.models.comment import Comment
 
 from products.conversations.backend.models import Ticket
+from products.conversations.backend.models.constants import Channel
 
 
 # Patch on_commit to execute immediately in tests
@@ -233,3 +234,74 @@ class TestTicketMessageSignals(BaseTest):
         # Should fall back to first_public, not the private message
         assert self.ticket.last_message_text == "First public"
         assert self.ticket.last_message_at == first_public.created_at
+
+    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
+    def test_slack_ticket_team_message_enqueues_slack_reply(self, mock_delay, mock_on_commit):
+        self.team.conversations_settings = {"slack_enabled": True}
+        self.team.save()
+        slack_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id="slack-user-1",
+            channel_source=Channel.SLACK,
+            slack_channel_id="C123",
+            slack_thread_ts="1700000000.000100",
+        )
+
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(slack_ticket.id),
+            content="Support reply",
+            created_by=self.user,
+            item_context={"author_type": "team", "is_private": False},
+        )
+
+        mock_delay.assert_called_once()
+
+    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
+    def test_private_slack_message_does_not_enqueue_slack_reply(self, mock_delay, mock_on_commit):
+        self.team.conversations_settings = {"slack_enabled": True}
+        self.team.save()
+        slack_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id="slack-user-2",
+            channel_source=Channel.SLACK,
+            slack_channel_id="C123",
+            slack_thread_ts="1700000000.000200",
+        )
+
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(slack_ticket.id),
+            content="Private support note",
+            created_by=self.user,
+            item_context={"author_type": "team", "is_private": True},
+        )
+
+        mock_delay.assert_not_called()
+
+    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
+    def test_customer_slack_message_does_not_enqueue_slack_reply(self, mock_delay, mock_on_commit):
+        self.team.conversations_settings = {"slack_enabled": True}
+        self.team.save()
+        slack_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id="slack-user-3",
+            channel_source=Channel.SLACK,
+            slack_channel_id="C123",
+            slack_thread_ts="1700000000.000300",
+        )
+
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(slack_ticket.id),
+            content="Customer message",
+            item_context={"author_type": "customer", "is_private": False},
+        )
+
+        mock_delay.assert_not_called()

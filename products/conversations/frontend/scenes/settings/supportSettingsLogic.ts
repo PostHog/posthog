@@ -1,10 +1,11 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { UserBasicType } from '~/types'
+import { SlackChannelType, UserBasicType } from '~/types'
 
 import type { supportSettingsLogicType } from './supportSettingsLogicType'
 
@@ -37,6 +38,13 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         savePlaceholderText: true,
         // Notification recipients
         setNotificationRecipients: (users: UserBasicType[]) => ({ users }),
+        // Slack channel settings (SupportHog)
+        connectSlack: (nextPath: string) => ({ nextPath }),
+        setSlackChannel: (channelId: string | null, channelName: string | null) => ({ channelId, channelName }),
+        loadSlackChannelsWithToken: true,
+        setSlackTicketEmojiValue: (value: string | null) => ({ value }),
+        saveSlackTicketEmoji: true,
+        disconnectSlack: true,
     }),
     reducers({
         conversationsEnabledLoading: [
@@ -104,7 +112,29 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 setPlaceholderTextValue: (_, { value }) => value,
             },
         ],
+        slackTicketEmojiValue: [
+            null as string | null,
+            {
+                setSlackTicketEmojiValue: (_, { value }) => value,
+            },
+        ],
     }),
+    loaders(({ values }) => ({
+        slackChannels: [
+            [] as SlackChannelType[],
+            {
+                loadSlackChannelsWithToken: async () => {
+                    try {
+                        const response = await api.create(`api/conversations/v1/slack/channels`, {})
+                        return response.channels || []
+                    } catch {
+                        lemonToast.error('Failed to load Slack channels')
+                        return values.slackChannels
+                    }
+                },
+            },
+        ],
+    })),
     selectors({
         conversationsDomains: [
             (s) => [s.currentTeam],
@@ -114,8 +144,32 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (s) => [s.currentTeam],
             (currentTeam): number[] => currentTeam?.conversations_settings?.notification_recipients || [],
         ],
+        slackEnabled: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => !!currentTeam?.conversations_settings?.slack_enabled,
+        ],
+        slackChannelId: [
+            (s) => [s.currentTeam],
+            (currentTeam): string | null => currentTeam?.conversations_settings?.slack_channel_id ?? null,
+        ],
+        slackChannelName: [
+            (s) => [s.currentTeam],
+            (currentTeam): string | null => currentTeam?.conversations_settings?.slack_channel_name ?? null,
+        ],
+        slackTicketEmoji: [
+            (s) => [s.currentTeam],
+            (currentTeam): string => currentTeam?.conversations_settings?.slack_ticket_emoji ?? 'ticket',
+        ],
+        slackConnected: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => !!currentTeam?.conversations_settings?.slack_enabled,
+        ],
     }),
     listeners(({ values, actions }) => ({
+        connectSlack: ({ nextPath }) => {
+            const query = encodeURIComponent(nextPath)
+            window.location.href = `/api/conversations/v1/slack/authorize?next=${query}`
+        },
         generateNewToken: async () => {
             const response = await api.projects.generateConversationsPublicToken(values.currentTeam?.id)
             actions.updateCurrentTeam(response)
@@ -210,11 +264,60 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 },
             })
         },
+        setSlackChannel: ({ channelId, channelName }) => {
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    slack_enabled: true,
+                    slack_channel_id: channelId,
+                    slack_channel_name: channelName,
+                },
+            })
+        },
+        saveSlackTicketEmoji: () => {
+            const emoji = values.slackTicketEmojiValue
+            if (emoji !== null) {
+                actions.updateCurrentTeam({
+                    conversations_settings: {
+                        ...values.currentTeam?.conversations_settings,
+                        slack_enabled: true,
+                        slack_ticket_emoji: emoji,
+                    },
+                })
+                lemonToast.success('Ticket emoji saved')
+            }
+        },
+        disconnectSlack: async () => {
+            try {
+                await api.create('api/conversations/v1/slack/disconnect', {})
+            } catch {
+                lemonToast.error('Failed to disconnect Slack')
+                return
+            }
+
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    slack_enabled: false,
+                    slack_team_id: null,
+                    slack_channel_id: null,
+                    slack_channel_name: null,
+                    slack_ticket_emoji: null,
+                },
+            })
+            lemonToast.success('Slack disconnected')
+        },
         updateCurrentTeamSuccess: () => {
             actions.setGreetingInputValue(null)
             actions.setIdentificationFormTitleValue(null)
             actions.setIdentificationFormDescriptionValue(null)
             actions.setPlaceholderTextValue(null)
+            actions.setSlackTicketEmojiValue(null)
         },
     })),
+    afterMount(({ values, actions }) => {
+        if (values.slackConnected) {
+            actions.loadSlackChannelsWithToken()
+        }
+    }),
 ])
