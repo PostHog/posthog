@@ -19,7 +19,7 @@ KEYWORDS = ["true", "false", "null"]
 RESERVED_KEYWORDS = [*KEYWORDS, "team_id"]
 
 # Limit applied to SELECT statements without LIMIT clause when queried via the API
-DEFAULT_RETURNED_ROWS = 2000
+DEFAULT_RETURNED_ROWS = 100
 # Max limit for all SELECT queries, and the default for CSV exports
 # Sync with frontend/src/queries/nodes/DataTable/DataTableExport.tsx
 MAX_SELECT_RETURNED_ROWS = 50000
@@ -88,7 +88,7 @@ def get_default_limit_for_context(limit_context: LimitContext) -> int:
     if limit_context == LimitContext.EXPORT:
         return CSV_EXPORT_LIMIT
     elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC):
-        return DEFAULT_RETURNED_ROWS  # 2000
+        return DEFAULT_RETURNED_ROWS  # 100
     elif limit_context == LimitContext.POSTHOG_AI:
         return DEFAULT_POSTHOG_AI_RETURNED_ROWS  # 100
     elif limit_context == LimitContext.HEATMAPS:
@@ -119,6 +119,8 @@ class HogQLQuerySettings(BaseModel):
     force_data_skipping_indices: Optional[list[str]] = None
     load_balancing: Optional[str] = None
     optimize_skip_unused_shards: Optional[bool] = None
+    read_overflow_mode: Optional[str] = None
+    max_bytes_to_read: Optional[int] = None
 
 
 # Settings applied on top of all HogQL queries.
@@ -145,5 +147,3 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     allow_experimental_join_condition: Optional[bool] = True
     preferred_block_size_bytes: Optional[int] = None
     use_hive_partitioning: Optional[int] = 0
-    read_overflow_mode: Optional[str] = None
-    max_bytes_to_read: Optional[int] = None

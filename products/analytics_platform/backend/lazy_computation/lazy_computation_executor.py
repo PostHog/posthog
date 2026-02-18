@@ -14,6 +14,7 @@ from django.db.models import Q
 from django.utils import timezone as django_timezone
 
 import redis as redis_lib
+import structlog
 from clickhouse_driver.errors import ServerException
 
 from posthog.hogql import ast
@@ -38,6 +39,8 @@ from products.analytics_platform.backend.lazy_computation.computation_notificati
     subscribe_to_jobs,
 )
 from products.analytics_platform.backend.models import PreaggregationJob
+
+logger = structlog.get_logger(__name__)
 
 # Default TTL for lazy computed data (how long before ClickHouse deletes it)
 DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
@@ -638,12 +641,30 @@ class LazyComputationExecutor:
         interval = self.poll_interval_seconds
         subscribed_ids: set[uuid.UUID] = set()
         pubsub: redis_lib.client.PubSub | None = None
+        jobs_created = 0
+        waited_job_ids: set[uuid.UUID] = set()
+
+        def _log_execution(outcome: str, result: LazyComputationResult) -> None:
+            logger.info(
+                "lazy_computation.executed",
+                query_hash=query_hash,
+                table=str(query_info.table),
+                outcome=outcome,
+                total_duration_ms=round((time.monotonic() - start_time) * 1000),
+                jobs_created=jobs_created,
+                jobs_waited_for=len(waited_job_ids),
+                time_range_start=str(start),
+                time_range_end=str(end),
+                time_range_days=(end - start).days,
+            )
 
         try:
             while True:
                 if time.monotonic() - start_time >= self.wait_timeout_seconds:
                     errors.append("Timeout waiting for computation jobs")
-                    return LazyComputationResult(ready=False, job_ids=[], errors=errors)
+                    result = LazyComputationResult(ready=False, job_ids=[], errors=errors)
+                    _log_execution("timeout", result)
+                    return result
 
                 # Step 1: See what exists, filter out stale READY jobs
                 existing_jobs = find_existing_jobs(team, query_hash, start, end)
@@ -667,28 +688,63 @@ class LazyComputationExecutor:
                             continue
 
                         try:
+                            insert_start = time.monotonic()
                             insert_fn(team, new_job)
+                            insert_elapsed = time.monotonic() - insert_start
                             new_job.status = PreaggregationJob.Status.READY
                             new_job.computed_at = django_timezone.now()
                             new_job.save()
                             publish_job_completion(new_job.id, "ready")
+                            jobs_created += 1
+                            logger.info(
+                                "lazy_computation.job_completed",
+                                job_id=str(new_job.id),
+                                query_hash=query_hash,
+                                table=str(query_info.table),
+                                time_range_start=str(range_start),
+                                time_range_end=str(range_end),
+                                ttl_seconds=ttl,
+                                insert_duration_ms=round(insert_elapsed * 1000),
+                            )
                         except Exception as e:
+                            insert_elapsed = time.monotonic() - insert_start
                             new_job.status = PreaggregationJob.Status.FAILED
                             new_job.error = str(e)
                             new_job.save()
                             publish_job_completion(new_job.id, "failed")
+                            jobs_created += 1
+                            logger.warning(
+                                "lazy_computation.job_failed",
+                                job_id=str(new_job.id),
+                                query_hash=query_hash,
+                                table=str(query_info.table),
+                                time_range_start=str(range_start),
+                                time_range_end=str(range_end),
+                                ttl_seconds=ttl,
+                                insert_duration_ms=round(insert_elapsed * 1000),
+                                error=str(e)[:500],
+                                error_type=type(e).__name__,
+                                is_retryable=not is_non_retryable_error(e),
+                                failure_number=failures + 1,
+                            )
                             if is_non_retryable_error(e):
                                 errors.append(str(e))
-                                return LazyComputationResult(ready=False, job_ids=[], errors=errors)
+                                result = LazyComputationResult(ready=False, job_ids=[], errors=errors)
+                                _log_execution("non_retryable_error", result)
+                                return result
                             failures += 1
                             if failures > self.max_retries:
                                 errors.append(f"Max retries ({self.max_retries}) exceeded: {e}")
-                                return LazyComputationResult(ready=False, job_ids=[], errors=errors)
+                                result = LazyComputationResult(ready=False, job_ids=[], errors=errors)
+                                _log_execution("max_retries_exceeded", result)
+                                return result
                         did_work = True
 
                 if ttl_ranges and failures > self.max_retries:
                     errors.append("Max retries exceeded for computation")
-                    return LazyComputationResult(ready=False, job_ids=[], errors=errors)
+                    result = LazyComputationResult(ready=False, job_ids=[], errors=errors)
+                    _log_execution("max_retries_exceeded", result)
+                    return result
 
                 if did_work:
                     interval = self.poll_interval_seconds
@@ -696,6 +752,8 @@ class LazyComputationExecutor:
 
                 # Step 4: Wait for pending jobs
                 if pending_jobs:
+                    waited_job_ids.update(j.id for j in pending_jobs)
+
                     if pubsub is None:
                         pubsub = subscribe_to_jobs([j.id for j in pending_jobs])
                         subscribed_ids = {j.id for j in pending_jobs}
@@ -707,7 +765,15 @@ class LazyComputationExecutor:
 
                     for job in pending_jobs:
                         if self._is_job_stale(job):
-                            self._try_mark_stale_job_as_failed(job)
+                            marked = self._try_mark_stale_job_as_failed(job)
+                            if marked:
+                                logger.warning(
+                                    "lazy_computation.job_marked_stale",
+                                    job_id=str(job.id),
+                                    query_hash=query_hash,
+                                    table=str(query_info.table),
+                                    job_age_seconds=round((django_timezone.now() - job.created_at).total_seconds()),
+                                )
 
                     remaining = self.wait_timeout_seconds - (time.monotonic() - start_time)
                     wait_time = min(interval, remaining)
@@ -730,7 +796,9 @@ class LazyComputationExecutor:
         final_jobs = find_existing_jobs(team, query_hash, start, end)
         final_fresh = self._filter_by_freshness(final_jobs)
         final_ready = filter_overlapping_jobs([j for j in final_fresh if j.status == PreaggregationJob.Status.READY])
-        return LazyComputationResult(ready=True, job_ids=[j.id for j in final_ready])
+        result = LazyComputationResult(ready=True, job_ids=[j.id for j in final_ready])
+        _log_execution("success", result)
+        return result
 
     def _try_mark_stale_job_as_failed(self, job: PreaggregationJob) -> bool:
         """

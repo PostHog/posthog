@@ -37,6 +37,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { slugify } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
@@ -108,6 +109,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { currentOrganization } = useValues(organizationLogic)
     const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
     const interProjectTransfersEnabled = useFeatureFlag('INTER_PROJECT_TRANSFERS')
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     const { tags } = useValues(tagsModel)
 
@@ -116,6 +118,7 @@ export function DashboardHeader(): JSX.Element | null {
     const [isPinned, setIsPinned] = useState(dashboard?.pinned)
 
     const [terraformModalOpen, setTerraformModalOpen] = useState(false)
+
     const isNewDashboard = useMemo(() => {
         if (!dashboard || dashboardLoading) {
             return false
@@ -454,6 +457,26 @@ export function DashboardHeader(): JSX.Element | null {
                 isLoading={dashboardLoading}
                 forceEdit={dashboardMode === DashboardMode.Edit || isNewDashboard}
                 renameDebounceMs={1000}
+                maxToolProps={
+                    dashboard && canEditDashboard && isRemovingSidePanelFlag
+                        ? {
+                              identifier: 'upsert_dashboard',
+                              context: {
+                                  current_dashboard: {
+                                      id: dashboard.id,
+                                      name: dashboard.name,
+                                      description: dashboard.description,
+                                      tags: dashboard.tags,
+                                  },
+                              },
+                              contextDescription: {
+                                  text: dashboard.name,
+                                  icon: iconForType('dashboard'),
+                              },
+                              callback: () => loadDashboard({ action: DashboardLoadAction.Update }),
+                          }
+                        : undefined
+                }
                 actions={
                     <>
                         {dashboardMode === DashboardMode.Edit ? (
@@ -572,7 +595,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                       }
                                                     : undefined
                                             }
-                                            active={!!dashboard && canEditDashboard}
+                                            active={!isRemovingSidePanelFlag && !!dashboard && canEditDashboard}
                                             callback={() => loadDashboard({ action: DashboardLoadAction.Update })}
                                             position="top-right"
                                         >
@@ -587,7 +610,9 @@ export function DashboardHeader(): JSX.Element | null {
                                                     data-attr="dashboard-add-graph-header"
                                                     size="small"
                                                 >
-                                                    <span className="pr-3">Add insight</span>
+                                                    <span className={cn('pr-3', isRemovingSidePanelFlag && 'pr-0')}>
+                                                        Add insight
+                                                    </span>
                                                 </LemonButton>
                                             </AccessControlAction>
                                         </MaxTool>
