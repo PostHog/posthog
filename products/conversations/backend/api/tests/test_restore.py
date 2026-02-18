@@ -432,8 +432,9 @@ class TestRestoreAPI(BaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @patch("products.conversations.backend.api.restore.RestoreRequestThrottle.allow_request", return_value=True)
     @patch("products.conversations.backend.api.restore.validate_origin", return_value=True)
-    def test_restore_request_url_domain_not_in_allowlist(self, mock_validate_origin):
+    def test_restore_request_url_domain_not_in_allowlist(self, mock_validate_origin, mock_throttle):
         """request_url domain must be in widget_domains allowlist when configured."""
         self.team.conversations_settings = {
             "widget_public_token": self.widget_token,
@@ -452,9 +453,10 @@ class TestRestoreAPI(BaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    @patch("products.conversations.backend.api.restore.RestoreRequestThrottle.allow_request", return_value=True)
     @patch("products.conversations.backend.api.restore.validate_origin", return_value=True)
     @patch("products.conversations.backend.api.restore.send_conversation_restore_email")
-    def test_restore_request_url_domain_allowed(self, mock_send_email, mock_validate_origin):
+    def test_restore_request_url_domain_allowed(self, mock_send_email, mock_validate_origin, mock_throttle):
         """request_url domain in allowlist should be accepted."""
         self.team.conversations_settings = {
             "widget_public_token": self.widget_token,
