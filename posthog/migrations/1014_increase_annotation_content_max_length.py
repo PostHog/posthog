@@ -12,6 +12,6 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name="annotation",
             name="content",
-            field=models.CharField(blank=True, max_length=1200, null=True),
+            field=models.CharField(blank=True, max_length=8192, null=True),
         ),
     ]
