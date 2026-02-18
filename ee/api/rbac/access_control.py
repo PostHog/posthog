@@ -413,7 +413,6 @@ class AccessControlViewSetMixin(_GenericViewSet):
     def access_control_defaults(self, request: Request, *args, **kwargs):
         team = cast(Team, self.team)  # type: ignore
         user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
-        team_id_str = str(team.id)  # type: ignore[attr-defined]
 
         default_access_controls = AccessControl.objects.filter(team=team, organization_member=None, role=None)
 
@@ -421,7 +420,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
         saved_resource_levels: dict[str, str] = {}
 
         for ac in default_access_controls:
-            if ac.resource == "project" and ac.resource_id == team_id_str:  # type: ignore[attr-defined]
+            if ac.resource == "project":
                 project_access_level = ac.access_level
             elif ac.resource_id is None and ac.resource in set(ACCESS_CONTROL_RESOURCES):
                 saved_resource_levels[ac.resource] = ac.access_level
@@ -450,13 +449,10 @@ class AccessControlViewSetMixin(_GenericViewSet):
     def access_control_roles(self, request: Request, *args, **kwargs):
         team = cast(Team, self.team)  # type: ignore
         user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
-        team_id_str = str(team.id)  # type: ignore[attr-defined]
 
         from django.db.models import Q
 
-        access_controls = AccessControl.objects.filter(team=team).filter(
-            Q(resource="project", resource_id=team_id_str) | Q(resource_id=None)
-        )
+        access_controls = AccessControl.objects.filter(team=team).filter(Q(resource="project") | Q(resource_id=None))
 
         # Build lookup dicts from saved access controls
         project_default_level: AccessControlLevel = default_access_level("project")
@@ -491,8 +487,8 @@ class AccessControlViewSetMixin(_GenericViewSet):
             project_role_level = role_project_overrides.get(rid)
             project_effective, project_reason = get_effective_access_level_for_role(
                 resource="project",
-                role_level=project_role_level,
                 default_level=project_default_level,
+                role_level=project_role_level,
             )
 
             resource_entries: dict[str, dict] = {}
@@ -501,13 +497,15 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 resource_default = resource_default_levels.get(resource, default_access_level(resource))
                 resource_effective, resource_reason = get_effective_access_level_for_role(
                     resource=resource,
-                    role_level=resource_role_level,
                     default_level=resource_default,
+                    role_level=resource_role_level,
                 )
                 resource_entries[resource] = {
                     "access_level": resource_role_level,
                     "effective_access_level": resource_effective,
                     "effective_access_level_reason": resource_reason,
+                    "minimum": minimum_access_level(resource),
+                    "maximum": highest_access_level(resource),
                 }
 
             results.append(
@@ -518,6 +516,8 @@ class AccessControlViewSetMixin(_GenericViewSet):
                         "access_level": project_role_level,
                         "effective_access_level": project_effective,
                         "effective_access_level_reason": project_reason,
+                        "minimum": minimum_access_level("project"),
+                        "maximum": highest_access_level("project"),
                     },
                     "resources": resource_entries,
                 }
@@ -537,13 +537,10 @@ class AccessControlViewSetMixin(_GenericViewSet):
     def access_control_members(self, request: Request, *args, **kwargs):
         team = cast(Team, self.team)  # type: ignore
         user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
-        team_id_str = str(team.id)  # type: ignore[attr-defined]
 
         from django.db.models import Q
 
-        access_controls = AccessControl.objects.filter(team=team).filter(
-            Q(resource="project", resource_id=team_id_str) | Q(resource_id=None)
-        )
+        access_controls = AccessControl.objects.filter(team=team).filter(Q(resource="project") | Q(resource_id=None))
 
         # Build lookup dicts from saved access controls
         project_default_level: AccessControlLevel = default_access_level("project")
@@ -595,9 +592,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
             ]
             project_effective, project_reason = get_effective_access_level_for_member(
                 resource="project",
-                member_level=project_member_level,
                 default_level=project_default_level,
                 role_levels=project_role_levels,
+                member_level=project_member_level,
                 is_org_admin=is_org_admin,
             )
 
@@ -612,15 +609,17 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 ]
                 resource_effective, resource_reason = get_effective_access_level_for_member(
                     resource=resource,
-                    member_level=resource_member_level,
                     default_level=resource_default,
                     role_levels=resource_role_levels,
+                    member_level=resource_member_level,
                     is_org_admin=is_org_admin,
                 )
                 resource_entries[resource] = {
                     "access_level": resource_member_level,
                     "effective_access_level": resource_effective,
                     "effective_access_level_reason": resource_reason,
+                    "minimum": minimum_access_level(resource),
+                    "maximum": highest_access_level(resource),
                 }
 
             user = membership.user
@@ -637,6 +636,8 @@ class AccessControlViewSetMixin(_GenericViewSet):
                         "access_level": project_member_level,
                         "effective_access_level": project_effective,
                         "effective_access_level_reason": project_reason,
+                        "minimum": minimum_access_level("project"),
+                        "maximum": highest_access_level("project"),
                     },
                     "resources": resource_entries,
                 }

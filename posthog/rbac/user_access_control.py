@@ -159,8 +159,8 @@ def access_level_satisfied_for_resource(
 
 def get_effective_access_level_for_role(
     resource: APIScopeObject,
-    role_level: AccessControlLevel | None,
     default_level: AccessControlLevel,
+    role_level: AccessControlLevel | None,
 ) -> tuple[AccessControlLevel, EffectiveAccessLevelReason]:
     """
     Compute effective access for a role from role override and default.
@@ -178,9 +178,9 @@ def get_effective_access_level_for_role(
 
 def get_effective_access_level_for_member(
     resource: APIScopeObject,
-    member_level: AccessControlLevel | None,
     default_level: AccessControlLevel,
     role_levels: list[AccessControlLevel],
+    member_level: AccessControlLevel | None,
     is_org_admin: bool,
 ) -> tuple[AccessControlLevel, EffectiveAccessLevelReason]:
     """
