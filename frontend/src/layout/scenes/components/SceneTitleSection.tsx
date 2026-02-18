@@ -106,7 +106,7 @@ export function SceneTitlePanelButton({
                     }}
                     tooltip={
                         <>
-                            {sidePanelOpen ? 'Close context panel' : 'Open context panel'}{' '}
+                            Open context panel
                             <RenderKeybind className="relative -top-px" keybind={[keyBinds.toggleRightNav]} />
                         </>
                     }
