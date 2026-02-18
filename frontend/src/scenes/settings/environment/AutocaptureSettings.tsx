@@ -3,6 +3,8 @@ import { SupportedWebVitalsMetrics } from 'posthog-js'
 
 import { LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -11,6 +13,10 @@ function WebVitalsAllowedMetricSwitch({ metric }: { metric: SupportedWebVitalsMe
     const { userLoading } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     return (
         <LemonSwitch
@@ -25,7 +31,7 @@ function WebVitalsAllowedMetricSwitch({ metric }: { metric: SupportedWebVitalsMe
                 userLoading
                     ? 'Loading user'
                     : currentTeam?.autocapture_web_vitals_opt_in
-                      ? null
+                      ? restrictedReason
                       : 'Enable web vitals autocapture to set allowed metrics'
             }
             onChange={(checked) => {
@@ -56,6 +62,10 @@ export function AutocaptureSettings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { reportAutocaptureToggled } = useActions(eventUsageLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     return (
         <>
@@ -70,6 +80,7 @@ export function AutocaptureSettings(): JSX.Element {
                     }}
                     checked={!currentTeam?.autocapture_opt_out}
                     disabled={userLoading}
+                    disabledReason={restrictedReason}
                     label="Enable autocapture for web"
                     bordered
                 />
@@ -82,6 +93,10 @@ export function WebVitalsAutocaptureSettings(): JSX.Element {
     const { userLoading } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     return (
         <>
@@ -94,6 +109,7 @@ export function WebVitalsAutocaptureSettings(): JSX.Element {
                 }}
                 checked={!!currentTeam?.autocapture_web_vitals_opt_in}
                 disabled={userLoading}
+                disabledReason={restrictedReason}
                 label="Enable web vitals autocapture"
                 bordered
             />

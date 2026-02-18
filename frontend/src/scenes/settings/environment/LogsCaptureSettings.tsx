@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -12,6 +14,10 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 export function LogsCaptureSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     return (
         <AccessControlAction resourceType={AccessControlResourceType.Logs} minAccessLevel={AccessControlLevel.Editor}>
@@ -26,6 +32,7 @@ export function LogsCaptureSettings(): JSX.Element {
                 bordered
                 checked={!!currentTeam?.logs_settings?.capture_console_logs}
                 loading={currentTeamLoading}
+                disabledReason={restrictedReason}
             />
         </AccessControlAction>
     )
@@ -34,6 +41,10 @@ export function LogsCaptureSettings(): JSX.Element {
 export function LogsJsonParseSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const isJsonParseLogs = currentTeam?.logs_settings?.json_parse_logs ?? true
 
@@ -54,6 +65,7 @@ export function LogsJsonParseSettings(): JSX.Element {
                     bordered
                     checked={isJsonParseLogs}
                     loading={currentTeamLoading}
+                    disabledReason={restrictedReason}
                 />
             </AccessControlAction>
         </>
@@ -63,6 +75,10 @@ export function LogsJsonParseSettings(): JSX.Element {
 export function LogsRetentionSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const savedRetentionDays = currentTeam?.logs_settings?.retention_days ?? 15
     const retentionLastUpdated = currentTeam?.logs_settings?.retention_last_updated
@@ -126,6 +142,7 @@ export function LogsRetentionSettings(): JSX.Element {
                     min={2}
                     max={90}
                     suffix={<>days</>}
+                    disabledReason={restrictedReason}
                 />
                 {retentionDays < 15 && (
                     <LemonBanner type="info">
@@ -139,7 +156,7 @@ export function LogsRetentionSettings(): JSX.Element {
                     type="primary"
                     onClick={handleSave}
                     loading={currentTeamLoading}
-                    disabledReason={getDisabledReason()}
+                    disabledReason={restrictedReason ?? getDisabledReason()}
                     data-attr="logs-retention-save"
                 >
                     Save retention settings
