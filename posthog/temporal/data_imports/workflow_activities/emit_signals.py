@@ -270,6 +270,7 @@ async def _emit_signals(
                     source_id=output.source_id,
                     description=output.description,
                     weight=output.weight,
+                    # TODO: Add limits on extra to avoid hitting Temporal limits
                     extra=output.extra,
                 )
                 return True
