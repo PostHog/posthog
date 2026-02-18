@@ -7,11 +7,19 @@ use anyhow::Error;
 use async_trait::async_trait;
 use common_types::{InternallyCapturedEvent, RawEvent};
 use posthog_rs::{Client, Event};
-use tracing::info;
+use tracing::{info, warn};
 
-use crate::error::RateLimitedError;
+use crate::job::backoff::BackoffPolicy;
 
 use super::{Emitter, Transaction};
+
+const MAX_RETRIES: u32 = 5;
+
+/// Retry policy for transient HTTP errors from the capture service. Starts at
+/// 1 second and doubles up to 30 seconds, giving roughly a minute of total
+/// retry time before surfacing the error.
+const RETRY_POLICY: BackoffPolicy =
+    BackoffPolicy::new(Duration::from_secs(1), 2.0, Duration::from_secs(30));
 
 pub struct CaptureEmitter {
     client: Client,
@@ -23,6 +31,7 @@ pub struct CaptureTransaction<'a> {
     send_rate: u64,
     start: Instant,
     events: Mutex<Vec<Event>>,
+    retry_policy: BackoffPolicy,
 }
 
 impl CaptureEmitter {
@@ -39,6 +48,7 @@ impl Emitter for CaptureEmitter {
             send_rate: self.send_rate,
             start: Instant::now(),
             events: Mutex::new(Vec::new()),
+            retry_policy: RETRY_POLICY,
         }))
     }
 }
@@ -78,6 +88,13 @@ fn convert_event(ice: &InternallyCapturedEvent) -> Result<Event, Error> {
     Ok(event)
 }
 
+fn is_retryable(err: &posthog_rs::Error) -> bool {
+    matches!(
+        err,
+        posthog_rs::Error::RateLimit { .. } | posthog_rs::Error::ServerError { .. }
+    )
+}
+
 #[async_trait]
 impl<'a> Transaction<'a> for CaptureTransaction<'a> {
     async fn emit(&self, data: &[InternallyCapturedEvent]) -> Result<(), Error> {
@@ -103,24 +120,37 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
         let to_sleep = min_duration.saturating_sub(txn_elapsed);
 
         info!(
-            "sending {} events to capture in {:?}, minimum send duration is {:?}, sleeping for {:?}",
-            count, txn_elapsed, min_duration, to_sleep
+            "sending {count} events to capture in {txn_elapsed:?}, minimum send duration is {min_duration:?}, sleeping for {to_sleep:?}"
         );
 
-        let result = self.client.capture_batch(events, true).await;
-
-        match result {
-            Ok(()) => {
-                info!("successfully sent batch to capture");
-                Ok(to_sleep)
+        for attempt in 0..=MAX_RETRIES {
+            match self.client.capture_batch(events.clone(), true).await {
+                Ok(()) => break,
+                Err(e) if is_retryable(&e) && attempt < MAX_RETRIES => {
+                    // Prefer the server's Retry-After hint when present (capped
+                    // to our max delay), otherwise fall back to exponential backoff.
+                    let delay = match &e {
+                        posthog_rs::Error::RateLimit {
+                            retry_after: Some(ra),
+                        } => (*ra).min(self.retry_policy.max_delay),
+                        _ => self.retry_policy.next_delay(attempt),
+                    };
+                    warn!(
+                        "transient capture error, retrying (attempt {attempt}/{MAX_RETRIES}, delay {delay:?}): {e}"
+                    );
+                    tokio::time::sleep(delay).await;
+                }
+                Err(e) => {
+                    return Err(Error::msg(format!(
+                        "capture batch failed after {} attempts: {e}",
+                        attempt + 1
+                    )));
+                }
             }
-            Err(e @ posthog_rs::Error::RateLimit { retry_after }) => Err(RateLimitedError {
-                retry_after,
-                source: Box::new(e),
-            }
-            .into()),
-            Err(e) => Err(Error::msg(e.to_string())),
         }
+
+        info!("successfully sent batch to capture");
+        Ok(to_sleep)
     }
 }
 
@@ -234,5 +264,121 @@ mod tests {
         assert_eq!(get_min_txn_duration(1000, 500), Duration::from_millis(500));
         assert_eq!(get_min_txn_duration(1000, 1000), Duration::from_secs(1));
         assert_eq!(get_min_txn_duration(500, 1000), Duration::from_secs(2));
+    }
+
+    #[test]
+    fn test_is_retryable() {
+        assert!(is_retryable(&posthog_rs::Error::RateLimit {
+            retry_after: None
+        }));
+        assert!(is_retryable(&posthog_rs::Error::ServerError {
+            status: 500,
+            message: "internal".to_string()
+        }));
+        assert!(!is_retryable(&posthog_rs::Error::BadRequest(
+            "bad".to_string()
+        )));
+        assert!(!is_retryable(&posthog_rs::Error::Connection(
+            "timeout".to_string()
+        )));
+    }
+
+    async fn make_client(base_url: &str) -> Client {
+        let options: posthog_rs::ClientOptions = ("test_api_key", base_url).into();
+        posthog_rs::client(options).await
+    }
+
+    fn make_transaction(client: &Client) -> Box<CaptureTransaction<'_>> {
+        let mut event = Event::new("test", "user1");
+        event.insert_prop("key", "value").unwrap();
+
+        Box::new(CaptureTransaction {
+            client,
+            send_rate: 10_000,
+            start: Instant::now(),
+            events: Mutex::new(vec![event]),
+            retry_policy: BackoffPolicy::new(Duration::ZERO, 1.0, Duration::ZERO),
+        })
+    }
+
+    #[tokio::test]
+    async fn test_commit_write_succeeds_on_first_try() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/batch/")
+            .with_status(200)
+            .expect(1)
+            .create();
+
+        let client = make_client(&server.url()).await;
+        let txn = make_transaction(&client);
+
+        let result = txn.commit_write().await;
+        assert!(result.is_ok());
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_commit_write_retries_on_500_then_succeeds() {
+        let mut server = mockito::Server::new_async().await;
+        let fail_mock = server
+            .mock("POST", "/batch/")
+            .with_status(500)
+            .with_body("internal error")
+            .expect(2)
+            .create();
+        let success_mock = server
+            .mock("POST", "/batch/")
+            .with_status(200)
+            .expect(1)
+            .create();
+
+        let client = make_client(&server.url()).await;
+        let txn = make_transaction(&client);
+
+        let result = txn.commit_write().await;
+        assert!(result.is_ok());
+        fail_mock.assert();
+        success_mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_commit_write_fails_immediately_on_400() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/batch/")
+            .with_status(400)
+            .with_body("bad request")
+            .expect(1)
+            .create();
+
+        let client = make_client(&server.url()).await;
+        let txn = make_transaction(&client);
+
+        let result = txn.commit_write().await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("after 1 attempts"));
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_commit_write_exhausts_retries_on_persistent_500() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/batch/")
+            .with_status(500)
+            .with_body("internal error")
+            .expect((MAX_RETRIES + 1) as usize)
+            .create();
+
+        let client = make_client(&server.url()).await;
+        let txn = make_transaction(&client);
+
+        let result = txn.commit_write().await;
+        assert!(result.is_err());
+        mock.assert();
     }
 }

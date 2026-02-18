@@ -51,3 +51,4 @@ posthog-rs = { workspace = true }
 [dev-dependencies]
 httpmock = { workspace = true }
 flate2 = { workspace = true }
+mockito = { workspace = true }

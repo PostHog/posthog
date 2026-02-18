@@ -41,7 +41,7 @@ pub fn get_user_message(error: &anyhow::Error) -> String {
 pub struct RateLimitedError {
     pub retry_after: Option<Duration>,
     #[source]
-    pub source: Box<dyn std::error::Error + Send + Sync + 'static>,
+    pub source: reqwest::Error,
 }
 
 /// Extracts a Retry-After duration if a RateLimitedError is present in the error chain
