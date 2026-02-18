@@ -239,14 +239,13 @@ class AccessControlViewSetMixin(_GenericViewSet):
         resource_id = obj.id
 
         if is_resource_level:
-            # resource_id=None: type-level rules (e.g. "dashboards → editor for everyone"), not tied to a specific object
+            # If resource level then we are getting all controls for the project that aren't specific to a resource
             access_controls = AccessControl.objects.filter(team=team, resource_id=None).all()
         else:
-            # resource_id set: object-level rules for this specific resource instance (e.g. project, notebook #123)
+            # Otherwise we are getting all controls for the specific resource
             access_controls = AccessControl.objects.filter(team=team, resource=resource, resource_id=resource_id).all()
 
         serializer = self._get_access_control_serializer(instance=access_controls, many=True)
-
         user_access_level = user_access_control.get_user_access_level(obj)
 
         return Response(
