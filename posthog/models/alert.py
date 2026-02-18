@@ -69,24 +69,6 @@ class Threshold(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     ALERTS_ALLOWED_ON_FREE_TIER = 2
 
-    @classmethod
-    def check_alert_limit(cls, team_id: int, organization) -> str | None:
-        """Check if the team has reached its alert limit. Returns an error message or None."""
-        from posthog.constants import AvailableFeature
-
-        alerts_feature = organization.get_available_feature(AvailableFeature.ALERTS)
-        existing_count = cls.objects.filter(team_id=team_id).count()
-
-        if alerts_feature:
-            allowed = alerts_feature.get("limit")
-            if allowed is not None and existing_count >= allowed:
-                return f"Your team has reached the limit of {allowed} alerts on your plan."
-        else:
-            if existing_count >= cls.ALERTS_ALLOWED_ON_FREE_TIER:
-                return f"Your plan is limited to {cls.ALERTS_ALLOWED_ON_FREE_TIER} alerts."
-
-        return None
-
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
 
@@ -151,6 +133,26 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
                 kwargs["update_fields"].append("state")
 
         super().save(*args, **kwargs)
+
+    @classmethod
+    def check_alert_limit(cls, team_id: int, organization) -> str | None:
+        """Check if the team has reached its alert limit. Returns an error message or None."""
+        from posthog.constants import AvailableFeature
+
+        alerts_feature = organization.get_available_feature(AvailableFeature.ALERTS)
+        existing_count = cls.objects.filter(team_id=team_id).count()
+
+        if alerts_feature:
+            allowed = alerts_feature.get("limit")
+            # If allowed_alerts_count is None then the user is allowed unlimited alertss
+            if allowed is not None and existing_count >= allowed:
+                return f"Your team has reached the limit of {allowed} alerts on your plan."
+        else:
+            # If the org doesn't have alerts feature, limit to that on free tier
+            if existing_count >= cls.ALERTS_ALLOWED_ON_FREE_TIER:
+                return f"Your plan is limited to {cls.ALERTS_ALLOWED_ON_FREE_TIER} alerts."
+
+        return None
 
 
 class AlertSubscription(ModelActivityMixin, CreatedMetaFields, UUIDTModel):

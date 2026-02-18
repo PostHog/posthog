@@ -1997,7 +1997,7 @@
                 "manage_memories",
                 "create_notebook",
                 "list_data",
-                "create_alert",
+                "upsert_alert",
                 "finalize_plan"
             ],
             "type": "string"
