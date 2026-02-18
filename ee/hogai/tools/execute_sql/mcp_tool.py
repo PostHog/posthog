@@ -11,7 +11,7 @@ class ExecuteSQLMCPToolArgs(BaseModel):
     query: str = Field(description="The final SQL query to be executed.")
     truncate: bool = Field(
         default=True,
-        description="Whether to truncate large JSON values in results. Set to false for full untruncated results.",
+        description="Whether to truncate large blob/JSON values in results. Set to false for full untruncated results.",
     )
 
 
