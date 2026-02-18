@@ -362,7 +362,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
                                 {x.description}
                                 {x.docsUrl && (
                                     <>
-                                        {' '}
+                                        &nbsp;
                                         <Link to={x.docsUrl} target="_blank" data-attr={`settings-docs-link-${x.id}`}>
                                             Docs
                                         </Link>
