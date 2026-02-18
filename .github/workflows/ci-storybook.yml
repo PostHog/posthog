@@ -155,7 +155,7 @@ jobs:
         if: needs.changes.outputs.frontend == 'true'
         timeout-minutes: 60
         container:
-            image: mcr.microsoft.com/playwright:v1.45.0
+            image: mcr.microsoft.com/playwright:v1.55.1
         strategy:
             fail-fast: false
             matrix:
