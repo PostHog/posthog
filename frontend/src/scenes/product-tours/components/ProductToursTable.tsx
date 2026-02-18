@@ -27,7 +27,6 @@ import { urls } from 'scenes/urls'
 
 import { ProductTour, ProgressStatus } from '~/types'
 
-import { productTourLogic } from '../productTourLogic'
 import {
     ProductToursTabs,
     getProductTourStatus,
@@ -36,9 +35,16 @@ import {
     productToursLogic,
 } from '../productToursLogic'
 
-export function ProductTourStatusTag({ tour }: { tour: ProductTour }): JSX.Element {
+export function ProductTourStatusTag({
+    tour,
+    isEditing,
+    draftSaveStatus,
+}: {
+    tour: ProductTour
+    isEditing?: boolean
+    draftSaveStatus?: 'unsaved' | 'saving' | 'saved' | null
+}): JSX.Element {
     const status = getProductTourStatus(tour)
-    const { isEditingProductTour, draftSaveStatus } = useValues(productTourLogic({ id: tour.id }))
 
     const statusConfig: Record<
         ProgressStatus,
@@ -52,7 +58,7 @@ export function ProductTourStatusTag({ tour }: { tour: ProductTour }): JSX.Eleme
     const config = statusConfig[status]
     return (
         <LemonTag type={config.type}>
-            {isEditingProductTour && (
+            {isEditing && (
                 <>
                     {draftSaveStatus === 'unsaved' && <IconCircleDashed />}
                     {draftSaveStatus === 'saving' && <Spinner />}

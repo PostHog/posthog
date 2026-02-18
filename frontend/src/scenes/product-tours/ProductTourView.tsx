@@ -303,7 +303,7 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
             />
 
             {hasDraft && (
-                <LemonBanner type="info" className="mb-4" dismissKey={`product-tour-draft-${id}`}>
+                <LemonBanner type="info" className="mb-4">
                     <div className="flex items-center justify-between w-full">
                         <span>You have unsaved changes</span>
                         <div className="flex items-center gap-2">

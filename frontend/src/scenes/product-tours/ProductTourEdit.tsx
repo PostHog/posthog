@@ -15,7 +15,9 @@ import { ProductTourStepsEditor } from './editor'
 import { productTourLogic } from './productTourLogic'
 
 export function ProductTourEdit({ id }: { id: string }): JSX.Element {
-    const { productTour, productTourForm } = useValues(productTourLogic({ id }))
+    const { productTour, productTourForm, isEditingProductTour, draftSaveStatus, draftActionInProgress } = useValues(
+        productTourLogic({ id })
+    )
     const { discardDraft, publishDraft, setProductTourFormValue, openToolbarModal } = useActions(
         productTourLogic({ id })
     )
@@ -41,14 +43,30 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                     }}
                     actions={
                         <div className="flex items-center gap-2">
-                            <ProductTourStatusTag tour={productTour} />
+                            <ProductTourStatusTag
+                                tour={productTour}
+                                isEditing={isEditingProductTour}
+                                draftSaveStatus={draftSaveStatus}
+                            />
                             <LemonButton type="secondary" size="small" onClick={() => openToolbarModal('preview')}>
                                 Preview
                             </LemonButton>
-                            <LemonButton type="secondary" size="small" onClick={discardDraft}>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={discardDraft}
+                                loading={draftActionInProgress === 'discard'}
+                                disabledReason={draftActionInProgress ? 'Discarding draft...' : undefined}
+                            >
                                 Cancel
                             </LemonButton>
-                            <LemonButton type="primary" size="small" onClick={publishDraft}>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={publishDraft}
+                                loading={draftActionInProgress === 'publish'}
+                                disabledReason={draftActionInProgress ? 'Saving...' : undefined}
+                            >
                                 Save
                             </LemonButton>
                         </div>

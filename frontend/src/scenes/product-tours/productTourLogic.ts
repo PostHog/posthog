@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
@@ -184,8 +184,10 @@ export const productTourLogic = kea<productTourLogicType>([
         publishDraft: true,
         discardDraft: true,
         draftAutoSave: true,
+        setDraftActionInProgress: (action: 'publish' | 'discard' | null) => ({ action }),
         openToolbarModal: (toolbarMode?: 'preview' | 'edit') => ({ toolbarMode: toolbarMode ?? 'edit' }),
         closeToolbarModal: true,
+        handleToolbarTabVisibility: true,
     }),
     loaders(({ props, values }) => ({
         productTour: {
@@ -443,6 +445,12 @@ export const productTourLogic = kea<productTourLogicType>([
                 editingProductTour: () => null,
             },
         ],
+        draftActionInProgress: [
+            null as 'publish' | 'discard' | null,
+            {
+                setDraftActionInProgress: (_, { action }) => action,
+            },
+        ],
     }),
     listeners(({ actions, values, props, cache }) => ({
         updateSelectedStep: ({ updates }) => {
@@ -468,6 +476,7 @@ export const productTourLogic = kea<productTourLogicType>([
             if (!values.productTour) {
                 return
             }
+            actions.setDraftActionInProgress('publish')
             try {
                 await api.productTours.publishDraft(values.productTour.id, buildDraftPayload(values.productTourForm))
                 lemonToast.success('Product tour saved')
@@ -476,17 +485,26 @@ export const productTourLogic = kea<productTourLogicType>([
                 actions.loadProductTours()
             } catch (e: any) {
                 lemonToast.error(e.detail || 'Failed to save product tour')
+            } finally {
+                actions.setDraftActionInProgress(null)
             }
         },
         discardDraft: async () => {
             if (!values.productTour) {
                 return
             }
-            if (values.hasDraft) {
-                await api.productTours.discardDraft(values.productTour.id)
-                actions.loadProductTour()
+            actions.setDraftActionInProgress('discard')
+            try {
+                if (values.hasDraft) {
+                    await api.productTours.discardDraft(values.productTour.id)
+                    actions.loadProductTour()
+                }
+                actions.editingProductTour(false)
+            } catch (e: any) {
+                lemonToast.error(e.detail || 'Failed to discard draft')
+            } finally {
+                actions.setDraftActionInProgress(null)
             }
-            actions.editingProductTour(false)
         },
         launchProductTour: async () => {
             if (values.productTour) {
@@ -523,9 +541,13 @@ export const productTourLogic = kea<productTourLogicType>([
                 actions.reportProductTourViewed(productTour)
 
                 const formValues = tourToFormValues(productTour)
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                ;(actions.setProductTourFormValues as any)(formValues)
-                cache.lastDraftPayload = buildDraftPayload(formValues)
+                const incomingPayload = buildDraftPayload(formValues)
+                const isOwnEcho = values.isEditingProductTour && isEqual(incomingPayload, cache.lastDraftPayload)
+                if (!isOwnEcho) {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    ;(actions.setProductTourFormValues as any)(formValues)
+                    cache.lastDraftPayload = incomingPayload
+                }
             }
             if (!values.dateRange) {
                 actions.setDateRange({
@@ -538,43 +560,22 @@ export const productTourLogic = kea<productTourLogicType>([
         },
         editingProductTour: ({ editing }) => {
             if (editing && props.id !== 'new') {
-                const canFetch = (): boolean =>
-                    values.draftSaveStatus !== 'unsaved' && values.draftSaveStatus !== 'saving'
+                cache.disposables.add(() => {
+                    const canFetch = (): boolean =>
+                        values.draftSaveStatus !== 'unsaved' && values.draftSaveStatus !== 'saving'
 
-                const startPolling = (): void => {
-                    if (cache.pollInterval) {
-                        clearInterval(cache.pollInterval)
+                    if (canFetch()) {
+                        actions.loadProductTour()
                     }
-                    cache.pollInterval = setInterval(() => {
+                    const intervalId = setInterval(() => {
                         if (canFetch()) {
                             actions.loadProductTour()
                         }
                     }, 3000)
-                }
-
-                cache.handleVisibilityChange = (): void => {
-                    if (document.visibilityState === 'visible') {
-                        if (canFetch()) {
-                            actions.loadProductTour()
-                        }
-                        startPolling()
-                    } else {
-                        clearInterval(cache.pollInterval)
-                        cache.pollInterval = null
-                    }
-                }
-                document.addEventListener('visibilitychange', cache.handleVisibilityChange)
-
-                startPolling()
+                    return () => clearInterval(intervalId)
+                }, 'draftPoll')
             } else if (!editing) {
-                if (cache.handleVisibilityChange) {
-                    document.removeEventListener('visibilitychange', cache.handleVisibilityChange)
-                    cache.handleVisibilityChange = null
-                }
-                if (cache.pollInterval) {
-                    clearInterval(cache.pollInterval)
-                    cache.pollInterval = null
-                }
+                cache.disposables.dispose('draftPoll')
             }
         },
         draftAutoSave: async (_, breakpoint) => {
@@ -585,6 +586,27 @@ export const productTourLogic = kea<productTourLogicType>([
         },
         setDateRange: () => {
             actions.loadTourStats()
+        },
+        openToolbarModal: () => {
+            cache.disposables.add(
+                () => {
+                    const handler = (): void => {
+                        if (document.visibilityState === 'hidden') {
+                            actions.handleToolbarTabVisibility()
+                        }
+                    }
+                    document.addEventListener('visibilitychange', handler)
+                    return () => document.removeEventListener('visibilitychange', handler)
+                },
+                'toolbarModalVisibility',
+                { pauseOnPageHidden: false }
+            )
+        },
+        closeToolbarModal: () => {
+            cache.disposables.dispose('toolbarModalVisibility')
+        },
+        handleToolbarTabVisibility: () => {
+            actions.closeToolbarModal()
         },
     })),
     selectors({
@@ -701,16 +723,6 @@ export const productTourLogic = kea<productTourLogicType>([
     afterMount(({ actions, props }) => {
         if (props.id !== 'new') {
             actions.loadProductTour()
-        }
-    }),
-    beforeUnmount(({ cache }) => {
-        if (cache.handleVisibilityChange) {
-            document.removeEventListener('visibilitychange', cache.handleVisibilityChange)
-            cache.handleVisibilityChange = null
-        }
-        if (cache.pollInterval) {
-            clearInterval(cache.pollInterval)
-            cache.pollInterval = null
         }
     }),
 ])
