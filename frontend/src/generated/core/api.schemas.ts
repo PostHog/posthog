@@ -597,6 +597,31 @@ export interface PatchedOrganizationMemberApi {
 }
 
 /**
+ * Serializer for organization-scoped OAuth applications (read-only).
+ */
+export interface OrganizationOAuthApplicationApi {
+    readonly id: string
+    /** @maxLength 255 */
+    name?: string
+    /** @maxLength 100 */
+    client_id?: string
+    readonly redirect_uris_list: readonly string[]
+    /** True if this application has been verified by PostHog */
+    is_verified?: boolean
+    readonly created: string
+    readonly updated: string
+}
+
+export interface PaginatedOrganizationOAuthApplicationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OrganizationOAuthApplicationApi[]
+}
+
+/**
  * * `Africa/Abidjan` - Africa/Abidjan
  * `Africa/Accra` - Africa/Accra
  * `Africa/Addis_Ababa` - Africa/Addis_Ababa
@@ -3013,6 +3038,17 @@ export type InvitesListParams = {
 }
 
 export type MembersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type OauthApplicationsListParams = {
     /**
      * Number of results to return per page.
      */

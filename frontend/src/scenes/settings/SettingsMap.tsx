@@ -1391,9 +1391,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'organization-oauth-apps-list',
                 title: 'OAuth applications',
-                description:
-                    'Create and manage OAuth applications that allow third-party services to authenticate with PostHog on behalf of your users.',
-                docsUrl: 'https://posthog.com/docs/api/oauth',
+                description: 'View applications that have been authorized to connect to your organization.',
                 component: <OAuthApps />,
                 keywords: ['oauth', 'app', 'client', 'integration', 'api', 'authentication', 'third-party'],
             },

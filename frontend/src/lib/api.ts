@@ -18,6 +18,7 @@ import { SessionSummaryContent } from 'scenes/session-recordings/player/player-m
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     AnyResponseType,
@@ -149,7 +150,6 @@ import {
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     type OAuthApplicationPublicMetadata,
-    OAuthApplicationType,
     ObjectMediaPreview,
     OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
@@ -1503,10 +1503,6 @@ export class ApiRequest {
     // # Organization OAuth Applications
     public organizationOAuthApplications(): ApiRequest {
         return this.organizations().current().addPathComponent('oauth_applications')
-    }
-
-    public organizationOAuthApplicationDetail(id: OAuthApplicationType['id']): ApiRequest {
-        return this.organizationOAuthApplications().addPathComponent(id)
     }
 
     public media(teamId?: TeamType['id']): ApiRequest {
@@ -4906,29 +4902,8 @@ const api = {
     },
 
     organizationOAuthApplications: {
-        async list(): Promise<PaginatedResponse<OAuthApplicationType>> {
+        async list(): Promise<PaginatedResponse<OrganizationOAuthApplicationApi>> {
             return await new ApiRequest().organizationOAuthApplications().get()
-        },
-        async get(id: OAuthApplicationType['id']): Promise<OAuthApplicationType> {
-            return await new ApiRequest().organizationOAuthApplicationDetail(id).get()
-        },
-        async create(data: { name: string; redirect_uris_list: string[] }): Promise<OAuthApplicationType> {
-            return await new ApiRequest().organizationOAuthApplications().create({ data })
-        },
-        async update(
-            id: OAuthApplicationType['id'],
-            data: {
-                name?: string
-                redirect_uris_list?: string[]
-            }
-        ): Promise<OAuthApplicationType> {
-            return await new ApiRequest().organizationOAuthApplicationDetail(id).update({ data })
-        },
-        async delete(id: OAuthApplicationType['id']): Promise<void> {
-            return await new ApiRequest().organizationOAuthApplicationDetail(id).delete()
-        },
-        async rotateSecret(id: OAuthApplicationType['id']): Promise<OAuthApplicationType> {
-            return await new ApiRequest().organizationOAuthApplicationDetail(id).withAction('rotate_secret').create()
         },
     },
 
