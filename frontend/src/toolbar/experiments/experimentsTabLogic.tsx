@@ -221,6 +221,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                     }
                 }
                 const response: WebExperiment = await res.json()
+                breakpoint() // guard against stale async after unmount
 
                 experimentsLogic.actions.updateExperiment({ experiment: response })
                 actions.selectExperiment(null)
@@ -231,7 +232,6 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                         action: () => window.open(joinWithUiHost(uiHost, urls.experiment(response.id)), '_blank'),
                     },
                 })
-                breakpoint()
             },
 
             // whether we show errors after touch (true) or submit (false)

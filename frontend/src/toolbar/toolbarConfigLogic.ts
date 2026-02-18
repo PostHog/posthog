@@ -32,12 +32,10 @@ async function withTokenRefresh(
 
     try {
         const tokens = await refreshOAuthTokens(uiHost, clientId, refreshToken)
-        toolbarConfigLogic.actions.setOAuthTokens(
-            tokens.access_token,
-            tokens.refresh_token,
-            tokens.expires_in,
-            clientId
-        )
+        if (!toolbarConfigLogic.findMounted()) {
+            return response
+        }
+        toolbarConfigLogic.actions.setOAuthTokens(tokens.access_token, tokens.refresh_token, clientId)
         return await retryRequest(tokens.access_token)
     } catch {
         toolbarConfigLogic.actions.tokenExpired()
@@ -51,16 +49,16 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
     actions({
         authenticate: true,
+        migrateToOAuth: true,
         logout: true,
         tokenExpired: true,
         clearUserIntent: true,
         showButton: true,
         hideButton: true,
         persistConfig: true,
-        setOAuthTokens: (accessToken: string, refreshToken: string, expiresIn: number, clientId: string) => ({
+        setOAuthTokens: (accessToken: string, refreshToken: string, clientId: string) => ({
             accessToken,
             refreshToken,
-            expiresIn,
             clientId,
         }),
     }),
@@ -70,7 +68,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         props: [props],
         temporaryToken: [
             props.temporaryToken || null,
-            { logout: () => null, tokenExpired: () => null, authenticate: () => null },
+            { logout: () => null, tokenExpired: () => null, authenticate: () => null, setOAuthTokens: () => null },
         ],
         accessToken: [
             props.accessToken || null,
@@ -155,13 +153,19 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             const encodedUrl = encodeURIComponent(window.location.href)
             actions.persistConfig()
 
-            if (values.temporaryToken) {
-                // Legacy flow: full-page redirect
-                window.location.href = `${values.uiHost}/authorize_and_redirect/?redirect=${encodedUrl}`
-            } else {
-                // OAuth flow: popup window
-                const authUrl = `${values.uiHost}/toolbar_oauth/authorize/?redirect=${encodedUrl}`
-                window.open(authUrl, 'posthog_toolbar_oauth', 'width=600,height=700')
+            const authUrl = `${values.uiHost}/toolbar_oauth/authorize/?redirect=${encodedUrl}`
+            const popup = window.open(authUrl, 'posthog_toolbar_oauth', 'width=600,height=700')
+            if (!popup) {
+                lemonToast.error('Popup was blocked. Please allow popups for this site to authenticate.')
+            }
+        },
+        migrateToOAuth: () => {
+            toolbarPosthogJS.capture('toolbar migrate to oauth')
+            const encodedUrl = encodeURIComponent(window.location.href)
+            const authUrl = `${values.uiHost}/toolbar_oauth/authorize/?redirect=${encodedUrl}`
+            const popup = window.open(authUrl, 'posthog_toolbar_oauth', 'width=600,height=700')
+            if (!popup) {
+                lemonToast.info('Please click "Authenticate" to upgrade your toolbar session.')
             }
         },
         logout: () => {
@@ -171,9 +175,9 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         },
         tokenExpired: () => {
             toolbarPosthogJS.capture('toolbar token expired')
-            console.warn('PostHog Toolbar API token expired. Clearing session.')
+            console.warn('PostHog Toolbar session expired. Clearing session.')
             if (values.props.source !== 'localstorage') {
-                lemonToast.error('PostHog Toolbar API token expired.')
+                lemonToast.error('Please re-authenticate to continue using the toolbar.')
             }
             localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
             actions.persistConfig()
@@ -216,16 +220,18 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     })),
 
     afterMount(({ props, values, actions, cache }) => {
-        // Restore OAuth tokens from separate storage if not provided in props.
+        // Always try to restore OAuth tokens from separate storage.
         // posthog-js overwrites LOCALSTORAGE_KEY with hash params on each launch,
         // losing the OAuth tokens. This separate key survives that overwrite.
-        if (!values.accessToken && !values.temporaryToken) {
+        // We check even when temporaryToken exists (e.g. old bookmark) — stored
+        // OAuth tokens take precedence, and setOAuthTokens clears the temp token.
+        if (!values.accessToken) {
             try {
                 const stored = localStorage.getItem(OAUTH_LOCALSTORAGE_KEY)
                 if (stored) {
                     const { accessToken, refreshToken, clientId } = JSON.parse(stored)
                     if (accessToken && refreshToken && clientId) {
-                        actions.setOAuthTokens(accessToken, refreshToken, 0, clientId)
+                        actions.setOAuthTokens(accessToken, refreshToken, clientId)
                     }
                 }
             } catch {
@@ -234,11 +240,11 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         }
 
         // Migrate users from temporary tokens to OAuth.
-        // Temporary tokens are less secure (long-lived, stored in URL hash).
-        // tokenExpired() clears the token from state and localStorage, then shows
-        // the "token expired" toast which prompts the user to re-authenticate.
+        // If we still have a temp token but no OAuth tokens (after localStorage restoration),
+        // auto-open the OAuth popup. The temp token stays active so the toolbar
+        // remains functional while the popup completes.
         if (values.temporaryToken && !values.accessToken) {
-            actions.tokenExpired()
+            actions.migrateToOAuth()
         }
 
         if (props.instrument) {
@@ -266,12 +272,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 return
             }
             if (event.data.access_token) {
-                actions.setOAuthTokens(
-                    event.data.access_token,
-                    event.data.refresh_token,
-                    event.data.expires_in,
-                    event.data.client_id
-                )
+                actions.setOAuthTokens(event.data.access_token, event.data.refresh_token, event.data.client_id)
             }
         }
         window.addEventListener('message', cache.oauthMessageHandler)
@@ -432,9 +433,11 @@ export async function toolbarUploadMedia(file: File): Promise<{ id: string; url:
 
     if (useBearer) {
         response = await withTokenRefresh(response, async (newAccessToken) => {
+            const retryFormData = new FormData()
+            retryFormData.append('image', file)
             return await fetch(url, {
                 method: 'POST',
-                body: formData,
+                body: retryFormData,
                 headers: { Authorization: `Bearer ${newAccessToken}` },
             })
         })

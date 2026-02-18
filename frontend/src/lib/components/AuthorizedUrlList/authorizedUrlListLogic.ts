@@ -453,7 +453,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             actions.setEditUrlIndex(null)
             actions.resetProposedUrl()
         },
-        copyLaunchCode: async () => {
+        copyLaunchCode: async ({ url }) => {
             const params: Record<string, unknown> = {
                 action: 'ph_authorize',
                 token: values.currentTeam?.api_token,
@@ -468,6 +468,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 dataAttributes: values.currentTeam?.data_attributes,
             }
             const templateScript = `
+                // Toolbar launch code for: ${url}
                 if (!window?.posthog) {
                     console.warn('PostHog must be added to the window object on this page, for this to work. This is normally done in the loaded callback of your posthog init code.')
                 } else {
