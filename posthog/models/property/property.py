@@ -1,7 +1,7 @@
 import json
 import math
 from enum import StrEnum
-from typing import Any, Literal, Optional, Union, cast, get_args
+from typing import Any, Literal, Optional, Union, cast
 
 from posthog.constants import PropertyOperatorType
 from posthog.models.filters.mixins.utils import cached_property
@@ -74,8 +74,6 @@ OperatorType = Literal[
     "in",
     "not_in",
 ]
-
-VALID_OPERATORS: frozenset[str] = frozenset(get_args(OperatorType))
 
 OperatorInterval = Literal["day", "week", "month", "year"]
 GroupTypeName = str

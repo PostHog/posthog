@@ -364,6 +364,42 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @parameterized.expand(
         [
+            ("exact",),
+            ("icontains",),
+            ("regex",),
+            ("is_set",),
+            ("is_date_before",),
+            ("semver_gt",),
+        ]
+    )
+    def test_can_create_flag_with_valid_operator(self, operator: str) -> None:
+        value = "" if operator == "is_set" else "test"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": f"Flag with {operator}",
+                "key": f"flag-valid-op-{operator}",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": value,
+                                    "operator": operator,
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @parameterized.expand(
+        [
             ("in",),
             ("not_in",),
         ]
