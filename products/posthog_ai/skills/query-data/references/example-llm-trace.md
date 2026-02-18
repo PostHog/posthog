@@ -6,6 +6,8 @@ The typical order of event capture for a trace is: $ai_span -> $ai_generation/$a
 Explore `$ai\_\*`-prefixed properties to find data related to traces, generations, embeddings, spans, feedback, and metric.
 Key properties of the $ai_generation event: $ai_input and $ai_output_choices.
 
+**IMPORTANT:** The `$ai_input`, `$ai_input_state`, and `$ai_output_state` properties can be extremely large (containing full conversation histories, system prompts, or application state). When your query selects these properties, you MUST dump the results to a file and use bash commands to explore the output. Never output them directly into the conversation.
+
 ```sql
 SELECT
     properties.$ai_trace_id AS id,
