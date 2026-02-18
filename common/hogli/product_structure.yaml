@@ -1,0 +1,330 @@
+# Canonical product structure definition
+# Used by: hogli product:bootstrap, hogli product:lint
+#
+# Each file can have:
+#   required: bool - whether lint should warn if missing (in strict mode)
+#   required_lenient: bool - whether lint should warn if missing (in lenient mode)
+#   can_be_folder: bool - whether file.py can also be file/ directory
+#   template: str - content template with {product} and {Product} placeholders
+#
+# Modes:
+#   strict: product has backend/facade/contracts.py (isolated architecture)
+#   lenient: legacy product without contracts.py
+
+# Root-level product files (not in backend/ or frontend/)
+root_files:
+    __init__.py:
+        required: true
+        required_lenient: true
+        template: ''
+
+    manifest.tsx:
+        required: true
+        required_lenient: false
+        template: |
+            /**
+             * Product manifest for {product}.
+             *
+             * Defines scenes, routes, URLs, and navigation for this product.
+             */
+            import {{ ProductManifest }} from '../../frontend/src/types'
+
+            export const manifest: ProductManifest = {{
+                name: '{Product}',
+                scenes: {{
+                    // Define scenes here
+                }},
+                routes: {{
+                    // Define routes here
+                }},
+                redirects: {{}},
+                urls: {{
+                    // Define URL helpers here
+                }},
+                fileSystemTypes: {{}},
+                treeItemsNew: [],
+                treeItemsProducts: [],
+            }}
+
+    package.json:
+        required: true
+        required_lenient: false
+        template: |
+            {{
+                "name": "@posthog/products-{product}",
+                "scripts": {{
+                    "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
+                }}
+            }}
+
+    turbo.json:
+        required: false
+        required_lenient: false
+        template: |
+            {{
+                "extends": ["//"],
+                "tasks": {{
+                    "backend:contract-check": {{
+                        "inputs": ["backend/facade/**"],
+                        "outputs": [],
+                        "cache": true
+                    }}
+                }}
+            }}
+
+    tsconfig.json:
+        required: true
+        required_lenient: false
+        template: |
+            {{
+                "extends": "../../tsconfig.json",
+                "compilerOptions": {{
+                    "composite": true
+                }}
+            }}
+
+# Backend files (in backend/)
+backend_files:
+    __init__.py:
+        required: true
+        template: ''
+
+    apps.py:
+        required: true
+        template: |
+            """Django app configuration for {product}."""
+            from django.apps import AppConfig
+
+
+            class {Product}Config(AppConfig):
+                name = "products.{product}.backend"
+                label = "{product}"
+
+    models.py:
+        required: true
+        can_be_folder: true
+        template: |
+            """Django models for {product}."""
+            from django.db import models
+
+            from posthog.models.utils import UUIDModel
+
+            # Define your models here
+            # Important: 
+            # - Keep models thin, no business logic, use logic.py instead
+            # - Use types from facade/contracts.py or facade/enums.py where applicable
+            # - Do not use ForeignKeys to models outside this app unless allowed, as you will make implicit dependencies.
+            # - If you make a ForeignKey to a common model, disallow reverse relations with related_name='+'
+
+    logic.py:
+        required: false
+        can_be_folder: true
+        template: |
+            """
+            Business logic for {product}.
+
+            Validation, calculations, business rules, ORM queries.
+            Called by facade/api.py.
+            """
+
+    tasks/:
+        __init__.py:
+            required: false
+            template: ''
+
+        tasks.py:
+            required: false
+            template: |
+                """
+                Celery tasks for {product}.
+
+                Async entrypoints that call the facade (facade/api.py).
+                Keep task functions thin - only call facade methods.
+                """
+                # from celery import shared_task
+                # from ..facade import api
+
+        schedules.py:
+            required: false
+            template: |
+                """Celery beat schedules for {product}."""
+                # Define periodic task schedules here
+
+    facade/:
+        __init__.py:
+            required: true
+            template: ''
+
+        api.py:
+            required: true
+            template: |
+                """
+                Facade for {product}.
+
+                This is the ONLY module other products are allowed to import.
+
+                Responsibilities:
+                - Accept frozen dataclasses as input parameters
+                - Call business logic (logic.py)
+                - Convert Django models to frozen dataclasses before returning
+                - Enforce transactions where needed
+                - Remain thin and stable
+
+                Do NOT:
+                - Implement business logic here (use logic.py)
+                - Import DRF, serializers, or HTTP concerns
+                - Return ORM instances or QuerySets
+                """
+
+                from . import contracts
+
+                # --- Converters (model -> frozen dataclass) ---
+                #
+                # These look repetitive when fields align 1:1. The value is having ONE place
+                # where "internal" becomes "external contract". When models and contracts drift,
+                # the mapper absorbs the change instead of it leaking everywhere.
+
+        contracts.py:
+            required: true
+            template: |
+                """
+                Contract types for {product}.
+
+                Stable, framework-free frozen dataclasses that define what this
+                product exposes to the rest of the codebase.
+
+                Characteristics:
+                - No Django imports
+                - Immutable (frozen=True)
+                - Used by facade as inputs/outputs
+
+                Do NOT depend on Django models, DRF serializers, or request objects.
+                """
+                from dataclasses import dataclass
+
+        enums.py:
+            required: false
+            template: |
+                """
+                Exported enums and constants for {product}.
+
+                Small products can keep enums in contracts.py instead. Split
+                into this file when contracts.py gets crowded.
+
+                Rule: if an enum appears in a contract dataclass field, it
+                belongs here (or in contracts.py). Shared types that other
+                products need to interpret contract objects also belong here.
+
+                Internal-only constants (DB magic values, feature flags, etc.)
+                should stay in the implementation (logic.py, models.py).
+                """
+                from enum import StrEnum
+
+    presentation/:
+        __init__.py:
+            required: true
+            template: ''
+
+        serializers.py:
+            required: true
+            template: |
+                """
+                DRF serializers for {product}.
+
+                Converts frozen dataclasses to/from JSON. Can be auto-generated from
+                dataclasses using DataclassSerializer.
+                """
+                from rest_framework_dataclasses.serializers import DataclassSerializer
+
+                # from ..facade.contracts import ...
+
+        views.py:
+            required: true
+            template: |
+                """
+                DRF views for {product}.
+
+                Responsibilities:
+                - Validate incoming JSON (via serializers)
+                - Convert JSON to frozen dataclasses
+                - Call facade methods (facade/api.py)
+                - Convert frozen dataclasses to JSON responses
+
+                No business logic here - that belongs in logic.py via the facade.
+                """
+                from rest_framework import viewsets
+
+                from posthog.api.routing import TeamAndOrgViewSetMixin
+
+                # from ..facade import api
+
+        urls.py:
+            required: true
+            template: |
+                """URL routes for {product}."""
+                from rest_framework.routers import DefaultRouter
+
+                # from .views import ...
+
+                router = DefaultRouter()
+                urlpatterns = router.urls
+
+    tests/:
+        __init__.py:
+            required: true
+            template: ''
+
+        test_models.py:
+            required: false
+            template: ''
+
+        test_logic.py:
+            required: false
+            template: ''
+
+        test_api.py:
+            required: false
+            template: ''
+
+        test_presentation.py:
+            required: false
+            template: ''
+
+        test_tasks.py:
+            required: false
+            template: ''
+
+# Frontend files (in frontend/)
+frontend_files:
+    components/:
+        __init__: false # just create the folder
+
+    scenes/:
+        __init__: false # just create the folder
+
+    hooks/:
+        __init__: false # just create the folder
+
+    logics/:
+        __init__: false # just create the folder
+
+    generated/:
+        __init__: false # for OpenAPI-generated TypeScript types
+
+    tests/:
+        __init__: false
+
+# Files that are known but should live in specific locations
+# Used by lint to detect misplaced files in backend/
+backend_known_files:
+    api.py: facade/api.py
+    contracts.py: facade/contracts.py
+    serializers.py: presentation/serializers.py
+    views.py: presentation/views.py
+    urls.py: presentation/urls.py
+    tasks.py: tasks/tasks.py
+    schedules.py: tasks/schedules.py
+    test_logic.py: tests/test_logic.py
+    test_api.py: tests/test_api.py
+    test_presentation.py: tests/test_presentation.py
+    test_tasks.py: tests/test_tasks.py

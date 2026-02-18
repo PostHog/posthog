@@ -436,5 +436,6 @@ class WidgetMarkReadView(APIView):
         if ticket.unread_customer_count > 0:
             ticket.unread_customer_count = 0
             ticket.save(update_fields=["unread_customer_count", "updated_at"])
+            invalidate_tickets_cache(team.id, widget_session_id)
 
         return Response({"success": True, "unread_count": 0})
