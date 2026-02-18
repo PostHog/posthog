@@ -27,7 +27,7 @@ export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                         <Tab.Panel>
                             <Markdown>
                                 {dedent`
-                                    PostHog provides several hooks to make it easy to use feature flags in your React app. Use \`useFeatureFlagEnabled\` for boolean flags:
+                                    PostHog provides the \`useFeatureFlagResult\` hook to make it easy to use feature flags in your React app:
                                 `}
                             </Markdown>
                             {BooleanFlag && <BooleanFlag language="react" />}
@@ -35,7 +35,7 @@ export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                                 {dedent`
                                     ### Multivariate flags
 
-                                    For multivariate flags, use \`useFeatureFlagVariantKey\`:
+                                    For multivariate flags, check the \`variant\` property:
                                 `}
                             </Markdown>
                             {MultivariateFlag && <MultivariateFlag language="react" />}
@@ -43,7 +43,7 @@ export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                                 {dedent`
                                     ### Flag payloads
 
-                                    The \`useFeatureFlagPayload\` hook does *not* send a \`$feature_flag_called\` event, which is required for experiments. Always use it with \`useFeatureFlagEnabled\` or \`useFeatureFlagVariantKey\`:
+                                    The flag payload is available on the result object via \`result.payload\`:
                                 `}
                             </Markdown>
                             {FlagPayload && <FlagPayload language="react" />}

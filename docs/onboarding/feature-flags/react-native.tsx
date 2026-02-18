@@ -18,7 +18,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                 <>
                     <Markdown>
                         {dedent`
-                            PostHog provides hooks to make it easy to use feature flags in your React Native app. Use \`useFeatureFlagEnabled\` for boolean flags:
+                            PostHog provides hooks to make it easy to use feature flags in your React Native app. Use \`useFeatureFlagResult\` to get the full flag result:
                         `}
                     </Markdown>
                     <CodeBlock
@@ -27,16 +27,14 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                 language: 'tsx',
                                 file: 'Component.tsx',
                                 code: dedent`
-                                    import { usePostHog } from 'posthog-react-native'
+                                    import { useFeatureFlagResult } from 'posthog-react-native'
 
                                     function MyComponent() {
-                                        const posthog = usePostHog()
-                                        const isMyFlagEnabled = posthog.isFeatureEnabled('flag-key')
-
-                                        if (isMyFlagEnabled) {
+                                        const result = useFeatureFlagResult('flag-key')
+                                        if (result?.enabled) {
                                             // Do something differently for this user
-                                            // Optional: fetch the payload
-                                            const matchedFlagPayload = posthog.getFeatureFlagPayload('flag-key')
+                                            // Optional: use the flag payload
+                                            const matchedFlagPayload = result.payload
                                         }
 
                                         return <View>...</View>
@@ -49,7 +47,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                         {dedent`
                             ### Multivariate flags
 
-                            For multivariate flags, use \`getFeatureFlag\`:
+                            For multivariate flags, check the \`variant\` property:
                         `}
                     </Markdown>
                     <CodeBlock
@@ -58,16 +56,12 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                 language: 'tsx',
                                 file: 'Component.tsx',
                                 code: dedent`
-                                    import { usePostHog } from 'posthog-react-native'
+                                    import { useFeatureFlagResult } from 'posthog-react-native'
 
                                     function MyComponent() {
-                                        const posthog = usePostHog()
-                                        const enabledVariant = posthog.getFeatureFlag('flag-key')
-
-                                        if (enabledVariant === 'variant-key') { // replace 'variant-key' with the key of your variant
+                                        const result = useFeatureFlagResult('flag-key')
+                                        if (result?.variant === 'variant-key') { // replace 'variant-key' with the key of your variant
                                             // Do something differently for this user
-                                            // Optional: fetch the payload
-                                            const matchedFlagPayload = posthog.getFeatureFlagPayload('flag-key')
                                         }
 
                                         return <View>...</View>

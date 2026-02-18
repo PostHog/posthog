@@ -27,11 +27,11 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                 language: 'swift',
                                 file: 'Swift',
                                 code: dedent`
-                                    let isMyFlagEnabled = PostHogSDK.shared.isFeatureEnabled("flag-key")
-                                    if isMyFlagEnabled {
+                                    let result = PostHogSDK.shared.getFeatureFlagResult("flag-key")
+                                    if result?.enabled == true {
                                         // Do something differently for this user
-                                        // Optional: fetch the payload
-                                        let matchedFlagPayload = PostHogSDK.shared.getFeatureFlagPayload("flag-key")
+                                        // Optional: use the flag payload
+                                        let matchedFlagPayload = result?.payload
                                     }
                                 `,
                             },
@@ -56,11 +56,11 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                 language: 'swift',
                                 file: 'Swift',
                                 code: dedent`
-                                    let enabledVariant = PostHogSDK.shared.getFeatureFlag("flag-key")
-                                    if enabledVariant == "variant-key" { // replace 'variant-key' with the key of your variant
+                                    let result = PostHogSDK.shared.getFeatureFlagResult("flag-key")
+                                    if result?.variant == "variant-key" { // replace 'variant-key' with the key of your variant
                                         // Do something differently for this user
-                                        // Optional: fetch the payload
-                                        let matchedFlagPayload = PostHogSDK.shared.getFeatureFlagPayload("flag-key")
+                                        // Optional: use the flag payload
+                                        let matchedFlagPayload = result?.payload
                                     }
                                 `,
                             },

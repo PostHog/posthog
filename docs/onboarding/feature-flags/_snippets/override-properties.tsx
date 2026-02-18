@@ -9,7 +9,7 @@ export const OverridePropertiesSnippet = memo(({ language = 'javascript' }: { la
             posthog.setPersonPropertiesForFlags({'property1': 'value', property2: 'value2'})
         `,
         'node.js': dedent`
-            await client.getFeatureFlag(
+            await client.getFeatureFlagResult(
                 'flag-key',
                 'distinct_id_of_the_user',
                 {
@@ -32,7 +32,7 @@ export const OverridePropertiesSnippet = memo(({ language = 'javascript' }: { la
             )
         `,
         python: dedent`
-            posthog.get_feature_flag(
+            posthog.get_feature_flag_result(
                 'flag-key',
                 'distinct_id_of_the_user',
                 person_properties={'property_name': 'value'},
@@ -46,7 +46,7 @@ export const OverridePropertiesSnippet = memo(({ language = 'javascript' }: { la
             )
         `,
         php: dedent`
-            PostHog::getFeatureFlag(
+            PostHog::getFeatureFlagResult(
                 'flag-key',
                 'distinct_id_of_the_user',
                 [
@@ -63,7 +63,7 @@ export const OverridePropertiesSnippet = memo(({ language = 'javascript' }: { la
             )
         `,
         ruby: dedent`
-            posthog.get_feature_flag(
+            posthog.get_feature_flag_result(
                 'flag-key',
                 'distinct_id_of_the_user',
                 person_properties: {
@@ -84,8 +84,8 @@ export const OverridePropertiesSnippet = memo(({ language = 'javascript' }: { la
             )
         `,
         go: dedent`
-            enabledVariant, err := client.GetFeatureFlag(
-                FeatureFlagPayload{
+            result, err := client.GetFeatureFlagResult(
+                posthog.FeatureFlagPayload{
                     Key:        "flag-key",
                     DistinctId: "distinct_id_of_the_user",
                     Groups: posthog.NewGroups().

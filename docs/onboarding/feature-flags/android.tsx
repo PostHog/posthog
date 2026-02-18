@@ -27,11 +27,11 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 language: 'kotlin',
                                 file: 'Kotlin',
                                 code: dedent`
-                                    val isMyFlagEnabled = PostHog.isFeatureEnabled("flag-key")
-                                    if (isMyFlagEnabled) {
+                                    val result = PostHog.getFeatureFlagResult("flag-key")
+                                    if (result?.enabled == true) {
                                         // Do something differently for this user
-                                        // Optional: fetch the payload
-                                        val matchedFlagPayload = PostHog.getFeatureFlagPayload("flag-key")
+                                        // Optional: use the flag payload
+                                        val matchedFlagPayload = result.payload
                                     }
                                 `,
                             },
@@ -56,11 +56,11 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 language: 'kotlin',
                                 file: 'Kotlin',
                                 code: dedent`
-                                    val enabledVariant = PostHog.getFeatureFlag("flag-key")
-                                    if (enabledVariant == "variant-key") { // replace 'variant-key' with the key of your variant
+                                    val result = PostHog.getFeatureFlagResult("flag-key")
+                                    if (result?.variant == "variant-key") { // replace 'variant-key' with the key of your variant
                                         // Do something differently for this user
-                                        // Optional: fetch the payload
-                                        val matchedFlagPayload = PostHog.getFeatureFlagPayload("flag-key")
+                                        // Optional: use the flag payload
+                                        val matchedFlagPayload = result.payload
                                     }
                                 `,
                             },
