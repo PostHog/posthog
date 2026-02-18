@@ -1,12 +1,10 @@
 use std::{
-    collections::HashMap,
     fmt::{Debug, Display},
     sync::Arc,
 };
 
 use common_types::ClickHouseEvent;
 use thiserror::Error;
-use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::{
@@ -15,12 +13,9 @@ use crate::{
     metric_consts::EXCEPTION_PROCESSING_PIPELINE,
     stages::{
         alerting::AlertingStage, grouping::GroupingStage, linking::LinkingStage,
-        post_processing::PostProcessingStage, pre_processing::PreProcessingStage,
         resolution::ResolutionStage,
     },
-    types::{
-        batch::Batch, event::AnyEvent, exception_properties::ExceptionProperties, stage::Stage,
-    },
+    types::{batch::Batch, exception_properties::ExceptionProperties, stage::Stage},
 };
 
 pub struct ExceptionEventPipeline {
@@ -56,8 +51,8 @@ impl Display for ExceptionEventHandledError {
 pub type ExceptionEventPipelineItem = Result<ExceptionProperties, ExceptionEventHandledError>;
 
 impl Stage for ExceptionEventPipeline {
-    type Input = AnyEvent;
-    type Output = AnyEvent;
+    type Input = ExceptionEventPipelineItem;
+    type Output = ExceptionEventPipelineItem;
     type Error = UnhandledError;
 
     fn name(&self) -> &'static str {
@@ -68,11 +63,7 @@ impl Stage for ExceptionEventPipeline {
         self,
         batch: Batch<Self::Input>,
     ) -> Result<Batch<Self::Output>, UnhandledError> {
-        let events_by_id = Arc::new(Mutex::new(HashMap::<Uuid, AnyEvent>::new()));
         batch
-            // Parse event
-            .apply_stage(PreProcessingStage::new(events_by_id.clone()))
-            .await?
             // Resolve stack traces
             .apply_stage(ResolutionStage::from(&self.app_context))
             .await?
@@ -84,9 +75,6 @@ impl Stage for ExceptionEventPipeline {
             .await?
             // Send internal events for alerting
             .apply_stage(AlertingStage::from(&self.app_context))
-            .await?
-            // Handle errors, conversion to CH events
-            .apply_stage(PostProcessingStage::new(events_by_id.clone()))
             .await
     }
 }

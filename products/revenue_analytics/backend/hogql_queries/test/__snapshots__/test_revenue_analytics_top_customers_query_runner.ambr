@@ -101,7 +101,7 @@
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
-  LIMIT 2000
+  LIMIT 100
   UNION ALL
   SELECT inner.customer_id AS customer_id,
          revenue_analytics_customer.name AS name,
@@ -160,17 +160,17 @@
      FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_customers/posthog_test_stripe_customer/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `email` String, `phone` String, `address` String, `created` DateTime, `metadata` String') AS outer) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=1,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsTopCustomersQueryRunner.test_no_crash_when_no_source_is_selected
@@ -275,7 +275,7 @@
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
-  LIMIT 2000
+  LIMIT 100
   UNION ALL
   SELECT inner.customer_id AS customer_id,
          revenue_analytics_customer.name AS name,
@@ -392,17 +392,17 @@
         GROUP BY invoice.customer) AS cohort_inner ON equals(cohort_inner.customer_id, outer.id)) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=1,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsTopCustomersQueryRunner.test_with_data
@@ -507,7 +507,7 @@
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
-  LIMIT 2000
+  LIMIT 100
   UNION ALL
   SELECT inner.customer_id AS customer_id,
          revenue_analytics_customer.name AS name,
@@ -624,17 +624,17 @@
         GROUP BY invoice.customer) AS cohort_inner ON equals(cohort_inner.customer_id, outer.id)) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=1,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsTopCustomersQueryRunner.test_with_data_and_limited_date_range
@@ -739,7 +739,7 @@
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
-  LIMIT 2000
+  LIMIT 100
   UNION ALL
   SELECT inner.customer_id AS customer_id,
          revenue_analytics_customer.name AS name,
@@ -856,17 +856,17 @@
         GROUP BY invoice.customer) AS cohort_inner ON equals(cohort_inner.customer_id, outer.id)) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=1,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsTopCustomersQueryRunner.test_with_data_group_by_all
@@ -973,7 +973,7 @@
            name
   ORDER BY amount DESC
   LIMIT 20 BY month
-  LIMIT 2000
+  LIMIT 100
   UNION ALL
   SELECT inner.customer_id AS customer_id,
          revenue_analytics_customer.name AS name,
@@ -1092,17 +1092,17 @@
            name
   ORDER BY amount DESC
   LIMIT 20 BY month
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=1,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsTopCustomersQueryRunner.test_with_data_with_managed_viewsets_ff
@@ -1207,7 +1207,7 @@
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
-  LIMIT 2000
+  LIMIT 100
   UNION ALL
   SELECT inner.customer_id AS customer_id,
          revenue_analytics_customer.name AS name,
@@ -1324,17 +1324,17 @@
         GROUP BY invoice.customer) AS cohort_inner ON equals(cohort_inner.customer_id, outer.id)) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=1,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsTopCustomersQueryRunner.test_with_events_data
@@ -1439,7 +1439,7 @@
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
-  LIMIT 2000
+  LIMIT 100
   UNION ALL
   SELECT inner.customer_id AS customer_id,
          revenue_analytics_customer.name AS name,
@@ -1556,17 +1556,17 @@
         GROUP BY invoice.customer) AS cohort_inner ON equals(cohort_inner.customer_id, outer.id)) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=1,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsTopCustomersQueryRunner.test_with_events_data_and_currency_aware_divider
@@ -1672,7 +1672,7 @@
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
-  LIMIT 2000
+  LIMIT 100
   UNION ALL
   SELECT inner.customer_id AS customer_id,
          revenue_analytics_customer.name AS name,
@@ -1789,17 +1789,17 @@
         GROUP BY invoice.customer) AS cohort_inner ON equals(cohort_inner.customer_id, outer.id)) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=1,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsTopCustomersQueryRunner.test_with_events_data_with_managed_viewsets_ff
@@ -1904,7 +1904,7 @@
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
-  LIMIT 2000
+  LIMIT 100
   UNION ALL
   SELECT inner.customer_id AS customer_id,
          revenue_analytics_customer.name AS name,
@@ -2021,17 +2021,17 @@
         GROUP BY invoice.customer) AS cohort_inner ON equals(cohort_inner.customer_id, outer.id)) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=1,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsTopCustomersQueryRunner.test_without_customers_data
@@ -2136,7 +2136,7 @@
      ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
-  LIMIT 2000
+  LIMIT 100
   UNION ALL
   SELECT inner.customer_id AS customer_id,
          revenue_analytics_customer.name AS name,
@@ -2244,16 +2244,16 @@
      WHERE 0) AS revenue_analytics_customer ON equals(inner.customer_id, revenue_analytics_customer.id)
   ORDER BY amount DESC
   LIMIT 20 BY month
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=60,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=1,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=0,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
