@@ -1,16 +1,18 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { IconCheck, IconWarning, IconX } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
+import { HogTestResult } from '../types'
 
 const HOG_EXAMPLES: { label: string; source: string }[] = [
     {
         label: 'Output not empty',
         source: `// Check that the output is not empty
-let result := len(output) > 0
+let result := length(output) > 0
 if (not result) {
     print('Output is empty')
 }
@@ -19,9 +21,9 @@ return result`,
     {
         label: 'Min output length',
         source: `// Check that the output is at least 100 characters
-let result := len(output) >= 100
+let result := length(output) >= 100
 if (not result) {
-    print('Output too short:', len(output), 'chars')
+    print('Output too short:', length(output), 'chars')
 }
 return result`,
     },
@@ -34,6 +36,22 @@ if (not result) {
     print('Missing keyword:', keyword)
 }
 return result`,
+    },
+    {
+        label: 'Print messages',
+        source: `// Print each message and always pass
+let messages := input
+if (typeof(messages) == 'string') {
+    messages := jsonParse(messages)
+}
+if (typeof(messages) == 'array') {
+    for (let i, msg in messages) {
+        print(concat('Message ', toString(i), ': [', msg.role, '] ', msg.content))
+    }
+} else {
+    print('Input:', messages)
+}
+return true`,
     },
     {
         label: 'Valid JSON output',
@@ -75,9 +93,107 @@ const HOG_EVAL_GLOBALS: Record<string, any> = {
     },
 }
 
+function HogTestResultsPanel(): JSX.Element | null {
+    const { hogTestResults, hogTestResultsLoading } = useValues(llmEvaluationLogic)
+    const { clearHogTestResults } = useActions(llmEvaluationLogic)
+
+    if (!hogTestResults && !hogTestResultsLoading) {
+        return null
+    }
+
+    const passed = hogTestResults?.filter((r) => r.result === true).length ?? 0
+    const failed = hogTestResults?.filter((r) => r.result === false).length ?? 0
+    const errors = hogTestResults?.filter((r) => r.error !== null).length ?? 0
+
+    return (
+        <div className="border rounded p-3 space-y-2">
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3 text-sm">
+                    <span className="font-semibold">Test results</span>
+                    {hogTestResults && (
+                        <>
+                            <LemonTag type="success" icon={<IconCheck />}>
+                                {passed} passed
+                            </LemonTag>
+                            <LemonTag type="danger" icon={<IconX />}>
+                                {failed} failed
+                            </LemonTag>
+                            {errors > 0 && (
+                                <LemonTag type="danger" icon={<IconWarning />}>
+                                    {errors} errors
+                                </LemonTag>
+                            )}
+                        </>
+                    )}
+                </div>
+                <LemonButton type="secondary" size="xsmall" onClick={clearHogTestResults}>
+                    Clear
+                </LemonButton>
+            </div>
+            <LemonTable<HogTestResult>
+                columns={[
+                    {
+                        title: 'Result',
+                        key: 'result',
+                        width: 100,
+                        render: (_, row) => {
+                            if (row.error) {
+                                return (
+                                    <Tooltip title={row.error}>
+                                        <span>
+                                            <LemonTag type="danger" icon={<IconWarning />}>
+                                                Error
+                                            </LemonTag>
+                                        </span>
+                                    </Tooltip>
+                                )
+                            }
+                            return row.result ? (
+                                <LemonTag type="success" icon={<IconCheck />}>
+                                    Pass
+                                </LemonTag>
+                            ) : (
+                                <LemonTag type="danger" icon={<IconX />}>
+                                    Fail
+                                </LemonTag>
+                            )
+                        },
+                    },
+                    {
+                        title: 'Output preview',
+                        key: 'output_preview',
+                        render: (_, row) => (
+                            <Tooltip title={row.output_preview}>
+                                <div className="max-w-xs truncate text-sm cursor-default">
+                                    {row.output_preview || <span className="text-muted italic">empty</span>}
+                                </div>
+                            </Tooltip>
+                        ),
+                    },
+                    {
+                        title: 'Reasoning',
+                        key: 'reasoning',
+                        render: (_, row) => (
+                            <Tooltip title={row.reasoning || row.error}>
+                                <div className="max-w-xs truncate text-sm cursor-default">
+                                    {row.reasoning || row.error || <span className="text-muted italic">none</span>}
+                                </div>
+                            </Tooltip>
+                        ),
+                    },
+                ]}
+                dataSource={hogTestResults ?? []}
+                loading={hogTestResultsLoading}
+                rowKey="event_uuid"
+                size="small"
+            />
+        </div>
+    )
+}
+
 export function EvaluationCodeEditor(): JSX.Element {
-    const { evaluation } = useValues(llmEvaluationLogic)
-    const { setHogSource } = useActions(llmEvaluationLogic)
+    const { evaluation, hogTestResultsLoading } = useValues(llmEvaluationLogic)
+    const { setHogSource, testHogOnSample } = useActions(llmEvaluationLogic)
 
     if (!evaluation || evaluation.evaluation_type !== 'hog') {
         return <div>Loading...</div>
@@ -106,13 +222,27 @@ export function EvaluationCodeEditor(): JSX.Element {
                     }}
                 />
                 <div className="flex justify-between items-center text-sm text-muted">
-                    <div>{source.length} characters</div>
+                    <div className="flex items-center gap-2">
+                        <span>{source.length} characters</span>
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            loading={hogTestResultsLoading}
+                            disabled={!source.trim()}
+                            onClick={testHogOnSample}
+                            data-attr="llma-evaluation-test-hog"
+                        >
+                            Test on sample
+                        </LemonButton>
+                    </div>
                     <div className="flex items-center gap-2">
                         <span>Expected output:</span>
                         <LemonTag type="completion">Boolean (true/false)</LemonTag>
                     </div>
                 </div>
             </div>
+
+            <HogTestResultsPanel />
 
             <div className="bg-bg-light border rounded p-3">
                 <div className="flex items-center justify-between mb-2">

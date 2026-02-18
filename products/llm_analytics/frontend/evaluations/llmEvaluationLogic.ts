@@ -23,11 +23,12 @@ import {
     EvaluationSummary,
     EvaluationSummaryFilter,
     EvaluationType,
+    HogTestResult,
     ModelConfiguration,
 } from './types'
 
 export const DEFAULT_HOG_SOURCE = `// Check that the output is not empty
-let result := len(output) > 0
+let result := length(output) > 0
 if (not result) {
     print('Output is empty')
 }
@@ -80,6 +81,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setSelectedKeyId: (keyId: string | null) => ({ keyId }),
         setSelectedModel: (model: string) => ({ model }),
 
+        // Hog test actions
+        clearHogTestResults: true,
+
         // Evaluation summary actions
         setEvaluationSummaryFilter: (filter: EvaluationSummaryFilter, previousFilter: EvaluationSummaryFilter) => ({
             filter,
@@ -91,6 +95,26 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     }),
 
     loaders(({ props, values }) => ({
+        hogTestResults: [
+            null as HogTestResult[] | null,
+            {
+                testHogOnSample: async (): Promise<HogTestResult[] | null> => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    const evaluation = values.evaluation
+                    if (!evaluation || evaluation.evaluation_type !== 'hog') {
+                        return null
+                    }
+                    const response = await api.create(`/api/environments/${teamId}/evaluations/test_hog/`, {
+                        source: evaluation.evaluation_config.source,
+                        sample_count: 5,
+                    })
+                    return response.results
+                },
+            },
+        ],
         evaluationRuns: [
             [] as EvaluationRun[],
             {
@@ -211,6 +235,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 saveEvaluationSuccess: (_, { evaluation }) => evaluation,
             },
         ],
+        hogTestResults: {
+            clearHogTestResults: () => null,
+            setHogSource: () => null,
+        },
         selectedProvider: [
             'openai' as LLMProvider,
             {

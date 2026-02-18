@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from rest_framework import status
 
@@ -346,3 +347,76 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.data["conditions"][0]["rollout_percentage"], 50)
         self.assertEqual(len(response.data["conditions"][0]["properties"]), 1)
         self.assertEqual(response.data["conditions"][0]["properties"][0]["key"], "$ai_model_name")
+
+
+class TestTestHogEndpoint(APIBaseTest):
+    def _sample_events(self, count=1):
+        return [
+            {
+                "uuid": str(uuid4()),
+                "event": "$ai_generation",
+                "properties": '{"$ai_input": "What is 2+2?", "$ai_output": "4"}',
+                "distinct_id": "user-1",
+            }
+            for _ in range(count)
+        ]
+
+    @patch("products.llm_analytics.backend.api.evaluations.query_with_columns")
+    def test_test_hog_compiles_and_executes(self, mock_query):
+        mock_query.return_value = self._sample_events(2)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": "return length(output) > 0", "sample_count": 2},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 2)
+        for r in results:
+            self.assertIn("event_uuid", r)
+            self.assertIn("result", r)
+            self.assertIn("reasoning", r)
+            self.assertIn("error", r)
+            self.assertTrue(r["result"])
+            self.assertIsNone(r["error"])
+
+    def test_test_hog_compilation_error(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": "this is not valid hog !!!"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Compilation error", response.json()["error"])
+
+    def test_test_hog_empty_source_rejected(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": ""},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("products.llm_analytics.backend.api.evaluations.query_with_columns")
+    def test_test_hog_no_events(self, mock_query):
+        mock_query.return_value = []
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": "return true"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+        self.assertIn("message", response.json())
+
+    @patch("products.llm_analytics.backend.api.evaluations.query_with_columns")
+    def test_test_hog_handles_runtime_error(self, mock_query):
+        mock_query.return_value = self._sample_events(1)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": "return 42"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertIsNone(results[0]["result"])
+        self.assertIn("Must return boolean", results[0]["error"])

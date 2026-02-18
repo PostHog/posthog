@@ -477,6 +477,66 @@ Output: {output_data}"""
     return result_dict
 
 
+def run_hog_eval(bytecode: list, event_data: dict[str, Any]) -> dict[str, Any]:
+    """Run compiled Hog bytecode against a single event.
+
+    Used by both the Temporal activity and the test endpoint.
+    Returns {"verdict": bool | None, "reasoning": str, "error": str | None}.
+    """
+    properties = event_data["properties"]
+    if isinstance(properties, str):
+        properties = json.loads(properties)
+
+    event_type = event_data["event"]
+
+    if event_type == "$ai_generation":
+        input_raw = properties.get("$ai_input") or properties.get("$ai_input_state", "")
+        output_raw = (
+            properties.get("$ai_output_choices")
+            or properties.get("$ai_output")
+            or properties.get("$ai_output_state", "")
+        )
+    else:
+        input_raw = properties.get("$ai_input_state", "")
+        output_raw = properties.get("$ai_output_state", "")
+
+    globals_dict: dict[str, Any] = {
+        "input": input_raw,
+        "output": output_raw,
+        "properties": properties,
+        "event": {
+            "uuid": event_data.get("uuid", ""),
+            "event": event_type,
+            "distinct_id": event_data.get("distinct_id", ""),
+        },
+    }
+
+    try:
+        response = execute_bytecode(
+            bytecode,
+            globals=globals_dict,
+            timeout=timedelta(seconds=5),
+            team=None,
+        )
+    except HogVMRuntimeExceededException:
+        return {"verdict": None, "reasoning": "", "error": "Execution timed out (5s limit exceeded)"}
+    except HogVMMemoryExceededException:
+        return {"verdict": None, "reasoning": "", "error": "Memory limit exceeded"}
+    except HogVMException as e:
+        return {"verdict": None, "reasoning": "", "error": f"Runtime error: {e}"}
+
+    reasoning = "\n".join(response.stdout) if response.stdout else ""
+
+    if not isinstance(response.result, bool):
+        return {
+            "verdict": None,
+            "reasoning": reasoning,
+            "error": f"Must return boolean, got {type(response.result).__name__}: {response.result}",
+        }
+
+    return {"verdict": response.result, "reasoning": reasoning, "error": None}
+
+
 @temporalio.activity.defn
 async def execute_hog_eval_activity(evaluation: dict[str, Any], event_data: dict[str, Any]) -> dict[str, Any]:
     """Execute Hog code to evaluate the target event."""
@@ -491,76 +551,20 @@ async def execute_hog_eval_activity(evaluation: dict[str, Any], event_data: dict
     if not bytecode:
         raise ApplicationError("Missing bytecode in evaluation_config", non_retryable=True)
 
-    # Build context from event
-    properties = event_data["properties"]
-    if isinstance(properties, str):
-        properties = json.loads(properties)
-
-    event_type = event_data["event"]
-
-    # Extract input/output based on event type
-    if event_type == "$ai_generation":
-        input_raw = properties.get("$ai_input") or properties.get("$ai_input_state", "")
-        output_raw = (
-            properties.get("$ai_output_choices")
-            or properties.get("$ai_output")
-            or properties.get("$ai_output_state", "")
-        )
-    else:
-        input_raw = properties.get("$ai_input_state", "")
-        output_raw = properties.get("$ai_output_state", "")
-
-    # Build globals for HogVM
-    globals_dict: dict[str, Any] = {
-        "input": input_raw,
-        "output": output_raw,
-        "properties": properties,
-        "event": {
-            "uuid": event_data.get("uuid", ""),
-            "event": event_type,
-            "distinct_id": event_data.get("distinct_id", ""),
-        },
-    }
-
     def _execute():
-        return execute_bytecode(
-            bytecode,
-            globals=globals_dict,
-            timeout=timedelta(seconds=5),
-            team=None,
-        )
+        return run_hog_eval(bytecode, event_data)
 
-    try:
-        response = await database_sync_to_async(_execute, thread_sensitive=False)()
-    except HogVMRuntimeExceededException:
-        raise ApplicationError(
-            "Hog evaluation timed out (5s limit exceeded)",
-            non_retryable=True,
-        )
-    except HogVMMemoryExceededException:
-        raise ApplicationError(
-            "Hog evaluation exceeded memory limit",
-            non_retryable=True,
-        )
-    except HogVMException as e:
-        raise ApplicationError(
-            f"Hog evaluation runtime error: {e}",
-            non_retryable=True,
-        )
+    result = await database_sync_to_async(_execute, thread_sensitive=False)()
 
-    result_value = response.result
-    if not isinstance(result_value, bool):
+    if result["error"]:
         raise ApplicationError(
-            f"Hog evaluation must return a boolean, got {type(result_value).__name__}: {result_value}",
+            f"Hog evaluation error: {result['error']}",
             non_retryable=True,
         )
-
-    # Capture print() output as reasoning
-    reasoning = "\n".join(response.stdout) if response.stdout else ""
 
     return {
-        "verdict": result_value,
-        "reasoning": reasoning,
+        "verdict": result["verdict"],
+        "reasoning": result["reasoning"],
     }
 
 

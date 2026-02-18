@@ -1,3 +1,4 @@
+import json
 from typing import Any, cast
 
 from django.db.models import Q, QuerySet
@@ -6,16 +7,22 @@ import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.clickhouse.client import query_with_columns
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
+from posthog.temporal.llm_analytics.run_evaluation import run_hog_eval
 
 from ..models.evaluation_configs import validate_evaluation_configs
 from ..models.evaluations import Evaluation
@@ -339,3 +346,89 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     @monitor(feature=None, endpoint="llma_evaluations_partial_update", method="PATCH")
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
+
+    @action(detail=False, methods=["post"], url_path="test_hog")
+    def test_hog(self, request: Request, **kwargs) -> Response:
+        """Test Hog evaluation code against sample events without saving."""
+        serializer = TestHogRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({"error": serializer.errors}, status=400)
+
+        source = serializer.validated_data["source"]
+        sample_count = serializer.validated_data["sample_count"]
+
+        from posthog.cdp.validation import compile_hog
+
+        try:
+            bytecode = compile_hog(source, "destination")
+        except Exception as e:
+            return Response({"error": f"Compilation error: {e}"}, status=400)
+
+        events = query_with_columns(
+            """
+            SELECT
+                uuid,
+                event,
+                properties,
+                distinct_id
+            FROM events
+            WHERE team_id = %(team_id)s
+              AND event IN ('$ai_generation', '$ai_metric')
+              AND timestamp > now() - INTERVAL 7 DAY
+            ORDER BY timestamp DESC
+            LIMIT %(limit)s
+            """,
+            {"team_id": self.team_id, "limit": sample_count},
+            team_id=self.team_id,
+        )
+
+        if not events:
+            return Response({"results": [], "message": "No recent AI events found in the last 7 days"})
+
+        results = []
+        for event_row in events:
+            properties = event_row["properties"]
+            if isinstance(properties, str):
+                properties = json.loads(properties)
+
+            event_data = {
+                "uuid": str(event_row["uuid"]),
+                "event": event_row["event"],
+                "properties": properties,
+                "distinct_id": event_row.get("distinct_id", ""),
+            }
+
+            result = run_hog_eval(bytecode, event_data)
+
+            event_type = event_row["event"]
+            if event_type == "$ai_generation":
+                input_raw = properties.get("$ai_input") or properties.get("$ai_input_state", "")
+                output_raw = (
+                    properties.get("$ai_output_choices")
+                    or properties.get("$ai_output")
+                    or properties.get("$ai_output_state", "")
+                )
+            else:
+                input_raw = properties.get("$ai_input_state", "")
+                output_raw = properties.get("$ai_output_state", "")
+
+            input_preview = extract_text_from_messages(input_raw)[:200]
+            output_preview = extract_text_from_messages(output_raw)[:200]
+
+            results.append(
+                {
+                    "event_uuid": str(event_row["uuid"]),
+                    "input_preview": input_preview,
+                    "output_preview": output_preview,
+                    "result": result["verdict"],
+                    "reasoning": result["reasoning"],
+                    "error": result["error"],
+                }
+            )
+
+        return Response({"results": results})
+
+
+class TestHogRequestSerializer(serializers.Serializer):
+    source = serializers.CharField(required=True, min_length=1)
+    sample_count = serializers.IntegerField(required=False, default=5, min_value=1, max_value=10)

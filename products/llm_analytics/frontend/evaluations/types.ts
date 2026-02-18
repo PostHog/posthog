@@ -72,6 +72,15 @@ export interface EvaluationRun {
     status: 'completed' | 'failed' | 'running'
 }
 
+export interface HogTestResult {
+    event_uuid: string
+    input_preview: string
+    output_preview: string
+    result: boolean | null
+    reasoning: string
+    error: string | null
+}
+
 export type EvaluationSummaryFilter = 'all' | 'pass' | 'fail' | 'na'
 
 export interface EvaluationPattern {
