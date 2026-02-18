@@ -4,7 +4,8 @@ import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { useState } from 'react'
+import posthog from 'posthog-js'
+import { useCallback, useState } from 'react'
 
 import { IconCopy, IconEllipsis, IconFilter, IconPencil, IconStack, IconTrash, IconWarning } from '@posthog/icons'
 import {
@@ -15,6 +16,7 @@ import {
     LemonSelect,
     LemonSelectOption,
     LemonSelectOptions,
+    Link,
 } from '@posthog/lemon-ui'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -23,12 +25,18 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
-import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import {
+    DataWarehousePopoverField,
+    TaxonomicFilterGroupType,
+    isQuickFilterItem,
+    quickFilterToPropertyFilters,
+} from 'lib/components/TaxonomicFilter/types'
 import {
     TaxonomicPopover,
     TaxonomicPopoverProps,
     TaxonomicStringPopover,
 } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -40,6 +48,7 @@ import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isAllEventsEntityFilter } from 'scenes/insights/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import {
     COUNT_PER_ACTOR_MATH_DEFINITIONS,
     MathCategory,
@@ -61,6 +70,7 @@ import {
 import {
     ActionFilter,
     ActionFilter as ActionFilterType,
+    AnyPropertyFilter,
     BaseMathType,
     ChartDisplayCategory,
     ChartDisplayType,
@@ -70,8 +80,11 @@ import {
     FunnelExclusionLegacy,
     HogQLMathType,
     InsightShortId,
+    InsightType,
+    PropertyFilterType,
     PropertyFilterValue,
     PropertyMathType,
+    PropertyOperator,
 } from '~/types'
 
 import { LocalFilter } from '../entityFilterLogic'
@@ -124,6 +137,7 @@ export interface ActionFilterRowProps {
     hideDuplicate?: boolean // Hides the duplicate option
     hideDeleteBtn?: boolean // Choose to hide delete btn. You can use the onClose function passed into customRow{Pre|Suf}fix to render the delete btn anywhere
     showCombine?: boolean // Show the combine inline events option
+    insightType?: InsightType // The type of insight (trends, funnels, etc.)
     propertyFiltersPopover?: boolean
     onRenameClick?: () => void // Used to open rename modal
     showSeriesIndicator?: boolean // Show series badge
@@ -165,6 +179,7 @@ export interface ActionFilterRowProps {
     addFilterDocLink?: string
     /** Allow adding non-captured events */
     allowNonCapturedEvents?: boolean
+    hogQLGlobals?: Record<string, any>
 }
 
 export function ActionFilterRow({
@@ -179,6 +194,7 @@ export function ActionFilterRow({
     hideDuplicate = false,
     hideDeleteBtn = false,
     showCombine = false,
+    insightType,
     propertyFiltersPopover = false,
     onRenameClick = () => {},
     showSeriesIndicator,
@@ -201,7 +217,14 @@ export function ActionFilterRow({
     addFilterDocLink,
     excludedProperties,
     allowNonCapturedEvents,
+    hogQLGlobals,
 }: ActionFilterRowProps & Pick<TaxonomicPopoverProps, 'excludedProperties' | 'allowNonCapturedEvents'>): JSX.Element {
+    const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
+    const effectiveActionsTaxonomicGroupTypes = showQuickFilters
+        ? [TaxonomicFilterGroupType.SuggestedFilters, ...actionsTaxonomicGroupTypes]
+        : actionsTaxonomicGroupTypes
+
+    const { currentTeamId } = useValues(teamLogic)
     const { entityFilterVisible } = useValues(logic)
     const {
         updateFilter,
@@ -235,6 +258,9 @@ export function ActionFilterRow({
     // Only use the funnel results when in funnel context
     const isStepOptional = isFunnelContext ? funnelIsStepOptional : () => false
 
+    // DWH events are not supported in inline events yet
+    const canCombine = showCombine && filter.type !== EntityTypes.DATA_WAREHOUSE
+
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
     const [isMenuVisible, setIsMenuVisible] = useState(false)
 
@@ -254,6 +280,11 @@ export function ActionFilterRow({
     const onClose = (): void => {
         removeLocalFilter({ ...filter, index })
     }
+
+    const onPropertyChange = useCallback(
+        (properties: AnyPropertyFilter[]) => updateFilterProperty({ properties, index }),
+        [updateFilterProperty, index]
+    )
 
     const onMathSelect = (_: unknown, selectedMath?: string): void => {
         let mathProperties
@@ -332,6 +363,81 @@ export function ActionFilterRow({
             value={getValue(value, filter)}
             filter={filter}
             onChange={(changedValue, taxonomicGroupType, item) => {
+                if (isQuickFilterItem(item)) {
+                    if (item.eventName) {
+                        updateFilter({
+                            type: EntityTypes.EVENTS,
+                            id: item.eventName,
+                            name: item.eventName,
+                            index,
+                        })
+                    }
+                    updateFilterProperty({
+                        index,
+                        properties: quickFilterToPropertyFilters(item),
+                    })
+                    return
+                }
+                if (taxonomicGroupType === TaxonomicFilterGroupType.PageviewEvents) {
+                    updateFilter({
+                        type: EntityTypes.EVENTS,
+                        id: '$pageview',
+                        name: '$pageview',
+                        index,
+                    })
+                    updateFilterProperty({
+                        index,
+                        properties: [
+                            {
+                                key: '$current_url',
+                                value: changedValue ? String(changedValue) : '',
+                                operator: PropertyOperator.IContains,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                    })
+                    return
+                }
+                if (taxonomicGroupType === TaxonomicFilterGroupType.ScreenEvents) {
+                    updateFilter({
+                        type: EntityTypes.EVENTS,
+                        id: '$screen',
+                        name: '$screen',
+                        index,
+                    })
+                    updateFilterProperty({
+                        index,
+                        properties: [
+                            {
+                                key: '$screen_name',
+                                value: changedValue ? String(changedValue) : '',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                    })
+                    return
+                }
+                if (taxonomicGroupType === TaxonomicFilterGroupType.AutocaptureEvents) {
+                    updateFilter({
+                        type: EntityTypes.EVENTS,
+                        id: '$autocapture',
+                        name: '$autocapture',
+                        index,
+                    })
+                    updateFilterProperty({
+                        index,
+                        properties: [
+                            {
+                                key: '$el_text',
+                                value: changedValue ? String(changedValue) : '',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                    })
+                    return
+                }
                 const groupType = taxonomicFilterGroupTypeToEntityType(taxonomicGroupType)
                 if (groupType === EntityTypes.DATA_WAREHOUSE) {
                     const extraValues = Object.fromEntries(
@@ -359,7 +465,7 @@ export function ActionFilterRow({
                     <EntityFilterInfo filter={filter} />
                 </span>
             )}
-            groupTypes={actionsTaxonomicGroupTypes}
+            groupTypes={effectiveActionsTaxonomicGroupTypes}
             placeholder="All events"
             placeholderClass=""
             disabled={disabled || readOnly}
@@ -387,7 +493,19 @@ export function ActionFilterRow({
                         : undefined
                 }}
                 disabledReason={filter.id === 'empty' ? 'Please select an event first' : undefined}
-                tooltipDocLink={addFilterDocLink}
+                tooltip={
+                    addFilterDocLink ? (
+                        <>
+                            Show filters
+                            <br />
+                            <Link to={addFilterDocLink} target="_blank">
+                                Read the docs
+                            </Link>
+                        </>
+                    ) : (
+                        'Show filters'
+                    )
+                }
             />
         </IconWithCount>
     )
@@ -430,22 +548,33 @@ export function ActionFilterRow({
         </LemonButton>
     )
 
-    const combineRowButton = (
-        <Tooltip title="Count multiple events as a single event">
-            <LemonButton
-                key="combine"
-                icon={<IconStack />}
-                data-attr={`show-prop-combine-${index}`}
-                noPadding={!enablePopup}
-                onClick={() => {
-                    setIsMenuVisible(false)
-                    convertFilterToGroup(index)
-                }}
-                fullWidth={enablePopup}
-            >
-                {enablePopup ? 'Combine' : undefined}
-            </LemonButton>
-        </Tooltip>
+    const combineInlineButton = (
+        <LemonButton
+            key="combine-inline"
+            icon={<IconStack />}
+            title="Count multiple events as a single event"
+            data-attr={`show-prop-combine-${index}`}
+            noPadding
+            onClick={() => {
+                convertFilterToGroup(index)
+                posthog.capture('combine_events', {
+                    insight_type: insightType,
+                    team_id: currentTeamId,
+                })
+            }}
+            tooltip={
+                <>
+                    Combine events
+                    <br />
+                    <Link
+                        to="https://posthog.com/docs/product-analytics/trends/overview#combine-events-inline"
+                        target="_blank"
+                    >
+                        Read the docs
+                    </Link>
+                </>
+            }
+        />
     )
 
     const deleteButton = (
@@ -470,13 +599,9 @@ export function ActionFilterRow({
         showSeriesIndicator && <div key="series-indicator">{seriesIndicator}</div>,
     ].filter(Boolean)
 
-    // Check if popup would have any menu items (excluding filter button which is always outside the menu)
+    // Check if popup would have any menu items (excluding filter and combine buttons which are always outside the menu)
     const hasMenuItems =
-        isFunnelContext ||
-        !hideRename ||
-        (!hideDuplicate && !singleFilter) ||
-        showCombine ||
-        (!hideDeleteBtn && !singleFilter)
+        isFunnelContext || !hideRename || (!hideDuplicate && !singleFilter) || (!hideDeleteBtn && !singleFilter)
     const showPopupMenu = !readOnly && enablePopup && hasMenuItems
 
     // When not using popup, show elements inline
@@ -484,9 +609,9 @@ export function ActionFilterRow({
         !readOnly && !showPopupMenu
             ? [
                   !hideFilter && propertyFiltersButton,
+                  canCombine && combineInlineButton,
                   !hideRename && renameRowButton,
                   !hideDuplicate && !singleFilter && duplicateRowButton,
-                  showCombine && combineRowButton,
                   !hideDeleteBtn && !singleFilter && deleteButton,
               ].filter(Boolean)
             : []
@@ -646,6 +771,7 @@ export function ActionFilterRow({
                                 {showPopupMenu ? (
                                     <>
                                         {!hideFilter && propertyFiltersButton}
+                                        {canCombine && combineInlineButton}
                                         <div className="relative">
                                             <LemonMenu
                                                 placement={isTrendsContext ? 'bottom-end' : 'bottom-start'}
@@ -724,13 +850,6 @@ export function ActionFilterRow({
                                                               },
                                                           ]
                                                         : []),
-                                                    ...(showCombine
-                                                        ? [
-                                                              {
-                                                                  label: () => combineRowButton,
-                                                              },
-                                                          ]
-                                                        : []),
                                                     ...(!hideDeleteBtn && !singleFilter
                                                         ? [
                                                               {
@@ -769,7 +888,7 @@ export function ActionFilterRow({
                     <PropertyFilters
                         pageKey={`${index}-${value}-${typeKey}-filter`}
                         propertyFilters={filter.properties}
-                        onChange={(properties) => updateFilterProperty({ properties, index })}
+                        onChange={onPropertyChange}
                         showNestedArrow={showNestedArrow}
                         disablePopover={!propertyFiltersPopover}
                         metadataSource={
@@ -807,6 +926,7 @@ export function ActionFilterRow({
                         }
                         addFilterDocLink={addFilterDocLink}
                         excludedProperties={excludedProperties}
+                        hogQLGlobals={hogQLGlobals}
                     />
                 </div>
             )}

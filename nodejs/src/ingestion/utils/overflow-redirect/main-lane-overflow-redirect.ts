@@ -6,6 +6,7 @@ import {
     overflowRedirectEventsTotal,
     overflowRedirectKeysTotal,
     overflowRedirectRateLimitDecisions,
+    overflowRedirectSourceEventsTotal,
 } from './metrics'
 import { OverflowEventBatch, OverflowRedirectService } from './overflow-redirect-service'
 import { OverflowRedisRepository, OverflowType, memberKey } from './overflow-redis-repository'
@@ -75,6 +76,7 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
 
     async handleEventBatch(type: OverflowType, batch: OverflowEventBatch[]): Promise<Set<string>> {
         const toRedirect = new Set<string>()
+        const redirectSource = new Map<string, 'redis' | 'rate_limiter'>()
         const needsRateLimitCheck: OverflowEventBatch[] = []
 
         if (this.statefulEnabled) {
@@ -86,8 +88,10 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
                 const cached = this.getCachedValue(cacheKey)
 
                 if (cached === true) {
-                    // Already flagged - redirect
-                    toRedirect.add(memberKey(event.key.token, event.key.distinctId))
+                    // Already flagged (cached from previous Redis lookup) - redirect
+                    const mKey = memberKey(event.key.token, event.key.distinctId)
+                    toRedirect.add(mKey)
+                    redirectSource.set(mKey, 'redis')
                     overflowRedirectCacheHitsTotal.labels(type, 'hit_flagged').inc()
                 } else if (cached === null) {
                     // Known not in Redis - check rate limit only
@@ -114,6 +118,7 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
                     if (redisResults.get(mKey)) {
                         // Flagged in Redis - redirect
                         toRedirect.add(mKey)
+                        redirectSource.set(mKey, 'redis')
                         this.setCachedValue(cacheKey, true)
                     } else {
                         // Not in Redis - cache null and check rate limit
@@ -141,6 +146,7 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
                 // Rate limit exceeded - needs to be flagged
                 newlyFlagged.push(event)
                 toRedirect.add(rateLimitKey)
+                redirectSource.set(rateLimitKey, 'rate_limiter')
                 overflowRedirectRateLimitDecisions.labels(type, 'exceeded').inc()
             } else {
                 overflowRedirectRateLimitDecisions.labels(type, 'allowed').inc()
@@ -171,16 +177,26 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
         // Record event-level metrics
         let redirectedEvents = 0
         let passedEvents = 0
+        const eventsBySource = new Map<'redis' | 'rate_limiter', number>()
         for (const event of batch) {
             const mKey = memberKey(event.key.token, event.key.distinctId)
             if (toRedirect.has(mKey)) {
                 redirectedEvents += event.eventCount
+                const source = redirectSource.get(mKey)
+                if (source) {
+                    eventsBySource.set(source, (eventsBySource.get(source) ?? 0) + event.eventCount)
+                }
             } else {
                 passedEvents += event.eventCount
             }
         }
         overflowRedirectEventsTotal.labels(type, 'redirected').inc(redirectedEvents)
         overflowRedirectEventsTotal.labels(type, 'passed').inc(passedEvents)
+
+        // Record redirect source metrics
+        for (const [source, count] of eventsBySource) {
+            overflowRedirectSourceEventsTotal.labels(type, source).inc(count)
+        }
 
         return toRedirect
     }

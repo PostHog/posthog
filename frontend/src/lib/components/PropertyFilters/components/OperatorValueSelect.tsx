@@ -1,11 +1,13 @@
 import { useValues } from 'kea'
+import { RE2JS } from 're2js'
 import { useEffect, useState } from 'react'
 
-import { LemonDropdownProps, LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDropdownProps, LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     allOperatorsMapping,
@@ -18,6 +20,7 @@ import {
     isOperatorRegex,
     isOperatorSemver,
 } from 'lib/utils'
+import { RE2_DOCS_LINK, formatRE2Error } from 'lib/utils/regexp'
 
 import {
     GroupTypeIndex,
@@ -68,9 +71,9 @@ interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
 function getRegexValidationError(operator: PropertyOperator, value: any): string | null {
     if (isOperatorRegex(operator)) {
         try {
-            new RegExp(value)
-        } catch (e: any) {
-            return e.message
+            RE2JS.compile(value)
+        } catch (error) {
+            return formatRE2Error(error as Error, value)
         }
     }
     return null
@@ -135,7 +138,6 @@ export function OperatorValueSelect({
     }
 
     const [currentOperator, setCurrentOperator] = useState(startingOperator)
-    const [validationError, setValidationError] = useState<string | null>(null)
 
     const [operators, setOperators] = useState([] as Array<PropertyOperator>)
     useEffect(() => {
@@ -201,6 +203,9 @@ export function OperatorValueSelect({
             setCurrentOperator(defaultProperty)
         }
     }, [propertyDefinition, propertyKey, operator, operatorAllowlist, semverTargetingEnabled]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    const validationError = currentOperator && value ? getValidationError(currentOperator, value, propertyKey) : null
+
     return (
         <>
             <div data-attr="taxonomic-operator">
@@ -209,14 +214,6 @@ export function OperatorValueSelect({
                         operator={currentOperator || PropertyOperator.Exact}
                         operators={operators}
                         onChange={(newOperator: PropertyOperator) => {
-                            const tentativeValidationError =
-                                newOperator && value ? getRegexValidationError(newOperator, value) : null
-                            if (tentativeValidationError) {
-                                setValidationError(tentativeValidationError)
-                                return
-                            }
-                            setValidationError(null)
-
                             setCurrentOperator(newOperator)
                             if (isOperatorCohort(newOperator)) {
                                 onChange(newOperator, value || null)
@@ -248,7 +245,7 @@ export function OperatorValueSelect({
             {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propertyKey && (
                 <div
                     // High flex-grow for proper sizing within TaxonomicPropertyFilter
-                    className="shrink grow-[1000] min-w-[10rem]"
+                    className="shrink grow-[1000] min-w-[10rem] overflow-hidden"
                     data-attr="taxonomic-value-select"
                 >
                     <PropertyValue
@@ -261,16 +258,6 @@ export function OperatorValueSelect({
                         value={value}
                         eventNames={eventNames}
                         onSet={(newValue: string | number | string[] | null) => {
-                            const tentativeValidationError =
-                                currentOperator && newValue
-                                    ? getValidationError(currentOperator, newValue, propertyKey)
-                                    : null
-                            if (tentativeValidationError) {
-                                setValidationError(tentativeValidationError)
-                                return
-                            }
-                            setValidationError(null)
-
                             onChange(currentOperator || PropertyOperator.Exact, newValue)
                         }}
                         // open automatically only if new filter
@@ -280,10 +267,25 @@ export function OperatorValueSelect({
                         editable={editable}
                         size={size}
                         forceSingleSelect={forceSingleSelect}
+                        validationError={validationError}
                     />
                 </div>
             )}
-            {validationError && <span className="taxonomic-validation-error">{validationError}</span>}
+            {validationError && (
+                <div className="basis-full w-full">
+                    <LemonBanner type="warning" hideIcon>
+                        {validationError}
+                        {isOperatorRegex(currentOperator) && (
+                            <>
+                                {' '}
+                                <Link to={RE2_DOCS_LINK} target="_blank">
+                                    Learn more
+                                </Link>
+                            </>
+                        )}
+                    </LemonBanner>
+                </div>
+            )}
         </>
     )
 }

@@ -5,8 +5,8 @@ import uuid
 import inspect
 import datetime as dt
 import resource
-import threading
 from collections.abc import Callable, Generator, Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack, contextmanager
 from functools import wraps
 from typing import Any, Optional, Union
@@ -17,6 +17,7 @@ import freezegun
 from unittest.mock import patch
 
 from django.apps import apps
+from django.conf import settings
 from django.core.cache import cache
 from django.core.management import call_command
 from django.db import connection, connections
@@ -28,6 +29,7 @@ from django.test.utils import CaptureQueriesContext
 # freezegun.FakeDateTime and pendulum don't play nicely otherwise
 import pendulum  # noqa F401
 import sqlparse
+from clickhouse_pool.pool import TooManyConnections
 from rest_framework.test import APITestCase as DRFTestCase
 from syrupy.extensions.amber import AmberSnapshotExtension
 
@@ -120,6 +122,7 @@ from posthog.models.person.sql import (
     TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
 )
 from posthog.models.person.util import bulk_create_persons, create_person
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.precalculated_events.sql import (
     DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL,
     DROP_PRECALCULATED_EVENTS_MV_SQL,
@@ -167,6 +170,7 @@ from posthog.models.sessions.sql import (
     SESSIONS_TABLE_SQL,
     SESSIONS_VIEW_SQL,
 )
+from posthog.models.utils import generate_random_token_personal
 from posthog.models.web_preaggregated.sql import (
     DROP_WEB_BOUNCES_DAILY_SQL,
     DROP_WEB_BOUNCES_HOURLY_SQL,
@@ -193,7 +197,9 @@ from posthog.models.web_preaggregated.team_selection import (
 )
 from posthog.session_recordings.sql.session_replay_event_sql import (
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
+    DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
     DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
+    KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 from posthog.test.assert_faster_than import assert_faster_than
@@ -861,6 +867,17 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
         organization.members.add(user)
         return user
 
+    def create_personal_api_key_with_scopes(self, scopes: list[str]) -> str:
+        """Create a Personal API Key with specified scopes for the current user."""
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=scopes,
+        )
+        return key_value
+
     def complete_email_mfa(self, email: str, user: Optional[Any] = None):
         if user is None:
             user = User.objects.get(email=email)
@@ -1086,9 +1103,12 @@ def also_test_with_materialized_columns(
 @pytest.mark.usefixtures("unittest_snapshot")
 class QueryMatchingTest:
     snapshot: Any
+    replace_all_numbers: bool = False
 
     # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
     def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
+        replace_all_numbers = replace_all_numbers or self.replace_all_numbers
+
         query = clean_varying_query_parts(query, replace_all_numbers)
 
         try:
@@ -1387,48 +1407,32 @@ class ClickhouseTestMixin(QueryMatchingTest):
             yield queries
 
 
-@contextmanager
-def failhard_threadhook_context():
-    """
-    Context manager to ensure that exceptions raised by threads are treated as a
-    test failure.
-    """
-
-    def raise_hook(args: threading.ExceptHookArgs):
-        """Capture exceptions from threads and raise them as AssertionError"""
-        exc = args.exc_value
-        if exc is None:
-            return
-
-        # Filter out expected Kafka table errors during test setup
-        if hasattr(exc, "code") and exc.code == 60 and "kafka_" in str(exc) and "posthog_test" in str(exc):
-            return  # Silently ignore expected Kafka table errors
-
-        # For other exceptions, raise as AssertionError to fail tests
-        raise AssertionError from exc  # Must be an AssertionError to fail tests
-
-    old_hook, threading.excepthook = threading.excepthook, raise_hook
-    try:
-        yield old_hook
-    finally:
-        assert threading.excepthook is raise_hook
-        threading.excepthook = old_hook
-
-
 def run_clickhouse_statement_in_parallel(statements: list[str]):
-    jobs = []
-    with failhard_threadhook_context():
-        for item in statements:
-            thread = threading.Thread(target=sync_execute, args=(item,))
-            jobs.append(thread)
+    def _execute_with_retry(stmt: str) -> None:
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            try:
+                sync_execute(stmt)
+                return
+            except TooManyConnections:
+                if attempt + 1 == max_attempts:
+                    raise
+                time.sleep(0.1 * (2**attempt))
 
-        # Start the threads (i.e. calculate the random number lists)
-        for j in jobs:
-            j.start()
+    with ThreadPoolExecutor(max_workers=settings.CLICKHOUSE_CONN_POOL_MAX) as pool:
+        futures = [pool.submit(_execute_with_retry, stmt) for stmt in statements]
 
-        # Ensure all of the threads have finished
-        for j in jobs:
-            j.join()
+        exceptions: list[BaseException] = []
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except Exception as exc:
+                if hasattr(exc, "code") and exc.code == 60 and "posthog_test" in str(exc):
+                    continue
+                exceptions.append(exc)
+
+        if exceptions:
+            raise exceptions[0]
 
 
 def reset_clickhouse_database() -> None:
@@ -1463,6 +1467,7 @@ def reset_clickhouse_database() -> None:
             DROP_RAW_SESSION_WRITABLE_TABLE_SQL(),
             DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3(),
             DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(),
             DROP_SESSION_TABLE_SQL(),
             DROP_WEB_STATS_SQL(),
             DROP_WEB_BOUNCES_SQL(),
@@ -1534,6 +1539,7 @@ def reset_clickhouse_database() -> None:
             DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3(),
             DISTRIBUTED_SESSIONS_TABLE_SQL(),
             DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(),
             CREATE_CUSTOM_METRICS_COUNTERS_VIEW,
             CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW(),
             CUSTOM_METRICS_TEST_VIEW(),

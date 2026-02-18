@@ -18,6 +18,8 @@ import type {
     DomainsListParams,
     EnterpriseEventDefinitionApi,
     EnterprisePropertyDefinitionApi,
+    EventDefinitionApi,
+    EventDefinitionsByNameRetrieveParams,
     EventDefinitionsListParams,
     ExportedAssetApi,
     ExportsList2Params,
@@ -767,6 +769,44 @@ export const getIntegrationsAuthorizeRetrieveUrl = (projectId: string) => {
 
 export const integrationsAuthorizeRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getIntegrationsAuthorizeRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Unified endpoint for generating Domain Connect apply URLs.
+
+Accepts a context ("email" or "proxy") and the relevant resource ID.
+The backend resolves the domain, template variables, and service ID
+based on context, then builds the signed apply URL.
+ */
+export const getIntegrationsDomainConnectApplyUrlCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/integrations/domain-connect/apply-url/`
+}
+
+export const integrationsDomainConnectApplyUrlCreate = async (
+    projectId: string,
+    integrationApi: NonReadonly<IntegrationApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsDomainConnectApplyUrlCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(integrationApi),
+    })
+}
+
+export const getIntegrationsDomainConnectCheckRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/integrations/domain-connect/check/`
+}
+
+export const integrationsDomainConnectCheckRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsDomainConnectCheckRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -2173,6 +2213,39 @@ export const eventDefinitionsMetricsRetrieve = async (
     })
 }
 
+/**
+ * Get event definition by exact name
+ */
+export const getEventDefinitionsByNameRetrieveUrl = (
+    projectId: string,
+    params: EventDefinitionsByNameRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/event_definitions/by_name/?${stringifiedParams}`
+        : `/api/projects/${projectId}/event_definitions/by_name/`
+}
+
+export const eventDefinitionsByNameRetrieve = async (
+    projectId: string,
+    params: EventDefinitionsByNameRetrieveParams,
+    options?: RequestInit
+): Promise<EventDefinitionApi> => {
+    return apiMutator<EventDefinitionApi>(getEventDefinitionsByNameRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getEventDefinitionsGolangRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/event_definitions/golang/`
 }
@@ -2916,6 +2989,44 @@ export const getIntegrationsAuthorizeRetrieve2Url = (projectId: string) => {
 
 export const integrationsAuthorizeRetrieve2 = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getIntegrationsAuthorizeRetrieve2Url(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Unified endpoint for generating Domain Connect apply URLs.
+
+Accepts a context ("email" or "proxy") and the relevant resource ID.
+The backend resolves the domain, template variables, and service ID
+based on context, then builds the signed apply URL.
+ */
+export const getIntegrationsDomainConnectApplyUrlCreate2Url = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/domain-connect/apply-url/`
+}
+
+export const integrationsDomainConnectApplyUrlCreate2 = async (
+    projectId: string,
+    integrationApi: NonReadonly<IntegrationApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsDomainConnectApplyUrlCreate2Url(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(integrationApi),
+    })
+}
+
+export const getIntegrationsDomainConnectCheckRetrieve2Url = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/domain-connect/check/`
+}
+
+export const integrationsDomainConnectCheckRetrieve2 = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsDomainConnectCheckRetrieve2Url(projectId), {
         ...options,
         method: 'GET',
     })

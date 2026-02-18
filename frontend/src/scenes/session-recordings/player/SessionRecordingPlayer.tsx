@@ -88,11 +88,12 @@ function SessionRecordingPlayerInternal({
 
     return (
         <div
+            ref={playerRef}
             className={clsx('SessionRecordingPlayerWrapper', {
                 'SessionRecordingPlayerWrapper--stacked-vertically': withSidebar && sidebarOpen && isVerticallyStacked,
             })}
         >
-            <PurePlayer noMeta={noMeta} noBorder={noBorder} playerRef={playerRef} />
+            <PurePlayer noMeta={noMeta} noBorder={noBorder} />
             {withSidebar && <PlayerSidebar />}
         </div>
     )

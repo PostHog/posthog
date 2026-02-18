@@ -161,6 +161,7 @@ describe('Hogflow Executor', () => {
                     properties: {
                         name: 'John Doe',
                     },
+                    timestamp: '2026-01-30T20:20:20.200Z',
                 },
             })
 
@@ -211,7 +212,8 @@ describe('Hogflow Executor', () => {
                 logs: [
                     {
                         level: 'debug',
-                        message: 'Starting workflow execution at trigger for [Person:person_id|John Doe]',
+                        message:
+                            'Starting workflow execution at trigger for [Person:person_id|John Doe] on [Event:uuid|test|2026-01-30T20:20:20.200Z]',
                         timestamp: expect.any(DateTime),
                     },
                     {
@@ -289,6 +291,7 @@ describe('Hogflow Executor', () => {
                     properties: {
                         name: 'John Doe',
                     },
+                    timestamp: '2026-01-30T20:20:20.200Z',
                 },
             })
 
@@ -299,7 +302,7 @@ describe('Hogflow Executor', () => {
             expect(result.invocation.queueScheduledAt).toEqual(expect.any(DateTime))
             expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "Starting workflow execution at trigger for [Person:person_id|John Doe]",
+                  "Starting workflow execution at trigger for [Person:person_id|John Doe] on [Event:uuid|test|2026-01-30T20:20:20.200Z]",
                   "Executing action [Action:function_id_1]",
                   "[Action:function_id_1] Hello, Mr John Doe!",
                   "[Action:function_id_1] Fetch 1, 200",
@@ -313,7 +316,7 @@ describe('Hogflow Executor', () => {
             expect(result2.invocation.state.currentAction!.hogFunctionState).toEqual(expect.any(Object))
             expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "Resuming workflow execution at [Action:function_id_1]",
+                  "Resuming workflow execution at [Action:function_id_1] on [Event:uuid|test|2026-01-30T20:20:20.200Z]",
                   "Executing action [Action:function_id_1]",
                   "[Action:function_id_1] Fetch 2, 200",
                   "Workflow will pause until 2025-01-01T00:00:00.000Z",
@@ -325,7 +328,7 @@ describe('Hogflow Executor', () => {
             expect(result3.finished).toEqual(true)
             expect(cleanLogs(result3.logs.map((log) => log.message))).toMatchInlineSnapshot(`
                 [
-                  "Resuming workflow execution at [Action:function_id_1]",
+                  "Resuming workflow execution at [Action:function_id_1] on [Event:uuid|test|2026-01-30T20:20:20.200Z]",
                   "Executing action [Action:function_id_1]",
                   "[Action:function_id_1] Fetch 3, 200",
                   "[Action:function_id_1] All fetches done!",
@@ -398,6 +401,7 @@ describe('Hogflow Executor', () => {
                         properties: {
                             name: 'Debug User',
                         },
+                        timestamp: '2026-01-30T20:20:20.200Z',
                     },
                 })
 
@@ -422,7 +426,7 @@ describe('Hogflow Executor', () => {
                 expect(result2.finished).toBe(true)
                 expect(result2.invocation.state.currentAction?.id).toBe('exit')
                 expect(result2.logs.map((log) => log.message)).toEqual([
-                    'Resuming workflow execution at [Action:function_id_1]',
+                    'Resuming workflow execution at [Action:function_id_1] on [Event:uuid|test|2026-01-30T20:20:20.200Z]',
                     'Executing action [Action:function_id_1]',
                     '[Action:function_id_1] Hello, Mr Debug User!',
                     '[Action:function_id_1] Fetch 1, 200',
@@ -1308,6 +1312,208 @@ describe('Hogflow Executor', () => {
                 overrideMe: 'customValue',
                 extra: 'shouldBeIncluded',
             })
+        })
+    })
+
+    describe('output variable mapping', () => {
+        let hogFlowBuilder: (outputVariable: any) => Promise<HogFlow>
+
+        beforeEach(async () => {
+            const nameBytecode = await compileHog(`return 'Test'`)
+            hogFlowBuilder = (outputVariable: any) => {
+                return Promise.resolve(
+                    new FixtureHogFlowBuilder()
+                        .withWorkflow({
+                            actions: {
+                                trigger: {
+                                    type: 'trigger',
+                                    config: {
+                                        type: 'event',
+                                        filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                                    },
+                                },
+                                action_1: {
+                                    type: 'function',
+                                    config: {
+                                        template_id: 'template-test-hogflow-executor',
+                                        inputs: {
+                                            name: {
+                                                value: 'Test',
+                                                bytecode: nameBytecode,
+                                            },
+                                        },
+                                    },
+                                    output_variable: outputVariable,
+                                } as any,
+                                exit: {
+                                    type: 'exit',
+                                    config: {},
+                                },
+                            },
+                            edges: [
+                                { from: 'trigger', to: 'action_1', type: 'continue' },
+                                { from: 'action_1', to: 'exit', type: 'continue' },
+                            ],
+                        })
+                        .build()
+                )
+            }
+        })
+
+        const executeToCompletion = async (hogFlow: HogFlow) => {
+            const invocation = createExampleHogFlowInvocation(hogFlow, {
+                event: {
+                    ...createHogExecutionGlobals().event,
+                    properties: { name: 'Test' },
+                },
+            })
+            let result = await executor.execute(invocation)
+            while (!result.finished) {
+                result = await executor.execute(result.invocation)
+            }
+            return result
+        }
+
+        it('stores full result in variable with single object output_variable', async () => {
+            const hogFlow = await hogFlowBuilder({ key: 'response', result_path: null })
+            const result = await executeToCompletion(hogFlow)
+
+            expect(result.invocation.state.variables?.response).toBeDefined()
+            expect(result.invocation.state.variables?.response).toHaveProperty('status', 200)
+        })
+
+        it('stores extracted value via result_path', async () => {
+            const hogFlow = await hogFlowBuilder({ key: 'http_status', result_path: 'status' })
+            const result = await executeToCompletion(hogFlow)
+
+            expect(result.invocation.state.variables).toEqual({ http_status: 200 })
+        })
+
+        it('stores multiple variables from array output_variable', async () => {
+            const hogFlow = await hogFlowBuilder([
+                { key: 'http_status', result_path: 'status' },
+                { key: 'response_body', result_path: 'body' },
+            ])
+            const result = await executeToCompletion(hogFlow)
+
+            expect(result.invocation.state.variables?.http_status).toBe(200)
+            expect(result.invocation.state.variables?.response_body).toBeDefined()
+        })
+
+        it('spreads object result into prefixed variables', async () => {
+            const hogFlow = await hogFlowBuilder({ key: 'resp', result_path: 'body', spread: true })
+            const result = await executeToCompletion(hogFlow)
+
+            // body is { status: 200 } so spread should create resp_status
+            expect(result.invocation.state.variables?.resp_status).toBe(200)
+        })
+
+        it('skips entries with empty key in array form', async () => {
+            const hogFlow = await hogFlowBuilder([
+                { key: '', result_path: 'status' },
+                { key: 'http_status', result_path: 'status' },
+            ])
+            const result = await executeToCompletion(hogFlow)
+
+            expect(result.invocation.state.variables).toEqual({ http_status: 200 })
+        })
+
+        it('does nothing when output_variable is undefined', async () => {
+            const hogFlow = await hogFlowBuilder(undefined)
+            const result = await executeToCompletion(hogFlow)
+
+            expect(result.invocation.state.variables).toBeUndefined()
+        })
+
+        it('errors and exits when total variable size exceeds 5KB with on_error=abort', async () => {
+            const hogFlow = await hogFlowBuilder({ key: 'response', result_path: null })
+            // Set action to abort on error
+            const action = hogFlow.actions.find((a) => a.id === 'action_1')!
+            action.on_error = 'abort'
+
+            const invocation = createExampleHogFlowInvocation(hogFlow, {
+                event: {
+                    ...createHogExecutionGlobals().event,
+                    properties: { name: 'Test' },
+                },
+            })
+            invocation.state.variables = { existing: 'x'.repeat(5100) }
+
+            let result = await executor.execute(invocation)
+            while (!result.finished) {
+                result = await executor.execute(result.invocation)
+            }
+
+            expect(result.error).toContain('exceeds 5KB limit')
+            expect(result.invocation.state.variables?.response).toBeUndefined()
+            expect(result.invocation.state.variables?.existing).toBe('x'.repeat(5100))
+        })
+
+        it('errors but continues when total variable size exceeds 5KB with on_error=continue', async () => {
+            const hogFlow = await hogFlowBuilder({ key: 'response', result_path: null })
+            const invocation = createExampleHogFlowInvocation(hogFlow, {
+                event: {
+                    ...createHogExecutionGlobals().event,
+                    properties: { name: 'Test' },
+                },
+            })
+            invocation.state.variables = { existing: 'x'.repeat(5100) }
+
+            let result = await executor.execute(invocation)
+            while (!result.finished) {
+                result = await executor.execute(result.invocation)
+            }
+
+            // on_error=continue (default), so workflow finishes but variables are cleaned up
+            expect(result.finished).toBe(true)
+            expect(result.invocation.state.variables?.response).toBeUndefined()
+            expect(result.invocation.state.variables?.existing).toBe('x'.repeat(5100))
+            expect(result.logs.some((l) => l.message.includes('exceeds 5KB limit'))).toBe(true)
+        })
+
+        it('warns when output variable specified but no result returned', async () => {
+            // Use a template that doesn't do a fetch (no result)
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-no-result',
+                name: 'No result template',
+                code: `print('no result')`,
+                inputs_schema: [],
+            })
+
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: {
+                                type: 'event',
+                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                            },
+                        },
+                        action_1: {
+                            type: 'function',
+                            config: {
+                                template_id: 'template-no-result',
+                                inputs: {},
+                            },
+                            output_variable: { key: 'my_var', result_path: null },
+                        } as any,
+                        exit: {
+                            type: 'exit',
+                            config: {},
+                        },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'action_1', type: 'continue' },
+                        { from: 'action_1', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+
+            const result = await executeToCompletion(hogFlow)
+
+            // No variables should be set since no result was produced
+            expect(result.invocation.state.variables).toBeUndefined()
         })
     })
 

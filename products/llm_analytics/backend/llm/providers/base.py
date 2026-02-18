@@ -22,6 +22,7 @@ class Provider(Protocol):
         request: CompletionRequest,
         api_key: str | None,
         analytics: AnalyticsContext,
+        base_url: str | None = None,
     ) -> CompletionResponse:
         """Non-streaming completion"""
         ...
@@ -31,6 +32,7 @@ class Provider(Protocol):
         request: CompletionRequest,
         api_key: str | None,
         analytics: AnalyticsContext,
+        base_url: str | None = None,
     ) -> Generator[StreamChunk, None, None]:
         """Streaming completion"""
         ...

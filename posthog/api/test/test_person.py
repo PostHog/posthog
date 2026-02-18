@@ -1326,100 +1326,82 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert response.json()["detail"] == "Not found."
 
-    @mock.patch(
-        f"{posthog.models.person.deletion.__name__}.create_person_distinct_id",
-        wraps=posthog.models.person.deletion.create_person_distinct_id,
-    )
     @pytest.mark.flaky(reruns=2)
-    def test_reset_person_distinct_id(self, mocked_ch_call):
-        # clickhouse only deleted person and distinct id that should be updated
-        ch_only_deleted_person_uuid = create_person(
-            uuid=str(uuid4()),
+    def test_reset_person_distinct_id(self):
+        # Simulate the real-world scenario: person deleted in CH (soft delete with high version),
+        # then the same distinct_id is reused which creates a new person in PG with the same
+        # deterministic UUID. The new person's CH row has a lower version than the deletion,
+        # so ReplacingMergeTree keeps the deleted state.
+        shared_uuid = str(uuid4())
+
+        # Phase 1: Person and distinct_id exist in CH as deleted
+        create_person(
+            uuid=shared_uuid,
             team_id=self.team.pk,
             is_deleted=True,
-            version=5,
+            version=105,
             sync=True,
         )
         create_person_distinct_id(
             team_id=self.team.pk,
             distinct_id="distinct_id",
-            person_id=ch_only_deleted_person_uuid,
+            person_id=shared_uuid,
             is_deleted=True,
-            version=7,
+            version=107,
             sync=True,
         )
-        create_person_distinct_id(
-            team_id=self.team.pk,
-            distinct_id="distinct_id-2",
-            person_id=ch_only_deleted_person_uuid,
-            is_deleted=False,
-            version=9,
-            sync=True,
-        )
-        # reuse
-        person_linked_to_after = Person.objects.create(
-            team_id=self.team.pk, properties={"abcdefg": 11112}, version=1, uuid=uuid4()
-        )
+
+        # Phase 2: New event reuses the distinct_id, creating a new person in PG
+        # with the same deterministic UUID. The signal writes to CH with version=0,
+        # which is ignored because 0 < 105.
+        person = Person.objects.create(team_id=self.team.pk, properties={"abcdefg": 11112}, version=0, uuid=shared_uuid)
         PersonDistinctId.objects.create(
             team_id=self.team.pk,
-            person=person_linked_to_after,
+            person=person,
             distinct_id="distinct_id",
             version=0,
         )
-        PersonDistinctId.objects.create(
-            team_id=self.team.pk,
-            person=person_linked_to_after,
-            distinct_id="distinct_id-2",
-            version=0,
-        )
 
-        distinct_id_version = posthog.models.person.deletion._get_version_for_distinct_id(self.team.pk, "distinct_id")
-
+        # Phase 3: Reset
         response = self.client.post(
             f"/api/projects/{self.team.pk}/persons/reset_person_distinct_id/",
-            {
-                "distinct_id": "distinct_id",
-            },
+            {"distinct_id": "distinct_id"},
         )
-
         assert response.status_code == status.HTTP_202_ACCEPTED
 
-        # postgres
-        pg_distinct_ids = PersonDistinctId.objects.all()
-        self.assertEqual(len(pg_distinct_ids), 2)
+        # Verify: PG distinct_id version was bumped
+        pg_distinct_id = PersonDistinctId.objects.get(team_id=self.team.pk, distinct_id="distinct_id")
+        assert (pg_distinct_id.version or 0) > 107
 
-        self.assertEqual(pg_distinct_ids[0].distinct_id, "distinct_id-2")
-        self.assertEqual(pg_distinct_ids[0].version, 0)
-        self.assertEqual(pg_distinct_ids[1].distinct_id, "distinct_id")
-        assert (pg_distinct_ids[1].version or 0) > distinct_id_version
-
-        self.assertEqual(pg_distinct_ids[0].person.uuid, person_linked_to_after.uuid)
-        self.assertEqual(pg_distinct_ids[1].person.uuid, person_linked_to_after.uuid)
-
-        # CH
-        ch_person_distinct_ids = sync_execute(
+        # Verify: CH distinct_id is reset
+        ch_pdi = sync_execute(
             f"""
-            SELECT person_id, team_id, distinct_id, version, is_deleted FROM {PERSON_DISTINCT_ID2_TABLE} FINAL WHERE team_id = %(team_id)s and distinct_id ='distinct_id' ORDER BY version, distinct_id
+            SELECT person_id, version, is_deleted
+            FROM {PERSON_DISTINCT_ID2_TABLE} FINAL
+            WHERE team_id = %(team_id)s AND distinct_id = 'distinct_id'
             """,
             {"team_id": self.team.pk},
         )
+        self.assertEqual(len(ch_pdi), 1)
+        self.assertEqual(ch_pdi[0][2], 0)  # is_deleted
+        assert ch_pdi[0][1] > 107  # version beats deletion
 
-        self.assertEqual(
-            ch_person_distinct_ids,
-            [
-                (person_linked_to_after.uuid, self.team.pk, "distinct_id", pg_distinct_ids[1].version, False),
-            ],
+        # Verify: CH person is also reset
+        ch_person = sync_execute(
+            """
+            SELECT argMax(is_deleted, version), max(version)
+            FROM person FINAL
+            WHERE team_id = %(team_id)s AND id = %(person_id)s
+            """,
+            {"team_id": self.team.pk, "person_id": shared_uuid},
         )
-        self.assertEqual(mocked_ch_call.call_count, 1)
-        # Second call has nothing to do
-        response = self.client.post(
-            f"/api/projects/{self.team.pk}/persons/reset_distinct_id/",
-            {
-                "distinct_id": "distinct_id",
-            },
-        )
+        self.assertEqual(len(ch_person), 1)
+        self.assertEqual(ch_person[0][0], 0)  # is_deleted
+        assert ch_person[0][1] > 105  # version beats deletion
 
-        self.assertEqual(mocked_ch_call.call_count, 1)
+        # Verify: PG person version is updated so future plugin-server updates aren't ignored
+        person.refresh_from_db()
+        assert person.version > 105
 
     @mock.patch(
         f"{posthog.models.person.deletion.__name__}.create_person_distinct_id",
@@ -1483,6 +1465,146 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ],
         )
         mocked_ch_call.assert_not_called()
+
+    def test_batch_by_distinct_ids_happy_path(self) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_1"],
+            properties={"email": "user1@example.com"},
+            immediate=True,
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_2"],
+            properties={"email": "user2@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": ["user_1", "user_2"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertIn("user_1", results)
+        self.assertIn("user_2", results)
+        self.assertEqual(results["user_1"]["properties"]["email"], "user1@example.com")
+        self.assertEqual(results["user_2"]["properties"]["email"], "user2@example.com")
+
+    def test_batch_by_distinct_ids_missing_ids(self) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["existing_user"],
+            properties={"email": "exists@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": ["existing_user", "nonexistent_1", "nonexistent_2"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertIn("existing_user", results)
+        self.assertNotIn("nonexistent_1", results)
+        self.assertNotIn("nonexistent_2", results)
+
+    def test_batch_by_distinct_ids_same_person_multiple_ids(self) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["id_a", "id_b"],
+            properties={"email": "multi@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": ["id_a", "id_b"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertIn("id_a", results)
+        self.assertIn("id_b", results)
+        self.assertEqual(results["id_a"]["uuid"], results["id_b"]["uuid"])
+
+    def test_batch_by_distinct_ids_empty_list(self) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": []},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], {})
+
+    def test_batch_by_distinct_ids_invalid_input(self) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": "not_a_list"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], {})
+
+    def test_batch_by_distinct_ids_cross_team_isolation(self) -> None:
+        other_org, _, _ = Organization.objects.bootstrap(None, name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+
+        _create_person(
+            team=other_team,
+            distinct_ids=["other_team_user"],
+            properties={"email": "other@example.com"},
+            immediate=True,
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["my_team_user"],
+            properties={"email": "mine@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": ["my_team_user", "other_team_user"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertIn("my_team_user", results)
+        self.assertNotIn("other_team_user", results)
+
+    def test_batch_by_distinct_ids_truncates_at_max_batch_size(self) -> None:
+        distinct_ids = [f"user_{i}" for i in range(201)]
+
+        _create_person(
+            team=self.team,
+            distinct_ids=[distinct_ids[200]],
+            properties={"email": "last@example.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/persons/batch_by_distinct_ids/",
+            {"distinct_ids": distinct_ids},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertNotIn(distinct_ids[200], results)
 
 
 class TestPersonFromClickhouse(TestPerson):

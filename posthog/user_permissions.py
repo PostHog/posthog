@@ -157,6 +157,7 @@ class UserPermissions:
             return None
 
         dashboard_ids = {tile.dashboard_id for tile in self._tiles}
+        # nosemgrep: idor-lookup-without-team (IDs from internal FK query)
         return list(Dashboard.objects.filter(pk__in=dashboard_ids))
 
     def reset_insights_dashboard_cached_results(self):
@@ -196,6 +197,57 @@ class UserTeamPermissions:
         # Use prefetched data to check team privacy and access
         access_controls = self.p._prefetched_access_controls.get(self.team.id, [])
 
+        # For private teams, check if the user has specific access
+
+        # Organization admins and owners always have access
+        if organization_membership.level >= OrganizationMembership.Level.ADMIN:
+            return cast("OrganizationMembership.Level", organization_membership.level)
+
+        # Check for direct admin access first - highest priority
+        user_has_admin_access = any(
+            ac["resource_id"] == str(self.team.id)
+            and ac["organization_member_id"] == organization_membership.id
+            and ac["access_level"] == "admin"
+            for ac in access_controls
+        )
+
+        if user_has_admin_access:
+            return OrganizationMembership.Level.ADMIN
+
+        # Check for direct member access
+        user_has_member_access = any(
+            ac["resource_id"] == str(self.team.id)
+            and ac["organization_member_id"] == organization_membership.id
+            and ac["access_level"] == "member"
+            for ac in access_controls
+        )
+
+        # Check role-based access before returning any member level
+        user_roles = self.p._prefetched_role_memberships.get(organization_membership.id, [])
+
+        if user_roles:
+            role_has_admin_access = any(
+                ac["resource_id"] == str(self.team.id) and ac["role_id"] in user_roles and ac["access_level"] == "admin"
+                for ac in access_controls
+            )
+
+            if role_has_admin_access:
+                return OrganizationMembership.Level.ADMIN
+
+            role_has_member_access = any(
+                ac["resource_id"] == str(self.team.id)
+                and ac["role_id"] in user_roles
+                and ac["access_level"] == "member"
+                for ac in access_controls
+            )
+
+            if role_has_member_access:
+                return OrganizationMembership.Level.MEMBER
+
+        # Return direct member access only if no higher role permissions found
+        if user_has_member_access:
+            return OrganizationMembership.Level.MEMBER
+
         # Check if the team is private
         team_is_private = any(
             ac["resource_id"] == str(self.team.id)
@@ -208,37 +260,6 @@ class UserTeamPermissions:
         # If team is not private, all organization members have access
         if not team_is_private:
             return cast("OrganizationMembership.Level", organization_membership.level)
-
-        # For private teams, check if the user has specific access
-
-        # Organization admins and owners always have access
-        if organization_membership.level >= OrganizationMembership.Level.ADMIN:
-            return cast("OrganizationMembership.Level", organization_membership.level)
-
-        # Check for direct member access through AccessControl entries
-        user_has_access = any(
-            ac["resource_id"] == str(self.team.id)
-            and ac["organization_member_id"] == organization_membership.id
-            and ac["access_level"] in ["member", "admin"]
-            for ac in access_controls
-        )
-
-        if user_has_access:
-            return cast("OrganizationMembership.Level", organization_membership.level)
-
-        # Check for role-based access
-        user_roles = self.p._prefetched_role_memberships.get(organization_membership.id, [])
-
-        if user_roles:
-            role_has_access = any(
-                ac["resource_id"] == str(self.team.id)
-                and ac["role_id"] in user_roles
-                and ac["access_level"] in ["member", "admin"]
-                for ac in access_controls
-            )
-
-            if role_has_access:
-                return cast("OrganizationMembership.Level", organization_membership.level)
 
         # No access found
         return None
@@ -325,6 +346,7 @@ class UserInsightPermissions:
         dashboard_ids = set(
             DashboardTile.objects.filter(insight=self.insight.pk).values_list("dashboard_id", flat=True)
         )
+        # nosemgrep: idor-lookup-without-team (IDs from internal FK query)
         return list(Dashboard.objects.filter(pk__in=dashboard_ids))
 
 

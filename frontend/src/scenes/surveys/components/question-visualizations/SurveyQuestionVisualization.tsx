@@ -28,6 +28,12 @@ function QuestionTitle({
     questionIndex,
     totalResponses = 0,
 }: Props & { totalResponses?: number }): JSX.Element {
+    // only show analzye button if there's text to analyze
+    const shouldShowAnalyzeButton =
+        question.type === SurveyQuestionType.Open ||
+        (question.type === SurveyQuestionType.SingleChoice && question.hasOpenChoice) ||
+        (question.type === SurveyQuestionType.MultipleChoice && question.hasOpenChoice)
+
     return (
         <div className="flex flex-col">
             <div className="inline-flex gap-1 max-w-fit font-semibold text-secondary items-center">
@@ -57,7 +63,8 @@ function QuestionTitle({
                 <h3 className="text-xl font-bold mb-0">
                     Question {questionIndex + 1}: {question.question}
                 </h3>
-                <AnalyzeResponsesButton />
+
+                {shouldShowAnalyzeButton && <AnalyzeResponsesButton />}
             </div>
         </div>
     )

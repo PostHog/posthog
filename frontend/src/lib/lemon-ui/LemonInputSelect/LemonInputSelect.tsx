@@ -134,7 +134,7 @@ export type LemonInputSelectAction = SideAction & Pick<LemonButtonPropsBase, 'ch
 export type LemonInputSelectProps<T = string> = Pick<
     // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
     LemonInputProps,
-    'autoFocus' | 'autoWidth' | 'fullWidth'
+    'autoFocus' | 'autoWidth' | 'fullWidth' | 'status'
 > & {
     options?: LemonInputSelectOption<T>[]
     value?: T[] | null
@@ -207,6 +207,7 @@ export function LemonInputSelect<T = string>({
     action,
     virtualized = false,
     sortable = false,
+    status = 'default',
 }: LemonInputSelectProps<T>): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
     const [inputValue, _setInputValue] = useState('')
@@ -491,9 +492,10 @@ export function LemonInputSelect<T = string>({
             popoverFocusRef.current = false
             inputRef.current?.focus()
             _onFocus()
-            if (hasCustomValue) {
-                _onActionItem(inputValue.trim(), null)
-            }
+            // Don't add custom values here - if the user clicked on a popover option,
+            // the click handler will handle the selection. Adding it here causes a
+            // double-fire: the value gets added by _onBlur, the component re-renders,
+            // and then the click handler sees it already exists and removes it.
             return
         }
         if (hasCustomValue) {
@@ -992,6 +994,7 @@ export function LemonInputSelect<T = string>({
                 )}
                 data-attr={dataAttr}
                 size={size}
+                status={status}
             />
         </LemonDropdown>
     )

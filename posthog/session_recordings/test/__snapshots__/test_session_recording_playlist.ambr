@@ -108,6 +108,7 @@
          "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",
@@ -168,6 +169,7 @@
          "posthog_team"."base_currency",
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
+         "posthog_team"."default_experiment_stats_method",
          "posthog_team"."business_model",
          "posthog_user"."id",
          "posthog_user"."password",
@@ -185,6 +187,7 @@
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
+         "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
@@ -216,6 +219,7 @@
          T4."distinct_id",
          T4."is_email_verified",
          T4."requested_password_reset_at",
+         T4."requested_2fa_reset_at",
          T4."has_seen_product_intro_for",
          T4."strapi_id",
          T4."is_active",
@@ -279,6 +283,7 @@
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
+         "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
@@ -372,6 +377,7 @@
          "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",
@@ -425,6 +431,7 @@
          "posthog_team"."base_currency",
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
+         "posthog_team"."default_experiment_stats_method",
          "posthog_team"."business_model"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -665,6 +672,7 @@
          "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",
@@ -725,6 +733,7 @@
          "posthog_team"."base_currency",
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
+         "posthog_team"."default_experiment_stats_method",
          "posthog_team"."business_model",
          "posthog_user"."id",
          "posthog_user"."password",
@@ -742,6 +751,7 @@
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
+         "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
@@ -773,6 +783,7 @@
          T4."distinct_id",
          T4."is_email_verified",
          T4."requested_password_reset_at",
+         T4."requested_2fa_reset_at",
          T4."has_seen_product_intro_for",
          T4."strapi_id",
          T4."is_active",
@@ -1009,6 +1020,7 @@
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
+         "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
@@ -1157,6 +1169,7 @@
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
+         "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
@@ -1250,6 +1263,7 @@
          "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",
@@ -1303,6 +1317,7 @@
          "posthog_team"."base_currency",
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
+         "posthog_team"."default_experiment_stats_method",
          "posthog_team"."business_model"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -1554,6 +1569,7 @@
          "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",
@@ -1614,6 +1630,7 @@
          "posthog_team"."base_currency",
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
+         "posthog_team"."default_experiment_stats_method",
          "posthog_team"."business_model",
          "posthog_user"."id",
          "posthog_user"."password",
@@ -1631,6 +1648,7 @@
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
+         "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
@@ -1662,6 +1680,7 @@
          T4."distinct_id",
          T4."is_email_verified",
          T4."requested_password_reset_at",
+         T4."requested_2fa_reset_at",
          T4."has_seen_product_intro_for",
          T4."strapi_id",
          T4."is_active",
@@ -1772,6 +1791,7 @@
          "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",
@@ -1825,6 +1845,7 @@
          "posthog_team"."base_currency",
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
+         "posthog_team"."default_experiment_stats_method",
          "posthog_team"."business_model"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -2148,9 +2169,11 @@
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.62
   '''
-  SELECT "posthog_sessionrecordingplaylistitem"."session_id"
+  SELECT COUNT(*) AS "__count"
   FROM "posthog_sessionrecordingplaylistitem"
-  WHERE "posthog_sessionrecordingplaylistitem"."playlist_id" = 99999
+  WHERE ("posthog_sessionrecordingplaylistitem"."playlist_id" = 99999
+         AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
+                  AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL))
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.63

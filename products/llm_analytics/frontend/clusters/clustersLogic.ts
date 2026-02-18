@@ -1,6 +1,7 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
@@ -11,24 +12,32 @@ import { urls } from 'scenes/urls'
 import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
 
+import { loadClusterMetrics } from './clusterMetricsLoader'
 import type { clustersLogicType } from './clustersLogicType'
-import { MAX_CLUSTERING_RUNS, NOISE_CLUSTER_ID } from './constants'
+import { MAX_CLUSTERING_RUNS, NOISE_CLUSTER_ID, OUTLIER_COLOR } from './constants'
 import { loadTraceSummaries } from './traceSummaryLoader'
 import {
     Cluster,
+    ClusterMetrics,
+    ClusteringLevel,
     ClusteringParams,
     ClusteringRun,
     ClusteringRunOption,
     TraceSummary,
+    getLevelFromRunId,
     getTimestampBoundsFromRunId,
 } from './types'
 
-// Special color for outliers cluster
-const OUTLIER_COLOR = '#888888'
-
 export interface ScatterDataset {
     label: string
-    data: Array<{ x: number; y: number; traceId?: string; clusterId?: number; timestamp?: string }>
+    data: Array<{
+        x: number
+        y: number
+        traceId?: string
+        generationId?: string
+        clusterId?: number
+        timestamp?: string
+    }>
     backgroundColor: string
     borderColor: string
     borderWidth: number
@@ -51,19 +60,34 @@ export const clustersLogic = kea<clustersLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'clusters', 'clustersLogic']),
 
     actions({
+        setClusteringLevel: (level: ClusteringLevel) => ({ level }),
+        syncClusteringLevelFromRun: (level: ClusteringLevel) => ({ level }),
         setSelectedRunId: (runId: string | null) => ({ runId }),
         toggleClusterExpanded: (clusterId: number) => ({ clusterId }),
         toggleScatterPlotExpanded: true,
         setTraceSummaries: (summaries: Record<string, TraceSummary>) => ({ summaries }),
         setTraceSummariesLoading: (loading: boolean) => ({ loading }),
         loadTraceSummariesForRun: (run: ClusteringRun) => ({ run }),
+        setClusterMetrics: (metrics: Record<number, ClusterMetrics>) => ({ metrics }),
+        setClusterMetricsLoading: (loading: boolean) => ({ loading }),
+        loadClusterMetricsForRun: (run: ClusteringRun) => ({ run }),
     }),
 
     reducers({
+        clusteringLevel: [
+            'trace' as ClusteringLevel,
+            {
+                setClusteringLevel: (_, { level }) => level,
+                // Sync from run without triggering reload (used when loading a run from URL)
+                syncClusteringLevelFromRun: (_, { level }) => level,
+            },
+        ],
         selectedRunId: [
             null as string | null,
             {
                 setSelectedRunId: (_, { runId }) => runId,
+                // Clear selected run when level changes
+                setClusteringLevel: () => null,
             },
         ],
         expandedClusterIds: [
@@ -98,13 +122,30 @@ export const clustersLogic = kea<clustersLogicType>([
                 toggleScatterPlotExpanded: (state) => !state,
             },
         ],
+        clusterMetrics: [
+            {} as Record<number, ClusterMetrics>,
+            {
+                setClusterMetrics: (_, { metrics }) => metrics,
+                // Clear metrics when level changes (new run will load fresh metrics)
+                setClusteringLevel: () => ({}),
+            },
+        ],
+        clusterMetricsLoading: [
+            false,
+            {
+                setClusterMetricsLoading: (_, { loading }) => loading,
+            },
+        ],
     }),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         clusteringRuns: [
             [] as ClusteringRunOption[],
             {
                 loadClusteringRuns: async () => {
+                    const eventName =
+                        values.clusteringLevel === 'generation' ? '$ai_generation_clusters' : '$ai_trace_clusters'
+
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT
@@ -112,7 +153,7 @@ export const clustersLogic = kea<clustersLogicType>([
                                 JSONExtractString(properties, '$ai_window_end') as window_end,
                                 timestamp
                             FROM events
-                            WHERE event = '$ai_trace_clusters'
+                            WHERE event = ${eventName}
                                 AND timestamp >= now() - INTERVAL 7 DAY
                             ORDER BY timestamp DESC
                             LIMIT ${MAX_CLUSTERING_RUNS}
@@ -139,6 +180,9 @@ export const clustersLogic = kea<clustersLogicType>([
             {
                 loadClusteringRun: async (runId: string) => {
                     const { dayStart, dayEnd } = getTimestampBoundsFromRunId(runId)
+                    // Derive level from runId to ensure correct event is queried even on direct URL navigation
+                    const level = getLevelFromRunId(runId)
+                    const eventName = level === 'generation' ? '$ai_generation_clusters' : '$ai_trace_clusters'
 
                     const response = await api.queryHogQL(
                         hogql`
@@ -146,12 +190,13 @@ export const clustersLogic = kea<clustersLogicType>([
                                 JSONExtractString(properties, '$ai_clustering_run_id') as run_id,
                                 JSONExtractString(properties, '$ai_window_start') as window_start,
                                 JSONExtractString(properties, '$ai_window_end') as window_end,
-                                JSONExtractInt(properties, '$ai_total_traces_analyzed') as total_traces,
+                                JSONExtractInt(properties, '$ai_total_items_analyzed') as total_items,
                                 JSONExtractRaw(properties, '$ai_clusters') as clusters,
                                 timestamp,
-                                JSONExtractRaw(properties, '$ai_clustering_params') as clustering_params
+                                JSONExtractRaw(properties, '$ai_clustering_params') as clustering_params,
+                                JSONExtractString(properties, '$ai_clustering_level') as clustering_level
                             FROM events
-                            WHERE event = '$ai_trace_clusters'
+                            WHERE event = ${eventName}
                                 AND timestamp >= ${dayStart}
                                 AND timestamp <= ${dayEnd}
                                 AND JSONExtractString(properties, '$ai_clustering_run_id') = ${runId}
@@ -190,10 +235,11 @@ export const clustersLogic = kea<clustersLogicType>([
                         runId: row[0] as string,
                         windowStart: row[1] as string,
                         windowEnd: row[2] as string,
-                        totalTracesAnalyzed: row[3] as number,
+                        totalItemsAnalyzed: row[3] as number,
                         clusters: clustersData,
                         timestamp: row[5] as string,
                         clusteringParams,
+                        level: (row[7] as ClusteringLevel) || level,
                     } as ClusteringRun
                 },
             },
@@ -204,11 +250,6 @@ export const clustersLogic = kea<clustersLogicType>([
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
-                {
-                    key: 'LLMAnalytics',
-                    name: 'LLM analytics',
-                    path: urls.llmAnalyticsDashboard(),
-                },
                 {
                     key: 'LLMAnalyticsClusters',
                     name: 'Clusters',
@@ -261,7 +302,7 @@ export const clustersLogic = kea<clustersLogicType>([
         scatterPlotDatasets: [
             (s) => [s.sortedClusters],
             (clusters: Cluster[]): ScatterDataset[] => {
-                const traceDatasets: ScatterDataset[] = []
+                const itemDatasets: ScatterDataset[] = []
                 const centroidDatasets: ScatterDataset[] = []
 
                 for (const cluster of clusters) {
@@ -269,14 +310,17 @@ export const clustersLogic = kea<clustersLogicType>([
                     const color = isOutlier ? OUTLIER_COLOR : getSeriesColor(cluster.cluster_id)
                     const label = cluster.title || `Cluster ${cluster.cluster_id}`
 
-                    // Trace points
-                    traceDatasets.push({
+                    // Item points (traces or generations)
+                    itemDatasets.push({
                         label,
-                        data: Object.entries(cluster.traces).map(([traceId, traceInfo]) => ({
-                            x: traceInfo.x,
-                            y: traceInfo.y,
-                            traceId,
-                            timestamp: traceInfo.timestamp,
+                        data: Object.entries(cluster.traces).map(([itemKey, itemInfo]) => ({
+                            x: itemInfo.x,
+                            y: itemInfo.y,
+                            // Use explicit trace_id/generation_id from backend if available
+                            // Fall back to itemKey for backwards compatibility
+                            traceId: itemInfo.trace_id || itemKey,
+                            generationId: itemInfo.generation_id,
+                            timestamp: itemInfo.timestamp,
                         })),
                         backgroundColor: `${color}80`,
                         borderColor: color,
@@ -300,27 +344,56 @@ export const clustersLogic = kea<clustersLogicType>([
                     }
                 }
 
-                return [...traceDatasets, ...centroidDatasets]
+                return [...itemDatasets, ...centroidDatasets]
             },
         ],
     }),
 
     listeners(({ actions, values }) => ({
+        setClusteringLevel: ({ level }) => {
+            posthog.capture('llma clusters level changed', { level })
+            // Reload runs when level changes
+            actions.loadClusteringRuns()
+        },
+
+        loadClusterMetricsForRun: async ({ run }) => {
+            if (!run.clusters || run.clusters.length === 0) {
+                return
+            }
+
+            actions.setClusterMetricsLoading(true)
+
+            try {
+                const metrics = await loadClusterMetrics(
+                    run.clusters,
+                    run.windowStart,
+                    run.windowEnd,
+                    run.level || values.clusteringLevel
+                )
+                actions.setClusterMetrics(metrics)
+            } catch (error) {
+                console.error('Failed to load cluster metrics:', error)
+            } finally {
+                actions.setClusterMetricsLoading(false)
+            }
+        },
+
         loadTraceSummariesForRun: async ({ run }) => {
-            // Collect all trace IDs from all clusters
-            const allTraceIds: string[] = []
+            // Collect all item IDs from all clusters
+            const allItemIds: string[] = []
             for (const cluster of run.clusters) {
-                allTraceIds.push(...Object.keys(cluster.traces))
+                allItemIds.push(...Object.keys(cluster.traces))
             }
 
             actions.setTraceSummariesLoading(true)
 
             try {
                 const summaries = await loadTraceSummaries(
-                    allTraceIds,
+                    allItemIds,
                     values.traceSummaries,
                     run.windowStart,
-                    run.windowEnd
+                    run.windowEnd,
+                    values.clusteringLevel
                 )
                 actions.setTraceSummaries(summaries)
             } catch (error) {
@@ -331,21 +404,26 @@ export const clustersLogic = kea<clustersLogicType>([
         },
 
         toggleClusterExpanded: async ({ clusterId }) => {
-            // Load trace summaries when expanding a cluster (fallback for lazy loading)
+            posthog.capture('llma clusters cluster expanded', {
+                cluster_id: clusterId,
+                run_id: values.effectiveRunId,
+            })
+            // Load summaries when expanding a cluster (fallback for lazy loading)
             if (values.expandedClusterIds.has(clusterId)) {
                 const run = values.currentRun
                 const cluster = run?.clusters.find((c: Cluster) => c.cluster_id === clusterId)
                 if (cluster && run) {
-                    const traceIds = Object.keys(cluster.traces)
+                    const itemIds = Object.keys(cluster.traces)
 
                     actions.setTraceSummariesLoading(true)
 
                     try {
                         const summaries = await loadTraceSummaries(
-                            traceIds,
+                            itemIds,
                             values.traceSummaries,
                             run.windowStart,
-                            run.windowEnd
+                            run.windowEnd,
+                            values.clusteringLevel
                         )
                         actions.setTraceSummaries(summaries)
                     } catch (error) {
@@ -358,9 +436,25 @@ export const clustersLogic = kea<clustersLogicType>([
         },
 
         loadClusteringRunSuccess: ({ currentRun }) => {
+            // Sync clusteringLevel with the loaded run's level (without triggering reload)
+            // This handles direct URL navigation to a run with a different level
+            if (currentRun?.level && currentRun.level !== values.clusteringLevel) {
+                actions.syncClusteringLevelFromRun(currentRun.level)
+                // Reload runs for the correct level so the dropdown shows proper labels
+                actions.loadClusteringRuns()
+            }
             // Load all trace summaries when a run is loaded for scatter plot tooltips
             if (currentRun) {
+                if (currentRun.clusters.length === 0) {
+                    posthog.capture('llma clusters empty state shown', {
+                        reason: 'no_clusters_in_run',
+                        clustering_level: currentRun.level || values.clusteringLevel,
+                        run_id: currentRun.runId,
+                    })
+                }
                 actions.loadTraceSummariesForRun(currentRun)
+                // Load cluster metrics for displaying averages in cluster cards
+                actions.loadClusterMetricsForRun(currentRun)
             }
         },
 
@@ -369,14 +463,27 @@ export const clustersLogic = kea<clustersLogicType>([
         },
 
         loadClusteringRunsSuccess: ({ clusteringRuns }) => {
+            if (clusteringRuns.length === 0) {
+                posthog.capture('llma clusters empty state shown', {
+                    reason: 'no_clustering_runs',
+                    clustering_level: values.clusteringLevel,
+                })
+            }
             // Auto-load the first run if available and no run is selected
             if (clusteringRuns.length > 0 && !values.selectedRunId) {
                 actions.loadClusteringRun(clusteringRuns[0].runId)
             }
         },
 
+        toggleScatterPlotExpanded: () => {
+            posthog.capture('llma clusters scatter plot toggled', {
+                expanded: values.isScatterPlotExpanded,
+            })
+        },
+
         setSelectedRunId: ({ runId }) => {
             if (runId) {
+                posthog.capture('llma clusters run selected', { run_id: runId })
                 actions.loadClusteringRun(runId)
             }
         },

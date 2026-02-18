@@ -100,6 +100,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
             features.add(QueryFeature.columnsInResponse)
             features.add(QueryFeature.resultIsArrayOfArrays)
             features.add(QueryFeature.showCount)
+            features.add(QueryFeature.displayResponseError)
         }
     }
 
@@ -112,6 +113,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.columnConfigurator)
         features.add(QueryFeature.linkDataButton)
         features.add(QueryFeature.showCount)
+        features.add(QueryFeature.displayResponseError)
     }
 
     if (
@@ -148,6 +150,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.testAccountFilters)
         features.add(QueryFeature.supportTracesFilters)
         features.add(QueryFeature.columnConfigurator)
+        features.add(QueryFeature.displayResponseError)
     }
 
     if (isEndpointsUsageTableQuery(query)) {

@@ -4,6 +4,8 @@ import {
     type SizeProps,
 } from 'react-virtualized-auto-sizer'
 
+export type { SizeProps }
+
 type AutoSizerProps = BaseAutoSizerProps & {
     disableWidth?: boolean
     disableHeight?: boolean

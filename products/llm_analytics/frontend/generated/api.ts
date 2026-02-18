@@ -19,6 +19,8 @@ import type {
     DatasetsList2Params,
     DatasetsListParams,
     EvaluationApi,
+    EvaluationSummaryRequestApi,
+    EvaluationSummaryResponseApi,
     EvaluationsListParams,
     LLMProviderKeyApi,
     LlmAnalyticsProviderKeysListParams,
@@ -328,6 +330,37 @@ export const evaluationsCreate = async (
 }
 
 /**
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
+export const getLlmAnalyticsClusteringConfigRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/clustering_config/`
+}
+
+export const llmAnalyticsClusteringConfigRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLlmAnalyticsClusteringConfigRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
+export const getLlmAnalyticsClusteringConfigSetEventFiltersCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/clustering_config/set_event_filters/`
+}
+
+export const llmAnalyticsClusteringConfigSetEventFiltersCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getLlmAnalyticsClusteringConfigSetEventFiltersCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+/**
  * Trigger a new clustering workflow run.
 
 This endpoint validates the request parameters and starts a Temporal workflow
@@ -378,6 +411,39 @@ export const llmAnalyticsEvaluationConfigSetActiveKeyCreate = async (
     return apiMutator<void>(getLlmAnalyticsEvaluationConfigSetActiveKeyCreateUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+/**
+ * 
+Generate an AI-powered summary of evaluation results.
+
+This endpoint analyzes evaluation runs and identifies patterns in passing
+and failing evaluations, providing actionable recommendations.
+
+Data is fetched server-side by evaluation ID to ensure data integrity.
+
+**Use Cases:**
+- Understand why evaluations are passing or failing
+- Identify systematic issues in LLM responses
+- Get recommendations for improving response quality
+- Review patterns across many evaluation runs at once
+        
+ */
+export const getLlmAnalyticsEvaluationSummaryCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/evaluation_summary/`
+}
+
+export const llmAnalyticsEvaluationSummaryCreate = async (
+    projectId: string,
+    evaluationSummaryRequestApi: EvaluationSummaryRequestApi,
+    options?: RequestInit
+): Promise<EvaluationSummaryResponseApi> => {
+    return apiMutator<EvaluationSummaryResponseApi>(getLlmAnalyticsEvaluationSummaryCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evaluationSummaryRequestApi),
     })
 }
 
@@ -519,6 +585,24 @@ export const llmAnalyticsProviderKeysDestroy = async (
     return apiMutator<void>(getLlmAnalyticsProviderKeysDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+/**
+ * Get evaluations using this key and alternative keys for replacement.
+ */
+export const getLlmAnalyticsProviderKeysDependentConfigsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/provider_keys/${id}/dependent_configs/`
+}
+
+export const llmAnalyticsProviderKeysDependentConfigsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LLMProviderKeyApi> => {
+    return apiMutator<LLMProviderKeyApi>(getLlmAnalyticsProviderKeysDependentConfigsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

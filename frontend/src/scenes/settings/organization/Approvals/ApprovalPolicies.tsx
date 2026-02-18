@@ -12,6 +12,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -23,7 +24,7 @@ import { APPROVAL_ACTIONS, ApprovalActionKey, getApprovalActionLabel } from 'sce
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 
-import { ApprovalPolicy } from '~/types'
+import { ApprovalPolicy, AvailableFeature } from '~/types'
 
 import { approvalPoliciesLogic } from './approvalPoliciesLogic'
 
@@ -153,25 +154,27 @@ export function ApprovalPolicies(): JSX.Element {
     ]
 
     return (
-        <div className="space-y-4">
-            <div className="flex justify-end items-center">
-                <LemonButton type="primary" onClick={() => setIsCreating(true)} disabledReason={restrictionReason}>
-                    Add policy
-                </LemonButton>
+        <PayGateMini feature={AvailableFeature.APPROVALS}>
+            <div className="space-y-4">
+                <div className="flex justify-end items-center">
+                    <LemonButton type="primary" onClick={() => setIsCreating(true)} disabledReason={restrictionReason}>
+                        Add policy
+                    </LemonButton>
+                </div>
+
+                <LemonTable
+                    dataSource={policies}
+                    columns={columns}
+                    loading={policiesLoading}
+                    rowKey="id"
+                    nouns={['policy', 'policies']}
+                    emptyState="No approval policies configured"
+                />
+
+                {isCreating && <ApprovalPolicyModal onClose={() => setIsCreating(false)} />}
+                {editingPolicy && <ApprovalPolicyModal policy={editingPolicy} onClose={() => setEditingPolicy(null)} />}
             </div>
-
-            <LemonTable
-                dataSource={policies}
-                columns={columns}
-                loading={policiesLoading}
-                rowKey="id"
-                nouns={['policy', 'policies']}
-                emptyState="No approval policies configured"
-            />
-
-            {isCreating && <ApprovalPolicyModal onClose={() => setIsCreating(false)} />}
-            {editingPolicy && <ApprovalPolicyModal policy={editingPolicy} onClose={() => setEditingPolicy(null)} />}
-        </div>
+        </PayGateMini>
     )
 }
 
@@ -187,6 +190,10 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
     const [allowSelfApprove, setAllowSelfApprove] = useState(policy?.allow_self_approve || false)
     const [approverUserIds, setApproverUserIds] = useState<number[]>(policy?.approver_config?.users || [])
     const [approverRoleIds, setApproverRoleIds] = useState<string[]>(policy?.approver_config?.roles || [])
+    const [bypassAdminsOwners, setBypassAdminsOwners] = useState(
+        (policy?.bypass_org_membership_levels?.length ?? 0) > 0
+    )
+    const [bypassRoleIds, setBypassRoleIds] = useState<string[]>(policy?.bypass_roles || [])
 
     // Parse existing conditions into rules
     const parseExistingConditions = (): ConditionRule[] => {
@@ -261,7 +268,8 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
             },
             allow_self_approve: allowSelfApprove,
             conditions,
-            bypass_roles: [],
+            bypass_org_membership_levels: bypassAdminsOwners ? ['8', '15'] : [],
+            bypass_roles: bypassRoleIds,
             enabled: true,
         }
 
@@ -425,6 +433,42 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
                             </div>
                         }
                     />
+                </div>
+
+                <div className="border-t pt-4 mt-4">
+                    <label className="block text-sm font-medium mb-2">Bypass options</label>
+                    <p className="text-xs text-secondary mb-3">
+                        Users matching these criteria can skip the approval flow entirely
+                    </p>
+
+                    <div className="space-y-3">
+                        <LemonSwitch
+                            checked={bypassAdminsOwners}
+                            onChange={setBypassAdminsOwners}
+                            label={
+                                <div className="flex items-center gap-2">
+                                    <span>Allow org admins and owners to bypass</span>
+                                    <Tooltip title="Organization admins and owners can perform this action without requiring approval">
+                                        <IconInfo className="text-muted-alt w-4 h-4" />
+                                    </Tooltip>
+                                </div>
+                            }
+                        />
+
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Bypass roles</label>
+                            <LemonInputSelect
+                                mode="multiple"
+                                value={bypassRoleIds}
+                                onChange={setBypassRoleIds}
+                                options={roleOptions}
+                                placeholder="Select roles that can bypass approval"
+                            />
+                            <p className="text-xs text-secondary mt-1">
+                                Users with any of these roles can skip the approval flow
+                            </p>
+                        </div>
+                    </div>
                 </div>
             </div>
         </LemonModal>

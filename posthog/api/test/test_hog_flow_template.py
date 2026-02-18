@@ -5,7 +5,7 @@ from rest_framework import status
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
-from posthog.models import Team
+from posthog.models import Organization, Team, User
 from posthog.models.hog_flow.hog_flow_template import HogFlowTemplate
 from posthog.models.hog_function_template import HogFunctionTemplate
 
@@ -251,6 +251,32 @@ class TestHogFlowTemplateAPI(APIBaseTest):
 
         template = HogFlowTemplate.objects.get(pk=response.json()["id"])
         assert template.image_url == "https://example.com/image.png"
+
+    def test_template_tags_field(self):
+        """Test that tags field can be set, updated, and defaults to empty list"""
+        hog_flow_data = self._create_hog_flow_data()
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 201, response.json()
+        assert response.json()["tags"] == []
+        template = HogFlowTemplate.objects.get(pk=response.json()["id"])
+        assert template.tags == []
+
+        hog_flow_data["tags"] = ["ingestion", "batch"]
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 201, response.json()
+        assert response.json()["tags"] == ["ingestion", "batch"]
+
+        template = HogFlowTemplate.objects.get(pk=response.json()["id"])
+        assert template.tags == ["ingestion", "batch"]
+
+        template_id = response.json()["id"]
+        update_data = self._create_hog_flow_data()
+        update_data["tags"] = ["updated-tag"]
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flow_templates/{template_id}", update_data)
+        assert response.status_code == 200
+        assert response.json()["tags"] == ["updated-tag"]
+        template.refresh_from_db()
+        assert template.tags == ["updated-tag"]
 
     def test_template_filtering_returns_global_and_team_templates(self):
         """Test that listing templates returns file-based global templates and team templates from DB"""
@@ -525,3 +551,116 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         # Try to delete - also returns 404 for the same reason
         response = self.client.delete(f"/api/projects/{self.team.id}/hog_flow_templates/{template_id}")
         assert response.status_code == 404
+
+    def test_org_scoped_template_visible_to_other_teams_in_same_org(self):
+        """Test that organization-scoped templates are visible to all teams in the same org"""
+        org_template = HogFlowTemplate.objects.create(
+            name="Org Template",
+            team=self.team,
+            scope="organization",
+            trigger={"type": "event"},
+            actions=[],
+            created_by=self.user,
+        )
+
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+
+        response = self.client.get(f"/api/projects/{other_team.id}/hog_flow_templates")
+        assert response.status_code == 200
+
+        template_ids = [t["id"] for t in response.json()["results"]]
+        assert str(org_template.id) in template_ids
+
+    def test_org_scoped_template_not_visible_to_other_orgs(self):
+        """Test that organization-scoped templates are NOT visible to teams in different orgs"""
+        HogFlowTemplate.objects.create(
+            name="Org Template",
+            team=self.team,
+            scope="organization",
+            trigger={"type": "event"},
+            actions=[],
+            created_by=self.user,
+        )
+
+        other_org = Organization.objects.create(name="Other Org")
+        other_org_team = Team.objects.create(organization=other_org, name="Other Org Team")
+        other_user = User.objects.create_and_join(other_org, "other-org-user@posthog.com", "testpassword12345")
+        self.client.force_login(other_user)
+
+        response = self.client.get(f"/api/projects/{other_org_team.id}/hog_flow_templates")
+        assert response.status_code == 200
+
+        assert not any(t["scope"] == "organization" for t in response.json()["results"]), (
+            "Org-scoped template leaked to another org"
+        )
+
+    def test_cannot_update_org_scoped_template_from_other_org(self):
+        """Test that a user in Org B cannot update an org-scoped template from Org A"""
+        hog_flow_data = self._create_hog_flow_data()
+        hog_flow_data["scope"] = "organization"
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 201
+        template_id = response.json()["id"]
+
+        other_org = Organization.objects.create(name="Other Org")
+        other_org_team = Team.objects.create(organization=other_org, name="Other Org Team")
+        other_user = User.objects.create_and_join(other_org, "other-org-user2@posthog.com", "testpassword12345")
+        self.client.force_login(other_user)
+
+        update_data = self._create_hog_flow_data()
+        update_data["name"] = "Hijacked Name"
+        response = self.client.patch(
+            f"/api/projects/{other_org_team.id}/hog_flow_templates/{template_id}",
+            update_data,
+        )
+        assert response.status_code == 404
+
+        template = HogFlowTemplate.objects.get(pk=template_id)
+        assert template.name == "Test Template Flow"
+
+    def test_can_update_org_scoped_template_from_same_org(self):
+        """Test that a user on Team B can update Team A's org-scoped template within the same org"""
+        hog_flow_data = self._create_hog_flow_data()
+        hog_flow_data["scope"] = "organization"
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 201
+        template_id = response.json()["id"]
+
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+
+        update_data = self._create_hog_flow_data()
+        update_data["name"] = "Updated By Other Team"
+        response = self.client.patch(
+            f"/api/projects/{other_team.id}/hog_flow_templates/{template_id}",
+            update_data,
+        )
+        assert response.status_code == 200
+
+        template = HogFlowTemplate.objects.get(pk=template_id)
+        assert template.name == "Updated By Other Team"
+
+    def test_can_create_org_scoped_template(self):
+        """Test that users can create organization-scoped templates"""
+        hog_flow_data = self._create_hog_flow_data()
+        hog_flow_data["scope"] = "organization"
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 201, response.json()
+
+        template = HogFlowTemplate.objects.get(pk=response.json()["id"])
+        assert template.scope == "organization"
+
+    def test_org_scoped_template_visible_to_creating_team(self):
+        """Test that organization-scoped templates are also visible to the team that created them"""
+        hog_flow_data = self._create_hog_flow_data()
+        hog_flow_data["scope"] = "organization"
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 201
+        template_id = response.json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flow_templates")
+        assert response.status_code == 200
+
+        template_ids = [t["id"] for t in response.json()["results"]]
+        assert template_id in template_ids

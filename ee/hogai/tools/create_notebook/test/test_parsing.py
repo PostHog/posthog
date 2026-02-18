@@ -7,6 +7,7 @@ from posthog.schema import LoadingBlock, MarkdownBlock
 from ee.hogai.artifacts.types import VisualizationRefBlock
 from ee.hogai.tools.create_notebook.parsing import (
     _strip_incomplete_insight_tags,
+    _strip_title_heading,
     parse_notebook_content_for_storage,
     parse_notebook_content_for_streaming,
 )
@@ -189,3 +190,65 @@ class TestStripIncompleteInsightTags(BaseTest):
     def test_empty_string_unchanged(self):
         result = _strip_incomplete_insight_tags("")
         assert result == ""
+
+
+class TestStripTitleHeading(BaseTest):
+    @parameterized.expand(
+        [
+            ("# My Title\n\nContent", "My Title", "Content"),
+            ("# My Title\nContent", "My Title", "Content"),
+            ("#  My Title\n\nContent", "My Title", "Content"),
+            ("# MY TITLE\n\nContent", "My Title", "Content"),
+            ("# my title\n\nContent", "My Title", "Content"),
+            ("  # My Title\n\nContent", "My Title", "Content"),
+            ("\n# My Title\n\nContent", "My Title", "Content"),
+        ]
+    )
+    def test_matching_title_stripped(self, content: str, title: str, expected: str):
+        result = _strip_title_heading(content, title)
+        assert result == expected
+
+    @parameterized.expand(
+        [
+            ("# Different Title\n\nContent", "My Title", "# Different Title\n\nContent"),
+            ("## My Title\n\nContent", "My Title", "## My Title\n\nContent"),
+            ("Content without heading", "My Title", "Content without heading"),
+            ("", "My Title", ""),
+        ]
+    )
+    def test_non_matching_title_preserved(self, content: str, title: str, expected: str):
+        result = _strip_title_heading(content, title)
+        assert result == expected
+
+    def test_none_title_preserves_content(self):
+        content = "# Some Title\n\nContent"
+        result = _strip_title_heading(content, None)
+        assert result == content
+
+
+class TestParseNotebookContentForStorageWithTitle(BaseTest):
+    def test_matching_title_removed_from_first_block(self):
+        content = "# My Notebook\n\nHere's the chart:\n\n<insight>chart1</insight>"
+        result = parse_notebook_content_for_storage(content, title="My Notebook")
+
+        assert len(result) == 2
+        assert isinstance(result[0], MarkdownBlock)
+        assert result[0].content == "Here's the chart:"
+        assert isinstance(result[1], VisualizationRefBlock)
+        assert result[1].artifact_id == "chart1"
+
+    def test_non_matching_title_preserved(self):
+        content = "# Different Title\n\nContent"
+        result = parse_notebook_content_for_storage(content, title="My Notebook")
+
+        assert len(result) == 1
+        assert isinstance(result[0], MarkdownBlock)
+        assert result[0].content == content
+
+    def test_no_title_preserves_heading(self):
+        content = "# My Title\n\nContent"
+        result = parse_notebook_content_for_storage(content)
+
+        assert len(result) == 1
+        assert isinstance(result[0], MarkdownBlock)
+        assert result[0].content == content

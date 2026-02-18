@@ -1,3 +1,4 @@
+from posthog.temporal.llm_analytics.metrics import EvalsMetricsInterceptor  # noqa: F401
 from posthog.temporal.llm_analytics.run_evaluation import (
     RunEvaluationWorkflow,
     disable_evaluation_activity,
@@ -8,6 +9,8 @@ from posthog.temporal.llm_analytics.run_evaluation import (
     increment_trial_eval_count_activity,
     update_key_state_activity,
 )
+from posthog.temporal.llm_analytics.shared_activities import fetch_all_clustering_filters_activity
+from posthog.temporal.llm_analytics.team_discovery import get_team_ids_for_llm_analytics
 from posthog.temporal.llm_analytics.trace_clustering import (
     DailyTraceClusteringWorkflow,
     TraceClusteringCoordinatorWorkflow,
@@ -18,9 +21,9 @@ from posthog.temporal.llm_analytics.trace_clustering import (
 from posthog.temporal.llm_analytics.trace_summarization import (
     BatchTraceSummarizationCoordinatorWorkflow,
     BatchTraceSummarizationWorkflow,
-    generate_and_save_generation_summary_activity,
-    generate_and_save_summary_activity,
+    fetch_and_format_activity,
     sample_items_in_window_activity,
+    summarize_and_save_activity,
 )
 
 EVAL_WORKFLOWS = [
@@ -47,9 +50,14 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    # Team discovery
+    get_team_ids_for_llm_analytics,
+    # Summarization activities
     sample_items_in_window_activity,
-    generate_and_save_summary_activity,
-    generate_and_save_generation_summary_activity,
+    fetch_and_format_activity,
+    summarize_and_save_activity,
+    # Shared activities
+    fetch_all_clustering_filters_activity,
     # Clustering activities
     perform_clustering_compute_activity,
     generate_cluster_labels_activity,

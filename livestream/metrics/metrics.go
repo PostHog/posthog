@@ -103,4 +103,10 @@ var (
 		Name: "livestream_session_recording_token_count",
 		Help: "Number of unique tokens being tracked",
 	})
+
+	EventLagHistogram = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "livestream_event_lag_seconds",
+		Help:    "Distribution of event lag in seconds",
+		Buckets: []float64{1, 2, 5, 10, 30, 60, 120, 300, 600, 900, 1800, 3600},
+	})
 )

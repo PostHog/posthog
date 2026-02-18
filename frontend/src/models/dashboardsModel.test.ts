@@ -1,4 +1,8 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
+
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -179,6 +183,64 @@ describe('the dashboards model', () => {
                         expect.objectContaining({ id: 10 }),
                     ],
                 })
+        })
+    })
+
+    it('clears primary_dashboard from team when deleting the primary dashboard', async () => {
+        const primaryDashboardId = 42
+        initKeaTests(true, { ...MOCK_DEFAULT_TEAM, primary_dashboard: primaryDashboardId })
+        useMocks({
+            get: {
+                '/api/environments/:team_id/dashboards/': {
+                    count: 0,
+                    results: [],
+                },
+            },
+            patch: {
+                '/api/environments/:team_id/dashboards/:id/': {
+                    id: primaryDashboardId,
+                    name: 'My Dashboard',
+                    deleted: true,
+                },
+            },
+        })
+        logic = dashboardsModel()
+        logic.mount()
+
+        logic.actions.deleteDashboard({ id: primaryDashboardId, deleteInsights: false })
+
+        await expectLogic(logic).toDispatchActions(['deleteDashboardSuccess'])
+        await expectLogic(teamLogic).toMatchValues({
+            currentTeam: expect.objectContaining({ primary_dashboard: null }),
+        })
+    })
+
+    it('does not clear primary_dashboard when deleting a non-primary dashboard', async () => {
+        const primaryDashboardId = 42
+        initKeaTests(true, { ...MOCK_DEFAULT_TEAM, primary_dashboard: primaryDashboardId })
+        useMocks({
+            get: {
+                '/api/environments/:team_id/dashboards/': {
+                    count: 0,
+                    results: [],
+                },
+            },
+            patch: {
+                '/api/environments/:team_id/dashboards/:id/': {
+                    id: 99,
+                    name: 'Other Dashboard',
+                    deleted: true,
+                },
+            },
+        })
+        logic = dashboardsModel()
+        logic.mount()
+
+        logic.actions.deleteDashboard({ id: 99, deleteInsights: false })
+
+        await expectLogic(logic).toDispatchActions(['deleteDashboardSuccess'])
+        await expectLogic(teamLogic).toMatchValues({
+            currentTeam: expect.objectContaining({ primary_dashboard: primaryDashboardId }),
         })
     })
 })

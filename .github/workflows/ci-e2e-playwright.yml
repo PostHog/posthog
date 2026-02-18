@@ -139,7 +139,23 @@ jobs:
                   else
                     AUTHOR="${{ github.actor }}"
                     echo "Workflow triggered by: $AUTHOR"
-                    if [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
+
+                    # Trusted bots that are allowed to run in update mode
+                    # Add bot usernames here to allow snapshot auto-updates on their PRs
+                    TRUSTED_BOTS=("mendral-app[bot]")
+
+                    IS_TRUSTED=false
+                    for bot in "${TRUSTED_BOTS[@]}"; do
+                      if [[ "$AUTHOR" == "$bot" ]]; then
+                        IS_TRUSTED=true
+                        break
+                      fi
+                    done
+
+                    if [[ "$IS_TRUSTED" == "true" ]]; then
+                      echo "mode=update" >> $GITHUB_OUTPUT
+                      echo "::notice::🔄 Trusted bot '$AUTHOR' - running in UPDATE mode"
+                    elif [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
                       echo "mode=check" >> $GITHUB_OUTPUT
                       echo "::notice::🔍 Running in CHECK mode - snapshots must match exactly"
                     else
@@ -152,6 +168,7 @@ jobs:
         name: Playwright E2E tests
         needs: [changes, detect-snapshot-mode, get_clickhouse_versions]
         if: needs.changes.outputs.shouldRun == 'true'
+        # WARNING: Runner size is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
         runs-on: depot-ubuntu-latest-16
         timeout-minutes: 30
         steps:
@@ -213,9 +230,10 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
                   version: 0.9.9
 
             - name: Determine if hogql-parser has changed compared to master
@@ -234,6 +252,9 @@ jobs:
 
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
@@ -293,15 +314,22 @@ jobs:
                   touch frontend/dist/exporter.html
                   ./bin/download-mmdb
 
+            - name: Setup Emscripten for WASM build
+              uses: ./.github/actions/setup-emsdk
+
+            - name: Install Ninja
+              run: sudo apt-get install -y ninja-build
+
             - name: Install package.json dependencies with pnpm
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
-            - name: Wait for services to be available
-              run: |
-                  bin/check_kafka_clickhouse_up
-                  bin/check_postgres_up
+            - name: Start Docker services
+              run: docker compose -f docker-compose.dev.yml up -d
+
+            - name: Wait for Docker services
+              run: bin/wait-for-docker
 
             - name: Build frontend
               run: |
@@ -323,13 +351,18 @@ jobs:
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-backend'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
 
             - name: Apply postgres and clickhouse migrations and setup dev
               run: |
-                  python manage.py migrate_clickhouse &
+                  # Postgres migrations must run first — ClickHouse migration 0026
+                  # depends on the posthog_instancesetting table in Postgres
                   python manage.py migrate --noinput
 
                   # Run Rust migrations for persons e2e test database
@@ -337,8 +370,8 @@ jobs:
                   sqlx database create -D "$PERSONS_DATABASE_URL"
                   sqlx migrate run -D "$PERSONS_DATABASE_URL" --source rust/persons_migrations/
 
+                  python manage.py migrate_clickhouse 2>&1
                   python manage.py setup_dev
-                  wait
 
             - name: Source celery queues
               run: |
@@ -348,7 +381,8 @@ jobs:
             - name: Start PostHog web & Celery worker
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
-                  python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 4 &> /tmp/server.log &
+                  # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
+                  python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 2 &> /tmp/server.log &
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
@@ -365,8 +399,8 @@ jobs:
             - name: Run Playwright tests
               id: playwright-tests
               shell: bash
-              # Run 6 Playwright workers against 4 granian workers
-              # This balances parallelism with server capacity to avoid timeouts
+              # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
+              # Reduced from 6+4 to 4+2 to minimize CPU scheduling contention (see PR #46853)
               run: |
                   set +e  # Allow snapshot update retry
                   # Attempt 1: Always verify (fast path when snapshots match)
@@ -374,7 +408,7 @@ jobs:
                   # Note: Playwright's built-in retry (3x per test) handles test flakiness
                   echo "Attempt 1: Running Playwright tests"
                   set -o pipefail
-                  pnpm --filter=@posthog/playwright exec playwright test --workers=6 2>&1 | tee /tmp/playwright-output-attempt-1.log
+                  pnpm --filter=@posthog/playwright exec playwright test --workers=4 2>&1 | tee /tmp/playwright-output-attempt-1.log
                   EXIT_CODE=$?
                   set +o pipefail
 
@@ -394,7 +428,7 @@ jobs:
                       # Attempt 2: Update snapshots
                       echo "Attempt 2: Running Playwright tests with --update-snapshots"
                       set -o pipefail
-                      pnpm --filter=@posthog/playwright exec playwright test --workers=6 --update-snapshots 2>&1 | tee /tmp/playwright-output-attempt-2.log
+                      pnpm --filter=@posthog/playwright exec playwright test --workers=4 --update-snapshots 2>&1 | tee /tmp/playwright-output-attempt-2.log
                       EXIT_CODE=$?
                       set +o pipefail
 
@@ -458,7 +492,7 @@ jobs:
               if: always()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
-                  name: playwright-test-results-${{ matrix.segment }}
+                  name: playwright-test-results
                   path: |
                       playwright/playwright-report/
                       playwright/playwright-report-attempt-*/
@@ -478,14 +512,133 @@ jobs:
                   path: playwright/junit-results.xml
                   if-no-files-found: ignore
 
+            - name: Publish report to Cloudflare Pages
+              if: always() && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
+              id: cf-deploy
+              continue-on-error: true
+              env:
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+              run: |
+                  BRANCH="${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || 'master' }}"
+                  npx --yes wrangler@3 pages deploy playwright/playwright-report \
+                    --project-name=playwright-report \
+                    --branch="$BRANCH" \
+                    --commit-dirty=true 2>&1 | tee /tmp/wrangler-output.txt
+                  URL=$(grep -oP 'https://\S+\.pages\.dev' /tmp/wrangler-output.txt | tail -1 || true)
+                  if [ -n "$URL" ]; then
+                      echo "deployment-url=$URL" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Write report URL to job summary
+              if: always() && steps.cf-deploy.outputs.deployment-url != ''
+              run: |
+                  echo "## 🎭 Playwright report" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "**Report URL:** ${{ steps.cf-deploy.outputs.deployment-url }}" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- Run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+
+            - name: Upsert report URL comment on PR
+              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  script: |
+                      const fs = require('fs');
+                      const marker = '<!-- playwright-report-comment -->';
+                      const reportUrl = '${{ steps.cf-deploy.outputs.deployment-url }}';
+                      const jobPassed = '${{ job.status }}' === 'success';
+
+                      // Collect failed and flaky tests from JSON report — only populated when
+                      // results.json exists (i.e. tests actually ran). If the file is missing
+                      // (setup failure, cancelled, etc.) extraLines stays empty and we treat
+                      // it the same as "no failures found", so we don't delete an existing
+                      // comment that may have relevant info from a previous run.
+                      let extraLines = '';
+                      let resultsRead = false;
+                      try {
+                          const results = JSON.parse(fs.readFileSync('playwright/results.json', 'utf8'));
+                          resultsRead = true;
+                          const failed = [];
+                          const flaky = [];
+                          function collect(suites) {
+                              for (const suite of suites || []) {
+                                  for (const spec of suite.specs || []) {
+                                      for (const test of spec.tests || []) {
+                                          if (test.status === 'unexpected') {
+                                              failed.push(`- ${spec.title} (${test.projectName})`);
+                                          } else if (test.status === 'flaky') {
+                                              flaky.push(`- ${spec.title} (${test.projectName})`);
+                                          }
+                                      }
+                                  }
+                                  collect(suite.suites);
+                              }
+                          }
+                          collect(results.suites);
+                          if (failed.length > 0) {
+                              extraLines += `\n\n❌ **${failed.length} failed test${failed.length > 1 ? 's' : ''}:**\n${failed.join('\n')}`;
+                          }
+                          if (flaky.length > 0) {
+                              extraLines += `\n\n⚠️ **${flaky.length} flaky test${flaky.length > 1 ? 's' : ''}:**\n${flaky.join('\n')}`;
+                          }
+                      } catch {}
+
+                      const { data: comments } = await github.rest.issues.listComments({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                      });
+                      const existing = comments.find(c => c.body.includes(marker));
+
+                      // Only clean up the comment when we actually read results and they're clean
+                      if (resultsRead && !extraLines) {
+                          if (existing) {
+                              await github.rest.issues.deleteComment({
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  comment_id: existing.id,
+                              });
+                          }
+                          return;
+                      }
+
+                      // Skip posting if there's nothing useful to show
+                      if (!extraLines && !reportUrl) return;
+
+                      const reportLink = reportUrl ? ` · [View test results →](${reportUrl})` : '';
+                      const footer = '\n\n---\n*Annoyed by this comment? Make the tests green and it\'ll disappear!*';
+                      const body = `${marker}\n🎭 Playwright report${reportLink}${extraLines}${footer}`;
+
+                      if (existing) {
+                          await github.rest.issues.updateComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              comment_id: existing.id,
+                              body,
+                          });
+                      } else {
+                          await github.rest.issues.createComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              issue_number: context.issue.number,
+                              body,
+                          });
+                      }
+
     capture-run-time:
         name: Capture run time
         runs-on: ubuntu-latest
         needs: [changes, playwright]
-        if: needs.changes.outputs.shouldRun == 'true'
+        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
+            always() && github.actor != 'dependabot[bot]' &&
+            needs.changes.outputs.shouldRun == 'true' && (
+            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
+            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:
             - name: Capture running time to PostHog
-              if: github.repository == 'PostHog/posthog'
               uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
@@ -493,6 +646,7 @@ jobs:
                   capture-run-duration: true
                   capture-job-durations: true
                   github-token: ${{ secrets.GITHUB_TOKEN }}
+                  status-job: 'Playwright tests pass'
                   runner: 'depot'
 
     # Aggregate all screenshot artifacts and commit once

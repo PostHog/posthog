@@ -92,6 +92,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
               ? { type: 'groups', groupTypeIndex: query.source.group_type_index as GroupTypeIndex }
               : { type: 'team_columns' },
         contextKey: query.contextKey,
+        showTableViews: query.showTableViews,
     }
     const { showModal } = useActions(columnConfiguratorLogic(columnConfiguratorLogicProps))
 
@@ -180,10 +181,11 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                     </LemonButton>
                 </>
             }
+            className="w-full max-w-248"
         >
             <div className="ColumnConfiguratorModal">
-                <div className="Columns">
-                    <div className="HalfColumn">
+                <div className="flex flex-col gap-4">
+                    <div className="w-full">
                         <h4 className="secondary uppercase text-secondary">
                             Visible columns ({columns.length}) - Drag to reorder
                         </h4>
@@ -211,7 +213,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                             </SortableContext>
                         </DndContext>
                     </div>
-                    <div className="HalfColumn">
+                    <div className="w-full">
                         <h4 className="secondary uppercase text-secondary">Available columns</h4>
                         <div className="h-[min(480px,60vh)]">
                             <AutoSizer

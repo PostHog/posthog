@@ -293,6 +293,7 @@ replaceAll(arg: string, needle: string, replacement: string): string
 generateUUIDv4(): string
 position(haystack: string, needle: string): integer
 positionCaseInsensitive(haystack: string, needle: string): integer
+substring(arg: string, offset: integer, length?: integer): string
 Objects and arrays
 length(arg: any[] | object): integer
 empty(arg: any[] | object): boolean
@@ -397,6 +398,11 @@ let str := 'string'
 print(str || ' world') // prints 'string world', SQL concat
 print(f'hello {str}') // prints 'hello string'
 print(f'hello {f'{str} world'}') // prints 'hello string world'
+String truncation
+// Truncate a string to a maximum length
+if (length(s) > 2000) {
+    s := substring(s, 1, 2000)
+}
 Functions and lambdas
 Functions are first class variables, just like in JavaScript. You can define them with fun, or inline as lambdas:
 
@@ -456,6 +462,7 @@ Here are a few key differences compared to other programming languages:
 - All arrays in Hog start from index 1. Yes, for real. Trust us, we know. However that's how SQL has always worked, so we adopted it.
 - The easiest way to debug your code is to print() the variables in question, and then check the logs.
 - Strings must always be written with 'single quotes'. You may use f-string templates like f'Hello {name}'.
+- Never use arr[a:b]; Hog does not support slice syntax. Use substring(str, offset, length) for strings.
 - delete does not work in Hog.
 
 """
@@ -2591,6 +2598,11 @@ Here is the taxonomy for event properties:
             "label": "AI latency (LLM)",
             "description": "The latency of the request made to the LLM API, in seconds.",
             "examples": [0.361],
+        },
+        "$ai_time_to_first_token": {
+            "label": "AI time to first token (LLM)",
+            "description": "The time in seconds from request start until the first token was received. Only applicable for streaming responses.",
+            "examples": [0.125, 0.5],
         },
         "$ai_model": {
             "label": "AI model (LLM)",

@@ -4,8 +4,7 @@ from typing import cast
 
 import pytest
 import unittest.mock
-
-from django.test import override_settings
+from unittest.mock import MagicMock
 
 import duckdb
 import temporalio.worker
@@ -26,6 +25,27 @@ from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import (
 from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+
+def _create_mock_catalog():
+    """Create a mock DuckLakeCatalog with cross-account settings."""
+    mock_catalog = MagicMock()
+    mock_catalog.to_config.return_value = {
+        "DUCKLAKE_RDS_HOST": "localhost",
+        "DUCKLAKE_RDS_PORT": "5432",
+        "DUCKLAKE_RDS_DATABASE": "ducklake",
+        "DUCKLAKE_RDS_USERNAME": "posthog",
+        "DUCKLAKE_RDS_PASSWORD": "password",
+        "DUCKLAKE_BUCKET": "test-bucket",
+        "DUCKLAKE_BUCKET_REGION": "us-east-1",
+        "DUCKLAKE_S3_ACCESS_KEY": "",
+        "DUCKLAKE_S3_SECRET_KEY": "",
+    }
+    mock_cross_account_dest = MagicMock()
+    mock_cross_account_dest.role_arn = "arn:aws:iam::123456789012:role/test-role"
+    mock_cross_account_dest.bucket_name = "test-bucket"
+    mock_catalog.to_cross_account_destination.return_value = mock_cross_account_dest
+    return mock_catalog
 
 
 @pytest.mark.asyncio
@@ -162,15 +182,20 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_applies_yaml_ove
     ]
 
 
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeypatch, activity_environment):
+def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeypatch):
     fake_conn_calls: list[tuple[str, tuple | None]] = []
 
     class FakeDuckDBConnection:
         def __init__(self):
             self.sql_statements: list[str] = []
             self.closed = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.closed = True
+            return False
 
         def execute(self, statement: str, params: list | None = None):
             fake_conn_calls.append((statement, tuple(params) if params else None))
@@ -184,16 +209,33 @@ async def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeyp
     fake_conn = FakeDuckDBConnection()
     monkeypatch.setattr(ducklake_module.duckdb, "connect", lambda: fake_conn)
 
+    mock_heartbeater = MagicMock()
+    mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
+    mock_heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.HeartbeaterSync",
+        MagicMock(return_value=mock_heartbeater),
+    )
+
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.is_dev_mode",
+        MagicMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_team",
+        MagicMock(return_value=_create_mock_catalog()),
+    )
+
     configured: dict[str, bool] = {"called": False}
 
-    def fake_configure(conn):
+    def fake_configure(conn, *, destinations=None):
         configured["called"] = True
 
-    monkeypatch.setattr(ducklake_module, "configure_connection", fake_configure)
+    monkeypatch.setattr(ducklake_module, "configure_cross_account_connection", fake_configure)
 
     ensured: dict[str, bool] = {"called": False}
 
-    def fake_ensure_bucket(storage_config=None, config=None):
+    def fake_ensure_bucket(storage_config=None, config=None, *, team_id=None):
         ensured["called"] = True
 
     monkeypatch.setattr(ducklake_module, "ensure_ducklake_bucket_exists", fake_ensure_bucket)
@@ -210,13 +252,7 @@ async def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeyp
     )
     inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-123", model=metadata)
 
-    with override_settings(
-        DATAWAREHOUSE_LOCAL_ACCESS_KEY="test",
-        DATAWAREHOUSE_LOCAL_ACCESS_SECRET="secret",
-        OBJECT_STORAGE_ENDPOINT="http://objectstorage:19000",
-        USE_LOCAL_SETUP=True,
-    ):
-        activity_environment.run(copy_data_modeling_model_to_ducklake_activity, inputs)
+    copy_data_modeling_model_to_ducklake_activity(inputs)
 
     schema_calls = [
         statement for statement, _ in fake_conn_calls if statement.startswith("CREATE SCHEMA IF NOT EXISTS")
@@ -235,15 +271,20 @@ async def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeyp
     assert fake_conn.closed is True
 
 
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_verify_ducklake_copy_activity_runs_queries(monkeypatch, activity_environment):
+def test_verify_ducklake_copy_activity_runs_queries(monkeypatch):
     class FakeDuckDBConnection:
         def __init__(self, rows: list[tuple]):
             self.rows = rows
             self.closed = False
             self.executed: list[tuple[str, tuple]] = []
             self.sql_statements: list[str] = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.closed = True
+            return False
 
         def execute(self, statement: str, params: list | None = None):
             self.executed.append((statement, tuple(params or [])))
@@ -262,6 +303,27 @@ async def test_verify_ducklake_copy_activity_runs_queries(monkeypatch, activity_
     monkeypatch.setattr(ducklake_module.duckdb, "connect", lambda: fake_conn)
     monkeypatch.setattr(ducklake_module, "_run_schema_verification", lambda *args, **kwargs: None)
     monkeypatch.setattr(ducklake_module, "_run_partition_verification", lambda *args, **kwargs: None)
+
+    mock_heartbeater = MagicMock()
+    mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
+    mock_heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.HeartbeaterSync",
+        MagicMock(return_value=mock_heartbeater),
+    )
+
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.is_dev_mode",
+        MagicMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_team",
+        MagicMock(return_value=_create_mock_catalog()),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.configure_cross_account_connection",
+        MagicMock(),
+    )
 
     metadata = DuckLakeCopyModelMetadata(
         model_label="model_a",
@@ -282,7 +344,7 @@ async def test_verify_ducklake_copy_activity_runs_queries(monkeypatch, activity_
     )
     inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-verify", model=metadata)
 
-    results = activity_environment.run(verify_ducklake_copy_activity, inputs)
+    results = verify_ducklake_copy_activity(inputs)
 
     assert len(results) == 1
     assert results[0].passed is True
@@ -360,16 +422,19 @@ async def test_ducklake_copy_workflow_skips_when_feature_flag_disabled(monkeypat
     assert call_counts["copy"] == 0
 
 
-@pytest.mark.asyncio
-@pytest.mark.django_db
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_verify_ducklake_copy_activity_reports_failures(monkeypatch, activity_environment):
+def test_verify_ducklake_copy_activity_reports_failures(monkeypatch):
     class FakeDuckDBConnection:
         def __init__(self, rows: list[tuple]):
             self.rows = rows
             self.closed = False
             self.sql_statements: list[str] = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.closed = True
+            return False
 
         def execute(self, statement: str, params: list | None = None):
             return self
@@ -387,6 +452,27 @@ async def test_verify_ducklake_copy_activity_reports_failures(monkeypatch, activ
     monkeypatch.setattr(ducklake_module.duckdb, "connect", lambda: fake_conn)
     monkeypatch.setattr(ducklake_module, "_run_schema_verification", lambda *args, **kwargs: None)
     monkeypatch.setattr(ducklake_module, "_run_partition_verification", lambda *args, **kwargs: None)
+
+    mock_heartbeater = MagicMock()
+    mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
+    mock_heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.HeartbeaterSync",
+        MagicMock(return_value=mock_heartbeater),
+    )
+
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.is_dev_mode",
+        MagicMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_team",
+        MagicMock(return_value=_create_mock_catalog()),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.configure_cross_account_connection",
+        MagicMock(),
+    )
 
     metadata = DuckLakeCopyModelMetadata(
         model_label="model_b",
@@ -407,7 +493,7 @@ async def test_verify_ducklake_copy_activity_reports_failures(monkeypatch, activ
     )
     inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-verify", model=metadata)
 
-    results = activity_environment.run(verify_ducklake_copy_activity, inputs)
+    results = verify_ducklake_copy_activity(inputs)
 
     assert len(results) == 1
     assert results[0].passed is False
@@ -484,8 +570,6 @@ def test_run_partition_verification_with_temporal_type():
     assert fake_conn.statements and "date_trunc" in fake_conn.statements[0]
 
 
-@pytest.mark.asyncio
-@pytest.mark.django_db
 @pytest.mark.parametrize(
     ("observed", "expected", "tolerance", "should_pass"),
     [
@@ -493,14 +577,19 @@ def test_run_partition_verification_with_temporal_type():
         (110.0, 100.0, 5.0, False),
     ],
 )
-async def test_verify_ducklake_copy_activity_respects_tolerance(
-    monkeypatch, activity_environment, observed, expected, tolerance, should_pass
-):
+def test_verify_ducklake_copy_activity_respects_tolerance(monkeypatch, observed, expected, tolerance, should_pass):
     class FakeDuckDBConnection:
         def __init__(self, value: float):
             self.value = value
             self.closed = False
             self.sql_statements: list[str] = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.closed = True
+            return False
 
         def execute(self, statement: str, params: list | None = None):
             self.sql_statements.append(statement)
@@ -519,6 +608,27 @@ async def test_verify_ducklake_copy_activity_respects_tolerance(
     monkeypatch.setattr(ducklake_module.duckdb, "connect", lambda: fake_conn)
     monkeypatch.setattr(ducklake_module, "_run_schema_verification", lambda *args, **kwargs: None)
     monkeypatch.setattr(ducklake_module, "_run_partition_verification", lambda *args, **kwargs: None)
+
+    mock_heartbeater = MagicMock()
+    mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
+    mock_heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.HeartbeaterSync",
+        MagicMock(return_value=mock_heartbeater),
+    )
+
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.is_dev_mode",
+        MagicMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_team",
+        MagicMock(return_value=_create_mock_catalog()),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.configure_cross_account_connection",
+        MagicMock(),
+    )
 
     metadata = DuckLakeCopyModelMetadata(
         model_label="model_tolerance",
@@ -539,7 +649,7 @@ async def test_verify_ducklake_copy_activity_respects_tolerance(
     )
     inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-tolerance", model=metadata)
 
-    results = activity_environment.run(verify_ducklake_copy_activity, inputs)
+    results = verify_ducklake_copy_activity(inputs)
 
     assert len(results) == 1
     assert results[0].passed is should_pass
@@ -548,13 +658,18 @@ async def test_verify_ducklake_copy_activity_respects_tolerance(
     assert fake_conn.closed is True
 
 
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_verify_ducklake_copy_activity_includes_additional_checks(monkeypatch, activity_environment):
+def test_verify_ducklake_copy_activity_includes_additional_checks(monkeypatch):
     class FakeDuckDBConnection:
         def __init__(self):
             self.closed = False
             self.sql_statements: list[str] = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.closed = True
+            return False
 
         def execute(self, statement: str, params: list | None = None):
             self.sql_statements.append(statement)
@@ -574,6 +689,27 @@ async def test_verify_ducklake_copy_activity_includes_additional_checks(monkeypa
 
     fake_conn = FakeDuckDBConnection()
     monkeypatch.setattr(ducklake_module.duckdb, "connect", lambda: fake_conn)
+
+    mock_heartbeater = MagicMock()
+    mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
+    mock_heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.HeartbeaterSync",
+        MagicMock(return_value=mock_heartbeater),
+    )
+
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.is_dev_mode",
+        MagicMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_team",
+        MagicMock(return_value=_create_mock_catalog()),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.configure_cross_account_connection",
+        MagicMock(),
+    )
 
     schema_result = DuckLakeCopyVerificationResult(name="model.schema_hash", passed=True)
     partition_result = DuckLakeCopyVerificationResult(name="model.partition_counts", passed=True)
@@ -600,10 +736,99 @@ async def test_verify_ducklake_copy_activity_includes_additional_checks(monkeypa
     )
     inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-verify", model=metadata)
 
-    results = activity_environment.run(verify_ducklake_copy_activity, inputs)
+    results = verify_ducklake_copy_activity(inputs)
 
     assert schema_result in results
     assert partition_result in results
+
+
+def test_copy_data_modeling_model_to_ducklake_activity_raises_when_no_catalog(monkeypatch):
+    """Test that copy activity raises ApplicationError when no DuckLakeCatalog is configured."""
+    from temporalio.exceptions import ApplicationError
+
+    mock_heartbeater = MagicMock()
+    mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
+    mock_heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.HeartbeaterSync",
+        MagicMock(return_value=mock_heartbeater),
+    )
+
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.is_dev_mode",
+        MagicMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_team",
+        MagicMock(return_value=None),
+    )
+
+    metadata = DuckLakeCopyModelMetadata(
+        model_label="model_a",
+        saved_query_id=str(uuid.uuid4()),
+        saved_query_name="ducklake_model",
+        normalized_name="ducklake_model",
+        source_table_uri="s3://source/table",
+        schema_name="data_modeling_team_1",
+        table_name="model_a",
+        verification_queries=[],
+    )
+    inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-123", model=metadata)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        copy_data_modeling_model_to_ducklake_activity(inputs)
+
+    assert "No DuckLakeCatalog configured for team 1" in str(exc_info.value)
+    assert exc_info.value.non_retryable is True
+
+
+def test_verify_ducklake_copy_activity_raises_when_no_catalog(monkeypatch):
+    """Test that verify activity raises ApplicationError when no DuckLakeCatalog is configured."""
+    from temporalio.exceptions import ApplicationError
+
+    mock_heartbeater = MagicMock()
+    mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
+    mock_heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.HeartbeaterSync",
+        MagicMock(return_value=mock_heartbeater),
+    )
+
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.is_dev_mode",
+        MagicMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_team",
+        MagicMock(return_value=None),
+    )
+
+    query = DuckLakeCopyVerificationQuery(
+        name="row_count_check",
+        sql="SELECT 1",
+        description="A verification query",
+        parameters=(),
+        expected_value=0.0,
+        tolerance=0.0,
+    )
+
+    metadata = DuckLakeCopyModelMetadata(
+        model_label="model_a",
+        saved_query_id=str(uuid.uuid4()),
+        saved_query_name="ducklake_model",
+        normalized_name="ducklake_model",
+        source_table_uri="s3://source/table",
+        schema_name="data_modeling_team_1",
+        table_name="model_a",
+        verification_queries=[query],
+    )
+    inputs = DuckLakeCopyActivityInputs(team_id=42, job_id="job-456", model=metadata)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        verify_ducklake_copy_activity(inputs)
+
+    assert "No DuckLakeCatalog configured for team 42" in str(exc_info.value)
+    assert exc_info.value.non_retryable is True
 
 
 @pytest.mark.asyncio

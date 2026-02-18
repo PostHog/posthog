@@ -305,7 +305,6 @@ mod test {
 
         for (raw_frame, expected_name) in get_frames(chunk_id) {
             let res = raw_frame.resolve(team_id, &c).await.unwrap().pop().unwrap();
-            println!("GOT FRAME: {}", serde_json::to_string_pretty(&res).unwrap());
             assert!(res.resolved);
             assert_eq!(res.resolved_name, expected_name)
         }

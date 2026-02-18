@@ -1,9 +1,9 @@
 import posthog from 'posthog-js'
 
-import { ApiError } from 'lib/api'
+import api, { ApiError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
-import { performQuery, queryExportContext } from '~/queries/query'
+import { performQuery, pollForResults, queryExportContext, waitForPageVisible } from '~/queries/query'
 import { EventsQuery, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -125,5 +125,149 @@ describe('query', () => {
         const queryFailedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query failed')
         expect(queryFailedCalls).toHaveLength(1)
         expect(queryFailedCalls[0][1]).toMatchObject({ query: q, duration: expect.any(Number) })
+    })
+
+    describe('waitForPageVisible', () => {
+        const originalVisibilityState = document.visibilityState
+
+        afterEach(() => {
+            Object.defineProperty(document, 'visibilityState', { value: originalVisibilityState, configurable: true })
+        })
+
+        it('resolves immediately when page is visible', async () => {
+            Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+            await expect(waitForPageVisible()).resolves.toBeUndefined()
+        })
+
+        it('suspends when page is hidden and resolves when it becomes visible', async () => {
+            Object.defineProperty(document, 'visibilityState', {
+                value: 'hidden',
+                writable: true,
+                configurable: true,
+            })
+
+            let resolved = false
+            const promise = waitForPageVisible().then(() => {
+                resolved = true
+            })
+
+            await Promise.resolve()
+            expect(resolved).toBe(false)
+
+            Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+            document.dispatchEvent(new Event('visibilitychange'))
+
+            await promise
+            expect(resolved).toBe(true)
+        })
+
+        it('rejects with AbortError when signal is already aborted', async () => {
+            Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+            const controller = new AbortController()
+            controller.abort()
+
+            await expect(waitForPageVisible(controller.signal)).rejects.toThrow('Aborted')
+        })
+
+        it('rejects with AbortError when signal aborts while waiting', async () => {
+            Object.defineProperty(document, 'visibilityState', {
+                value: 'hidden',
+                writable: true,
+                configurable: true,
+            })
+            const controller = new AbortController()
+
+            const promise = waitForPageVisible(controller.signal)
+
+            await Promise.resolve()
+            controller.abort()
+
+            await expect(promise).rejects.toThrow('Aborted')
+        })
+
+        it('resolves immediately when document is undefined (SSR)', async () => {
+            const originalDocument = globalThis.document
+            // @ts-expect-error -- simulating SSR by removing document
+            delete globalThis.document
+
+            try {
+                await expect(waitForPageVisible()).resolves.toBeUndefined()
+            } finally {
+                globalThis.document = originalDocument
+            }
+        })
+    })
+
+    describe('pollForResults error message parsing', () => {
+        it('parses ErrorDetail list format and extracts message and code', async () => {
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({
+                data: {
+                    query_status: {
+                        error_message:
+                            "[ErrorDetail(string='Query exceeded memory limit', code='memory_limit_exceeded')]",
+                    },
+                },
+            })
+
+            await expect(pollForResults('test-query-id')).rejects.toMatchObject({
+                detail: 'Query exceeded memory limit',
+                code: 'memory_limit_exceeded',
+            })
+        })
+
+        it('parses ErrorDetail single format and extracts message and code', async () => {
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({
+                data: {
+                    query_status: {
+                        error_message: "ErrorDetail(string='Database connection failed', code='db_error')",
+                    },
+                },
+            })
+
+            await expect(pollForResults('test-query-id')).rejects.toMatchObject({
+                detail: 'Database connection failed',
+                code: 'db_error',
+            })
+        })
+
+        it('preserves original message when not in ErrorDetail format', async () => {
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({
+                data: {
+                    query_status: {
+                        error_message: 'Simple error message',
+                    },
+                },
+            })
+
+            await expect(pollForResults('test-query-id')).rejects.toMatchObject({
+                detail: 'Simple error message',
+            })
+        })
+
+        it('handles undefined error message', async () => {
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({
+                data: {
+                    query_status: {},
+                },
+            })
+
+            await expect(pollForResults('test-query-id')).rejects.toMatchObject({
+                detail: '',
+            })
+        })
+
+        it('handles non-string error message', async () => {
+            jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({
+                data: {
+                    query_status: {
+                        error_message: { nested: 'object' },
+                    },
+                },
+            })
+
+            await expect(pollForResults('test-query-id')).rejects.toMatchObject({
+                detail: { nested: 'object' },
+            })
+        })
     })
 })

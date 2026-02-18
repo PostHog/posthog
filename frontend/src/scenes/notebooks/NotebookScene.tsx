@@ -148,7 +148,7 @@ export function NotebookScene(): JSX.Element {
                     </LemonButton>
                     <NotebookTableOfContentsButton type="secondary" size="small" />
                     <NotebookKernelInfoButton type="secondary" size="small" />
-                    <NotebookExpandButton type="secondary" size="small" />
+                    <NotebookExpandButton type="secondary" size="small" inPanel={false} />
                     <LemonButton
                         type="secondary"
                         size="small"

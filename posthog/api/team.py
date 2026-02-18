@@ -10,17 +10,19 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
-from posthog.schema import AttributionMode
+from posthog.schema import AttributionMode, HogQLQueryModifiers
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action, raise_if_user_provided_url_unsafe
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.constants import AvailableFeature
+from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
 from posthog.jwt import PosthogJwtAudience, encode_jwt
@@ -33,7 +35,6 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.feature_flag import TeamDefaultEvaluationTag
@@ -41,10 +42,9 @@ from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIEL
 from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
 from posthog.models.project import Project
-from posthog.models.signals import mute_selected_signals
 from posthog.models.tag import Tag
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
-from posthog.models.team.util import actions_that_require_current_team, delete_batch_exports, delete_bulky_postgres_data
+from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
     CREATE_ACTIONS,
@@ -65,7 +65,7 @@ from posthog.session_recordings.data_retention import (
     validate_retention_period,
 )
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
-from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
+from posthog.utils import get_instance_realm, get_instance_region, get_ip_address, get_week_start_for_country_code
 
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
 
@@ -195,10 +195,12 @@ TEAM_CONFIG_FIELDS = (
     "web_analytics_pre_aggregated_tables_enabled",
     "experiment_recalculation_time",
     "default_experiment_confidence_level",
+    "default_experiment_stats_method",
     "receive_org_level_activity_logs",
     "business_model",
     "conversations_enabled",
     "conversations_settings",
+    "proactive_tasks_enabled",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
@@ -685,6 +687,41 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return value
 
+    @staticmethod
+    def validate_modifiers(value: dict | None) -> dict | None:
+        if value is None:
+            return value
+
+        if not isinstance(value, dict):
+            raise exceptions.ValidationError("Must provide a dictionary or None.")
+
+        if "bounceRateDurationSeconds" in value:
+            bounce_rate = value["bounceRateDurationSeconds"]
+            if bounce_rate is not None:
+                if not isinstance(bounce_rate, (int, float)):
+                    raise exceptions.ValidationError({"bounceRateDurationSeconds": "Must be a number."})
+                if bounce_rate < 1 or bounce_rate > 120:
+                    raise exceptions.ValidationError(
+                        {"bounceRateDurationSeconds": "Must be between 1 and 120 seconds."}
+                    )
+
+        try:
+            HogQLQueryModifiers(**value)
+        except Exception:
+            raise exceptions.ValidationError(f"Invalid modifier key.")
+
+        return value
+
+    def validate_proactive_tasks_enabled(self, value: bool | None) -> bool | None:
+        if not value or settings.DEBUG:
+            return value
+
+        # Only team ID 2 in US region can enable proactive tasks
+        if self.instance and self.instance.id == 2 and get_instance_region() == "US":
+            return value
+
+        raise exceptions.PermissionDenied("Proactive tasks can only be enabled for authorized teams.")
+
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
         return super().validate(attrs)
@@ -979,7 +1016,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     Projects for the current organization.
     """
 
-    scope_object: APIScopeObjectOrNotSupported = "project"  # TODO: Change to `environment` on environments rollout
+    scope_object: APIScopeObjectOrNotSupported = "project"
     serializer_class = TeamSerializer
     queryset = Team.objects.all().select_related("organization")
     lookup_field = "id"
@@ -1015,11 +1052,16 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         # If the request only contains config fields, require read:team scope
         # Otherwise, require write:team scope (handled by APIScopePermission)
+        # NOTE: This downgrade only applies to session-based auth (browser users).
+        # All other auth methods (API keys, OAuth tokens, etc.) must have project:write
+        # to modify any fields, preserving the semantic meaning of read-only API keys.
         if self.action == "partial_update":
-            request_fields = set(request.data.keys())
-            non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
-            if not non_team_config_fields:
-                return ["project:read"]
+            is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
+            if is_session_auth:
+                request_fields = set(request.data.keys())
+                non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
+                if not non_team_config_fields:
+                    return ["project:read"]
 
         # Fall back to the default behavior
         return None
@@ -1072,6 +1114,8 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         return self.get_object()
 
     def perform_destroy(self, team: Team):
+        from posthog.tasks.tasks import delete_project_data_and_notify_task
+
         # Check if bulk deletion operations are disabled via environment variable
         if settings.DISABLE_BULK_DELETES:
             raise exceptions.ValidationError(
@@ -1084,23 +1128,13 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         user = cast(User, self.request.user)
 
-        delete_bulky_postgres_data(team_ids=[team_id])
-        delete_batch_exports(team_ids=[team_id])
-
-        with mute_selected_signals():
-            super().perform_destroy(team)
-
-        # Once the project is deleted, queue deletion of associated data
-        AsyncDeletion.objects.bulk_create(
-            [
-                AsyncDeletion(
-                    deletion_type=DeletionType.Team,
-                    team_id=team_id,
-                    key=str(team_id),
-                    created_by=user,
-                )
-            ],
-            ignore_conflicts=True,
+        # Queue background task to handle all deletion
+        # bulky postgres, batch exports, team record, ClickHouse, email
+        delete_project_data_and_notify_task.delay(
+            team_ids=[team_id],
+            project_id=None,  # Only deleting a team, not the whole project
+            user_id=user.id,
+            project_name=team_name,
         )
 
         log_activity(
@@ -1330,6 +1364,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         detail=True,
         required_scopes=["project:read"],
     )
+    @disallow_if_impersonated(message="Impersonated sessions cannot set product intents.")
     def add_product_intent(self, request: request.Request, *args, **kwargs):
         team = self.get_object()
         user = request.user
@@ -1355,6 +1390,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         detail=True,
         required_scopes=["project:read"],
     )
+    @disallow_if_impersonated(message="Impersonated sessions cannot set product intents.")
     def complete_product_onboarding(self, request: request.Request, *args, **kwargs):
         team = self.get_object()
         product_type = request.data.get("product_type")
@@ -1422,6 +1458,23 @@ class RootTeamViewSet(TeamViewSet):
     hide_api_docs = True
 
 
+@extend_schema_view(
+    list=extend_schema(deprecated=True),
+    retrieve=extend_schema(deprecated=True),
+    create=extend_schema(deprecated=True),
+    update=extend_schema(deprecated=True),
+    partial_update=extend_schema(deprecated=True),
+    destroy=extend_schema(deprecated=True),
+)
+class ProjectEnvironmentsViewSet(TeamViewSet):
+    """Deprecated: use /api/environments/{id}/ instead."""
+
+    def initial(self, request: request.Request, *args, **kwargs) -> None:
+        raise exceptions.PermissionDenied(
+            "Multiple environments per project are no longer available. Please contact support if you need assistance."
+        )
+
+
 def handle_conversations_token_on_update(
     validated_data: dict[str, Any],
     current_conversations_enabled: bool | None,
@@ -1477,7 +1530,7 @@ def validate_team_attrs(
 
 
 class PremiumMultiEnvironmentPermission(BasePermission):
-    """Require user to have all necessary premium features on their plan for create access to the endpoint."""
+    """Enforce one non-demo team per project limit."""
 
     message = "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
 
@@ -1493,24 +1546,14 @@ class PremiumMultiEnvironmentPermission(BasePermission):
             )
 
         if request.data.get("is_demo"):
-            # If we're requesting to make a demo project but the org already has a demo project
+            # Allow one demo team per organization
             if project.organization.teams.filter(is_demo=True).count() > 0:
                 return False
+            return True
 
-        environments_feature = project.organization.get_available_feature(AvailableFeature.ENVIRONMENTS)
+        # Only allow one non-demo team per project
         current_non_demo_team_count = project.teams.exclude(is_demo=True).count()
-        if environments_feature:
-            allowed_team_per_project_count = environments_feature.get("limit")
-            # If allowed_project_count is None then the user is allowed unlimited projects
-            if allowed_team_per_project_count is None:
-                return True
-            # Check current limit against allowed limit
-            if current_non_demo_team_count >= allowed_team_per_project_count:
-                return False
-        else:
-            # If the org doesn't have the feature, they can only have one non-demo project
-            if current_non_demo_team_count >= 1:
-                return False
+        if current_non_demo_team_count >= 1:
+            return False
 
-        # in any other case, we're good to go
         return True

@@ -97,7 +97,8 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'isLifecycle',
                 'isStickiness',
                 'isNonTimeSeriesDisplay',
-                'isSingleSeries',
+                'isSingleSeriesOutput',
+                'isSingleSeriesDefinition',
                 'hasLegend',
                 'showLegend',
                 'vizSpecificOptions',
@@ -117,7 +118,6 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         toggleResultHidden: (dataset: IndexedTrendResult) => ({ dataset }),
         toggleAllResultsHidden: (datasets: IndexedTrendResult[], hidden: boolean) => ({ datasets, hidden }),
         setHoveredDatasetIndex: (index: number | null) => ({ index }),
-        setIsShiftPressed: (isPressed: boolean) => ({ isPressed }),
     }),
 
     reducers({
@@ -131,12 +131,6 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             null as number | null,
             {
                 setHoveredDatasetIndex: (_, { index }) => index,
-            },
-        ],
-        isShiftPressed: [
-            false,
-            {
-                setIsShiftPressed: (_, { isPressed }) => isPressed,
             },
         ],
     }),
@@ -346,7 +340,11 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 const isLineGraph =
                     isTrends &&
                     !hasDataWarehouseSeries &&
-                    [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(display)
+                    [
+                        ChartDisplayType.ActionsLineGraph,
+                        ChartDisplayType.ActionsLineGraphCumulative,
+                        ChartDisplayType.ActionsAreaGraph,
+                    ].includes(display)
 
                 return (trendsFilter?.showMovingAverage && isLineGraph && isLinearScale) || false
             },

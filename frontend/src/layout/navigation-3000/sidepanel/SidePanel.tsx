@@ -3,16 +3,7 @@ import './SidePanel.scss'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import {
-    IconBook,
-    IconEllipsis,
-    IconGear,
-    IconInfo,
-    IconLock,
-    IconLogomark,
-    IconNotebook,
-    IconSupport,
-} from '@posthog/icons'
+import { IconBook, IconEllipsis, IconGear, IconInfo, IconLock, IconLogomark, IconNotebook } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems, LemonModal } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -29,11 +20,16 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/exports/SidePanelExports'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { SidePanelTab } from '~/types'
 
+import { SidePanelSupportIcon } from 'products/conversations/frontend/components/SidePanel/SidePanelSupportIcon'
+
+import { SidePanelNavigation } from './SidePanelNavigation'
 import { SidePanelChangelog } from './panels/SidePanelChangelog'
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelHealth, SidePanelHealthIcon } from './panels/SidePanelHealth'
+import { SidePanelInfo, SidePanelInfoIcon } from './panels/SidePanelInfo'
 import { SidePanelMax } from './panels/SidePanelMax'
 import { SidePanelSdkDoctor, SidePanelSdkDoctorIcon } from './panels/SidePanelSdkDoctor'
 import { SidePanelSettings } from './panels/SidePanelSettings'
@@ -63,11 +59,11 @@ export const SIDE_PANEL_TABS: Record<
         label: 'Notebooks',
         Icon: IconNotebook,
         Content: NotebookPanel,
-        noModalSupport: true,
+        // noModalSupport: true,
     },
     [SidePanelTab.Support]: {
         label: 'Help',
-        Icon: IconSupport,
+        Icon: SidePanelSupportIcon,
         Content: SidePanelSupport,
     },
     [SidePanelTab.Docs]: {
@@ -125,6 +121,11 @@ export const SIDE_PANEL_TABS: Record<
         Icon: SidePanelHealthIcon,
         Content: SidePanelHealth,
     },
+    [SidePanelTab.Info]: {
+        label: 'Actions',
+        Icon: SidePanelInfoIcon,
+        Content: SidePanelInfo,
+    },
 }
 
 const DEFAULT_WIDTH = 512
@@ -142,11 +143,14 @@ export function SidePanel({
     const { visibleTabs, extraTabs } = useValues(sidePanelLogic)
     const { selectedTab, sidePanelOpen, modalMode } = useValues(sidePanelStateLogic)
     const { openSidePanel, closeSidePanel, setSidePanelAvailable } = useActions(sidePanelStateLogic)
+    const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     const activeTab = sidePanelOpen && selectedTab
 
-    const PanelContent = activeTab && visibleTabs.includes(activeTab) ? SIDE_PANEL_TABS[activeTab]?.Content : null
+    const isInfoTabActive = activeTab === SidePanelTab.Info && scenePanelIsPresent
+    const PanelContent =
+        activeTab && (visibleTabs.includes(activeTab) || isInfoTabActive) ? SIDE_PANEL_TABS[activeTab]?.Content : null
 
     const ref = useRef<HTMLDivElement>(null)
 
@@ -179,12 +183,17 @@ export function SidePanel({
         }
     }, [desiredSize, sidePanelOpen, setMainContentRect, mainContentRef])
 
-    const sidePanelOpenAndAvailable = selectedTab && sidePanelOpen && visibleTabs.includes(selectedTab)
+    const sidePanelOpenAndAvailable =
+        selectedTab &&
+        sidePanelOpen &&
+        (visibleTabs.includes(selectedTab) || (selectedTab === SidePanelTab.Info && scenePanelIsPresent))
     const sidePanelWidth = !visibleTabs.length
         ? 0
         : sidePanelOpenAndAvailable
           ? Math.max(desiredSize ?? DEFAULT_WIDTH, SIDE_PANEL_MIN_WIDTH)
-          : SIDE_PANEL_BAR_WIDTH
+          : isRemovingSidePanelFlag
+            ? 0
+            : SIDE_PANEL_BAR_WIDTH
 
     // Update sidepanel width in panelLayoutLogic
     useEffect(() => {
@@ -214,8 +223,9 @@ export function SidePanel({
           ]
         : undefined
 
-    if (modalMode) {
+    if (modalMode && !isRemovingSidePanelFlag) {
         const supportsModal = activeTab ? !SIDE_PANEL_TABS[activeTab]?.noModalSupport : true
+
         return (
             <LemonModal
                 simple
@@ -235,7 +245,9 @@ export function SidePanel({
                 'SidePanel3000 h-screen',
                 sidePanelOpenAndAvailable && 'SidePanel3000--open justify-end',
                 isResizeInProgress && 'SidePanel3000--resizing',
-                isRemovingSidePanelFlag && 'bg-surface-tertiary',
+                isRemovingSidePanelFlag &&
+                    '@container/side-panel bg-surface-secondary absolute top-0 right-0 bottom-0 h-full flex flex-col border-t-none',
+                isRemovingSidePanelFlag && !sidePanelOpen && 'hidden',
                 className
             )}
             ref={ref}
@@ -247,15 +259,20 @@ export function SidePanel({
             id="side-panel"
         >
             {sidePanelOpenAndAvailable && (
-                <Resizer
-                    {...resizerLogicProps}
-                    className={cn('top-[calc(var(--scene-layout-header-height)+8px)] left-[-1px] bottom-4', {
-                        'left-0': sidePanelOpenAndAvailable,
-                        // Hide handle line, make it as thick as the gap between scene and sidepanel (looking like split-screen, nice.)
-                        '-left-[3.5px] [&_*:before]:hidden [&_*:after]:w-[2px] [--resizer-thickness:12px]':
-                            sidePanelOpenAndAvailable && isRemovingSidePanelFlag,
-                    })}
-                />
+                <>
+                    <Resizer
+                        {...resizerLogicProps}
+                        className={cn('top-[calc(var(--scene-layout-header-height)+8px)] left-[-1px] bottom-4', {
+                            'left-0': sidePanelOpenAndAvailable,
+                            // Hide handle line, make it as thick as the gap between scene and sidepanel (looking like split-screen, nice.)
+                            'top-0 h-full': sidePanelOpenAndAvailable && isRemovingSidePanelFlag,
+                        })}
+                    />
+                    {/* Overlay for mobile to click outside to close the side panel */}
+                    {isRemovingSidePanelFlag && (
+                        <div onClick={() => closeSidePanel()} className="lg:hidden fixed inset-0 -z-1" />
+                    )}
+                </>
             )}
 
             {!isRemovingSidePanelFlag && (
@@ -319,18 +336,30 @@ export function SidePanel({
                     ) : null}
                 </div>
             )}
-
-            {PanelContent ? (
-                <div
-                    className={cn('SidePanel3000__content', contentClassName, {
-                        'border-l-0': isRemovingSidePanelFlag,
-                    })}
-                >
-                    <ErrorBoundary>
-                        <PanelContent />
-                    </ErrorBoundary>
-                </div>
-            ) : null}
+            {PanelContent && (
+                <>
+                    {!isRemovingSidePanelFlag ? (
+                        <div
+                            className={cn('SidePanel3000__content', contentClassName, {
+                                'border-l-0 h-full': isRemovingSidePanelFlag,
+                            })}
+                        >
+                            <ErrorBoundary>
+                                <PanelContent />
+                            </ErrorBoundary>
+                        </div>
+                    ) : (
+                        <SidePanelNavigation
+                            activeTab={activeTab as SidePanelTab}
+                            onTabChange={(tab) => openSidePanel(tab)}
+                        >
+                            <ErrorBoundary>
+                                <PanelContent />
+                            </ErrorBoundary>
+                        </SidePanelNavigation>
+                    )}
+                </>
+            )}
         </div>
     )
 }

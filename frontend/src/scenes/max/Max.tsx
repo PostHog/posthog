@@ -18,6 +18,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { appLogic } from 'scenes/appLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -61,7 +62,9 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
                 <SceneTitleSection name={null} resourceType={{ type: 'chat' }} />
                 <div className="flex flex-col items-center justify-center w-full grow">
                     <IconSidePanel className="text-3xl text-muted mb-2" />
-                    <h3 className="text-xl font-bold mb-1">The chat is currently in the sidebar</h3>
+                    <h3 className="text-xl font-bold mb-1">
+                        The chat is currently in the {isRemovingSidePanelFlag ? 'context panel' : 'sidebar'}
+                    </h3>
                     <p className="text-sm text-muted mb-2">You can navigate freely around the app with it, or…</p>
                     <LemonButton
                         type="secondary"
@@ -132,12 +135,12 @@ export const MaxInstance = React.memo(function MaxInstance({
                             !sidePanel && 'min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]'
                         )}
                     >
-                        <div className="flex-1 items-center justify-center flex flex-col gap-3 relative z-50">
+                        <div className="grow items-center justify-center flex flex-col gap-3 relative z-50">
                             <Intro />
                             <SidebarQuestionInputWithSuggestions />
                         </div>
 
-                        {!isRemovingSidePanelFlag && <HistoryPreview sidePanel={sidePanel} />}
+                        <HistoryPreview sidePanel={sidePanel} />
                     </div>
                 ) : (
                     /** Must be the last child and be a direct descendant of the scrollable element */
@@ -161,19 +164,29 @@ export const MaxInstance = React.memo(function MaxInstance({
             </BindLogic>
         </BindLogic>
     )
-
-    return sidePanel ? (
-        <>
-            <SidePanelPaneHeader
-                className="transition-all duration-200"
-                onClose={() => {
-                    exitAIOnlyMode()
-                    startNewConversation()
-                }}
-            >
-                <div className="flex flex-1 min-w-0 overflow-hidden">
-                    <div className="flex items-center flex-1 min-w-0">
-                        <AnimatedBackButton in={!backButtonDisabled}>
+    const header = (
+        <SidePanelPaneHeader
+            className="transition-all duration-200"
+            onClose={() => {
+                exitAIOnlyMode()
+                startNewConversation()
+            }}
+            showCloseButton={false}
+        >
+            <div className="flex flex-1 min-w-0 overflow-hidden">
+                <div className="flex items-center flex-1 min-w-0">
+                    <AnimatedBackButton in={!backButtonDisabled}>
+                        {isRemovingSidePanelFlag ? (
+                            <ButtonPrimitive
+                                iconOnly
+                                onClick={() => goBack()}
+                                tooltip="Go back"
+                                tooltipPlacement="bottom-end"
+                                disabledReasons={backButtonDisabled ? { 'You are already at home': true } : undefined}
+                            >
+                                <IconChevronLeft className="text-tertiary size-3 group-hover:text-primary z-10" />
+                            </ButtonPrimitive>
+                        ) : (
                             <LemonButton
                                 size="small"
                                 icon={<IconChevronLeft />}
@@ -182,95 +195,108 @@ export const MaxInstance = React.memo(function MaxInstance({
                                 tooltipPlacement="bottom-end"
                                 disabledReason={backButtonDisabled ? 'You are already at home' : undefined}
                             />
-                        </AnimatedBackButton>
+                        )}
+                    </AnimatedBackButton>
 
-                        <Tooltip title={chatTitle || undefined} placement="bottom">
-                            <h3 className="flex-1 font-semibold mb-0 truncate text-sm ml-1">
-                                {chatTitle || 'PostHog AI'}
-                            </h3>
-                        </Tooltip>
-                    </div>
-                    {conversationId && !conversationHistoryVisible && !threadVisible && !isAIOnlyMode && (
-                        <LemonButton
-                            size="small"
-                            icon={<IconPlus />}
-                            onClick={() => startNewConversation()}
-                            tooltip="Start a new chat"
-                            tooltipPlacement="bottom"
-                        />
-                    )}
-                    {conversationId && (
-                        <>
-                            {isRemovingSidePanelFlag ? (
-                                <ButtonPrimitive
-                                    onClick={() => {
-                                        copyToClipboard(
-                                            urls.absolute(urls.currentProject(urls.ai(conversationId))),
-                                            'conversation sharing link'
-                                        )
-                                    }}
-                                    tooltip="Copy link to chat"
-                                    tooltipPlacement="bottom-end"
-                                    iconOnly
-                                >
-                                    <IconShare className="text-tertiary size-3 group-hover:text-primary z-10" />
-                                </ButtonPrimitive>
-                            ) : (
-                                <LemonButton
-                                    size="small"
-                                    icon={<IconShare />}
-                                    onClick={() => {
-                                        copyToClipboard(
-                                            urls.absolute(urls.currentProject(urls.ai(conversationId))),
-                                            'conversation sharing link'
-                                        )
-                                    }}
-                                    tooltip={
-                                        <>
-                                            Copy link to chat
-                                            <br />
-                                            <em>
-                                                <IconLock /> Requires organization access
-                                            </em>
-                                        </>
-                                    }
-                                    tooltipPlacement="bottom-end"
-                                />
-                            )}
-                        </>
-                    )}
-                    {isRemovingSidePanelFlag ? (
-                        <Link
-                            buttonProps={{
-                                iconOnly: true,
-                            }}
-                            to={urls.ai(conversationId ?? undefined)}
-                            onClick={() => {
-                                closeSidePanel()
-                            }}
-                            target="_blank"
-                            tooltip="Open as main focus"
-                            tooltipPlacement="bottom-end"
+                    <Tooltip title={chatTitle || undefined} placement="bottom">
+                        <h3
+                            className={cn('flex-1 font-semibold mb-0 truncate text-sm ml-1', {
+                                'ml-2': isRemovingSidePanelFlag,
+                            })}
                         >
-                            <IconExpand45 className="text-tertiary size-3 group-hover:text-primary z-10" />
-                        </Link>
-                    ) : (
-                        <LemonButton
-                            size="small"
-                            sideIcon={<IconExpand45 />}
-                            to={urls.ai(conversationId ?? undefined)}
-                            onClick={() => {
-                                closeSidePanel()
-                                startNewConversation()
-                            }}
-                            targetBlank
-                            tooltip="Open as main focus"
-                            tooltipPlacement="bottom-end"
-                        />
-                    )}
+                            {chatTitle || 'PostHog AI'}
+                        </h3>
+                    </Tooltip>
                 </div>
-            </SidePanelPaneHeader>
-            <SidePanelContentContainer flagOffClassName="contents">{content}</SidePanelContentContainer>
+                {conversationId && !conversationHistoryVisible && !threadVisible && !isAIOnlyMode && (
+                    <LemonButton
+                        size="small"
+                        icon={<IconPlus />}
+                        onClick={() => startNewConversation()}
+                        tooltip="Start a new chat"
+                        tooltipPlacement="bottom"
+                    />
+                )}
+                {conversationId && (
+                    <>
+                        {isRemovingSidePanelFlag ? (
+                            <ButtonPrimitive
+                                onClick={() => {
+                                    copyToClipboard(
+                                        urls.absolute(urls.currentProject(urls.ai(conversationId))),
+                                        'conversation sharing link'
+                                    )
+                                }}
+                                tooltip="Copy link to chat"
+                                tooltipPlacement="bottom-end"
+                                iconOnly
+                            >
+                                <IconShare className="text-tertiary size-3 group-hover:text-primary z-10" />
+                            </ButtonPrimitive>
+                        ) : (
+                            <LemonButton
+                                size="small"
+                                icon={<IconShare />}
+                                onClick={() => {
+                                    copyToClipboard(
+                                        urls.absolute(urls.currentProject(urls.ai(conversationId))),
+                                        'conversation sharing link'
+                                    )
+                                }}
+                                tooltip={
+                                    <>
+                                        Copy link to chat
+                                        <br />
+                                        <em>
+                                            <IconLock /> Requires organization access
+                                        </em>
+                                    </>
+                                }
+                                tooltipPlacement="bottom-end"
+                            />
+                        )}
+                    </>
+                )}
+                {isRemovingSidePanelFlag ? (
+                    <Link
+                        buttonProps={{
+                            iconOnly: true,
+                        }}
+                        to={urls.ai(conversationId ?? undefined)}
+                        onClick={() => {
+                            closeSidePanel()
+                        }}
+                        target="_blank"
+                        tooltip="Open as main focus"
+                        tooltipPlacement="bottom-end"
+                    >
+                        <IconExpand45 className="text-tertiary size-3 group-hover:text-primary z-10" />
+                    </Link>
+                ) : (
+                    <LemonButton
+                        size="small"
+                        sideIcon={<IconExpand45 />}
+                        to={urls.ai(conversationId ?? undefined)}
+                        onClick={() => {
+                            closeSidePanel()
+                            startNewConversation()
+                        }}
+                        targetBlank
+                        tooltip="Open as main focus"
+                        tooltipPlacement="bottom-end"
+                    />
+                )}
+            </div>
+        </SidePanelPaneHeader>
+    )
+
+    return sidePanel ? (
+        <>
+            {!isRemovingSidePanelFlag ? header : null}
+            <SidePanelContentContainer flagOffClassName="contents">
+                {isRemovingSidePanelFlag ? header : null}
+                {content}
+            </SidePanelContentContainer>
         </>
     ) : (
         <SceneContent className="pt-4 px-4 min-h-[calc(100vh-var(--scene-layout-header-height))]">
@@ -301,7 +327,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                                 sideIcon={<IconOpenSidebar />}
                                 onClick={() => {
                                     openSidePanelMax(conversationId ?? undefined)
-                                    closeTabId(tabId)
+                                    closeTabId(tabId, { source: 'open_in_side_panel' })
                                 }}
                             >
                                 Open in side panel

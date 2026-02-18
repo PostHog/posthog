@@ -1,9 +1,10 @@
-mod exception_list;
+mod event;
 
 use axum::routing::{get, post};
 use axum::{extract::State, response::IntoResponse, Router};
 
-pub use exception_list::*;
+pub use event::*;
+
 use health::HealthStatus;
 use reqwest::StatusCode;
 use std::future::ready;
@@ -26,10 +27,7 @@ async fn not_found() -> impl IntoResponse {
 pub fn get_router(context: Arc<AppContext>) -> Router {
     Router::new()
         .route("/", get(index))
-        .route(
-            "/:team_id/exception_list/process",
-            post(process_exception_list),
-        )
+        .route("/process", post(process_events))
         .route("/_readiness", get(index))
         .route("/_liveness", get(liveness))
         .fallback(not_found)

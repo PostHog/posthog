@@ -19,6 +19,7 @@ CONSUMER_GROUP_PRECALCULATED_EVENTS = "clickhouse_precalculated_events2" if _US 
 CONSUMER_GROUP_PRECALCULATED_PERSON_PROPERTIES = (
     "clickhouse_precalculated_person_properties2" if _US else "clickhouse_precalculated_person_properties"
 )
+CONSUMER_GROUP_DISTINCT_ID_USAGE = "clickhouse_distinct_id_usage"
 
 STORAGE_POLICY = lambda: "SETTINGS storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
 
@@ -62,11 +63,14 @@ def kafka_engine(
     group="group1",
     serialization="JSONEachRow",
     use_named_collection: bool = True,
+    named_collection: str | None = None,
 ) -> str:
     if use_named_collection:
         assert kafka_host is None, "Can't set kafka_host when using named collection"
+        # Use explicit named_collection if provided, otherwise default to MSK
+        collection_name = named_collection or settings.CLICKHOUSE_KAFKA_NAMED_COLLECTION
         return KAFKA_NAMED_COLLECTION_ENGINE.format(
-            named_collection_name=settings.CLICKHOUSE_KAFKA_NAMED_COLLECTION,
+            named_collection_name=collection_name,
             topic=topic,
             group=group,
             serialization=serialization,

@@ -1,0 +1,95 @@
+/* Demo app styles */
+.demo-container {
+    max-width: 100%;
+    padding: 1rem;
+}
+
+.demo-title {
+    margin-bottom: 1rem;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+}
+
+.demo-status {
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+    background-color: var(--color-background-secondary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--border-radius-md);
+}
+
+.demo-status.connected {
+    background-color: var(--color-background-info, #dbeafe);
+    border-color: var(--color-border-info, #93c5fd);
+}
+
+.demo-status.received {
+    background-color: var(--color-background-success, #dcfce7);
+    border-color: var(--color-border-success, #86efac);
+}
+
+.demo-status.error {
+    background-color: var(--color-background-danger, #fef2f2);
+    border-color: var(--color-border-danger, #fecaca);
+}
+
+.demo-section-title {
+    margin: 1rem 0 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+}
+
+.demo-data {
+    max-height: 300px;
+    padding: 0.75rem;
+    margin: 0;
+    overflow: auto;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    word-break: break-word;
+    white-space: pre-wrap;
+    background-color: var(--color-background-tertiary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--border-radius-md);
+}
+
+.demo-log {
+    max-height: 400px;
+    padding: 0.5rem;
+    overflow: auto;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    background-color: var(--color-background-tertiary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--border-radius-md);
+}
+
+.demo-log-entry {
+    padding: 0.5rem;
+    border-bottom: 1px solid var(--color-border-primary);
+}
+
+.demo-log-entry:last-child {
+    border-bottom: none;
+}
+
+.demo-log-time {
+    margin-right: 0.5rem;
+    color: var(--color-text-secondary);
+}
+
+.demo-log-type {
+    margin-right: 0.5rem;
+    font-weight: 600;
+    color: var(--posthog-chart-5);
+}
+
+.demo-log-data {
+    margin: 0.25rem 0 0;
+    color: var(--color-text-secondary);
+    word-break: break-word;
+    white-space: pre-wrap;
+}

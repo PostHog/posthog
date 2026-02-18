@@ -39,6 +39,16 @@ export const BillingProductPricingTable = ({
         billingProductLogic({ product })
     )
 
+    // Adjust tier unit price for display formatting (e.g., per-MB price → per-GB price)
+    const formatTierPrice = (
+        unitAmountUsd: string | null | undefined,
+        prod: BillingProductV2Type | BillingProductV2AddonType
+    ): string => {
+        const price = parseFloat(unitAmountUsd || '0')
+        const adjusted = hasDisplayFormatting(prod) && prod.display_divisor ? price * prod.display_divisor : price
+        return `$${formatWithDecimals(adjusted)}`
+    }
+
     const showProjectedTotalWithLimitTooltip =
         'addons' in product && product.projected_amount_usd_with_limit !== product.projected_amount_usd
 
@@ -103,7 +113,7 @@ export const BillingProductPricingTable = ({
                                         {
                                             productName: 'Base price',
                                             usage: formatUsage(tier.current_usage),
-                                            price: `$${formatWithDecimals(parseFloat(tier.unit_amount_usd || '0'))}`,
+                                            price: formatTierPrice(tier.unit_amount_usd, product),
                                             total: `$${tier.current_amount_usd || '0.00'}`,
                                             projectedTotal: `$${parseFloat(
                                                 tier.projected_amount_usd === 'None'
@@ -117,7 +127,7 @@ export const BillingProductPricingTable = ({
                                                 usage: createProductValueFormatter(addon)(
                                                     addon.tiers?.[i]?.current_usage || 0
                                                 ),
-                                                price: `$${formatWithDecimals(parseFloat(addon.tiers?.[i]?.unit_amount_usd || '0'))}`,
+                                                price: formatTierPrice(addon.tiers?.[i]?.unit_amount_usd, addon),
                                                 total: `$${addon.tiers?.[i]?.current_amount_usd || '0.00'}`,
                                                 projectedTotal: `$${parseFloat(
                                                     addon.tiers?.[i]?.projected_amount_usd === 'None'
@@ -174,7 +184,7 @@ export const BillingProductPricingTable = ({
                               : '',
                           basePrice:
                               tier.unit_amount_usd !== '0'
-                                  ? `$${formatWithDecimals(parseFloat(tier.unit_amount_usd || '0'))}${
+                                  ? `${formatTierPrice(tier.unit_amount_usd, product)}${
                                         product.type !== 'session_replay' && subscribedAddons?.length > 0
                                             ? ' + addons'
                                             : ''

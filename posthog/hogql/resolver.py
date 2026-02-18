@@ -8,6 +8,7 @@ from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.base import _T_AST
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import EventsTable
@@ -25,13 +26,7 @@ from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.functions.survey import get_survey_response, unique_survey_submissions_filter
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
-from posthog.hogql.resolver_utils import (
-    expand_hogqlx_query,
-    extract_select_queries,
-    lookup_cte_by_name,
-    lookup_field_by_name,
-    lookup_table_by_name,
-)
+from posthog.hogql.resolver_utils import expand_hogqlx_query, lookup_field_by_name, lookup_table_by_name
 from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
@@ -41,6 +36,8 @@ from posthog.models.utils import UUIDT
 
 # To quickly disable global joins, switch this to False
 USE_GLOBAL_JOINS = False
+
+EMPTY_SCOPE = ast.SelectQueryType()
 
 
 def resolve_constant_data_type(constant: Any) -> ConstantType:
@@ -124,6 +121,7 @@ class Resolver(CloningVisitor):
         super().__init__()
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
         self.scopes: list[ast.SelectQueryType] = scopes or []
+        self.ctes: dict[str, ast.CTE] = {}
         self.current_view_depth: int = 0
         self.context = context
         self.dialect = dialect
@@ -135,26 +133,65 @@ class Resolver(CloningVisitor):
             raise ResolutionError(
                 f"Type already resolved for {type(node).__name__} ({type(node.type).__name__}). Can't run again."
             )
-        if self.cte_counter > 50:
-            raise QueryError("Too many CTE expansions (50+). Probably a CTE loop.")
         return super().visit(node)
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):
-        # all expressions combined by UNION ALL can use CTEs from the first expression
-        # so we put these CTEs to the scope
-        default_ctes = next(extract_select_queries(node)).ctes
-        if default_ctes:
-            self.scopes.append(ast.SelectQueryType(ctes=default_ctes))
+        parent_ctes = self.ctes
+        self.ctes = dict(parent_ctes)
 
-        node = super().visit_select_set_query(node)
-        node.type = ast.SelectSetQueryType(
-            types=[node.initial_select_query.type, *(x.select_query.type for x in node.subsequent_select_queries)]  # type: ignore
+        initial = self.visit(node.initial_select_query)
+
+        # Root WITH propagates to all subsequent branches. Branch-level CTEs shadow root CTEs.
+        if isinstance(initial, ast.SelectQuery) and initial.ctes:
+            for name, cte in initial.ctes.items():
+                self.ctes[name] = cte
+
+        subsequent: list[ast.SelectSetNode] = []
+        for expr in node.subsequent_select_queries:
+            subsequent.append(
+                ast.SelectSetNode(set_operator=expr.set_operator, select_query=self.visit(expr.select_query))
+            )
+
+        result = ast.SelectSetQuery(
+            start=node.start,
+            end=node.end,
+            initial_select_query=initial,
+            subsequent_select_queries=subsequent,
+        )
+        result.type = ast.SelectSetQueryType(
+            types=[result.initial_select_query.type, *(x.select_query.type for x in result.subsequent_select_queries)]  # type: ignore
         )
 
-        if default_ctes:
-            self.scopes.pop()
+        self.ctes = parent_ctes
 
-        return node
+        return result
+
+    def visit_cte(self, node: ast.CTE):
+        self.cte_counter += 1
+
+        # Visit the CTE expression (SELECT query) without creating a new CTE scope
+        # This allows the CTE to reference previously defined CTEs in the same WITH clause
+        # We clone the expr to avoid modifying the input node
+        cte_expr = clone_expr(node.expr)
+        cte_expr = self.visit(cte_expr)
+
+        # Create a new CTE node instead of modifying the input
+        # This ensures we can resolve CTEs even if they appear multiple times
+        new_node = ast.CTE(
+            start=node.start,
+            end=node.end,
+            type=ast.CTETableType(name=node.name, select_query_type=cte_expr.type),
+            name=node.name,
+            expr=cte_expr,
+            cte_type=node.cte_type,
+        )
+
+        self.cte_counter -= 1
+
+        # Add this CTE to the current scope so subsequent CTEs can reference it
+        self.ctes[node.name] = new_node
+
+        return new_node
 
     def visit_select_query(self, node: ast.SelectQuery):
         """Visit each SELECT query or subquery."""
@@ -162,9 +199,21 @@ class Resolver(CloningVisitor):
         # We will add fields to it when we encounter them. This is used to resolve fields later.
         node_type = ast.SelectQueryType()
 
-        # First step: add all the "WITH" CTEs onto the "scope" if there are any
+        parent_ctes = self.ctes
+
+        # Track CTEs defined at this level (will be attached to new_node)
+        current_level_ctes: dict[str, ast.CTE] | None = None
+
+        # First step: resolve all the "WITH" CTEs onto "self.ctes" if there are any
         if node.ctes:
-            node_type.ctes = node.ctes
+            self.ctes = dict(parent_ctes)
+            current_level_ctes = {}
+            for cte in node.ctes.values():
+                resolved_cte = self.visit(cte)
+                current_level_ctes[cte.name] = resolved_cte
+            node_type.ctes = current_level_ctes
+        else:
+            self.ctes = dict(parent_ctes)
 
         # Append the "scope" onto the stack early, so that nodes we "self.visit" below can access it.
         self.scopes.append(node_type)
@@ -174,9 +223,8 @@ class Resolver(CloningVisitor):
             start=node.start,
             end=node.end,
             type=node_type,
-            # For Postgres, keep CTEs on the node (they'll be printed as WITH clause).
-            # For other dialects, CTEs are expanded inline so remove from the printable "WITH" clause.
-            ctes=node.ctes if self.dialect == "postgres" else None,
+            # Set CTEs only if they were defined at this level (use resolved CTEs)
+            ctes=current_level_ctes,
             # "select" needs a default value, so [] it is
             select=[],
         )
@@ -272,6 +320,8 @@ class Resolver(CloningVisitor):
 
         self.scopes.pop()
 
+        self.ctes = parent_ctes
+
         return new_node
 
     def _asterisk_columns(self, asterisk: ast.AsteriskType, chain_prefix: list[str]) -> list[ast.Field]:
@@ -310,96 +360,10 @@ class Resolver(CloningVisitor):
         if len(self.scopes) == 0:
             raise ImpossibleASTError("Unexpected JoinExpr outside a SELECT query")
 
-        scope = self.scopes[-1]
+        scope = self._get_scope()
 
         if isinstance(node.table, ast.HogQLXTag):
             node.table = expand_hogqlx_query(node.table, self.context.team_id)
-
-        # If selecting from a CTE, handle it based on dialect
-        if isinstance(node.table, ast.Field) and len(node.table.chain) == 1:
-            table_name = str(node.table.chain[0])
-            cte = lookup_cte_by_name(self.scopes, table_name)
-            if cte:
-                if self.dialect == "postgres":
-                    # For Postgres, don't expand CTE inline - create a CTEType reference instead.
-                    # This allows recursive CTEs to work properly.
-                    node = cast(ast.JoinExpr, clone_expr(node))
-                    table_alias = node.alias or table_name
-
-                    # Check if this CTE is currently being resolved (self-reference in recursive CTE)
-                    cte_being_resolved = getattr(self, "_ctes_being_resolved", set())
-                    is_self_reference = cte.name in cte_being_resolved
-
-                    if is_self_reference:
-                        # This is a self-reference in a recursive CTE.
-                        # Use the already-partially-resolved type if available.
-                        if cte.expr.type is not None and isinstance(
-                            cte.expr.type, (ast.SelectQueryType, ast.SelectSetQueryType)
-                        ):
-                            select_query_type = cte.expr.type
-                        else:
-                            # Create a placeholder type - columns will be determined by non-recursive part
-                            select_query_type = ast.SelectQueryType()
-
-                        cte_type = ast.CTEType(
-                            name=cte.name,
-                            cte=cte,
-                            select_query_type=select_query_type,
-                        )
-                    else:
-                        # Mark this CTE as being resolved to detect self-references
-                        if not hasattr(self, "_ctes_being_resolved"):
-                            self._ctes_being_resolved = set()
-                        self._ctes_being_resolved.add(cte.name)
-
-                        # Resolve the CTE expression to get its type
-                        self.cte_counter += 1
-                        resolved_cte_expr = self.visit(clone_expr(cte.expr))
-                        self.cte_counter -= 1
-
-                        # Remove from being-resolved set
-                        self._ctes_being_resolved.discard(cte.name)
-
-                        if not isinstance(
-                            resolved_cte_expr.type,
-                            (ast.SelectQueryType, ast.SelectSetQueryType),
-                        ):
-                            raise QueryError(f"CTE {cte.name} must be a SELECT query for Postgres")
-
-                        # Update the CTE with the resolved expression so the printer can use it
-                        cte.expr = resolved_cte_expr
-
-                        cte_type = ast.CTEType(
-                            name=cte.name,
-                            cte=cte,
-                            select_query_type=resolved_cte_expr.type,
-                        )
-
-                    if table_alias != table_name:
-                        node_type: ast.TableOrSelectType = ast.SelectQueryAliasType(
-                            alias=table_alias, select_query_type=resolved_cte_expr.type
-                        )
-                    else:
-                        node_type = cte_type
-
-                    scope.tables[table_alias] = node_type
-                    node.type = node_type
-                    node.table.type = cte_type
-                    node.next_join = self.visit(node.next_join)
-                    if node.constraint is not None:
-                        node.constraint = self.visit(node.constraint)
-                    return node
-                else:
-                    # For other dialects, expand CTE inline
-                    node = cast(ast.JoinExpr, clone_expr(node))
-                    node.table = clone_expr(cte.expr)
-                    if node.alias is None:
-                        node.alias = table_name
-
-                    self.cte_counter += 1
-                    response = self.visit(node)
-                    self.cte_counter -= 1
-                    return response
 
         if isinstance(node.table, ast.Field):
             table_name_chain = [str(n) for n in node.table.chain]
@@ -408,7 +372,37 @@ class Resolver(CloningVisitor):
             if table_alias in scope.tables:
                 raise QueryError(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
 
-            database_table = self.database.get_table(table_name_chain)  # type: ignore
+            cte_table = self.ctes.get(".".join(table_name_chain))
+            if cte_table:
+                assert isinstance(cte_table.expr.type, ast.SelectQueryType | ast.SelectSetQueryType)
+                # Use CTETableType so that fields are properly qualified with the CTE name when printed
+                cte_table_type = ast.CTETableType(name=cte_table.name, select_query_type=cte_table.expr.type)
+                node_type: ast.TableOrSelectType = cte_table_type
+                if table_alias != table_name_alias:
+                    # Use CTETableAliasType for aliased CTEs (e.g., FROM my_cte AS alias)
+                    node_type = ast.CTETableAliasType(alias=table_alias, cte_table_type=cte_table_type)
+
+                node = cast(ast.JoinExpr, clone_expr(node))
+                if node.constraint and node.constraint.constraint_type == "USING":
+                    # visit USING constraint before adding the table to avoid ambiguous names
+                    node.constraint = self.visit_join_constraint(node.constraint)
+
+                scope.tables[table_alias or cte_table.name] = node_type
+
+                # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
+                node.type = node_type
+                node.table = cast(ast.Field, clone_expr(node.table))
+                node.table.type = cte_table_type
+                node.next_join = self.visit(node.next_join)
+                node.alias = table_alias
+
+                if node.constraint and node.constraint.constraint_type == "ON":
+                    node.constraint = self.visit_join_constraint(node.constraint)
+                node.sample = self.visit(node.sample)
+
+                return node
+
+            database_table = cast(Database, self.database).get_table(table_name_chain)
 
             if isinstance(database_table, SavedQuery):
                 self.current_view_depth += 1
@@ -428,15 +422,16 @@ class Resolver(CloningVisitor):
                 if isinstance(database_table, PersonsTable):
                     # Check for inlineable exprs in the join on the persons table
                     database_table = database_table.create_new_table_with_filter(node)
-                node_table_type = ast.LazyTableType(table=database_table)
+                node_table_type: ast.TableType | ast.LazyTableType = ast.LazyTableType(table=database_table)
 
             else:
+                assert isinstance(database_table, ast.Table)
                 node_table_type = ast.TableType(table=database_table)
 
             # Always add an alias for function call tables. This way `select table.* from table` is replaced with
             # `select table.* from something() as table`, and not with `select something().* from something()`.
             if table_alias != table_name_alias or isinstance(database_table, FunctionCallTable):
-                node_type: ast.TableOrSelectType = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
+                node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
             else:
                 node_type = node_table_type
 
@@ -449,6 +444,8 @@ class Resolver(CloningVisitor):
 
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
             node.type = node_type
+            assert node.table is not None
+
             node.table = cast(ast.Field, clone_expr(node.table))
             node.table.type = node_table_type
             if node.table_args is not None:
@@ -546,7 +543,7 @@ class Resolver(CloningVisitor):
         if len(self.scopes) == 0:
             raise QueryError("Aliases are allowed only within SELECT queries")
 
-        scope = self.scopes[-1]
+        scope = self._get_scope()
         if node.alias in scope.aliases and not node.hidden:
             raise QueryError(f"Cannot redefine an alias with the name: {node.alias}")
         if node.alias == "":
@@ -637,7 +634,7 @@ class Resolver(CloningVisitor):
         if func_meta := HOGQL_CLICKHOUSE_FUNCTIONS.get(node.name, None):
             if signatures := func_meta.signatures:
                 for sig_arg_types, sig_return_type in signatures:
-                    if sig_arg_types is None or compare_types(arg_types, sig_arg_types):
+                    if sig_arg_types is None or compare_types(arg_types, sig_arg_types, args=node.args):
                         return_type = dataclasses.replace(sig_return_type)
                         break
 
@@ -710,13 +707,13 @@ class Resolver(CloningVisitor):
         # - "SELECT event, (select count() from events where event = x.event) as c FROM events x where event = '$pageview'",
         # But this is supported:
         # - "SELECT t.big_count FROM (select count() + 100 as big_count from events) as t JOIN events e ON (e.event = t.event)",
-        scope = self.scopes[-1]
+        scope = self._get_scope()
 
         type: Optional[ast.Type] = None
         name = str(node.chain[0])
 
         # If the field contains at least two parts, the first might be a table.
-        type = lookup_table_by_name(scope, node)
+        type = lookup_table_by_name(scope, self.ctes, node)
 
         # If it's a wildcard
         if name == "*" and len(node.chain) == 1:
@@ -736,24 +733,40 @@ class Resolver(CloningVisitor):
 
         # If scope is a lambda, check with the parent scope
         if not type and scope.is_lambda_type and len(self.scopes) > 1:
-            type = lookup_table_by_name(self.scopes[-2], node)
+            type = lookup_table_by_name(self.scopes[-2], self.ctes, node)
 
             if not type:
                 type = lookup_field_by_name(self.scopes[-2], name, self.context)
 
         if not type:
-            cte = lookup_cte_by_name(self.scopes, name)
+            cte = self.ctes.get(name, None)
             if cte:
                 if len(node.chain) > 1:
-                    raise QueryError(f"Cannot access fields on CTE {cte.name} yet")
-                # SubQuery CTEs ("WITH a AS (SELECT 1)") can only be used in the "FROM table" part of a select query,
-                # which is handled in visit_join_expr. Referring to it here means we want to access its value.
+                    raise QueryError(f"Cannot access fields on CTE {name} yet")
+
+                assert isinstance(cte.type, ast.CTETableType)
+
+                # Check if this is a table CTE (subquery style) vs scalar CTE (column style)
+                # Table CTE: WITH x AS (SELECT ...) - can only be used in FROM clauses
+                # Scalar CTE: WITH expr AS x or WITH (SELECT 1) AS x - can be used as scalar values
                 if cte.cte_type == "subquery":
-                    return ast.Field(chain=node.chain)
-                self.cte_counter += 1
-                response = self.visit(clone_expr(cte.expr))
-                self.cte_counter -= 1
-                return response
+                    # Table CTE: can only be used in FROM clauses (handled in visit_join_expr)
+                    raise QueryError(f"Cannot use table CTE {cte.name} as a value. Use it in a FROM clause instead.")
+                elif cte.cte_type == "column":
+                    # Try to extract the actual return type from the scalar CTE's SELECT query
+                    # Scalar CTEs should return a single column, so we get the type of the first selected column
+                    inner_type: ast.Type = ast.StringType()
+                    if isinstance(cte.type.select_query_type, ast.SelectQueryType):
+                        select_query_type = cte.type.select_query_type
+                        if select_query_type.columns:
+                            # Get the type of the first (and should be only) column
+                            first_column_type = next(iter(select_query_type.columns.values()), None)
+                            if first_column_type is not None:
+                                inner_type = first_column_type
+
+                    return ast.Field(chain=node.chain, type=ast.FieldAliasType(alias=name, type=inner_type))
+                else:
+                    raise ImpossibleASTError(f"Cannot use CTE {cte.name} as a value. Use it in a FROM clause instead.")
 
         if not type:
             if self.context.globals is not None and name in self.context.globals:
@@ -1002,11 +1015,18 @@ class Resolver(CloningVisitor):
 
         return node
 
+    def _get_scope(self):
+        if len(self.scopes) > 0:
+            return self.scopes[-1]
+        elif len(self.ctes) > 0:
+            # Use an empty scope to allow lookups on any present CTEs
+            return EMPTY_SCOPE
+        else:
+            raise QueryError("No scope or CTE available")
+
     # Used to find events table in current scope for action functions
-    def _get_events_table_current_scope(
-        self,
-    ) -> tuple[Optional[str], Optional[EventsTable]]:
-        scope = self.scopes[-1]
+    def _get_events_table_current_scope(self) -> tuple[Optional[str], Optional[EventsTable]]:
+        scope = self._get_scope()
         for alias, table_type in scope.tables.items():
             if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
                 return alias, table_type.table
@@ -1052,6 +1072,13 @@ class Resolver(CloningVisitor):
         if isinstance(table, ast.TableAliasType):
             return self._is_s3_table(table.table_type)
 
+        if isinstance(table, ast.CTETableAliasType):
+            return self._is_s3_table(table.cte_table_type)
+
+        if isinstance(table, ast.CTETableType):
+            tables = self._extract_tables_from_query_type(table.select_query_type)
+            return any(self._is_s3_table(inner_table) for inner_table in tables)
+
         if isinstance(table, ast.TableType):
             return isinstance(table.table, S3Table)
 
@@ -1060,7 +1087,7 @@ class Resolver(CloningVisitor):
     def _is_next_s3(self, node: Optional[ast.JoinExpr]):
         if node is None:
             return False
-        if isinstance(node.type, ast.TableAliasType):
+        if isinstance(node.type, (ast.TableAliasType, ast.CTETableAliasType, ast.CTETableType, ast.TableType)):
             return self._is_s3_table(node.type)
         return False
 

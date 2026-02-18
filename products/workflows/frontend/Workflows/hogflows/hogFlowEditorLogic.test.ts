@@ -1,7 +1,90 @@
 import { initKeaTests } from '~/test/init'
 
-import { hogFlowEditorLogic } from './hogFlowEditorLogic'
+import { computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from './types'
+
+type Edge = HogFlow['edges'][0]
+const edge = (from: string, to: string, type: 'continue' | 'branch', index?: number): Edge => ({
+    from,
+    to,
+    type,
+    index,
+})
+
+describe('computeMoveEdges', () => {
+    it.each([
+        {
+            name: 'move node forward in linear chain',
+            edges: [edge('trigger', 'A', 'continue'), edge('A', 'B', 'continue'), edge('B', 'exit', 'continue')],
+            movingNodeId: 'A',
+            targetEdge: edge('B', 'exit', 'continue'),
+            isBranchJoin: false,
+            expected: [edge('trigger', 'B', 'continue'), edge('B', 'A', 'continue'), edge('A', 'exit', 'continue')],
+        },
+        {
+            name: 'move node backward in linear chain',
+            edges: [edge('trigger', 'A', 'continue'), edge('A', 'B', 'continue'), edge('B', 'exit', 'continue')],
+            movingNodeId: 'B',
+            targetEdge: edge('trigger', 'A', 'continue'),
+            isBranchJoin: false,
+            expected: [edge('A', 'exit', 'continue'), edge('trigger', 'B', 'continue'), edge('B', 'A', 'continue')],
+        },
+        {
+            name: 'move node from continue branch to branch edge of conditional',
+            edges: [edge('cond', 'exit', 'branch', 0), edge('cond', 'A', 'continue'), edge('A', 'exit', 'continue')],
+            movingNodeId: 'A',
+            targetEdge: edge('cond', 'exit', 'branch', 0),
+            isBranchJoin: false,
+            expected: [edge('cond', 'exit', 'continue'), edge('cond', 'A', 'branch', 0), edge('A', 'exit', 'continue')],
+        },
+        {
+            name: 'move node from branch edge to continue branch of conditional',
+            edges: [edge('cond', 'A', 'branch', 0), edge('cond', 'exit', 'continue'), edge('A', 'exit', 'continue')],
+            movingNodeId: 'A',
+            targetEdge: edge('cond', 'exit', 'continue'),
+            isBranchJoin: false,
+            expected: [edge('cond', 'exit', 'branch', 0), edge('cond', 'A', 'continue'), edge('A', 'exit', 'continue')],
+        },
+        {
+            name: 'move node onto edge it is already the target of (no-op position)',
+            edges: [edge('cond', 'A', 'branch', 0), edge('cond', 'exit', 'continue'), edge('A', 'exit', 'continue')],
+            movingNodeId: 'A',
+            targetEdge: edge('cond', 'A', 'branch', 0),
+            isBranchJoin: false,
+            expected: [edge('cond', 'exit', 'continue'), edge('cond', 'A', 'branch', 0), edge('A', 'exit', 'continue')],
+        },
+        {
+            name: 'move node to branch join dropzone inserts on all branches',
+            edges: [edge('cond', 'exit', 'branch', 0), edge('cond', 'A', 'continue'), edge('A', 'exit', 'continue')],
+            movingNodeId: 'A',
+            targetEdge: edge('cond', 'exit', 'branch', 0),
+            isBranchJoin: true,
+            expected: [edge('cond', 'A', 'branch', 0), edge('cond', 'A', 'continue'), edge('A', 'exit', 'continue')],
+        },
+        {
+            name: 'move node when both conditional edges point to it (branch join, move to branch)',
+            edges: [edge('cond', 'A', 'branch', 0), edge('cond', 'A', 'continue'), edge('A', 'exit', 'continue')],
+            movingNodeId: 'A',
+            targetEdge: edge('cond', 'A', 'branch', 0),
+            isBranchJoin: false,
+            expected: [edge('cond', 'exit', 'continue'), edge('cond', 'A', 'branch', 0), edge('A', 'exit', 'continue')],
+        },
+    ])('$name', ({ edges, movingNodeId, targetEdge, isBranchJoin, expected }) => {
+        const result = computeMoveEdges(edges, movingNodeId, targetEdge, isBranchJoin)
+        expect(result).toEqual(expected)
+    })
+
+    it('returns null when moving node has no outgoing edge', () => {
+        const edges = [edge('trigger', 'A', 'continue')]
+        expect(computeMoveEdges(edges, 'A', edge('trigger', 'A', 'continue'), false)).toBeNull()
+    })
+
+    it('returns null when target edge cannot be found after bypass', () => {
+        const edges = [edge('trigger', 'A', 'continue'), edge('A', 'exit', 'continue')]
+        const nonexistent = edge('X', 'Y', 'continue')
+        expect(computeMoveEdges(edges, 'A', nonexistent, false)).toBeNull()
+    })
+})
 
 describe('hogFlowEditorLogic', () => {
     let logic: ReturnType<typeof hogFlowEditorLogic.build>

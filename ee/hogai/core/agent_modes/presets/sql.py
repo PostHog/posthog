@@ -2,7 +2,12 @@ from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
-from ee.hogai.chat_agent.executables import ChatAgentPlanExecutable, ChatAgentPlanToolsExecutable
+from ee.hogai.chat_agent.executables import (
+    ChatAgentExecutable,
+    ChatAgentPlanExecutable,
+    ChatAgentPlanToolsExecutable,
+    ChatAgentToolsExecutable,
+)
 from ee.hogai.tools import ExecuteSQLTool
 from ee.hogai.tools.todo_write import TodoWriteExample
 
@@ -99,6 +104,8 @@ sql_agent = AgentModeDefinition(
     mode=AgentMode.SQL,
     mode_description=MODE_DESCRIPTION,
     toolkit_class=SQLAgentToolkit,
+    node_class=ChatAgentExecutable,
+    tools_node_class=ChatAgentToolsExecutable,
 )
 
 

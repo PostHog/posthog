@@ -7,12 +7,17 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.models import SandboxSnapshot, Task
+from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
+from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
-from products.tasks.backend.temporal.process_task.utils import get_github_token, get_sandbox_name_for_task
+from products.tasks.backend.temporal.process_task.utils import (
+    get_github_token,
+    get_sandbox_api_url,
+    get_sandbox_name_for_task,
+)
 
 from .get_task_processing_context import TaskProcessingContext
 
@@ -27,6 +32,8 @@ class GetSandboxForRepositoryInput:
 @dataclass
 class GetSandboxForRepositoryOutput:
     sandbox_id: str
+    sandbox_url: str
+    connect_token: str | None
     used_snapshot: bool
     should_create_snapshot: bool
 
@@ -74,9 +81,13 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         environment_variables = {
             "GITHUB_TOKEN": github_token,
             "POSTHOG_PERSONAL_API_KEY": access_token,
-            "POSTHOG_API_URL": settings.SITE_URL,
+            "POSTHOG_API_URL": get_sandbox_api_url(),
             "POSTHOG_PROJECT_ID": str(ctx.team_id),
+            "JWT_PUBLIC_KEY": get_sandbox_jwt_public_key(),
         }
+
+        if settings.SANDBOX_LLM_GATEWAY_URL:
+            environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
         config = SandboxConfig(
             name=get_sandbox_name_for_task(ctx.task_id),
@@ -95,10 +106,23 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 sandbox.destroy()
                 raise RuntimeError(f"Failed to clone repository {ctx.repository}: {clone_result.stderr}")
 
+        credentials = sandbox.get_connect_credentials()
+
+        task_run = TaskRun.objects.get(id=ctx.run_id)
+        state = task_run.state or {}
+        state["sandbox_id"] = sandbox.id
+        state["sandbox_url"] = credentials.url
+        if credentials.token:
+            state["sandbox_connect_token"] = credentials.token
+        task_run.state = state
+        task_run.save(update_fields=["state", "updated_at"])
+
         activity.logger.info(f"Created sandbox {sandbox.id} (used_snapshot={used_snapshot})")
 
         return GetSandboxForRepositoryOutput(
             sandbox_id=sandbox.id,
+            sandbox_url=credentials.url,
+            connect_token=credentials.token,
             used_snapshot=used_snapshot,
             should_create_snapshot=not used_snapshot,
         )

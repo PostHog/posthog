@@ -151,4 +151,35 @@
             }
         }
     }
+
+    &.BridgePage--twig {
+        --primary-3000-button-bg: #2f2a26;
+        --primary-3000-button-border: #2f2a26;
+        --primary-3000-button-border-hover: #241f1c;
+        --primary-3000-frame-bg: #2f2a26;
+        --primary-3000-frame-bg-light: #2f2a26;
+        --text-3000-light: #f4efe6;
+
+        background-color: #f4efe6;
+        background-image: var(--twig-auth-bg, none);
+        background-position: center;
+        background-size: cover;
+
+        .BridgePage__content {
+            background-color: rgb(255 255 255 / 90%);
+            border: 1px solid rgb(0 0 0 / 6%);
+        }
+
+        .LemonButton--primary,
+        .LemonButton--primary.LemonButton--status-alt {
+            color: #f4efe6 !important;
+            background: #2f2a26 !important;
+            border-color: transparent !important;
+        }
+
+        .LemonButton--primary:hover,
+        .LemonButton--primary.LemonButton--status-alt:hover {
+            background: #241f1c !important;
+        }
+    }
 }

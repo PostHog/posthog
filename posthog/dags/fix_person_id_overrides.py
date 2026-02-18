@@ -84,21 +84,28 @@ def get_existing_override(team_id: int, distinct_id: str) -> Optional[tuple[str,
     return None
 
 
-def insert_override(team_id: int, distinct_id: str, person_id: str, version: int) -> None:
-    """Insert a record into person_distinct_id_overrides."""
+def insert_override_batch(overrides: list[tuple[int, str, str, int]]) -> None:
+    """Insert a batch of records into person_distinct_id_overrides.
+
+    Args:
+        overrides: List of (team_id, distinct_id, person_id, version) tuples
+    """
+    if not overrides:
+        return
+
+    from datetime import datetime
+
+    now = datetime.now()
     sync_execute(
         """
         INSERT INTO person_distinct_id_overrides
         (team_id, distinct_id, person_id, is_deleted, version, _timestamp, _offset, _partition)
         VALUES
-        (%(team_id)s, %(distinct_id)s, %(person_id)s, 0, %(version)s, now(), 0, 0)
         """,
-        {
-            "team_id": team_id,
-            "distinct_id": distinct_id,
-            "person_id": person_id,
-            "version": version,
-        },
+        [
+            (team_id, distinct_id, person_id, 0, version, now, 0, 0)
+            for team_id, distinct_id, person_id, version in overrides
+        ],
     )
 
 
@@ -122,6 +129,9 @@ def fix_person_id_overrides_op(
     # Track which person_ids we've already processed to avoid duplicates
     processed_person_ids: set[str] = set()
 
+    # Batch of overrides to insert: (team_id, distinct_id, person_id, version)
+    pending_overrides: list[tuple[int, str, str, int]] = []
+
     for _i, bugged_distinct_id in enumerate(bugged_distinct_ids):
         # Step 1: Get person_id for this bugged distinct_id
         pdi2_result = get_person_id_from_pdi2(config.team_id, bugged_distinct_id)
@@ -144,7 +154,7 @@ def fix_person_id_overrides_op(
             f"Person {person_id}... has {len(all_distinct_ids)} distinct_ids: {', '.join(did for did, _ in all_distinct_ids)} "
         )
 
-        # Step 3: Insert override for each distinct_id
+        # Step 3: Collect overrides for each distinct_id
         for distinct_id, version in all_distinct_ids:
             # Check if override already exists
             existing = get_existing_override(config.team_id, distinct_id)
@@ -157,8 +167,13 @@ def fix_person_id_overrides_op(
             if config.dry_run:
                 context.log.info(f"  [DRY RUN] Would insert -> Distinct ID: {distinct_id}, Person ID: {person_id}...")
             else:
-                insert_override(config.team_id, distinct_id, person_id, new_version)
-                context.log.info(f"  Inserted: {distinct_id} -> {person_id}...")
+                pending_overrides.append((config.team_id, distinct_id, person_id, new_version))
+                context.log.info(f"  Queued: {distinct_id} -> {person_id}...")
+
+    # Insert all overrides at once
+    if not config.dry_run and pending_overrides:
+        insert_override_batch(pending_overrides)
+        context.log.info(f"Inserted {len(pending_overrides)} overrides")
 
 
 @dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})

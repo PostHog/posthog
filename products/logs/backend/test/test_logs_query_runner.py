@@ -299,6 +299,45 @@ class TestAttributeFilters(APIBaseTest):
         self.assertIn("notIn(resource_fingerprint", query_str)
         self.assertIn("(in(resource_fingerprint", query_str)
 
+    def test_resource_fingerprint_filter(self):
+        """Test that resourceFingerprint parameter adds a direct equality filter"""
+        query = LogsQuery(
+            dateRange=DateRange(date_from="2024-01-10T00:00:00Z", date_to="2024-01-15T23:59:59Z"),
+            serviceNames=[],
+            severityLevels=[],
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[],
+                    )
+                ],
+            ),
+            resourceFingerprint="12345678",
+            kind="LogsQuery",
+        )
+
+        runner = LogsQueryRunner(query=query, team=self.team)
+        executor = HogQLQueryExecutor(
+            query_type="LogsQuery",
+            query=runner.to_query(),
+            modifiers=runner.modifiers,
+            team=runner.team,
+            workload=Workload.LOGS,
+            timings=runner.timings,
+            limit_context=runner.limit_context,
+            filters=HogQLFilters(dateRange=runner.query.dateRange),
+            settings=runner.settings,
+        )
+        executor.generate_clickhouse_sql()
+        assert executor.clickhouse_prepared_ast is not None
+        query_str = executor.clickhouse_prepared_ast.to_hogql()
+
+        # Verify resource_fingerprint equality filter is present
+        self.assertIn("resource_fingerprint", query_str)
+        self.assertIn("12345678", query_str)
+
 
 class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
@@ -505,6 +544,23 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 10)
         self.assertEqual(len(queries), 2)
 
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_trace_and_span_ids_returned_as_hex(self):
+        query_params = {
+            "dateRange": {"date_from": "2025-12-16 09:01:22.139425Z", "date_to": "2025-12-16 09:01:22.139426Z"},
+            "limit": 1,
+            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+        }
+
+        response = self._make_logs_api_request(query_params)
+        self.assertEqual(len(response["results"]), 1)
+
+        result = response["results"][0]
+        # trace_id stored as base64 "ASNFZ4mrze8BI0VniavN7w==" should be returned as hex
+        self.assertEqual(result["trace_id"], "0123456789ABCDEF0123456789ABCDEF")
+        # span_id stored as base64 "/ty6mHZUMhA=" should be returned as hex
+        self.assertEqual(result["span_id"], "FEDCBA9876543210")
+
     def test_logs_attributes_endpoint(self):
         response = self.client.get(
             f"/api/projects/{self.team.id}/logs/attributes",
@@ -548,3 +604,55 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_resource_fingerprint_integration(self):
+        """Integration test for resource fingerprint queries using actual test data"""
+        # First, get logs with a specific resource attribute to identify a resource fingerprint
+        query_params_initial = {
+            "dateRange": {"date_from": "2025-12-16 09:01:00Z", "date_to": None},
+            "limit": 10,
+            "filterGroup": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "log_resource_attribute",
+                                "key": "k8s.container.name",
+                                "operator": "exact",
+                                "value": ["argo-rollouts-dashboard"],
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+
+        response_initial = self._make_logs_api_request(query_params_initial)
+        self.assertGreater(len(response_initial["results"]), 0)
+
+        # Get the resource fingerprint from the first result
+        resource_fingerprint = response_initial["results"][0]["resource_fingerprint"]
+        self.assertIsNotNone(resource_fingerprint)
+
+        # Now test filtering by that specific resource fingerprint
+        query_params_fingerprint = {
+            "dateRange": {"date_from": "2025-12-16 09:01:00Z", "date_to": None},
+            "limit": 50,
+            "resourceFingerprint": resource_fingerprint,
+            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+        }
+
+        with self.capture_select_queries():
+            response_fingerprint = self._make_logs_api_request(query_params_fingerprint)
+
+        # Verify that all results have the same resource fingerprint
+        for result in response_fingerprint["results"]:
+            self.assertEqual(result["resource_fingerprint"], resource_fingerprint)
+
+        # Verify all results have the expected resource attributes
+        for result in response_fingerprint["results"]:
+            self.assertEqual(result["resource_attributes"]["k8s.container.name"], "argo-rollouts-dashboard")
+            self.assertEqual(result["resource_attributes"]["service.name"], "argo-rollouts")

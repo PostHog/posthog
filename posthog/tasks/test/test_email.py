@@ -34,6 +34,7 @@ from posthog.tasks.email import (
     send_member_join,
     send_new_ticket_notification,
     send_password_reset,
+    send_saved_query_materialization_failure,
     should_send_pipeline_error_notification,
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
@@ -234,7 +235,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             data_interval_end=now,
         )
 
-        # Test with threshold 0.0 (default) - should notify on any failure
+        # Default threshold is 1% - failure rate 0.5 exceeds it, so notify
         send_batch_export_run_failure(batch_export_run.id, failure_rate=0.5)
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
@@ -294,9 +295,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 0
 
     def test_should_send_pipeline_error_notification(self, MockEmailMessage: MagicMock) -> None:
-        # Test default behavior (threshold 0.0) - should notify on any failure
+        # Default threshold is 1% (0.01) - notify when failure rate exceeds that
         assert should_send_pipeline_error_notification(self.user, failure_rate=0.1) is True
-        assert should_send_pipeline_error_notification(self.user, failure_rate=0.0) is True
+        assert should_send_pipeline_error_notification(self.user, failure_rate=0.02) is True
+        assert should_send_pipeline_error_notification(self.user, failure_rate=0.01) is False
+        assert should_send_pipeline_error_notification(self.user, failure_rate=0.0) is False
 
         # Test with threshold 0.5
         self.user.partial_notification_settings = {
@@ -319,7 +322,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_get_members_to_notify_for_pipeline_error(self, MockEmailMessage: MagicMock) -> None:
         user2 = self._create_user("test2@posthog.com")
 
-        # Test with default settings (threshold 0.0) - both users should be notified
+        # Default threshold is 1% - failure rate 0.5 exceeds it, so both users notified
         memberships = get_members_to_notify_for_pipeline_error(cast(Team, self.user.team), failure_rate=0.5)
         assert len(memberships) == 2
         assert {m.user.email for m in memberships} == {self.user.email, user2.email}
@@ -790,7 +793,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         # Create users with different error rate thresholds
-        # User with no threshold (default 0.0) - should receive all functions
+        # User with default threshold (1%) - receives functions with failure rate > 1%
         self._create_user("no_threshold@posthog.com")
 
         # User with 10% threshold - should only receive functions with failure_rate > 10%
@@ -1262,3 +1265,75 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         # Verify the href falls back to base URL with discussion panel
         assert mocked_email_messages[0].properties["href"] == f"{settings.SITE_URL}#panel=discussion"
+
+    def test_send_saved_query_materialization_failure(self, MockEmailMessage: MagicMock) -> None:
+        from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
+        self.user.save()
+
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="test_materialized_view",
+            query={"query": "SELECT 1"},
+            status=DataWarehouseSavedQuery.Status.FAILED,
+        )
+
+        send_saved_query_materialization_failure(str(saved_query.id))
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        assert mocked_email_messages[0].html_body
+        assert "test_materialized_view" in mocked_email_messages[0].html_body
+
+    def test_send_saved_query_materialization_failure_not_sent_by_default(self, MockEmailMessage: MagicMock) -> None:
+        from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="test_materialized_view",
+            query={"query": "SELECT 1"},
+            status=DataWarehouseSavedQuery.Status.FAILED,
+        )
+
+        send_saved_query_materialization_failure(str(saved_query.id))
+
+        assert len(mocked_email_messages) == 0
+
+    def test_send_saved_query_materialization_failure_respects_notification_settings(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="test_materialized_view",
+            query={"query": "SELECT 1"},
+            status=DataWarehouseSavedQuery.Status.FAILED,
+        )
+
+        user2 = self._create_user("test2@posthog.com")
+        user2.partial_notification_settings = {"materialized_view_sync_failed": True}
+        user2.save()
+
+        send_saved_query_materialization_failure(str(saved_query.id))
+
+        # Should only be sent to user2 who has explicitly opted in
+        assert mocked_email_messages[0].to == [
+            {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
+        ]
+
+        # Opt in self.user too
+        self.user.partial_notification_settings = {"materialized_view_sync_failed": True}
+        self.user.save()
+
+        send_saved_query_materialization_failure(str(saved_query.id))
+
+        # Should be sent to both users
+        assert len(mocked_email_messages[1].to) == 2

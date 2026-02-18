@@ -10,6 +10,7 @@ class LLMProvider(models.TextChoices):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     GEMINI = "gemini"
+    OPENROUTER = "openrouter"
 
 
 class LLMProviderKey(UUIDTModel):

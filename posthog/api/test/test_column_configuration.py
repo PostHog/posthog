@@ -22,6 +22,17 @@ class TestColumnConfigurationAPI(APIBaseTest):
         assert data["columns"] == ["*", "person", "timestamp"]
         assert data["name"] == "Column configuration", "Should have default name"
         assert data["visibility"] == ColumnConfiguration.Visibility.SHARED, "Should have default visibility"
+        assert data["filters"] == []
+
+    def test_create_column_configuration_empty_objects_filters(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/column_configurations/",
+            {"context_key": "survey:123", "columns": ["*", "person", "timestamp"], "filters": {}},
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["filters"] == [], "Should store filters as empty array"
 
     def test_unique_user_view_name_constraint(self):
         config = ColumnConfiguration.objects.create(
@@ -157,7 +168,9 @@ class TestColumnConfigurationAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["columns"] == ["*", "timestamp"]
+        data = response.json()
+        assert data["columns"] == ["*", "timestamp"]
+        assert data["filters"] == []
         assert ColumnConfiguration.objects.filter(team=self.team, context_key="survey:123").count() == 1
 
     def test_get_by_context_key(self):
@@ -172,6 +185,21 @@ class TestColumnConfigurationAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["context_key"] == "survey:123"
+
+    def test_get_empty_filters(self):
+        column_config = ColumnConfiguration.objects.create(
+            team=self.team, context_key="people-list", columns=["*", "person"]
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/column_configurations/", {"context_key": "people-list"}
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data["results"]) == 1
+        assert column_config.filters == {}, "Empty configs are stored as empty object"
+        assert data["results"][0]["filters"] == [], "Empty filters should be serialized as empty list"
 
     def test_missing_context_key(self):
         response = self.client.post(

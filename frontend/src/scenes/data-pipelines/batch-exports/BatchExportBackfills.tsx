@@ -83,7 +83,7 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                             const color = colorForStatus(status)
                             const statusStyles = {
                                 success: 'border-success text-success-dark',
-                                accent: 'border-accent text-primary-dark',
+                                'color-accent': 'border-accent text-accent',
                                 warning: 'border-warning text-warning-dark',
                                 danger: 'border-danger text-danger-dark',
                                 default: 'border-default text-default-dark',
@@ -239,14 +239,14 @@ function BackfillCancelButton({
 
 const colorForStatus = (
     status: BatchExportBackfill['status']
-): 'success' | 'accent' | 'warning' | 'danger' | 'default' => {
+): 'success' | 'color-accent' | 'warning' | 'danger' | 'default' => {
     switch (status) {
         case 'Completed':
             return 'success'
         case 'ContinuedAsNew':
         case 'Running':
         case 'Starting':
-            return 'accent'
+            return 'color-accent'
         case 'Cancelled':
         case 'Terminated':
         case 'TimedOut':

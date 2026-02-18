@@ -2,22 +2,41 @@ from django.conf import settings
 
 from rest_framework.request import Request
 
-from products.endpoints.backend.models import Endpoint
+from posthog.models.insight_variable import InsightVariable
+
+from products.endpoints.backend.models import Endpoint, EndpointVersion
+
+INSIGHT_VARIABLE_TYPE_TO_OPENAPI: dict[str, dict] = {
+    InsightVariable.Type.STRING: {"type": "string"},
+    InsightVariable.Type.NUMBER: {"type": "number"},
+    InsightVariable.Type.BOOLEAN: {"type": "boolean"},
+    InsightVariable.Type.LIST: {"type": "array", "items": {"type": "string"}},
+    InsightVariable.Type.DATE: {"type": "string", "format": "date"},
+}
 
 
-def generate_openapi_spec(endpoint: Endpoint, team_id: int, request: Request) -> dict:
-    """Generate OpenAPI 3.0 spec for a single endpoint."""
+def generate_openapi_spec(
+    endpoint: Endpoint, team_id: int, request: Request, version: EndpointVersion | None = None
+) -> dict:
+    """Generate OpenAPI 3.0 spec for a single endpoint.
+
+    Args:
+        endpoint: The endpoint to generate spec for
+        team_id: The team ID
+        request: The HTTP request
+        version: Specific version to generate spec for. If None, uses current version.
+    """
     base_url = settings.SITE_URL
     run_path = f"/api/environments/{team_id}/endpoints/{endpoint.name}/run"
-    current_version = endpoint.get_version()
-    description = current_version.description or ""
+    target_version = version or endpoint.get_version()
+    description = target_version.description
 
     return {
         "openapi": "3.0.3",
         "info": {
             "title": endpoint.name,
             "description": description or f"PostHog Endpoint: {endpoint.name}",
-            "version": str(endpoint.current_version),
+            "version": str(target_version.version),
         },
         "servers": [{"url": base_url}],
         "paths": {
@@ -78,15 +97,15 @@ def generate_openapi_spec(endpoint: Endpoint, team_id: int, request: Request) ->
                     "description": "Personal API Key from PostHog. Get one at /settings/user-api-keys",
                 }
             },
-            "schemas": _build_component_schemas(endpoint, current_version),
+            "schemas": _build_component_schemas(endpoint, target_version, team_id),
         },
     }
 
 
-def _build_component_schemas(endpoint: Endpoint, version) -> dict:
+def _build_component_schemas(endpoint: Endpoint, version: EndpointVersion, team_id: int) -> dict:
     """Build the components/schemas section with reusable schema definitions."""
-    query = version.query if version else {}
-    query_kind = query.get("kind")
+    query = version.query
+    is_materialized = bool(version and version.is_materialized and version.saved_query)
 
     schemas: dict = {
         "EndpointRunRequest": {
@@ -101,17 +120,28 @@ def _build_component_schemas(endpoint: Endpoint, version) -> dict:
                 },
                 "refresh": {
                     "type": "string",
-                    "enum": ["blocking", "force_blocking"],
-                    "default": "blocking",
+                    "enum": ["cache", "force", "direct"],
+                    "default": "cache",
                     "description": (
-                        "Whether results should be calculated sync or async. "
-                        "'blocking' returns when done unless fresh cache exists. "
-                        "'force_blocking' always calculates fresh."
+                        "How to handle caching. "
+                        "'cache' returns cached results if fresh enough. "
+                        "'force' always recalculates. "
+                        "'direct' bypasses materialization (materialized endpoints only)."
                     ),
                 },
                 "version": {
                     "type": "integer",
                     "description": f"Specific endpoint version to execute (1-{endpoint.current_version}). Defaults to latest.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of results to return (SQL-based endpoints only).",
+                    "minimum": 1,
+                },
+                "debug": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Whether to include debug information (such as the executed SQL) in the response.",
                 },
             },
         },
@@ -185,38 +215,95 @@ def _build_component_schemas(endpoint: Endpoint, version) -> dict:
         },
     }
 
-    # Add variables schema for HogQL queries
-    if query_kind == "HogQLQuery":
-        variables = query.get("variables")
-        if variables:
-            schemas["EndpointRunRequest"]["properties"]["variables"] = {
-                "$ref": "#/components/schemas/Variables",
-            }
-            schemas["Variables"] = _build_variables_schema(variables)
-    else:
-        # Insight queries support query_override
-        schemas["EndpointRunRequest"]["properties"]["query_override"] = {
-            "type": "object",
-            "description": "Override insight query parameters (e.g., series, dateRange, interval).",
-            "additionalProperties": True,
+    # Add variables schema based on query type and materialization state
+    variables_schema = _build_variables_schema(query, is_materialized, team_id)
+    if variables_schema:
+        schemas["EndpointRunRequest"]["properties"]["variables"] = {
+            "$ref": "#/components/schemas/Variables",
         }
+        schemas["Variables"] = variables_schema
 
     return schemas
 
 
-def _build_variables_schema(variables: dict) -> dict:
-    """Build schema for HogQL variables based on the endpoint's defined variables."""
-    properties = {}
+def _get_single_breakdown_property(breakdown_filter: dict) -> str | None:
+    """Extract breakdown property from either legacy or new format."""
+    breakdown = breakdown_filter.get("breakdown")
+    if breakdown:
+        return breakdown
+    breakdowns = breakdown_filter.get("breakdowns") or []
+    if len(breakdowns) == 1:
+        return breakdowns[0].get("property")
+    return None
 
-    for var_id, var_data in variables.items():
-        code_name = var_data.get("code_name", var_id)
-        properties[code_name] = {
-            "description": f"Variable: {code_name}",
-        }
+
+# Query types that support user-configurable breakdown filtering
+BREAKDOWN_SUPPORTED_QUERY_TYPES = {"TrendsQuery", "FunnelsQuery", "RetentionQuery"}
+
+
+def _build_variables_schema(query: dict, is_materialized: bool, team_id: int) -> dict | None:
+    """Build schema for variables based on query type and materialization state."""
+    query_kind = query.get("kind")
+    properties: dict = {}
+
+    if query_kind == "HogQLQuery":
+        # HogQL: variables from query definition, with types from InsightVariable model
+        variables = query.get("variables", {})
+        if variables:
+            variable_ids = list(variables.keys())
+            variable_types = {
+                str(uid): vtype
+                for uid, vtype in InsightVariable.objects.filter(team_id=team_id, id__in=variable_ids).values_list(
+                    "id", "type"
+                )
+            }
+
+            for var_id, var_data in variables.items():
+                code_name = var_data.get("code_name", var_id)
+                default_value = var_data.get("value")
+                var_type = variable_types.get(var_id)
+                type_schema = (
+                    INSIGHT_VARIABLE_TYPE_TO_OPENAPI.get(var_type, {"type": "string"})
+                    if var_type
+                    else {"type": "string"}
+                )
+                properties[code_name] = {
+                    **type_schema,
+                    "description": f"Variable: {code_name}",
+                }
+                if default_value is not None:
+                    properties[code_name]["example"] = default_value
+    else:
+        # Insight queries - only include breakdown for supported query types
+        if query_kind in BREAKDOWN_SUPPORTED_QUERY_TYPES:
+            breakdown_filter = query.get("breakdownFilter") or {}
+            breakdown = _get_single_breakdown_property(breakdown_filter)
+            if breakdown:
+                properties[breakdown] = {
+                    "type": "string",
+                    "description": f"Filter by {breakdown} breakdown value",
+                    "example": "Chrome",
+                }
+
+        if not is_materialized:
+            # Non-materialized also supports date variables
+            properties["date_from"] = {
+                "type": "string",
+                "description": "Filter results from this date (ISO format or relative like '-7d')",
+                "example": "2024-01-01",
+            }
+            properties["date_to"] = {
+                "type": "string",
+                "description": "Filter results until this date (ISO format or relative like 'now')",
+                "example": "2024-01-31",
+            }
+
+    if not properties:
+        return None
 
     return {
         "type": "object",
-        "description": "HogQL query variables. Keys are variable code names as defined in the query.",
+        "description": "Query variables. For HogQL: code_names from query. For insights: breakdown property and date_from/date_to.",
         "properties": properties,
-        "additionalProperties": True,
+        "additionalProperties": False,
     }

@@ -30,7 +30,7 @@ async def create_or_update_notebook_artifact(
     Returns:
         tuple[AgentArtifact, ArtifactStatus] with the artifact and status
     """
-    blocks = parse_notebook_content_for_storage(content)
+    blocks = parse_notebook_content_for_storage(content, title=title)
     artifact_content = StoredNotebookArtifactContent(blocks=blocks, title=title)
 
     artifact = None

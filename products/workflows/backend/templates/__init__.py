@@ -63,6 +63,7 @@ class SimpleHogFlowTemplateSerializer(serializers.Serializer):
     name = serializers.CharField()
     description = serializers.CharField(allow_blank=True, required=False)
     image_url = serializers.URLField(allow_blank=True, required=False)
+    tags = serializers.ListField(child=serializers.CharField(), required=False, allow_null=True)
     scope = serializers.CharField()
     created_at = serializers.DateTimeField(required=False)
     created_by = serializers.JSONField(required=False, allow_null=True)
@@ -131,7 +132,7 @@ def load_global_templates() -> list[dict]:
             try:
                 serializer = SimpleHogFlowTemplateSerializer(data=data)
                 if serializer.is_valid():
-                    templates.append(data)
+                    templates.append({**data, "tags": data.get("tags") or []})
                 else:
                     logger.error(f"Template validation failed for {template_file}", errors=serializer.errors)
             except Exception:

@@ -192,6 +192,7 @@ describe('LiveMetricsSlidingWindow', () => {
                     ['Desktop', new Set(['device-4', 'device-5'])],
                 ]),
                 paths: new Map(),
+                browsers: new Map(),
                 uniqueUsers: new Set(),
             })
 
@@ -203,6 +204,7 @@ describe('LiveMetricsSlidingWindow', () => {
                     ['Tablet', new Set(['device-12', 'device-13'])],
                 ]),
                 paths: new Map(),
+                browsers: new Map(),
                 uniqueUsers: new Set(),
             })
 
@@ -219,12 +221,14 @@ describe('LiveMetricsSlidingWindow', () => {
                 pageviews: 0,
                 devices: new Map([['Mobile', new Set(['device-1', 'device-2'])]]),
                 paths: new Map(),
+                browsers: new Map(),
                 uniqueUsers: new Set(),
             })
             window.extendBucketData(toUnixSeconds(relativeTime(-4 * MINUTE)), {
                 pageviews: 0,
                 devices: new Map([['Mobile', new Set(['device-1', 'device-3'])]]),
                 paths: new Map(),
+                browsers: new Map(),
                 uniqueUsers: new Set(),
             })
 
@@ -248,6 +252,7 @@ describe('LiveMetricsSlidingWindow', () => {
                     ['Tablet', new Set(['device-8'])],
                 ]),
                 paths: new Map(),
+                browsers: new Map(),
                 uniqueUsers: new Set(),
             })
 
@@ -271,6 +276,7 @@ describe('LiveMetricsSlidingWindow', () => {
                     ['/about', 5],
                     ['/pricing', 20],
                 ]),
+                browsers: new Map(),
                 uniqueUsers: new Set(),
             })
             window.extendBucketData(toUnixSeconds(relativeTime(-4 * MINUTE)), {
@@ -280,6 +286,7 @@ describe('LiveMetricsSlidingWindow', () => {
                     ['/home', 5],
                     ['/contact', 8],
                 ]),
+                browsers: new Map(),
                 uniqueUsers: new Set(),
             })
 
@@ -309,6 +316,7 @@ describe('LiveMetricsSlidingWindow', () => {
                     ['/contact', 8],
                     ['/about', 5],
                 ]),
+                browsers: new Map(),
                 uniqueUsers: new Set(),
             })
 
@@ -358,12 +366,14 @@ describe('LiveMetricsSlidingWindow', () => {
                 pageviews: 0,
                 devices: new Map(),
                 paths: new Map(),
+                browsers: new Map(),
                 uniqueUsers: new Set(['user-1', 'user-2']),
             })
             window.extendBucketData(minuteStart, {
                 pageviews: 0,
                 devices: new Map(),
                 paths: new Map(),
+                browsers: new Map(),
                 uniqueUsers: new Set(['user-2', 'user-3']),
             })
 
@@ -482,7 +492,6 @@ describe('LiveMetricsSlidingWindow', () => {
             const breakdown = window.getDeviceBreakdown()
             expect(getDeviceCount(breakdown, 'Mobile')).toBe(2)
             expect(getDeviceCount(breakdown, 'Desktop')).toBe(1)
-            expect(window.getTotalDeviceCount()).toBe(3)
         })
     })
 

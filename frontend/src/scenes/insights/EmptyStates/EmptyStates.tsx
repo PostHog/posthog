@@ -2,22 +2,21 @@ import './EmptyStates.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
+import { TextMorph } from 'torph/react'
 
-import { IconArchive, IconFunnels, IconInfo, IconPieChart, IconPlusSmall, IconWarning } from '@posthog/icons'
+import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
-import { isChristmas } from 'lib/holidays'
+import { holidaysMatcher, isChristmas } from 'lib/holidays'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconChristmasOrnament, IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber, humanizeBytes, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -39,7 +38,6 @@ import {
     SavedInsightsTabs,
 } from '~/types'
 
-import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
@@ -70,30 +68,6 @@ export function InsightEmptyState({
             <h2 className="text-xl leading-tight">{heading}</h2>
             <p className="text-sm text-tertiary">{detail}</p>
         </div>
-    )
-}
-
-function SamplingLink({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element {
-    const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
-    const { suggestedSamplingPercentage } = useValues(samplingFilterLogic(insightProps))
-
-    return (
-        <Tooltip
-            title={`Calculate results from ${suggestedSamplingPercentage}% of the total dataset for this insight, speeding up the calculation of results.`}
-            placement="bottom"
-        >
-            <Link
-                className="font-medium"
-                onClick={() => {
-                    setSamplingPercentage(suggestedSamplingPercentage)
-                    posthog.capture('sampling_enabled_on_slow_query', {
-                        samplingPercentage: suggestedSamplingPercentage,
-                    })
-                }}
-            >
-                <IconPieChart className="mt-1" /> {suggestedSamplingPercentage}% sampling
-            </Link>
-        </Tooltip>
     )
 }
 
@@ -168,18 +142,41 @@ const RetryButton = ({
     )
 }
 
-export const LOADING_MESSAGES = [
-    'Crunching through hogloads of data…',
-    'Teaching hedgehogs to count…',
-    'Waking up the hibernating data hogs…',
-    'Polishing graphs with tiny hedgehog paws…',
-    'Rolling through data like a spiky ball of insights…',
-    'Gathering nuts and numbers from the data forest…',
-    // eslint-disable-next-line react/jsx-key
-    <>
-        Reticulating <s>splines</s> spines…
-    </>,
+export const BASE_LOADING_MESSAGES = [
+    'Snuffling through spiky piles for insights…',
+    'Counting quills, clicks, and insights…',
+    'Scurrying through the underbrush for insights…',
+    'Hoarding shiny little bits of insights…',
+    'Padding softly through fields of insights…',
+    'Untangling prickly paths to insights…',
+    'Balancing nuts, berries, and insights…',
 ]
+
+export const CHRISTMAS_LOADING_MESSAGES = [
+    'Wrapping up cozy bundles of insights…',
+    'Dashing through snowy trails for insights…',
+    'Stringing twinkly lights around insights…',
+    'Jingling tiny bells for insights…',
+    'Sleighing through frosty fields of insights…',
+    'Warming chilly paws with festive insights…',
+]
+
+export const HALLOWEEN_LOADING_MESSAGES = [
+    'Whispering through shadowy trails for insights…',
+    'Summoning mysterious clouds of insights…',
+    'Stirring a bubbling cauldron of insights…',
+    'Creeping through moonlit patches for insights…',
+    'Enchanting unsuspecting bits of insights…',
+    'Shuffling through haunted heaps of insights…',
+]
+
+const LOADING_MESSAGES = holidaysMatcher(
+    {
+        christmas: CHRISTMAS_LOADING_MESSAGES,
+        halloween: HALLOWEEN_LOADING_MESSAGES,
+    },
+    BASE_LOADING_MESSAGES
+)
 
 function LoadingDetails({
     pollResponse,
@@ -249,7 +246,6 @@ export function StatelessInsightLoadingState({
     const [loadingMessageIndex, setLoadingMessageIndex] = useState(() =>
         inStorybook() || inStorybookTestRunner() ? 0 : Math.floor(Math.random() * LOADING_MESSAGES.length)
     )
-    const [isLoadingMessageVisible, setIsLoadingMessageVisible] = useState(true)
     const { isVisible: isPageVisible } = usePageVisibility()
 
     useEffect(() => {
@@ -279,35 +275,29 @@ export function StatelessInsightLoadingState({
         return () => clearInterval(interval)
     }, [pollResponse, isPageVisible])
 
-    // Toggle between loading messages every 2.5-3.5 seconds, with 300ms fade out, then change text, keep in sync with the transition duration below
+    // Toggle between loading messages every 3-5 seconds
     useEffect(() => {
         if (!isPageVisible) {
             return
         }
-
-        const TOGGLE_INTERVAL_MIN = 2500
-        const TOGGLE_INTERVAL_JITTER = 1000
-        const FADE_OUT_DURATION = 300
 
         // Don't toggle loading messages in storybook, will make tests flaky if so
         if (inStorybook() || inStorybookTestRunner()) {
             return
         }
 
+        const TOGGLE_INTERVAL_MIN = 3000
+        const TOGGLE_INTERVAL_JITTER = 2000
+
         const interval = setInterval(
             () => {
-                setIsLoadingMessageVisible(false)
-                setTimeout(() => {
-                    setLoadingMessageIndex((current) => {
-                        // Attempt to do random messages, but don't do the same message twice
-                        let newIndex = Math.floor(Math.random() * LOADING_MESSAGES.length)
-                        if (newIndex === current) {
-                            newIndex = (newIndex + 1) % LOADING_MESSAGES.length
-                        }
-                        return newIndex
-                    })
-                    setIsLoadingMessageVisible(true)
-                }, FADE_OUT_DURATION)
+                setLoadingMessageIndex((current) => {
+                    let newIndex = Math.floor(Math.random() * LOADING_MESSAGES.length)
+                    if (newIndex === current) {
+                        newIndex = (newIndex + 1) % LOADING_MESSAGES.length
+                    }
+                    return newIndex
+                })
             },
             TOGGLE_INTERVAL_MIN + Math.random() * TOGGLE_INTERVAL_JITTER
         )
@@ -331,15 +321,12 @@ export function StatelessInsightLoadingState({
                 'insights-loading-state justify-start': renderEmptyStateAsSkeleton,
             })}
         >
-            <span
-                className={clsx(
-                    'font-semibold transition-opacity duration-300 mb-1',
-                    renderEmptyStateAsSkeleton ? 'text-start' : 'text-center',
-                    isLoadingMessageVisible ? 'opacity-100' : 'opacity-0'
-                )}
+            <TextMorph
+                as="span"
+                className={clsx('font-semibold mb-1', renderEmptyStateAsSkeleton ? 'text-start' : 'text-center')}
             >
                 {LOADING_MESSAGES[loadingMessageIndex]}
-            </span>
+            </TextMorph>
 
             <div
                 className={clsx(
@@ -366,17 +353,12 @@ const CodeWrapper = (props: { children: React.ReactNode }): JSX.Element => (
 )
 
 const SLOW_LOADING_TIME = 15
-const EVEN_SLOWER_LOADING_TIME = 25
 
 export function SlowQuerySuggestions({
     insightProps,
-    suggestedSamplingPercentage,
-    samplingPercentage,
     loadingTimeSeconds = 0,
 }: {
     insightProps: InsightLogicProps
-    suggestedSamplingPercentage?: number | null
-    samplingPercentage?: number | null
     loadingTimeSeconds?: number
 }): JSX.Element | null {
     const { slowQueryPossibilities } = useValues(insightVizDataLogic(insightProps))
@@ -403,19 +385,6 @@ export function SlowQuerySuggestions({
             </li>
         ) : null,
         <li key="reduce_date_range">Reduce the date range.</li>,
-        loadingTimeSeconds >= EVEN_SLOWER_LOADING_TIME && suggestedSamplingPercentage ? (
-            <li key="sampling">
-                {samplingPercentage ? (
-                    <>
-                        Reduce volume further with <SamplingLink insightProps={insightProps} />.
-                    </>
-                ) : (
-                    <>
-                        Turn on <SamplingLink insightProps={insightProps} />.
-                    </>
-                )}
-            </li>
-        ) : null,
     ].filter((x) => x !== null)
 
     if (steps.length === 0) {
@@ -444,7 +413,6 @@ export function InsightLoadingState({
     insightProps: InsightLogicProps
     renderEmptyStateAsSkeleton?: boolean
 }): JSX.Element {
-    const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
     const { insightPollResponse, insightLoadingTimeSeconds } = useValues(insightDataLogic(insightProps))
     const { currentTeam } = useValues(teamLogic)
 
@@ -464,12 +432,7 @@ export function InsightLoadingState({
                         <Link to="/settings/project#persons-on-events">person properties mode</Link> setting.
                     </div>
                 ) : (
-                    <SlowQuerySuggestions
-                        insightProps={insightProps}
-                        suggestedSamplingPercentage={suggestedSamplingPercentage}
-                        samplingPercentage={samplingPercentage}
-                        loadingTimeSeconds={insightLoadingTimeSeconds}
-                    />
+                    <SlowQuerySuggestions insightProps={insightProps} loadingTimeSeconds={insightLoadingTimeSeconds} />
                 )
             }
         />
@@ -689,14 +652,6 @@ const SAVED_INSIGHTS_COPY = {
         title: 'There are no insights $CONDITION.',
         description: 'Once you create an insight, it will show up here.',
     },
-    [`${SavedInsightsTabs.Yours}`]: {
-        title: "You haven't created insights $CONDITION.",
-        description: 'Once you create an insight, it will show up here.',
-    },
-    [`${SavedInsightsTabs.Favorites}`]: {
-        title: 'There are no favorited insights $CONDITION.',
-        description: 'Once you favorite an insight, it will show up here.',
-    },
 }
 
 export function SavedInsightsEmptyState({
@@ -732,25 +687,23 @@ export function SavedInsightsEmptyState({
             ) : (
                 <p className="empty-state__description">{description}</p>
             )}
-            {filters.tab !== SavedInsightsTabs.Favorites && (
-                <div className="flex justify-center">
-                    <Link to={urls.insightNew()}>
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.Insight}
-                            minAccessLevel={AccessControlLevel.Editor}
+            <div className="flex justify-center">
+                <Link to={urls.insightNew()}>
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.Insight}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton
+                            type="primary"
+                            data-attr="add-insight-button-empty-state"
+                            icon={<IconPlusSmall />}
+                            className="add-insight-button"
                         >
-                            <LemonButton
-                                type="primary"
-                                data-attr="add-insight-button-empty-state"
-                                icon={<IconPlusSmall />}
-                                className="add-insight-button"
-                            >
-                                New insight
-                            </LemonButton>
-                        </AccessControlAction>
-                    </Link>
-                </div>
-            )}
+                            New insight
+                        </LemonButton>
+                    </AccessControlAction>
+                </Link>
+            </div>
         </div>
     )
 }

@@ -1348,17 +1348,37 @@ export const surveyLogic = kea<surveyLogicType>([
         archivedResponsesFilter: [
             (s) => [s.showArchivedResponses, s.archivedResponseUuids],
             (showArchivedResponses: boolean, archivedUuids: Set<string>): string => {
-                if (showArchivedResponses) {
-                    return ''
-                }
-                if (!archivedUuids || archivedUuids.size === 0) {
+                if (showArchivedResponses || !archivedUuids || archivedUuids.size === 0) {
                     return ''
                 }
 
+                // UUIDs are pre-validated by Django's UUIDField when stored in SurveyResponseArchive
                 const uuidList = Array.from(archivedUuids)
                     .map((uuid) => `'${uuid}'`)
                     .join(', ')
                 return `AND uuid NOT IN (${uuidList})`
+            },
+        ],
+        archivedResponsesPropertyFilter: [
+            (s) => [s.showArchivedResponses, s.archivedResponseUuids],
+            (
+                showArchivedResponses: boolean,
+                archivedUuids: Set<string>
+            ): Array<{ type: PropertyFilterType.HogQL; key: string }> => {
+                if (showArchivedResponses || !archivedUuids || archivedUuids.size === 0) {
+                    return []
+                }
+
+                // UUIDs are pre-validated by Django's UUIDField when stored in SurveyResponseArchive
+                const uuidList = Array.from(archivedUuids)
+                    .map((uuid) => `'${uuid}'`)
+                    .join(', ')
+                return [
+                    {
+                        type: PropertyFilterType.HogQL,
+                        key: `uuid NOT IN (${uuidList})`,
+                    },
+                ]
             },
         ],
         isAdaptiveLimitFFEnabled: [

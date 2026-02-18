@@ -15,9 +15,30 @@ describe('clusterDetailLogic', () => {
         title: 'Test Cluster',
         description: 'Test cluster description',
         traces: {
-            'trace-1': { distance_to_centroid: 0.1, rank: 0, x: 0.0, y: 0.0, timestamp: '2025-01-05T10:00:00Z' },
-            'trace-2': { distance_to_centroid: 0.2, rank: 1, x: 0.1, y: 0.1, timestamp: '2025-01-05T11:00:00Z' },
-            'trace-3': { distance_to_centroid: 0.3, rank: 2, x: 0.2, y: 0.2, timestamp: '2025-01-05T12:00:00Z' },
+            'trace-1': {
+                distance_to_centroid: 0.1,
+                rank: 0,
+                x: 0.0,
+                y: 0.0,
+                timestamp: '2025-01-05T10:00:00Z',
+                trace_id: 'trace-1',
+            },
+            'trace-2': {
+                distance_to_centroid: 0.2,
+                rank: 1,
+                x: 0.1,
+                y: 0.1,
+                timestamp: '2025-01-05T11:00:00Z',
+                trace_id: 'trace-2',
+            },
+            'trace-3': {
+                distance_to_centroid: 0.3,
+                rank: 2,
+                x: 0.2,
+                y: 0.2,
+                timestamp: '2025-01-05T12:00:00Z',
+                trace_id: 'trace-3',
+            },
         },
         centroid: [1.0],
         centroid_x: 0.1,
@@ -144,6 +165,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 expect(logic.values.cluster).toEqual(mockCluster)
@@ -157,6 +179,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 expect(logic.values.isOutlierCluster).toBe(false)
@@ -168,6 +191,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 expect(logic.values.isOutlierCluster).toBe(true)
@@ -185,6 +209,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 const datasets = logic.values.scatterPlotDatasets
@@ -208,6 +233,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 const datasets = logic.values.scatterPlotDatasets
@@ -228,6 +254,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 expect(logic.values.sortedTraceIds).toEqual(['trace-1', 'trace-2', 'trace-3'])
@@ -245,6 +272,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 expect(logic.values.totalTraces).toBe(3)
@@ -258,7 +286,7 @@ describe('clusterDetailLogic', () => {
                     traces: Object.fromEntries(
                         Array.from({ length: 120 }, (_, i) => [
                             `trace-${i}`,
-                            { distance_to_centroid: 0.1, rank: i, x: 0, y: 0, timestamp: '' },
+                            { distance_to_centroid: 0.1, rank: i, x: 0, y: 0, timestamp: '', trace_id: `trace-${i}` },
                         ])
                     ),
                 }
@@ -268,6 +296,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 expect(logic.values.totalPages).toBe(Math.ceil(120 / TRACES_PER_PAGE))
@@ -281,7 +310,7 @@ describe('clusterDetailLogic', () => {
                     traces: Object.fromEntries(
                         Array.from({ length: 100 }, (_, i) => [
                             `trace-${i}`,
-                            { distance_to_centroid: 0.1, rank: i, x: 0, y: 0, timestamp: '' },
+                            { distance_to_centroid: 0.1, rank: i, x: 0, y: 0, timestamp: '', trace_id: `trace-${i}` },
                         ])
                     ),
                 }
@@ -291,6 +320,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 expect(logic.values.paginatedTraceIds.length).toBe(TRACES_PER_PAGE)
@@ -303,7 +333,7 @@ describe('clusterDetailLogic', () => {
                     traces: Object.fromEntries(
                         Array.from({ length: 100 }, (_, i) => [
                             `trace-${i}`,
-                            { distance_to_centroid: 0.1, rank: i, x: 0, y: 0, timestamp: '' },
+                            { distance_to_centroid: 0.1, rank: i, x: 0, y: 0, timestamp: '', trace_id: `trace-${i}` },
                         ])
                     ),
                 }
@@ -313,6 +343,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 logic.actions.setPage(2)
@@ -332,6 +363,7 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 const summary = {
@@ -360,13 +392,13 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 const breadcrumbs = logic.values.breadcrumbs
-                expect(breadcrumbs).toHaveLength(4)
-                expect(breadcrumbs[0].name).toBe('LLM analytics')
-                expect(breadcrumbs[1].name).toBe('Clusters')
-                expect(breadcrumbs[3].name).toBe('Test Cluster')
+                expect(breadcrumbs).toHaveLength(3)
+                expect(breadcrumbs[0].name).toBe('Clusters')
+                expect(breadcrumbs[2].name).toBe('Test Cluster')
             })
 
             it('uses default cluster name when cluster has no title', async () => {
@@ -376,10 +408,11 @@ describe('clusterDetailLogic', () => {
                     runTimestamp: '2025-01-05T00:00:00Z',
                     windowStart: '2025-01-01T00:00:00Z',
                     windowEnd: '2025-01-05T00:00:00Z',
+                    clusteringLevel: 'trace',
                 })
 
                 const breadcrumbs = logic.values.breadcrumbs
-                expect(breadcrumbs[3].name).toBe('Cluster')
+                expect(breadcrumbs[2].name).toBe('Cluster')
             })
         })
     })

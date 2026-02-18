@@ -126,16 +126,10 @@ def sync_saved_query_to_dag(
     extra_properties = extra_properties or {}
     team = saved_query.team
     dag_id = get_dag_id(team.id)
-    # parse query first - if this fails, we don't create/update the node
-    query = saved_query.query.get("query") if saved_query.query else None
-    if not query:
+    model_query = saved_query.query.get("query") if saved_query.query else None
+    if not model_query:
         raise ValueError(f"DataWarehouseSavedQuery has no query: saved_query_id={saved_query.id}")
-    try:
-        dependencies = get_parents_from_model_query(query)
-    except Exception as e:
-        logger.warning("Failed to parse query for dependencies", saved_query_id=str(saved_query.id), error=str(e))
-        capture_exception(e)
-        return None
+
     # determine node type based on materialization status (fk to datawarehouse table)
     node_type = NodeType.MAT_VIEW if saved_query.table else NodeType.VIEW
     target, _ = Node.objects.get_or_create(
@@ -150,6 +144,56 @@ def sync_saved_query_to_dag(
     database = Database.create_for(team=team)
     # clear previous incoming edges, dependencies may have changed
     Edge.objects.filter(team=team, target=target).delete()
+
+    # parse query to extract dependencies
+    try:
+        model_name = saved_query.name
+        dependencies = get_parents_from_model_query(team, model_name, model_query)
+    except QueryError as e:
+        error_message = str(e)
+        # handle circular dependency as a conflict edge
+        if "circular dependency detected" in error_message.lower():
+            logger.warning(
+                "Cycle detected when parsing query",
+                saved_query_id=saved_query.id,
+                saved_query=saved_query.name,
+                error=error_message,
+            )
+            conflict_dag_id = get_conflict_dag_id(team.id)
+            # update the node to use conflict dag_id and store error info
+            target.dag_id = conflict_dag_id
+            target.properties = {
+                **target.properties,
+                **extra_properties,
+                "error_type": "cycle",
+                "error_message": error_message,
+                "original_dag_id": dag_id,
+                "detected_at": timezone.now().isoformat(),
+            }
+            target.save()
+            # create conflict edge
+            Edge(
+                team=team,
+                dag_id=conflict_dag_id,
+                source=target,
+                target=target,
+                properties={
+                    **extra_properties,
+                    "error_type": "cycle",
+                    "error_message": error_message,
+                    "original_dag_id": dag_id,
+                    "detected_at": timezone.now().isoformat(),
+                },
+            ).save(skip_validation=True)
+            return target
+        # other query errors should surface to the user
+        target.delete()
+        raise
+    except Exception as e:
+        target.delete()
+        logger.warning("Failed to parse query for dependencies", saved_query_id=str(saved_query.id), error=str(e))
+        capture_exception(e)
+        return None
 
     unresolved = []
     for dependency_name in dependencies:

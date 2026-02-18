@@ -11,6 +11,7 @@ import { getDefaultTreeProducts } from '~/layout/panel-layout/ProjectTree/defaul
 import { FileSystemImport } from '~/queries/schema/schema-general'
 import { UserShortcutPosition } from '~/types'
 
+import { getCategoryOrder } from '../ProjectTree/utils'
 import type { editCustomProductsModalLogicType } from './editCustomProductsModalLogicType'
 
 export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType>([
@@ -32,7 +33,7 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
         ],
     })),
     actions({
-        toggleProduct: (productPath: string) => ({ productPath }),
+        toggleProduct: (productPath: string, overrideState?: boolean) => ({ productPath, overrideState }),
         toggleCategory: (category: string) => ({ category }),
         setAllowSidebarSuggestions: (value: boolean) => ({ value }),
         setShortcutPosition: (value: UserShortcutPosition, saveToUser: boolean = true) => ({ value, saveToUser }),
@@ -56,14 +57,17 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
             new Set<string>(),
             {
                 setSelectedPaths: (_, { paths }) => paths,
-                toggleProduct: (state, { productPath }) => {
-                    const newState = new Set(state)
-                    if (newState.has(productPath)) {
-                        newState.delete(productPath)
+                toggleProduct: (state, { productPath, overrideState }) => {
+                    const newBooleanState = overrideState ?? !state.has(productPath) // Either use the boolean we have or check the abscence of it (which means should be added)
+                    const newSetState = new Set(state)
+
+                    if (newBooleanState) {
+                        newSetState.add(productPath)
                     } else {
-                        newState.add(productPath)
+                        newSetState.delete(productPath)
                     }
-                    return newState
+
+                    return newSetState
                 },
             },
         ],
@@ -133,7 +137,7 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
         categories: [
             (s) => [s.productsByCategory],
             (productsByCategory: Map<string, FileSystemImport[]>): string[] => {
-                return Array.from(productsByCategory.keys()).sort()
+                return Array.from(productsByCategory.keys()).sort((a, b) => getCategoryOrder(a) - getCategoryOrder(b))
             },
         ],
     }),
@@ -151,7 +155,7 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
             }
         },
         toggleProduct: async ({ productPath }) => {
-            // State is updated already in the store
+            // State is already updated in the store
             const newEnabledState = values.selectedPaths.has(productPath)
 
             try {

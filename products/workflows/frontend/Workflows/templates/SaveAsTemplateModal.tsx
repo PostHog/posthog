@@ -1,19 +1,22 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonInputSelect, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { userLogic } from 'scenes/userLogic'
 
 import { TemplateJsonModal } from './TemplateJsonModal'
 import { WorkflowTemplateLogicProps, workflowTemplateLogic } from './workflowTemplateLogic'
+import { workflowTemplatesLogic } from './workflowTemplatesLogic'
 
 export function SaveAsTemplateModal(props: WorkflowTemplateLogicProps = {}): JSX.Element {
     const { user } = useValues(userLogic)
     const logic = workflowTemplateLogic(props)
     const { saveAsTemplateModalVisible, isTemplateFormSubmitting, templateForm, isEditMode } = useValues(logic)
     const { hideSaveAsTemplateModal, submitTemplateForm, showTemplateJsonModal } = useActions(logic)
+    const templatesLogicValues = useValues(workflowTemplatesLogic)
+    const availableTags = templatesLogicValues.availableTags || []
 
     const isGlobalTemplate = templateForm.scope === 'global'
     const showSeeJsonButton = user?.is_staff && isGlobalTemplate
@@ -61,13 +64,38 @@ export function SaveAsTemplateModal(props: WorkflowTemplateLogicProps = {}): JSX
                             <LemonInput placeholder="https://example.com/image.png" />
                         </LemonField>
 
-                        {user?.is_staff && !(isEditMode && isGlobalTemplate) && (
+                        <LemonField name="tags" label="Tags (optional)">
+                            <LemonInputSelect
+                                mode="multiple"
+                                value={templateForm.tags}
+                                onChange={(tags) => {
+                                    workflowTemplateLogic(props).actions.setTemplateFormValue('tags', tags)
+                                }}
+                                options={availableTags.map((tag: string) => ({
+                                    key: tag,
+                                    value: tag,
+                                    label: tag,
+                                }))}
+                                allowCustomValues={true}
+                                placeholder="Select or type tags"
+                            />
+                        </LemonField>
+
+                        {!(isEditMode && isGlobalTemplate) && (
                             <LemonField name="scope" label="Scope">
                                 <LemonSelect
                                     value={templateForm.scope}
                                     options={[
-                                        { value: 'team', label: 'Team only' },
-                                        { value: 'global', label: 'Official (visible to everyone)' },
+                                        { value: 'team', label: 'This project only' },
+                                        { value: 'organization', label: 'All projects in organization' },
+                                        ...(user?.is_staff
+                                            ? [
+                                                  {
+                                                      value: 'global' as const,
+                                                      label: 'Official (visible to everyone)',
+                                                  },
+                                              ]
+                                            : []),
                                     ]}
                                 />
                             </LemonField>

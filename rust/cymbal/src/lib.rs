@@ -21,8 +21,11 @@ pub mod pipeline;
 pub mod posthog_utils;
 pub mod router;
 pub mod server;
+pub mod stages;
 pub mod symbol_store;
 pub mod teams;
+#[cfg(test)]
+pub mod test_utils;
 pub mod types;
 
 pub fn recursively_sanitize_properties(

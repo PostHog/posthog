@@ -4,17 +4,28 @@ import { useEffect, useMemo } from 'react'
 import { liveUserCountLogic } from 'lib/components/LiveUserCount/liveUserCountLogic'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 
+import { BreakdownLiveCard } from './BreakdownLiveCard'
 import { LiveChartCard } from './LiveChartCard'
 import { LiveStatCard, LiveStatDivider } from './LiveStatCard'
 import { LiveTopPathsTable } from './LiveTopPathsTable'
-import { DeviceBreakdownChart, UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
+import { BrowserBreakdownItem, DeviceBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
+import { getBrowserLogo } from './browserLogos'
+import { UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
 import { liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
 
 const STATS_POLL_INTERVAL_MS = 1000
 
 export const LiveWebAnalyticsMetrics = (): JSX.Element => {
-    const { chartData, deviceBreakdown, topPaths, totalPageviews, totalUniqueVisitors, totalDevices, isLoading } =
-        useValues(liveWebAnalyticsMetricsLogic)
+    const {
+        chartData,
+        deviceBreakdown,
+        browserBreakdown,
+        topPaths,
+        totalPageviews,
+        totalUniqueVisitors,
+        totalBrowsers,
+        isLoading,
+    } = useValues(liveWebAnalyticsMetricsLogic)
     const { pauseStream, resumeStream } = useActions(liveWebAnalyticsMetricsLogic)
     const { liveUserCount } = useValues(liveUserCountLogic({ pollIntervalMs: STATS_POLL_INTERVAL_MS }))
     const { pauseStream: pauseLiveCount, resumeStream: resumeLiveCount } = useActions(
@@ -39,28 +50,50 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
             <div className="flex flex-wrap items-center gap-4 md:gap-6 mb-6">
                 <LiveStatCard label="Users online" value={liveUserCount} />
                 <LiveStatDivider />
-                <LiveStatCard label="Unique visitors (30 min)" value={totalUniqueVisitors} isLoading={isLoading} />
+                <LiveStatCard label="Unique visitors" value={totalUniqueVisitors} isLoading={isLoading} />
                 <LiveStatDivider />
-                <LiveStatCard label="Pageviews (30 min)" value={totalPageviews} isLoading={isLoading} />
+                <LiveStatCard label="Pageviews" value={totalPageviews} isLoading={isLoading} />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <LiveChartCard
                     title="Active users per minute"
                     subtitle={timezone}
                     subtitleTooltip="Metrics are shown in your local timezone"
                     isLoading={isLoading}
-                    className="md:col-span-2"
+                    contentClassName="h-64 md:h-80"
                 >
                     <UsersPerMinuteChart data={chartData} />
                 </LiveChartCard>
 
-                <LiveChartCard title="Devices" isLoading={isLoading} contentClassName="h-48 md:h-64">
-                    <DeviceBreakdownChart data={deviceBreakdown} totalDevices={totalDevices} />
-                </LiveChartCard>
+                <LiveTopPathsTable paths={topPaths} isLoading={isLoading} totalPageviews={totalPageviews} />
             </div>
 
-            <LiveTopPathsTable paths={topPaths} isLoading={isLoading} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <BreakdownLiveCard<DeviceBreakdownItem>
+                    title="Devices"
+                    data={deviceBreakdown}
+                    getKey={(d) => d.device}
+                    getLabel={(d) => d.device}
+                    emptyMessage="No device data"
+                    statLabel="unique devices"
+                    isLoading={isLoading}
+                />
+                <BreakdownLiveCard<BrowserBreakdownItem>
+                    title="Browsers"
+                    data={browserBreakdown}
+                    getKey={(d) => d.browser}
+                    getLabel={(d) => d.browser}
+                    renderIcon={(d) => {
+                        const Logo = getBrowserLogo(d.browser)
+                        return <Logo className="w-4 h-4 flex-shrink-0" />
+                    }}
+                    emptyMessage="No browser data"
+                    statLabel="unique browsers"
+                    totalCount={totalBrowsers}
+                    isLoading={isLoading}
+                />
+            </div>
         </div>
     )
 }

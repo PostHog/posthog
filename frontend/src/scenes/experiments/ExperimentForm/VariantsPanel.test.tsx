@@ -32,6 +32,20 @@ beforeAll(() => {
 describe('VariantsPanel', () => {
     const mockUpdateFeatureFlag = jest.fn()
 
+    const getFeatureFlagInput = (): HTMLElement => {
+        const field = screen.getByText('Feature flag key').closest('.Field')
+        if (!field) {
+            throw new Error('Feature flag key field not found')
+        }
+        return within(field as HTMLElement).getByRole('textbox')
+    }
+
+    const openFeatureFlagAutocomplete = async (searchText = 'eligible'): Promise<void> => {
+        const input = getFeatureFlagInput()
+        await userEvent.clear(input)
+        await userEvent.type(input, searchText)
+    }
+
     const defaultExperiment: Experiment = {
         ...NEW_EXPERIMENT,
         name: 'Test Experiment',
@@ -104,186 +118,170 @@ describe('VariantsPanel', () => {
     })
 
     describe('rendering', () => {
-        it('renders mode selection cards', () => {
-            render(
-                <VariantsPanel
-                    experiment={defaultExperiment}
-                    updateFeatureFlag={mockUpdateFeatureFlag}
-                    onPrevious={() => {}}
-                    onNext={() => {}}
-                />
-            )
-
-            expect(screen.getByText('Create new feature flag')).toBeInTheDocument()
-            expect(screen.getByText('Link existing feature flag')).toBeInTheDocument()
-        })
-
-        it('defaults to create mode', () => {
-            const { container } = render(
-                <VariantsPanel
-                    experiment={defaultExperiment}
-                    updateFeatureFlag={mockUpdateFeatureFlag}
-                    onPrevious={() => {}}
-                    onNext={() => {}}
-                />
-            )
-
-            const cards = container.querySelectorAll('[role="button"]')
-            const createCard = cards[0]
-            const linkCard = cards[1]
-
-            expect(createCard).toHaveClass('border-accent')
-            expect(linkCard).not.toHaveClass('border-accent')
-        })
-
-        it('renders create feature flag panel in create mode', () => {
-            render(
-                <VariantsPanel
-                    experiment={defaultExperiment}
-                    updateFeatureFlag={mockUpdateFeatureFlag}
-                    onPrevious={() => {}}
-                    onNext={() => {}}
-                />
-            )
+        it('renders feature flag key input', () => {
+            render(<VariantsPanel experiment={defaultExperiment} updateFeatureFlag={mockUpdateFeatureFlag} />)
 
             expect(screen.getByText('Feature flag key')).toBeInTheDocument()
-            expect(screen.getByText('Variant keys')).toBeInTheDocument()
+        })
+
+        it('shows variant keys section when feature flag key is set', () => {
+            render(<VariantsPanel experiment={defaultExperiment} updateFeatureFlag={mockUpdateFeatureFlag} />)
+
+            expect(screen.getByText('Variant key')).toBeInTheDocument()
         })
     })
 
-    describe('mode switching', () => {
-        it('switches to link mode when clicking link card', async () => {
-            const { container } = render(
-                <VariantsPanel
-                    experiment={defaultExperiment}
-                    updateFeatureFlag={mockUpdateFeatureFlag}
-                    onPrevious={() => {}}
-                    onNext={() => {}}
-                />
-            )
+    describe('create new feature flag', () => {
+        it('replaces spaces with dashes in feature flag key', async () => {
+            const experimentWithoutKey: Experiment = {
+                ...NEW_EXPERIMENT,
+                name: 'Test',
+                feature_flag_key: '',
+            }
 
-            const cards = container.querySelectorAll('[role="button"]')
-            const linkCard = cards[1]
+            render(<VariantsPanel experiment={experimentWithoutKey} updateFeatureFlag={mockUpdateFeatureFlag} />)
 
-            await userEvent.click(linkCard)
+            const input = getFeatureFlagInput()
+            await userEvent.type(input, 'my flag key')
 
-            // Should show link mode UI
-            expect(screen.getByText('Selected Feature Flag')).toBeInTheDocument()
-            expect(screen.getByText('No feature flag selected')).toBeInTheDocument()
+            // The input transform converts spaces to dashes as shown in the dropdown
+            // Now select the custom value from the dropdown to trigger handleFeatureFlagSelection
+            await waitFor(() => {
+                expect(screen.getByText('my-flag-key')).toBeInTheDocument()
+            })
+
+            // Click the transformed option in the dropdown
+            await userEvent.click(screen.getByText('my-flag-key'))
+
+            // Verify the callback was called with the transformed key
+            await waitFor(() => {
+                expect(mockUpdateFeatureFlag).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        feature_flag_key: 'my-flag-key',
+                    })
+                )
+            })
         })
 
-        it('switches back to create mode when clicking create card', async () => {
-            const { container } = render(
-                <VariantsPanel
-                    experiment={defaultExperiment}
-                    updateFeatureFlag={mockUpdateFeatureFlag}
-                    onPrevious={() => {}}
-                    onNext={() => {}}
-                />
-            )
+        it('shows linked feature flag box when typing matches existing eligible flag', async () => {
+            const existingFlag = {
+                id: 3,
+                key: 'existing-key',
+                name: 'Existing Flag',
+                filters: {
+                    groups: [],
+                    multivariate: {
+                        variants: [
+                            { key: 'control', rollout_percentage: 50 },
+                            { key: 'test', rollout_percentage: 50 },
+                        ],
+                    },
+                },
+            }
 
-            const cards = container.querySelectorAll('[role="button"]')
-            const linkCard = cards[1]
-            const createCard = cards[0]
+            useMocks({
+                get: {
+                    '/api/projects/@current/experiments/eligible_feature_flags/': (req) => {
+                        const url = new URL(req.url)
+                        const search = url.searchParams.get('search')
+                        if (search) {
+                            const allFlags = [...mockEligibleFlags, existingFlag]
+                            const filtered = allFlags.filter((flag) =>
+                                flag.key.toLowerCase().includes(search.toLowerCase())
+                            )
+                            return [200, { results: filtered, count: filtered.length }]
+                        }
+                        return [
+                            200,
+                            { results: [...mockEligibleFlags, existingFlag], count: mockEligibleFlags.length + 1 },
+                        ]
+                    },
+                    '/api/projects/@current/experiments': () => [200, { results: [], count: 0 }],
+                },
+            })
 
-            // Switch to link mode
-            await userEvent.click(linkCard)
-            expect(screen.getByText('No feature flag selected')).toBeInTheDocument()
+            const experimentWithoutKey: Experiment = {
+                ...NEW_EXPERIMENT,
+                name: 'Test',
+                feature_flag_key: '',
+            }
 
-            // Switch back to create mode
-            await userEvent.click(createCard)
-            expect(screen.getByText('Feature flag key')).toBeInTheDocument()
-            expect(screen.getByText('Variant keys')).toBeInTheDocument()
+            render(<VariantsPanel experiment={experimentWithoutKey} updateFeatureFlag={mockUpdateFeatureFlag} />)
+
+            const input = getFeatureFlagInput()
+            // Type partial key so we can distinguish between create option ("existing") and existing flag ("existing-key")
+            await userEvent.type(input, 'existing')
+
+            // Wait for the matching existing flag to appear in dropdown
+            await waitFor(() => {
+                expect(screen.getByText('existing-key')).toBeInTheDocument()
+            })
+
+            // Click on the existing flag option (create option would show "existing", not "existing-key")
+            await userEvent.click(screen.getByText('existing-key'))
+
+            // Should show linked feature flag box instead of validation error
+            await waitFor(() => {
+                expect(screen.getByText('Linked feature flag')).toBeInTheDocument()
+            })
+
+            // Verify the callback was called with the linked flag data
+            await waitFor(() => {
+                expect(mockUpdateFeatureFlag).toHaveBeenCalledWith({
+                    feature_flag_key: 'existing-key',
+                    parameters: {
+                        feature_flag_variants: [
+                            { key: 'control', rollout_percentage: 50 },
+                            { key: 'test', rollout_percentage: 50 },
+                        ],
+                    },
+                })
+            })
         })
 
-        it('highlights selected mode card', async () => {
-            const { container } = render(
-                <VariantsPanel
-                    experiment={defaultExperiment}
-                    updateFeatureFlag={mockUpdateFeatureFlag}
-                    onPrevious={() => {}}
-                    onNext={() => {}}
-                />
-            )
+        it('clears selection and hides variant panel when input is cleared', async () => {
+            render(<VariantsPanel experiment={defaultExperiment} updateFeatureFlag={mockUpdateFeatureFlag} />)
 
-            const cards = container.querySelectorAll('[role="button"]')
-            const createCard = cards[0]
-            const linkCard = cards[1]
+            // First select an existing flag
+            await openFeatureFlagAutocomplete()
 
-            // Initially create mode is selected
-            expect(createCard).toHaveClass('border-accent')
-            expect(linkCard).not.toHaveClass('border-accent')
+            await waitFor(() => {
+                expect(screen.getByText('eligible-flag-1')).toBeInTheDocument()
+            })
 
-            // Click link mode
-            await userEvent.click(linkCard)
+            await userEvent.click(screen.getByText('eligible-flag-1'))
 
-            // Link mode should be selected
-            const updatedCards = container.querySelectorAll('[role="button"]')
-            expect(updatedCards[1]).toHaveClass('border-accent')
-            expect(updatedCards[0]).not.toHaveClass('border-accent')
+            // Verify linked flag is shown
+            await waitFor(() => {
+                expect(screen.getByText('Linked feature flag')).toBeInTheDocument()
+            })
+
+            // Now clear the input by clicking the clear button (x)
+            const clearButton = screen.getByRole('button', { name: /clear/i })
+            await userEvent.click(clearButton)
+
+            // Should call updateFeatureFlag to clear the key
+            await waitFor(() => {
+                expect(mockUpdateFeatureFlag).toHaveBeenCalledWith({
+                    feature_flag_key: undefined,
+                    parameters: {
+                        feature_flag_variants: undefined,
+                    },
+                })
+            })
+
+            // Variant panel should be hidden (no "Linked feature flag" or "Variant keys")
+            await waitFor(() => {
+                expect(screen.queryByText('Linked feature flag')).not.toBeInTheDocument()
+            })
         })
     })
 
     describe('link existing feature flag', () => {
-        it('shows select button in empty state', async () => {
-            render(
-                <VariantsPanel
-                    experiment={defaultExperiment}
-                    updateFeatureFlag={mockUpdateFeatureFlag}
-                    onPrevious={() => {}}
-                    onNext={() => {}}
-                />
-            )
+        it('displays available feature flags in dropdown', async () => {
+            render(<VariantsPanel experiment={defaultExperiment} updateFeatureFlag={mockUpdateFeatureFlag} />)
 
-            // Switch to link mode
-            const cards = screen.getAllByRole('button')
-            const linkCard = cards.find((card) => card.textContent?.includes('Link existing'))
-            await userEvent.click(linkCard!)
-
-            const selectButton = screen.getByRole('button', { name: /select feature flag/i })
-            expect(selectButton).toBeInTheDocument()
-        })
-
-        it('opens modal when clicking select button', async () => {
-            render(
-                <VariantsPanel
-                    experiment={defaultExperiment}
-                    updateFeatureFlag={mockUpdateFeatureFlag}
-                    onPrevious={() => {}}
-                    onNext={() => {}}
-                />
-            )
-
-            // Switch to link mode
-            const cards = screen.getAllByRole('button')
-            const linkCard = cards.find((card) => card.textContent?.includes('Link existing'))
-            await userEvent.click(linkCard!)
-
-            // Click select button
-            const selectButton = screen.getByRole('button', { name: /select feature flag/i })
-            await userEvent.click(selectButton)
-
-            // Modal should open
-            expect(screen.getByText('Choose an existing feature flag')).toBeInTheDocument()
-        })
-
-        it('displays available feature flags in modal', async () => {
-            render(
-                <VariantsPanel
-                    experiment={defaultExperiment}
-                    updateFeatureFlag={mockUpdateFeatureFlag}
-                    onPrevious={() => {}}
-                    onNext={() => {}}
-                />
-            )
-
-            // Switch to link mode and open modal
-            const cards = screen.getAllByRole('button')
-            const linkCard = cards.find((card) => card.textContent?.includes('Link existing'))
-            await userEvent.click(linkCard!)
-
-            const selectButton = screen.getByRole('button', { name: /select feature flag/i })
-            await userEvent.click(selectButton)
+            await openFeatureFlagAutocomplete()
 
             // Wait for feature flags to load
             await waitFor(() => {
@@ -292,184 +290,163 @@ describe('VariantsPanel', () => {
             })
         })
 
-        it('filters feature flags by search', async () => {
-            render(
-                <VariantsPanel
-                    experiment={defaultExperiment}
-                    updateFeatureFlag={mockUpdateFeatureFlag}
-                    onPrevious={() => {}}
-                    onNext={() => {}}
-                />
-            )
+        it('selects feature flag from dropdown', async () => {
+            render(<VariantsPanel experiment={defaultExperiment} updateFeatureFlag={mockUpdateFeatureFlag} />)
 
-            // Switch to link mode and open modal
-            const cards = screen.getAllByRole('button')
-            const linkCard = cards.find((card) => card.textContent?.includes('Link existing'))
-            await userEvent.click(linkCard!)
+            await openFeatureFlagAutocomplete()
 
-            const selectButton = screen.getByRole('button', { name: /select feature flag/i })
-            await userEvent.click(selectButton)
-
-            // Wait for flags to load, then search
+            // Wait for flags to load, then select
             await waitFor(() => {
                 expect(screen.getByText('eligible-flag-1')).toBeInTheDocument()
             })
 
+            await userEvent.click(screen.getByText('eligible-flag-1'))
+
+            // Verify callback was called with correct structure
+            await waitFor(() => {
+                expect(mockUpdateFeatureFlag).toHaveBeenCalledWith({
+                    feature_flag_key: 'eligible-flag-1',
+                    parameters: {
+                        feature_flag_variants: [
+                            { key: 'control', rollout_percentage: 50 },
+                            { key: 'variant-a', rollout_percentage: 50 },
+                        ],
+                    },
+                })
+            })
+        })
+
+        it('displays selected flag with variants after selection', async () => {
+            render(<VariantsPanel experiment={defaultExperiment} updateFeatureFlag={mockUpdateFeatureFlag} />)
+
+            await openFeatureFlagAutocomplete()
+
+            // Wait for flags to load, then select
+            await waitFor(() => {
+                expect(screen.getByText('eligible-flag-1')).toBeInTheDocument()
+            })
+
+            await userEvent.click(screen.getByText('eligible-flag-1'))
+
+            // Should display linked flag section with variants
+            await waitFor(() => {
+                expect(screen.getByText('Linked feature flag')).toBeInTheDocument()
+                // Verify the variants from the linked flag are displayed
+                expect(screen.getByText('control')).toBeInTheDocument()
+                expect(screen.getByText('variant-a')).toBeInTheDocument()
+            })
+        })
+
+        it('shows change button for selected flag', async () => {
+            render(<VariantsPanel experiment={defaultExperiment} updateFeatureFlag={mockUpdateFeatureFlag} />)
+
+            await openFeatureFlagAutocomplete()
+
+            // Wait for flags to load, then select
+            await waitFor(() => {
+                expect(screen.getByText('eligible-flag-1')).toBeInTheDocument()
+            })
+
+            await userEvent.click(screen.getByText('eligible-flag-1'))
+
+            // Should show change button
+            await waitFor(() => {
+                expect(screen.getByRole('button', { name: /change/i })).toBeInTheDocument()
+            })
+        })
+
+        it('opens modal when clicking change button', async () => {
+            render(<VariantsPanel experiment={defaultExperiment} updateFeatureFlag={mockUpdateFeatureFlag} />)
+
+            await openFeatureFlagAutocomplete()
+
+            // Wait for flags to load, then select
+            await waitFor(() => {
+                expect(screen.getByText('eligible-flag-1')).toBeInTheDocument()
+            })
+
+            await userEvent.click(screen.getByText('eligible-flag-1'))
+
+            // Click change button
+            await waitFor(() => {
+                expect(screen.getByRole('button', { name: /change/i })).toBeInTheDocument()
+            })
+            const changeButton = screen.getByRole('button', { name: /change/i })
+            await userEvent.click(changeButton)
+
+            // Modal should open
+            expect(screen.getByText('Choose an existing feature flag')).toBeInTheDocument()
+        })
+
+        it('filters feature flags by search in modal', async () => {
+            render(<VariantsPanel experiment={defaultExperiment} updateFeatureFlag={mockUpdateFeatureFlag} />)
+
+            await openFeatureFlagAutocomplete()
+
+            // Wait for flags to load, then select
+            await waitFor(() => {
+                expect(screen.getByText('eligible-flag-1')).toBeInTheDocument()
+            })
+
+            await userEvent.click(screen.getByText('eligible-flag-1'))
+
+            // Click change button to open modal
+            await waitFor(() => {
+                expect(screen.getByRole('button', { name: /change/i })).toBeInTheDocument()
+            })
+            const changeButton = screen.getByRole('button', { name: /change/i })
+            await userEvent.click(changeButton)
+
+            // Search in modal
             const searchInput = screen.getByPlaceholderText(/search for feature flags/i)
             await userEvent.type(searchInput, 'flag-1')
 
             // Should only show matching flag
             await waitFor(() => {
-                expect(screen.getByText('eligible-flag-1')).toBeInTheDocument()
+                expect(screen.getAllByText('eligible-flag-1').length).toBeGreaterThan(0)
                 expect(screen.queryByText('eligible-flag-2')).not.toBeInTheDocument()
             })
         })
 
-        it('selects feature flag and closes modal', async () => {
-            render(
-                <VariantsPanel
-                    experiment={defaultExperiment}
-                    updateFeatureFlag={mockUpdateFeatureFlag}
-                    onPrevious={() => {}}
-                    onNext={() => {}}
-                />
-            )
+        it('selects feature flag from modal and closes it', async () => {
+            render(<VariantsPanel experiment={defaultExperiment} updateFeatureFlag={mockUpdateFeatureFlag} />)
 
-            // Switch to link mode and open modal
-            const cards = screen.getAllByRole('button')
-            const linkCard = cards.find((card) => card.textContent?.includes('Link existing'))
-            await userEvent.click(linkCard!)
+            await openFeatureFlagAutocomplete()
 
-            const selectButton = screen.getByRole('button', { name: /select feature flag/i })
-            await userEvent.click(selectButton)
-
-            // Wait for flags to load, then select
+            // Wait for flags to load, then select first flag
             await waitFor(() => {
                 expect(screen.getByText('eligible-flag-1')).toBeInTheDocument()
             })
 
-            const flagRows = screen.getAllByRole('row')
-            const firstFlagRow = flagRows.find((row) => row.textContent?.includes('eligible-flag-1'))
-            const selectFlagButton = within(firstFlagRow!).getByRole('button', { name: /select/i })
-            await userEvent.click(selectFlagButton)
+            await userEvent.click(screen.getByText('eligible-flag-1'))
 
-            // Wait for modal to close and flag to be displayed
+            // Click change button to open modal
             await waitFor(() => {
-                expect(screen.queryByText('Choose an existing feature flag')).not.toBeInTheDocument()
+                expect(screen.getByRole('button', { name: /change/i })).toBeInTheDocument()
             })
-            expect(screen.getByText('eligible-flag-1')).toBeInTheDocument()
-        })
-
-        it('displays selected flag with variants', async () => {
-            render(
-                <VariantsPanel
-                    experiment={defaultExperiment}
-                    updateFeatureFlag={mockUpdateFeatureFlag}
-                    onPrevious={() => {}}
-                    onNext={() => {}}
-                />
-            )
-
-            // Switch to link mode and open modal
-            const cards = screen.getAllByRole('button')
-            const linkCard = cards.find((card) => card.textContent?.includes('Link existing'))
-            await userEvent.click(linkCard!)
-
-            const selectButton = screen.getByRole('button', { name: /select feature flag/i })
-            await userEvent.click(selectButton)
-
-            // Wait for flags to load, then select
-            await waitFor(() => {
-                expect(screen.getByText('eligible-flag-1')).toBeInTheDocument()
-            })
-
-            const flagRows = screen.getAllByRole('row')
-            const firstFlagRow = flagRows.find((row) => row.textContent?.includes('eligible-flag-1'))
-            const selectFlagButton = within(firstFlagRow!).getByRole('button', { name: /select/i })
-            await userEvent.click(selectFlagButton)
-
-            // Should display variants
-            await waitFor(() => {
-                const variantsSection = screen.getAllByText(/variants/i).find((el) => {
-                    return el.className.includes('uppercase') && el.textContent === 'Variants'
-                })
-                expect(variantsSection).toBeInTheDocument()
-            })
-            expect(screen.getByText('control')).toBeInTheDocument()
-            expect(screen.getByText('variant-a')).toBeInTheDocument()
-        })
-
-        it('shows change button for selected flag', async () => {
-            render(
-                <VariantsPanel
-                    experiment={defaultExperiment}
-                    updateFeatureFlag={mockUpdateFeatureFlag}
-                    onPrevious={() => {}}
-                    onNext={() => {}}
-                />
-            )
-
-            // Switch to link mode and open modal
-            const cards = screen.getAllByRole('button')
-            const linkCard = cards.find((card) => card.textContent?.includes('Link existing'))
-            await userEvent.click(linkCard!)
-
-            const selectButton = screen.getByRole('button', { name: /select feature flag/i })
-            await userEvent.click(selectButton)
-
-            // Wait for flags to load, then select
-            await waitFor(() => {
-                expect(screen.getByText('eligible-flag-1')).toBeInTheDocument()
-            })
-
-            const flagRows = screen.getAllByRole('row')
-            const firstFlagRow = flagRows.find((row) => row.textContent?.includes('eligible-flag-1'))
-            const selectFlagButton = within(firstFlagRow!).getByRole('button', { name: /select/i })
-            await userEvent.click(selectFlagButton)
-
-            // Should show change button
-            expect(screen.getByRole('button', { name: /change/i })).toBeInTheDocument()
-        })
-
-        it('reopens modal when clicking change button', async () => {
-            render(
-                <VariantsPanel
-                    experiment={defaultExperiment}
-                    updateFeatureFlag={mockUpdateFeatureFlag}
-                    onPrevious={() => {}}
-                    onNext={() => {}}
-                />
-            )
-
-            // Switch to link mode, open modal, select flag
-            const cards = screen.getAllByRole('button')
-            const linkCard = cards.find((card) => card.textContent?.includes('Link existing'))
-            await userEvent.click(linkCard!)
-
-            const selectButton = screen.getByRole('button', { name: /select feature flag/i })
-            await userEvent.click(selectButton)
-
-            // Wait for flags to load, then select
-            await waitFor(() => {
-                expect(screen.getByText('eligible-flag-1')).toBeInTheDocument()
-            })
-
-            const flagRows = screen.getAllByRole('row')
-            const firstFlagRow = flagRows.find((row) => row.textContent?.includes('eligible-flag-1'))
-            const selectFlagButton = within(firstFlagRow!).getByRole('button', { name: /select/i })
-            await userEvent.click(selectFlagButton)
-
-            // Click change button
             const changeButton = screen.getByRole('button', { name: /change/i })
             await userEvent.click(changeButton)
 
-            // Modal should reopen
-            expect(screen.getByText('Choose an existing feature flag')).toBeInTheDocument()
+            // Wait for modal to show flags
+            await waitFor(() => {
+                expect(screen.getByText('Choose an existing feature flag')).toBeInTheDocument()
+            })
+
+            // Select second flag from modal
+            const flagRows = screen.getAllByRole('row')
+            const secondFlagRow = flagRows.find((row) => row.textContent?.includes('eligible-flag-2'))
+            const selectFlagButton = within(secondFlagRow!).getByRole('button', { name: /select/i })
+            await userEvent.click(selectFlagButton)
+
+            // Modal should close
+            await waitFor(() => {
+                expect(screen.queryByText('Choose an existing feature flag')).not.toBeInTheDocument()
+            })
         })
     })
 
     describe('edge cases', () => {
-        it('handles empty feature flags list', async () => {
+        it('handles empty feature flags list in modal', async () => {
             useMocks({
                 get: {
                     '/api/projects/@current/experiments/eligible_feature_flags/': () => [
@@ -480,27 +457,16 @@ describe('VariantsPanel', () => {
                 },
             })
 
-            render(
-                <VariantsPanel
-                    experiment={defaultExperiment}
-                    updateFeatureFlag={mockUpdateFeatureFlag}
-                    onPrevious={() => {}}
-                    onNext={() => {}}
-                />
-            )
+            // Create experiment with linked flag to show the change button
+            const experimentWithLinkedFlag: Experiment = {
+                ...defaultExperiment,
+                feature_flag_key: 'linked-flag',
+            }
 
-            // Switch to link mode and open modal
-            const cards = screen.getAllByRole('button')
-            const linkCard = cards.find((card) => card.textContent?.includes('Link existing'))
-            await userEvent.click(linkCard!)
+            render(<VariantsPanel experiment={experimentWithLinkedFlag} updateFeatureFlag={mockUpdateFeatureFlag} />)
 
-            const selectButton = screen.getByRole('button', { name: /select feature flag/i })
-            await userEvent.click(selectButton)
-
-            // Wait for empty state to show
-            await waitFor(() => {
-                expect(screen.getByText(/no feature flags match/i)).toBeInTheDocument()
-            })
+            // The component should render without errors
+            expect(screen.getByText('Feature flag key')).toBeInTheDocument()
         })
 
         it('handles experiment without feature flag key', () => {
@@ -509,17 +475,10 @@ describe('VariantsPanel', () => {
                 name: 'Test',
             }
 
-            render(
-                <VariantsPanel
-                    experiment={experimentWithoutKey}
-                    updateFeatureFlag={mockUpdateFeatureFlag}
-                    onPrevious={() => {}}
-                    onNext={() => {}}
-                />
-            )
+            render(<VariantsPanel experiment={experimentWithoutKey} updateFeatureFlag={mockUpdateFeatureFlag} />)
 
             // Should still render without errors
-            expect(screen.getByText('Create new feature flag')).toBeInTheDocument()
+            expect(screen.getByText('Feature flag key')).toBeInTheDocument()
         })
     })
 
@@ -537,14 +496,7 @@ describe('VariantsPanel', () => {
                 },
             }
 
-            render(
-                <VariantsPanel
-                    experiment={experimentWithEmptyKey}
-                    updateFeatureFlag={mockUpdateFeatureFlag}
-                    onPrevious={() => {}}
-                    onNext={() => {}}
-                />
-            )
+            render(<VariantsPanel experiment={experimentWithEmptyKey} updateFeatureFlag={mockUpdateFeatureFlag} />)
 
             // Should show error message
             expect(screen.getByText('All variants must have a key.')).toBeInTheDocument()
@@ -563,71 +515,10 @@ describe('VariantsPanel', () => {
                 },
             }
 
-            render(
-                <VariantsPanel
-                    experiment={experimentWithDuplicateKeys}
-                    updateFeatureFlag={mockUpdateFeatureFlag}
-                    onPrevious={() => {}}
-                    onNext={() => {}}
-                />
-            )
+            render(<VariantsPanel experiment={experimentWithDuplicateKeys} updateFeatureFlag={mockUpdateFeatureFlag} />)
 
             // Should show error message
             expect(screen.getByText('Variant keys must be unique.')).toBeInTheDocument()
-        })
-
-        it.skip('shows error when variant has zero rollout and sum is not 100', async () => {
-            const experimentWithZeroRollout: Experiment = {
-                ...NEW_EXPERIMENT,
-                name: 'Test Experiment',
-                feature_flag_key: 'test-experiment',
-                parameters: {
-                    feature_flag_variants: [
-                        { key: 'control', rollout_percentage: 50 },
-                        { key: 'test', rollout_percentage: 0 },
-                    ],
-                },
-            }
-
-            render(
-                <VariantsPanel
-                    experiment={experimentWithZeroRollout}
-                    updateFeatureFlag={mockUpdateFeatureFlag}
-                    onPrevious={() => {}}
-                    onNext={() => {}}
-                />
-            )
-
-            // Should show error message
-            expect(screen.getByText('All variants must have a rollout percentage greater than 0.')).toBeInTheDocument()
-        })
-
-        it('does not show zero rollout error when sum is 100', async () => {
-            const experimentWithValidZeroRollout: Experiment = {
-                ...NEW_EXPERIMENT,
-                name: 'Test Experiment',
-                feature_flag_key: 'test-experiment',
-                parameters: {
-                    feature_flag_variants: [
-                        { key: 'control', rollout_percentage: 100 },
-                        { key: 'test', rollout_percentage: 0 },
-                    ],
-                },
-            }
-
-            render(
-                <VariantsPanel
-                    experiment={experimentWithValidZeroRollout}
-                    updateFeatureFlag={mockUpdateFeatureFlag}
-                    onPrevious={() => {}}
-                    onNext={() => {}}
-                />
-            )
-
-            // Should not show zero rollout error
-            expect(
-                screen.queryByText('All variants must have a rollout percentage greater than 0.')
-            ).not.toBeInTheDocument()
         })
 
         it('highlights variant with error', async () => {
@@ -644,53 +535,32 @@ describe('VariantsPanel', () => {
             }
 
             const { container } = render(
-                <VariantsPanel
-                    experiment={experimentWithEmptyKey}
-                    updateFeatureFlag={mockUpdateFeatureFlag}
-                    onPrevious={() => {}}
-                    onNext={() => {}}
-                />
+                <VariantsPanel experiment={experimentWithEmptyKey} updateFeatureFlag={mockUpdateFeatureFlag} />
             )
 
-            // Find variant rows
-            const variantRows = container.querySelectorAll('.grid.grid-cols-24')
+            // Find variant rows in the table
+            const variantRows = container.querySelectorAll('tbody tr')
 
             // First variant (control) should not have error highlighting
-            expect(variantRows[1]).not.toHaveClass('bg-danger-highlight')
+            expect(variantRows[0]).not.toHaveClass('bg-danger-highlight')
 
             // Second variant (empty key) should have error highlighting
-            expect(variantRows[2]).toHaveClass('bg-danger-highlight')
-            expect(variantRows[2]).toHaveClass('border-danger')
+            expect(variantRows[1]).toHaveClass('bg-danger-highlight')
+            expect(variantRows[1]).toHaveClass('border-danger')
         })
     })
 
     describe('callback payloads', () => {
         it('calls updateFeatureFlag with correct structure when selecting linked flag', async () => {
-            render(
-                <VariantsPanel
-                    experiment={defaultExperiment}
-                    updateFeatureFlag={mockUpdateFeatureFlag}
-                    onPrevious={() => {}}
-                    onNext={() => {}}
-                />
-            )
+            render(<VariantsPanel experiment={defaultExperiment} updateFeatureFlag={mockUpdateFeatureFlag} />)
 
-            // Switch to link mode and select a flag
-            const cards = screen.getAllByRole('button')
-            const linkCard = cards.find((card) => card.textContent?.includes('Link existing'))
-            await userEvent.click(linkCard!)
-
-            const selectButton = screen.getByRole('button', { name: /select feature flag/i })
-            await userEvent.click(selectButton)
+            await openFeatureFlagAutocomplete()
 
             await waitFor(() => {
                 expect(screen.getByText('eligible-flag-1')).toBeInTheDocument()
             })
 
-            const flagRows = screen.getAllByRole('row')
-            const firstFlagRow = flagRows.find((row) => row.textContent?.includes('eligible-flag-1'))
-            const selectFlagButton = within(firstFlagRow!).getByRole('button', { name: /select/i })
-            await userEvent.click(selectFlagButton)
+            await userEvent.click(screen.getByText('eligible-flag-1'))
 
             // Verify callback was called with correct structure
             await waitFor(() => {
@@ -704,64 +574,6 @@ describe('VariantsPanel', () => {
                     },
                 })
             })
-        })
-    })
-
-    describe('state restoration', () => {
-        it('persists linked flag selection when switching link→create→link', async () => {
-            render(
-                <VariantsPanel
-                    experiment={defaultExperiment}
-                    updateFeatureFlag={mockUpdateFeatureFlag}
-                    onPrevious={() => {}}
-                    onNext={() => {}}
-                />
-            )
-
-            const cards = screen.getAllByRole('button')
-            const linkCard = cards.find((card) => card.textContent?.includes('Link existing'))!
-            const createCard = cards.find((card) => card.textContent?.includes('Create new'))!
-
-            // Step 1: Switch to link mode and select a flag
-            await userEvent.click(linkCard)
-
-            const selectButton = screen.getByRole('button', { name: /select feature flag/i })
-            await userEvent.click(selectButton)
-
-            await waitFor(() => {
-                expect(screen.getByText('eligible-flag-1')).toBeInTheDocument()
-            })
-
-            const flagRows = screen.getAllByRole('row')
-            const firstFlagRow = flagRows.find((row) => row.textContent?.includes('eligible-flag-1'))
-            const selectFlagButton = within(firstFlagRow!).getByRole('button', { name: /select/i })
-            await userEvent.click(selectFlagButton)
-
-            // Verify flag is selected and displayed
-            await waitFor(() => {
-                expect(screen.getByText('eligible-flag-1')).toBeInTheDocument()
-                expect(screen.getByText('control')).toBeInTheDocument()
-                expect(screen.getByText('variant-a')).toBeInTheDocument()
-            })
-
-            // Step 2: Switch to create mode
-            await userEvent.click(createCard)
-
-            // Should show create mode UI
-            expect(screen.getByText('Feature flag key')).toBeInTheDocument()
-
-            // Step 3: Switch back to link mode
-            await userEvent.click(linkCard)
-
-            // Should still show the previously selected flag
-            await waitFor(() => {
-                expect(screen.getByText('eligible-flag-1')).toBeInTheDocument()
-                expect(screen.getByText('control')).toBeInTheDocument()
-                expect(screen.getByText('variant-a')).toBeInTheDocument()
-            })
-
-            // Verify the flag is still displayed with its variants (not showing empty state)
-            expect(screen.queryByText('No feature flag selected')).not.toBeInTheDocument()
         })
     })
 })

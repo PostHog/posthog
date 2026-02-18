@@ -118,8 +118,8 @@ class ProductCostThrottle(CostThrottle):
             base_limit = product_config.limit_usd
             window = product_config.window_seconds
         else:
-            base_limit = 20.0
-            window = 3600
+            base_limit = 1000.0
+            window = 86400
         team_mult = self._get_team_multiplier(context)
         return base_limit * team_mult, window
 

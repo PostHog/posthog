@@ -24,23 +24,23 @@ class DAG:
 
     Attributes:
         nodes: list of node ids in the dag
-        executable_nodes: list of node ids which must be executed (excludes source tables for example)
+        executable_nodes: list of node ids which must be executed in topological order (excludes source tables for example)
         edges: list of tuples of source node id and target node id
+        ephemeral_nodes: list of node ids that are ephemeral views (no materialization needed)
     """
 
     nodes: list[str]
     executable_nodes: list[str]
     edges: list[tuple[str, str]]
+    ephemeral_nodes: list[str] = dataclasses.field(default_factory=list)
 
 
 @database_sync_to_async
 def _get_dag_structure_async(team_id: int, dag_id: str) -> DAG:
     """Retrieve all nodes and edges for a DAG from the database."""
     nodes = Node.objects.filter(team_id=team_id, dag_id=dag_id)
-    # TODO: view nodes should not be materialized. we should probably leave them in this set
-    # for dependency tracking's sake but we should have a check in the materialize job to skip
-    # view nodes immediately and to not create modeling jobs for them.
     executable_nodes = nodes.filter(type__in=[NodeType.VIEW, NodeType.MAT_VIEW])
+    ephemeral_nodes = executable_nodes.filter(type=NodeType.VIEW)
     edges = (
         Edge.objects.prefetch_related("source", "target")
         .filter(team_id=team_id, dag_id=dag_id)
@@ -50,6 +50,7 @@ def _get_dag_structure_async(team_id: int, dag_id: str) -> DAG:
     return DAG(
         nodes=[str(n.id) for n in nodes],
         executable_nodes=[str(n.id) for n in executable_nodes],
+        ephemeral_nodes=[str(n.id) for n in ephemeral_nodes],
         edges=[(str(e.source.id), str(e.target.id)) for e in edges],
     )
 

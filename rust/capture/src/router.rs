@@ -15,6 +15,7 @@ use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use crate::ai_s3::BlobStorage;
+use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::test_endpoint;
 use crate::v0_request::DataType;
@@ -39,6 +40,7 @@ pub struct State {
     pub global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     pub quota_limiter: Arc<CaptureQuotaLimiter>,
     pub token_dropper: Arc<TokenDropper>,
+    pub event_restriction_service: Option<EventRestrictionService>,
     pub event_payload_size_limit: usize,
     pub historical_cfg: HistoricalConfig,
     pub is_mirror_deploy: bool,
@@ -98,6 +100,7 @@ pub fn router<
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     quota_limiter: CaptureQuotaLimiter,
     token_dropper: TokenDropper,
+    event_restriction_service: Option<EventRestrictionService>,
     metrics: bool,
     capture_mode: CaptureMode,
     deploy_role: String,
@@ -121,6 +124,7 @@ pub fn router<
         quota_limiter: Arc::new(quota_limiter),
         event_payload_size_limit,
         token_dropper: Arc::new(token_dropper),
+        event_restriction_service,
         historical_cfg: HistoricalConfig::new(
             enable_historical_rerouting,
             historical_rerouting_threshold_days,
@@ -269,7 +273,7 @@ pub fn router<
         .layer(DefaultBodyLimit::max(ai_body_limit));
 
     let mut router = match capture_mode {
-        CaptureMode::Events => Router::new()
+        CaptureMode::Events | CaptureMode::Ai => Router::new()
             .merge(batch_router)
             .merge(event_router)
             .merge(test_router)

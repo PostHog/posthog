@@ -20,7 +20,14 @@ from posthog.models import Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
-from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, HogQLQueryThrottle, get_route_from_path
+from posthog.rate_limit import (
+    AIBurstRateThrottle,
+    AIResearchBurstRateThrottle,
+    AIResearchSustainedRateThrottle,
+    AISustainedRateThrottle,
+    HogQLQueryThrottle,
+    get_route_from_path,
+)
 
 
 class TestUserAPI(APIBaseTest):
@@ -469,8 +476,9 @@ class TestUserAPI(APIBaseTest):
         mock_request.user = self.user
         mock_view = Mock()
 
-        # Mock the parent allow_request to return False (rate limited)
-        with patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=False):
+        # Mock UserRateThrottle.allow_request (the grandparent) to return False (rate limited)
+        # We need to patch the grandparent so _AIThrottleBase.allow_request still executes
+        with patch("rest_framework.throttling.UserRateThrottle.allow_request", return_value=False):
             result = throttle.allow_request(mock_request, mock_view)
 
             # Should return False (rate limited)
@@ -488,8 +496,9 @@ class TestUserAPI(APIBaseTest):
         mock_request.user = self.user
         mock_view = Mock()
 
-        # Mock the parent allow_request to return False (rate limited)
-        with patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=False):
+        # Mock UserRateThrottle.allow_request (the grandparent) to return False (rate limited)
+        # We need to patch the grandparent so _AIThrottleBase.allow_request still executes
+        with patch("rest_framework.throttling.UserRateThrottle.allow_request", return_value=False):
             result = throttle.allow_request(mock_request, mock_view)
 
             # Should return False (rate limited)
@@ -497,6 +506,58 @@ class TestUserAPI(APIBaseTest):
 
             # Should call report_user_action with correct parameters
             mock_report_user_action.assert_called_once_with(self.user, "ai sustained rate limited")
+
+    @patch("posthog.rate_limit.report_user_action")
+    def test_ai_research_burst_rate_throttle_calls_report_user_action(self, mock_report_user_action):
+        """Test that AIResearchBurstRateThrottle calls report_user_action when rate limit is exceeded"""
+        throttle = AIResearchBurstRateThrottle()
+
+        mock_request = Mock()
+        mock_request.user = self.user
+        mock_view = Mock()
+
+        # Mock UserRateThrottle.allow_request (the grandparent) to return False (rate limited)
+        # We need to patch the grandparent so _AIThrottleBase.allow_request still executes
+        with patch("rest_framework.throttling.UserRateThrottle.allow_request", return_value=False):
+            result = throttle.allow_request(mock_request, mock_view)
+
+            # Should return False (rate limited)
+            self.assertFalse(result)
+
+            # Should call report_user_action with correct parameters
+            mock_report_user_action.assert_called_once_with(self.user, "ai research burst rate limited")
+
+    @patch("posthog.rate_limit.report_user_action")
+    def test_ai_research_sustained_rate_throttle_calls_report_user_action(self, mock_report_user_action):
+        """Test that AIResearchSustainedRateThrottle calls report_user_action when rate limit is exceeded"""
+        throttle = AIResearchSustainedRateThrottle()
+
+        mock_request = Mock()
+        mock_request.user = self.user
+        mock_view = Mock()
+
+        # Mock UserRateThrottle.allow_request (the grandparent) to return False (rate limited)
+        # We need to patch the grandparent so _AIThrottleBase.allow_request still executes
+        with patch("rest_framework.throttling.UserRateThrottle.allow_request", return_value=False):
+            result = throttle.allow_request(mock_request, mock_view)
+
+            # Should return False (rate limited)
+            self.assertFalse(result)
+
+            # Should call report_user_action with correct parameters
+            mock_report_user_action.assert_called_once_with(self.user, "ai research sustained rate limited")
+
+    def test_ai_research_burst_rate_throttle_has_correct_scope_and_rate(self):
+        """Test that AIResearchBurstRateThrottle has correct scope and rate"""
+        throttle = AIResearchBurstRateThrottle()
+        self.assertEqual(throttle.scope, "ai_research_burst")
+        self.assertEqual(throttle.rate, "3/minute")
+
+    def test_ai_research_sustained_rate_throttle_has_correct_scope_and_rate(self):
+        """Test that AIResearchSustainedRateThrottle has correct scope and rate"""
+        throttle = AIResearchSustainedRateThrottle()
+        self.assertEqual(throttle.scope, "ai_research_sustained")
+        self.assertEqual(throttle.rate, "10/day")
 
     def test_local_evaluation_throttle_uses_default_rate_when_no_custom_limit(self):
         throttle = LocalEvaluationThrottle()

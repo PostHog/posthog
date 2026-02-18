@@ -74,6 +74,10 @@ NON_RETRYABLE_ERROR_TYPES: list[str] = [
     # Raised when we hit our self-imposed long running operation timeout.
     # We don't want to continually retry as it could consume a lot of compute resources in the user's account.
     "DatabricksOperationTimeoutError",
+    # Raised when the Databricks catalog is not found.
+    "DatabricksCatalogNotFoundError",
+    # Raised when the Databricks schema is not found.
+    "DatabricksSchemaNotFoundError",
 ]
 
 DatabricksField = tuple[str, str]
@@ -935,8 +939,9 @@ class DatabricksConsumer(Consumer):
         self,
         client: DatabricksClient,
         volume_path: str,
+        model: str = "events",
     ):
-        super().__init__()
+        super().__init__(model=model)
 
         self.client = client
         self.volume_path = volume_path
@@ -1103,6 +1108,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                 consumer = DatabricksConsumer(
                     client=databricks_client,
                     volume_path=volume_path,
+                    model=model.name if isinstance(model, BatchExportModel) else "events",
                 )
 
                 transformer: ChunkTransformerProtocol = ParquetStreamTransformer(

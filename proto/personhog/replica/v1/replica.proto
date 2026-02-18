@@ -24,9 +24,10 @@ service PersonHogReplica {
   rpc GetDistinctIdsForPerson(personhog.types.v1.GetDistinctIdsForPersonRequest) returns (personhog.types.v1.GetDistinctIdsForPersonResponse);
   rpc GetDistinctIdsForPersons(personhog.types.v1.GetDistinctIdsForPersonsRequest) returns (personhog.types.v1.GetDistinctIdsForPersonsResponse);
 
-  // Feature flag support
-  rpc GetPersonIdsAndHashKeyOverrides(personhog.types.v1.GetPersonIdsAndHashKeyOverridesRequest) returns (personhog.types.v1.GetPersonIdsAndHashKeyOverridesResponse);
-  rpc GetExistingPersonIdsWithOverrideKeys(personhog.types.v1.GetExistingPersonIdsWithOverrideKeysRequest) returns (personhog.types.v1.GetExistingPersonIdsWithOverrideKeysResponse);
+  // Feature flag hash key override support
+  rpc GetHashKeyOverrideContext(personhog.types.v1.GetHashKeyOverrideContextRequest) returns (personhog.types.v1.GetHashKeyOverrideContextResponse);
+  rpc UpsertHashKeyOverrides(personhog.types.v1.UpsertHashKeyOverridesRequest) returns (personhog.types.v1.UpsertHashKeyOverridesResponse);
+  rpc DeleteHashKeyOverridesByTeams(personhog.types.v1.DeleteHashKeyOverridesByTeamsRequest) returns (personhog.types.v1.DeleteHashKeyOverridesByTeamsResponse);
 
   // Cohort membership
   rpc CheckCohortMembership(personhog.types.v1.CheckCohortMembershipRequest) returns (personhog.types.v1.CohortMembershipResponse);

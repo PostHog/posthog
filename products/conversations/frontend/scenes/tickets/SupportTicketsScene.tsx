@@ -3,10 +3,11 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconChevronDown, IconRefresh } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonCheckbox, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonCheckbox, LemonDropdown, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
+import { stripMarkdown } from 'lib/utils/stripMarkdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -24,8 +25,8 @@ import {
 } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ScenesTabs } from '../../components/ScenesTabs'
-import { type Ticket, type TicketPriority, type TicketStatus, priorityOptions, statusOptions } from '../../types'
-import { supportTicketsSceneLogic } from './supportTicketsSceneLogic'
+import { type Ticket, priorityMultiselectOptions, statusMultiselectOptions } from '../../types'
+import { SUPPORT_TICKETS_PAGE_SIZE, supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 
 export const scene: SceneExport = {
     component: SupportTicketsScene,
@@ -35,13 +36,23 @@ export const scene: SceneExport = {
 
 export function SupportTicketsScene(): JSX.Element {
     const logic = supportTicketsSceneLogic()
-    const { filteredTickets, statusFilter, priorityFilter, assigneeFilter, dateFrom, dateTo, ticketsLoading } =
-        useValues(logic)
-    const { setStatusFilter, setPriorityFilter, setAssigneeFilter, setDateRange, loadTickets } = useActions(logic)
+    const {
+        filteredTickets,
+        statusFilter,
+        priorityFilter,
+        assigneeFilter,
+        dateFrom,
+        dateTo,
+        ticketsLoading,
+        currentPage,
+        totalCount,
+    } = useValues(logic)
+    const { setStatusFilter, setPriorityFilter, setAssigneeFilter, setDateRange, setCurrentPage, loadTickets } =
+        useActions(logic)
     const { push } = useActions(router)
 
     return (
-        <SceneContent>
+        <SceneContent className="pb-4">
             <SceneTitleSection
                 name="Support"
                 description=""
@@ -57,20 +68,80 @@ export function SupportTicketsScene(): JSX.Element {
                         dateTo={dateTo}
                         onChange={(dateFrom, dateTo) => setDateRange(dateFrom, dateTo)}
                     />
-                    <LemonSelect
-                        value={statusFilter}
-                        onChange={(value) => value && setStatusFilter(value as TicketStatus | 'all')}
-                        options={statusOptions}
-                        size="small"
-                        placeholder="Status"
-                    />
-                    <LemonSelect
-                        value={priorityFilter}
-                        onChange={(value) => value && setPriorityFilter(value as TicketPriority | 'all')}
-                        options={[{ value: 'all', label: 'All priorities' }, ...priorityOptions]}
-                        size="small"
-                        placeholder="Priority"
-                    />
+                    <LemonDropdown
+                        closeOnClickInside={false}
+                        overlay={
+                            <div className="space-y-px p-1">
+                                {statusMultiselectOptions.map((option) => (
+                                    <LemonButton
+                                        key={option.key}
+                                        type="tertiary"
+                                        size="small"
+                                        fullWidth
+                                        icon={
+                                            <LemonCheckbox
+                                                checked={statusFilter.includes(option.key)}
+                                                className="pointer-events-none"
+                                            />
+                                        }
+                                        onClick={() => {
+                                            const newFilter = statusFilter.includes(option.key)
+                                                ? statusFilter.filter((s) => s !== option.key)
+                                                : [...statusFilter, option.key]
+                                            setStatusFilter(newFilter)
+                                        }}
+                                    >
+                                        {option.label}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        }
+                    >
+                        <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                            {statusFilter.length === 0
+                                ? 'All statuses'
+                                : statusFilter.length === 1
+                                  ? statusMultiselectOptions.find((o) => o.key === statusFilter[0])?.label
+                                  : `${statusFilter.length} statuses`}
+                        </LemonButton>
+                    </LemonDropdown>
+                    <LemonDropdown
+                        closeOnClickInside={false}
+                        overlay={
+                            <div className="space-y-px p-1">
+                                {priorityMultiselectOptions.map((option) => (
+                                    <LemonButton
+                                        key={option.key}
+                                        type="tertiary"
+                                        size="small"
+                                        fullWidth
+                                        icon={
+                                            <LemonCheckbox
+                                                checked={priorityFilter.includes(option.key)}
+                                                className="pointer-events-none"
+                                            />
+                                        }
+                                        onClick={() => {
+                                            const newFilter = priorityFilter.includes(option.key)
+                                                ? priorityFilter.filter((p) => p !== option.key)
+                                                : [...priorityFilter, option.key]
+                                            setPriorityFilter(newFilter)
+                                        }}
+                                    >
+                                        {option.label}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        }
+                    >
+                        <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                            {priorityFilter.length === 0
+                                ? 'All priorities'
+                                : priorityFilter.length === 1
+                                  ? priorityMultiselectOptions.find((o) => o.key === priorityFilter[0])?.label
+                                  : `${priorityFilter.length} priorities`}
+                        </LemonButton>
+                    </LemonDropdown>
                     <AssigneeSelect
                         assignee={assigneeFilter === 'all' || assigneeFilter === 'unassigned' ? null : assigneeFilter}
                         onChange={(assignee) => setAssigneeFilter(assignee ?? 'all')}
@@ -111,6 +182,17 @@ export function SupportTicketsScene(): JSX.Element {
                 dataSource={filteredTickets}
                 rowKey="id"
                 loading={ticketsLoading}
+                pagination={{
+                    controlled: true,
+                    currentPage,
+                    pageSize: SUPPORT_TICKETS_PAGE_SIZE,
+                    entryCount: totalCount,
+                    onBackward: currentPage > 1 ? () => setCurrentPage(currentPage - 1) : undefined,
+                    onForward:
+                        currentPage * SUPPORT_TICKETS_PAGE_SIZE < totalCount
+                            ? () => setCurrentPage(currentPage + 1)
+                            : undefined,
+                }}
                 onRow={(ticket) => ({
                     onClick: () => push(urls.supportTicketDetail(ticket.id)),
                 })}
@@ -133,7 +215,26 @@ export function SupportTicketsScene(): JSX.Element {
                         key: 'customer',
                         render: (_, ticket) => (
                             <div className="flex items-center gap-2">
-                                <PersonDisplay person={{ distinct_id: ticket.distinct_id }} withIcon />
+                                <PersonDisplay
+                                    person={
+                                        ticket.person
+                                            ? {
+                                                  id: ticket.person.id,
+                                                  distinct_id: ticket.distinct_id,
+                                                  distinct_ids: ticket.person.distinct_ids,
+                                                  // Merge anonymous_traits as fallback for missing person properties
+                                                  properties: {
+                                                      ...ticket.anonymous_traits,
+                                                      ...ticket.person.properties,
+                                                  },
+                                              }
+                                            : {
+                                                  distinct_id: ticket.distinct_id,
+                                                  properties: ticket.anonymous_traits || {},
+                                              }
+                                    }
+                                    withIcon
+                                />
                             </div>
                         ),
                     },
@@ -149,7 +250,7 @@ export function SupportTicketsScene(): JSX.Element {
                                             'font-medium': ticket.unread_team_count > 0,
                                         })}
                                     >
-                                        {ticket.last_message_text}
+                                        {stripMarkdown(ticket.last_message_text)}
                                     </span>
                                 ) : (
                                     <span className="text-muted-alt text-xs">—</span>

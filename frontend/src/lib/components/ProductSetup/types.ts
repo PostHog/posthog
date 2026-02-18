@@ -85,10 +85,10 @@ export enum SetupTaskId {
     // Logs
     EnableLogCapture = 'enable_log_capture',
     ViewFirstLogs = 'view_first_logs',
-    SetUpLogAlerts = 'set_up_log_alerts',
 
     // Workflows
     CreateFirstWorkflow = 'create_first_workflow',
+    SetUpFirstWorkflowChannel = 'set_up_first_workflow_channel',
     ConfigureWorkflowTrigger = 'configure_workflow_trigger',
     AddWorkflowAction = 'add_workflow_action',
     LaunchWorkflow = 'launch_workflow',

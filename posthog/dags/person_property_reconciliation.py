@@ -5,10 +5,18 @@ to not properly merge properties.
 This job reads events from ClickHouse to find property updates ($set, $set_once, $unset)
 within a bug window, compares timestamps with properties_last_updated_at in Postgres,
 and applies any missed updates.
+
+For comprehensive documentation including architecture diagrams, parameter reference,
+and example sensor configurations, see:
+    PERSON_PROPERTY_RECONCILIATION.md
+
+For detailed query explanations, see:
+    person_property_reconciliation_query_explanation.md
 """
 
 import json
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -44,6 +52,7 @@ class PersonPropertyReconciliationConfig(dagster.Config):
     batch_size: int = 100  # Commit Postgres transaction every N persons (0 = single commit at end)
     teams_per_chunk: int = 100  # Number of teams to process per task (reduces task overhead)
     team_ch_props_fetch_window_seconds: int = 0  # 0 = single query; >0 = split into N-second windows
+    person_batch_size: int = 10000  # Persons per batch in windowed mode (keeps IN clauses small)
 
 
 @dataclass
@@ -342,6 +351,7 @@ def get_raw_person_property_updates_from_clickhouse(
     team_id: int,
     bug_window_start: str,
     bug_window_end: str,
+    person_ids: tuple[str, ...],
 ) -> list[RawPersonPropertyUpdates]:
     """
     Query ClickHouse to get raw property updates from events WITHOUT comparing to person state.
@@ -358,6 +368,7 @@ def get_raw_person_property_updates_from_clickhouse(
         team_id: Team ID to query
         bug_window_start: Start of time window (ClickHouse format: "YYYY-MM-DD HH:MM:SS")
         bug_window_end: End of time window (ClickHouse format: "YYYY-MM-DD HH:MM:SS")
+        person_ids: Tuple of person_ids to filter to (required for batched processing)
 
     Returns:
         List of RawPersonPropertyUpdates with aggregated event data (no person comparison)
@@ -423,6 +434,7 @@ def get_raw_person_property_updates_from_clickhouse(
                   AND e.timestamp >= %(bug_window_start)s
                   AND e.timestamp < %(bug_window_end)s
                   AND (JSONExtractString(e.properties, '$set') != '' OR JSONExtractString(e.properties, '$set_once') != '' OR notEmpty(JSONExtractArrayRaw(e.properties, '$unset')))
+                  AND if(notEmpty(o.distinct_id), o.person_id, e.person_id) IN %(person_ids)s
                 GROUP BY if(notEmpty(o.distinct_id), o.person_id, e.person_id), kv_tuple.2, kv_tuple.1
             )
             GROUP BY person_id
@@ -456,6 +468,7 @@ def get_raw_person_property_updates_from_clickhouse(
         "bug_window_start": bug_window_start,
         "bug_window_end": bug_window_end,
         "filtered_properties": tuple(FILTERED_PERSON_UPDATE_PROPERTIES),
+        "person_ids": person_ids,
     }
 
     rows = sync_execute(query, params)
@@ -496,6 +509,83 @@ def get_raw_person_property_updates_from_clickhouse(
             )
 
     return results
+
+
+def get_affected_person_ids_from_clickhouse(
+    team_id: int,
+    bug_window_start: str,
+    bug_window_end: str,
+) -> list[str]:
+    """
+    Query ClickHouse for distinct person_ids who had property-setting events in the bug window.
+
+    This is the first step of the batched windowed query flow:
+    1. get_affected_person_ids_from_clickhouse() - identify affected persons (bounded)
+    2. For each batch of persons: run windowed event queries filtered to that batch
+    3. compare_raw_updates_with_person_state() to filter to actual diffs
+
+    The query is bounded by bug_window_end to limit the set of affected persons,
+    even though the actual event property aggregation will extend to now() to
+    capture all property updates for those persons.
+
+    Note: This query checks for presence of $set/$set_once/$unset but doesn't filter
+    FILTERED_PERSON_UPDATE_PROPERTIES. This may include persons who only had filtered
+    properties updated, but the subsequent raw update queries will filter them out.
+    This is a minor inefficiency that doesn't affect correctness.
+
+    Args:
+        team_id: Team ID to query
+        bug_window_start: Start of bug window (ClickHouse format: "YYYY-MM-DD HH:MM:SS")
+        bug_window_end: End of bug window (ClickHouse format: "YYYY-MM-DD HH:MM:SS")
+
+    Returns:
+        List of person_id strings (UUIDs) affected in the bug window
+    """
+    query = """
+    -- CTE 1: Get all overrides for the team
+    WITH overrides AS (
+        SELECT
+            argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, %(team_id)s)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
+    )
+    -- Get distinct resolved person_ids with property-setting events in the bug window
+    SELECT DISTINCT
+        if(notEmpty(o.distinct_id), o.person_id, e.person_id) AS person_id
+    FROM events e
+    LEFT JOIN overrides o ON e.distinct_id = o.distinct_id
+    WHERE e.team_id = %(team_id)s
+      AND e.timestamp >= %(bug_window_start)s
+      AND e.timestamp < %(bug_window_end)s
+      AND (
+        JSONExtractString(e.properties, '$set') != ''
+        OR JSONExtractString(e.properties, '$set_once') != ''
+        OR notEmpty(JSONExtractArrayRaw(e.properties, '$unset'))
+      )
+    ORDER BY person_id
+    SETTINGS
+        readonly=2,
+        max_execution_time=600,
+        allow_experimental_analyzer=1
+    """
+
+    params = {
+        "team_id": team_id,
+        "bug_window_start": bug_window_start,
+        "bug_window_end": bug_window_end,
+    }
+
+    rows = sync_execute(query, params)
+    return [str(row[0]) for row in rows]
+
+
+# Default batch size for processing persons in windowed mode.
+# Keeps IN clauses under ClickHouse's max_query_size limit.
+# 10K UUIDs × ~40 chars ≈ 400KB query text.
+WINDOWED_PERSON_BATCH_SIZE = 10000
 
 
 def merge_raw_person_property_updates(
@@ -703,15 +793,17 @@ def get_person_property_updates_windowed(
     team_id: int,
     bug_window_start: str,
     window_seconds: int,
+    bug_window_end: str | None = None,
     logger: Any = None,
 ) -> list[PersonPropertyDiffs]:
     """
     Fetch person property updates, optionally in time windows.
 
     When window_seconds > 0, this function uses a two-step flow:
-    1. Query raw event aggregates per window (no person comparison)
-    2. Merge raw updates across windows with timestamp-based deduplication
-    3. Compare final merged updates against current person state
+    1. Query affected person_ids first (returns early if none)
+    2. Query raw event aggregates per window (no person comparison)
+    3. Merge raw updates across windows with timestamp-based deduplication
+    4. Compare final merged updates against current person state
 
     When window_seconds <= 0, uses the original single-query approach.
 
@@ -719,6 +811,7 @@ def get_person_property_updates_windowed(
         team_id: Team ID to query
         bug_window_start: Start of time window (ClickHouse format: "YYYY-MM-DD HH:MM:SS")
         window_seconds: Size of each query window in seconds. If <= 0, single query is used.
+        bug_window_end: End of time window (defaults to now if not provided)
         logger: Optional logger for progress tracking
 
     Returns:
@@ -729,10 +822,27 @@ def get_person_property_updates_windowed(
             logger.info(f"Using single-query mode for team_id={team_id}")
         return get_person_property_updates_from_clickhouse(team_id, bug_window_start)
 
-    # Step 1 & 2: Query raw updates per window and merge
+    now = datetime.now(UTC)
+    effective_end = bug_window_end or format_ch_timestamp(now)
+
+    # Step 1: Get affected person_ids first (early exit if none)
+    affected_person_ids = get_affected_person_ids_from_clickhouse(
+        team_id=team_id,
+        bug_window_start=bug_window_start,
+        bug_window_end=effective_end,
+    )
+
+    if logger:
+        logger.info(f"Found {len(affected_person_ids)} affected persons for team_id={team_id}")
+
+    if not affected_person_ids:
+        return []
+
+    person_ids_tuple = tuple(affected_person_ids)
+
+    # Step 2: Query raw updates per window and merge
     accumulated: dict[str, RawPersonPropertyUpdates] = {}
     current_start = parse_ch_timestamp(bug_window_start)
-    now = datetime.now(UTC)
     window_count = 0
     total_windows = int((now - current_start).total_seconds() / window_seconds) + 1
 
@@ -745,6 +855,7 @@ def get_person_property_updates_windowed(
             team_id,
             format_ch_timestamp(current_start),
             format_ch_timestamp(current_end),
+            person_ids=person_ids_tuple,
         )
         merge_raw_person_property_updates(accumulated, window_updates)
         window_count += 1
@@ -767,6 +878,166 @@ def get_person_property_updates_windowed(
         logger.info(f"Comparing {len(accumulated)} persons against current state for team_id={team_id}")
 
     return compare_raw_updates_with_person_state(team_id, list(accumulated.values()))
+
+
+def get_person_property_updates_windowed_batched(
+    team_id: int,
+    bug_window_start: str,
+    bug_window_end: str,
+    window_seconds: int,
+    person_batch_size: int = WINDOWED_PERSON_BATCH_SIZE,
+    logger: Any = None,
+) -> Iterator[list[PersonPropertyDiffs]]:
+    """
+    Yield batches of PersonPropertyDiffs, processing persons in chunks.
+
+    This is the memory-efficient version of get_person_property_updates_windowed()
+    that processes persons in batches to prevent OOM on large teams.
+
+    Flow:
+    1. Get affected person_ids (bounded by bug_window_end)
+    2. For each batch of person_ids:
+       a. For each time window [start → now()]:
+          - Query raw events filtered to this batch's person_ids
+          - Merge into batch accumulator
+       b. Compare batch with person state
+       c. Yield batch results (allows caller to process and clear memory)
+
+    Args:
+        team_id: Team ID to query
+        bug_window_start: Start of bug window (ClickHouse format: "YYYY-MM-DD HH:MM:SS")
+        bug_window_end: End of bug window - used to bound affected persons
+        window_seconds: Size of each query window in seconds
+        person_batch_size: Number of persons per batch (default 10K)
+        logger: Optional logger for progress tracking
+
+    Yields:
+        List of PersonPropertyDiffs for each batch of persons
+    """
+    # Step 1: Get affected person_ids (bounded by bug_window_end)
+    if logger:
+        logger.info(f"Querying affected persons: team_id={team_id}, bug_window=[{bug_window_start}, {bug_window_end}]")
+
+    try:
+        affected_person_ids = get_affected_person_ids_from_clickhouse(
+            team_id=team_id,
+            bug_window_start=bug_window_start,
+            bug_window_end=bug_window_end,
+        )
+    except Exception:
+        if logger:
+            logger.exception(
+                f"Failed to query affected persons for team_id={team_id}, "
+                f"bug_window=[{bug_window_start}, {bug_window_end}]"
+            )
+        raise
+
+    if logger:
+        logger.info(f"Found {len(affected_person_ids)} affected persons for team_id={team_id}")
+
+    if not affected_person_ids:
+        return
+
+    # Calculate total batches and windows for logging
+    total_batches = (len(affected_person_ids) + person_batch_size - 1) // person_batch_size
+    now = datetime.now(UTC)
+    current_start_for_count = parse_ch_timestamp(bug_window_start)
+    total_windows = int((now - current_start_for_count).total_seconds() / window_seconds) + 1
+
+    if logger:
+        logger.info(
+            f"Starting batched windowed processing: team_id={team_id}, "
+            f"{total_batches} batches of ~{person_batch_size} persons, "
+            f"~{total_windows} windows of {window_seconds}s each"
+        )
+
+    # Step 2: Process each batch of persons
+    for batch_idx in range(0, len(affected_person_ids), person_batch_size):
+        batch_person_ids = affected_person_ids[batch_idx : batch_idx + person_batch_size]
+        batch_num = (batch_idx // person_batch_size) + 1
+
+        if logger:
+            logger.info(
+                f"Processing batch {batch_num}/{total_batches} for team_id={team_id}, {len(batch_person_ids)} persons"
+            )
+
+        # Step 2a: Query raw updates per window for this batch and merge
+        accumulated: dict[str, RawPersonPropertyUpdates] = {}
+        current_start = parse_ch_timestamp(bug_window_start)
+        window_count = 0
+
+        try:
+            while current_start < now:
+                current_end = min(current_start + timedelta(seconds=window_seconds), now)
+                try:
+                    window_updates = get_raw_person_property_updates_from_clickhouse(
+                        team_id,
+                        format_ch_timestamp(current_start),
+                        format_ch_timestamp(current_end),
+                        person_ids=tuple(batch_person_ids),
+                    )
+                except Exception:
+                    if logger:
+                        logger.exception(
+                            f"Batch {batch_num}: failed to query window {window_count + 1}/{total_windows} "
+                            f"[{format_ch_timestamp(current_start)}, {format_ch_timestamp(current_end)}) "
+                            f"for team_id={team_id}"
+                        )
+                    raise
+
+                merge_raw_person_property_updates(accumulated, window_updates)
+                window_count += 1
+
+                if logger and window_count % 10 == 0:
+                    logger.info(
+                        f"Batch {batch_num}: processed window {window_count}/{total_windows}, "
+                        f"accumulated {len(accumulated)} persons"
+                    )
+
+                current_start = current_end
+
+        except Exception:
+            if logger:
+                logger.exception(
+                    f"Batch {batch_num}: failed during windowed event collection for team_id={team_id} "
+                    f"after {window_count} windows, accumulated {len(accumulated)} persons"
+                )
+            raise
+
+        if logger:
+            logger.info(
+                f"Batch {batch_num}: completed {window_count} windows, total persons with updates: {len(accumulated)}"
+            )
+
+        # Step 2b: Compare batch with person state
+        if accumulated:
+            if logger:
+                logger.info(f"Batch {batch_num}: comparing {len(accumulated)} persons against current state")
+
+            try:
+                batch_diffs = compare_raw_updates_with_person_state(team_id, list(accumulated.values()))
+            except Exception:
+                if logger:
+                    logger.exception(
+                        f"Batch {batch_num}: failed to compare {len(accumulated)} persons "
+                        f"against current state for team_id={team_id}"
+                    )
+                raise
+
+            if batch_diffs:
+                if logger:
+                    logger.info(f"Batch {batch_num}: yielding {len(batch_diffs)} persons with diffs")
+                # Step 2c: Yield batch results
+                yield batch_diffs
+            else:
+                if logger:
+                    logger.info(f"Batch {batch_num}: no diffs found after comparison")
+        else:
+            if logger:
+                logger.info(f"Batch {batch_num}: no updates found in time windows")
+
+    if logger:
+        logger.info(f"Completed all {total_batches} batches for team_id={team_id}")
 
 
 def filter_event_person_properties(
@@ -1546,11 +1817,13 @@ class TeamReconciliationResult:
 def reconcile_single_team(
     team_id: int,
     bug_window_start: str,
+    bug_window_end: str,
     run_id: str,
     batch_size: int,
     dry_run: bool,
     backup_enabled: bool,
     team_ch_props_fetch_window_seconds: int,
+    person_batch_size: int,
     persons_database: psycopg2.extensions.connection,
     kafka_producer: _KafkaProducer,
     logger: Any,
@@ -1558,34 +1831,13 @@ def reconcile_single_team(
     """
     Reconcile person properties for all affected persons in a single team.
 
+    This function supports two modes:
+    - Non-windowed (team_ch_props_fetch_window_seconds <= 0): Single query to ClickHouse
+    - Windowed batched (team_ch_props_fetch_window_seconds > 0): Process persons in batches,
+      each batch iterating through time windows. This prevents OOM on large teams.
+
     This function does not catch exceptions - the caller is responsible for error handling.
     """
-    # Query ClickHouse for all persons with property updates in this team
-    logger.info(
-        f"Querying ClickHouse for property updates: team_id={team_id}, "
-        f"bug_window_start={bug_window_start}, window_seconds={team_ch_props_fetch_window_seconds}"
-    )
-    person_property_diffs = get_person_property_updates_windowed(
-        team_id=team_id,
-        bug_window_start=bug_window_start,
-        window_seconds=team_ch_props_fetch_window_seconds,
-        logger=logger,
-    )
-    logger.info(f"Found {len(person_property_diffs)} persons with property diffs for team_id={team_id}")
-
-    # Filter conflicting set/unset operations
-    person_property_diffs = filter_event_person_properties(person_property_diffs)
-
-    if not person_property_diffs:
-        logger.info(f"No persons to reconcile for team_id={team_id}")
-        return TeamReconciliationResult(
-            team_id=team_id,
-            persons_processed=0,
-            persons_updated=0,
-            persons_skipped=0,
-        )
-
-    logger.info(f"Processing {len(person_property_diffs)} persons for team_id={team_id}")
 
     # Callback for batch commits - handles Kafka publishing after each batch
     def on_batch_committed(batch_num: int, batch_persons: list[dict]) -> None:
@@ -1603,6 +1855,97 @@ def reconcile_single_team(
             logger.info(f"Batch {batch_num}: committed {len(batch_persons)} updates for team_id={team_id}")
         elif batch_persons and dry_run:
             logger.info(f"[DRY RUN] Batch {batch_num}: would apply {len(batch_persons)} updates for team_id={team_id}")
+
+    # Use windowed batched mode for large teams (window_seconds > 0)
+    if team_ch_props_fetch_window_seconds > 0:
+        logger.info(
+            f"Using windowed batched mode: team_id={team_id}, "
+            f"bug_window=[{bug_window_start}, {bug_window_end}], "
+            f"window_seconds={team_ch_props_fetch_window_seconds}, "
+            f"person_batch_size={person_batch_size}"
+        )
+
+        total_processed = 0
+        total_updated = 0
+        total_skipped = 0
+        person_batch_num = 0
+
+        with persons_database.cursor() as cursor:
+            cursor.execute("SET application_name = 'person_property_reconciliation'")
+            cursor.execute("SET lock_timeout = '5s'")
+            cursor.execute("SET statement_timeout = '30min'")
+            cursor.execute("SET synchronous_commit = off")
+
+            # Process each batch of persons from the iterator
+            for person_batch in get_person_property_updates_windowed_batched(
+                team_id=team_id,
+                bug_window_start=bug_window_start,
+                bug_window_end=bug_window_end,
+                window_seconds=team_ch_props_fetch_window_seconds,
+                person_batch_size=person_batch_size,
+                logger=logger,
+            ):
+                person_batch_num += 1
+
+                # Filter conflicting set/unset operations for this batch
+                filtered_batch = filter_event_person_properties(person_batch)
+
+                if not filtered_batch:
+                    logger.info(f"Person batch {person_batch_num}: no diffs after filtering for team_id={team_id}")
+                    continue
+
+                logger.info(
+                    f"Person batch {person_batch_num}: processing {len(filtered_batch)} persons for team_id={team_id}"
+                )
+
+                # Process this batch
+                result = process_persons_in_batches(
+                    person_property_diffs=filtered_batch,
+                    cursor=cursor,
+                    job_id=run_id,
+                    team_id=team_id,
+                    batch_size=batch_size,
+                    dry_run=dry_run,
+                    backup_enabled=backup_enabled,
+                    commit_fn=persons_database.commit,
+                    on_batch_committed=on_batch_committed,
+                    logger=logger,
+                )
+
+                total_processed += result.total_processed
+                total_updated += result.total_updated
+                total_skipped += result.total_skipped
+
+        logger.info(
+            f"Completed team_id={team_id} (windowed batched): processed={total_processed}, "
+            f"updated={total_updated}, skipped={total_skipped}, person_batches={person_batch_num}"
+        )
+
+        return TeamReconciliationResult(
+            team_id=team_id,
+            persons_processed=total_processed,
+            persons_updated=total_updated,
+            persons_skipped=total_skipped,
+        )
+
+    # Non-windowed mode (original behavior)
+    logger.info(f"Using non-windowed mode: team_id={team_id}, bug_window_start={bug_window_start}")
+    person_property_diffs = get_person_property_updates_from_clickhouse(team_id, bug_window_start)
+    logger.info(f"Found {len(person_property_diffs)} persons with property diffs for team_id={team_id}")
+
+    # Filter conflicting set/unset operations
+    person_property_diffs = filter_event_person_properties(person_property_diffs)
+
+    if not person_property_diffs:
+        logger.info(f"No persons to reconcile for team_id={team_id}")
+        return TeamReconciliationResult(
+            team_id=team_id,
+            persons_processed=0,
+            persons_updated=0,
+            persons_skipped=0,
+        )
+
+    logger.info(f"Processing {len(person_property_diffs)} persons for team_id={team_id}")
 
     with persons_database.cursor() as cursor:
         cursor.execute("SET application_name = 'person_property_reconciliation'")
@@ -1684,11 +2027,13 @@ def reconcile_team_chunk(
             result = reconcile_single_team(
                 team_id=team_id,
                 bug_window_start=config.bug_window_start,
+                bug_window_end=config.bug_window_end or config.bug_window_start,  # Fallback for backward compat
                 run_id=run_id,
                 batch_size=config.batch_size,
                 dry_run=config.dry_run,
                 backup_enabled=config.backup_enabled,
                 team_ch_props_fetch_window_seconds=config.team_ch_props_fetch_window_seconds,
+                person_batch_size=config.person_batch_size,
                 persons_database=persons_database,
                 kafka_producer=kafka_producer,
                 logger=context.log,
@@ -1848,6 +2193,7 @@ class ReconciliationSchedulerConfig(dagster.Config):
     batch_size: int = 100
     teams_per_chunk: int = 100  # Number of teams to process per task
     team_ch_props_fetch_window_seconds: int = 0  # 0 = single query; >0 = split into N-second windows
+    person_batch_size: int = 10000  # Persons per batch in windowed mode (keeps IN clauses small)
 
     # Resource configuration - the env var name for the PG connection string
     persons_db_env_var: str = "PERSONS_DB_WRITER_URL"  # Env var for Postgres connection URL
@@ -1871,6 +2217,7 @@ def build_reconciliation_run_config(
         "batch_size": config.batch_size,
         "teams_per_chunk": config.teams_per_chunk,
         "team_ch_props_fetch_window_seconds": config.team_ch_props_fetch_window_seconds,
+        "person_batch_size": config.person_batch_size,
     }
 
     if team_ids is not None:
@@ -2017,6 +2364,7 @@ def person_property_reconciliation_scheduler(context: dagster.SensorEvaluationCo
         batch_size=cursor_data.get("batch_size", 100),
         teams_per_chunk=cursor_data.get("teams_per_chunk", 100),
         team_ch_props_fetch_window_seconds=cursor_data.get("team_ch_props_fetch_window_seconds", 0),
+        person_batch_size=cursor_data.get("person_batch_size", 10000),
         persons_db_env_var=cursor_data.get("persons_db_env_var", "PERSONS_DB_WRITER_URL"),
     )
 

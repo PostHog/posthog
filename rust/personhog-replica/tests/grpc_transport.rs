@@ -84,7 +84,11 @@ async fn test_grpc_get_person_roundtrip() {
 
     let response = ctx
         .client
-        .get_person(GetPersonRequest { team_id, person_id })
+        .get_person(GetPersonRequest {
+            team_id,
+            person_id,
+            read_options: None,
+        })
         .await
         .expect("gRPC call failed");
 
@@ -114,6 +118,7 @@ async fn test_grpc_batch_lookup_roundtrip() {
                 "grpc_batch_2".to_string(),
                 "grpc_batch_missing".to_string(),
             ],
+            read_options: None,
         })
         .await
         .expect("gRPC call failed");
@@ -142,6 +147,7 @@ async fn test_grpc_invalid_uuid_returns_error() {
         .get_person_by_uuid(GetPersonByUuidRequest {
             team_id,
             uuid: "not-a-valid-uuid".to_string(),
+            read_options: None,
         })
         .await;
 

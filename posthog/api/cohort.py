@@ -321,6 +321,7 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
     total_read_rows = serializers.ReadOnlyField()
     total_written_rows = serializers.ReadOnlyField()
     main_query = serializers.ReadOnlyField()
+    main_query_id = serializers.ReadOnlyField()
 
     class Meta:
         model = CohortCalculationHistory
@@ -340,6 +341,7 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
             "total_read_rows",
             "total_written_rows",
             "main_query",
+            "main_query_id",
         ]
 
 
@@ -1308,6 +1310,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             # Using to_dict() here serializer.save() was changing the instance in memory,
             # so we need to get the before state in a "detached" manner that won't be
             # affected by the serializer.save() call.
+            # nosemgrep: idor-lookup-without-team (ID from already team-scoped instance)
             before_update = Cohort.objects.get(pk=instance_id).to_dict()
         except Cohort.DoesNotExist:
             before_update = {}

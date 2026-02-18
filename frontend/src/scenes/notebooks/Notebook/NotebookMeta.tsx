@@ -89,12 +89,16 @@ export const NotebookSyncInfo = (props: NotebookLogicProps): JSX.Element | null 
     ) : null
 }
 
-export const NotebookExpandButton = (props: Pick<LemonButtonProps, 'size' | 'type'>): JSX.Element => {
+interface NotebookExpandButtonProps extends Pick<LemonButtonProps, 'size' | 'type'> {
+    inPanel: boolean
+}
+
+export const NotebookExpandButton = (props: NotebookExpandButtonProps): JSX.Element => {
     const { isExpanded } = useValues(notebookSettingsLogic)
     const { setIsExpanded } = useActions(notebookSettingsLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
-    if (isRemovingSidePanelFlag) {
+    if (isRemovingSidePanelFlag && props.inPanel) {
         return (
             <ButtonPrimitive
                 onClick={() => setIsExpanded(!isExpanded)}

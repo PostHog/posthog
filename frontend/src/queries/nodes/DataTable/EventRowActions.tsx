@@ -63,15 +63,16 @@ export function eventRowActionsContent(event: EventType): JSX.Element {
                     Visit issue
                 </LemonButton>
             ) : null}
-            {event.event === '$ai_trace' && '$ai_trace_id' in event.properties ? (
+            {(event.event === '$ai_trace' || event.event === SurveyEventName.SENT) &&
+            '$ai_trace_id' in event.properties ? (
                 <LemonButton
                     fullWidth
                     sideIcon={<IconAI />}
                     data-attr="events-table-trace-link"
-                    to={urls.llmAnalyticsTrace(event.properties.$ai_trace_id, {
-                        event: event.id,
-                        exception_ts: event.timestamp,
-                    })}
+                    to={urls.llmAnalyticsTrace(
+                        event.properties.$ai_trace_id,
+                        event.event === '$ai_trace' ? { event: event.id, exception_ts: event.timestamp } : {}
+                    )}
                 >
                     View LLM Trace
                 </LemonButton>

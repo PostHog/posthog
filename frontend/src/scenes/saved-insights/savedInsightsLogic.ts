@@ -43,13 +43,19 @@ export interface SavedInsightFilters {
     tab: SavedInsightsTabs
     search: string
     insightType: string
-    createdBy: number | 'All users'
+    createdBy: number[] | 'All users'
+    tags: string[] | undefined | null
     dateFrom: string | dayjs.Dayjs | undefined | null
     dateTo: string | dayjs.Dayjs | undefined | null
+    createdDateFrom: string | dayjs.Dayjs | undefined | null
+    createdDateTo: string | dayjs.Dayjs | undefined | null
+    lastViewedDateFrom: string | dayjs.Dayjs | undefined | null
+    lastViewedDateTo: string | dayjs.Dayjs | undefined | null
     page: number
     dashboardId: number | undefined | null
     events: string[] | undefined | null
     hideFeatureFlagInsights: boolean | undefined | null
+    favorited: boolean | undefined | null
 }
 
 export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
@@ -58,13 +64,19 @@ export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsight
         tab: values.tab || SavedInsightsTabs.All,
         search: String(values.search || ''),
         insightType: values.insightType || 'All types',
-        createdBy: (values.tab !== SavedInsightsTabs.Yours && values.createdBy) || 'All users',
+        createdBy: values.createdBy || 'All users',
+        tags: values.tags || undefined,
         dateFrom: values.dateFrom || 'all',
         dateTo: values.dateTo || undefined,
+        createdDateFrom: values.createdDateFrom || undefined,
+        createdDateTo: values.createdDateTo || undefined,
+        lastViewedDateFrom: values.lastViewedDateFrom || undefined,
+        lastViewedDateTo: values.lastViewedDateTo || undefined,
         page: parseInt(String(values.page)) || 1,
         dashboardId: values.dashboardId,
         events: values.events,
         hideFeatureFlagInsights: values.hideFeatureFlagInsights || false,
+        favorited: values.favorited || false,
     }
 }
 
@@ -111,6 +123,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 const legacyResponse: CountedPaginatedResponse<InsightModel> = await api.get(
                     `api/environments/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
                 )
+
+                // Cancel if a newer request came in while this one was in flight
+                await breakpoint()
+
                 const response = {
                     ...legacyResponse,
                     results: legacyResponse.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight)),
@@ -119,6 +135,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
                     try {
                         const insight = await insightsApi.getByNumericId(Number(filters.search))
+                        await breakpoint()
                         return {
                             ...response,
                             count: response.count + 1,
@@ -232,17 +249,29 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 limit: INSIGHTS_PER_PAGE,
                 offset: Math.max(0, (filters.page - 1) * INSIGHTS_PER_PAGE),
                 saved: true,
-                ...(filters.tab === SavedInsightsTabs.Yours && { user: true }),
-                ...(filters.tab === SavedInsightsTabs.Favorites && { favorited: true }),
+                ...(filters.favorited && { favorited: true }),
                 ...(filters.search && { search: filters.search }),
                 ...(filters.insightType?.toLowerCase() !== 'all types' && {
                     insight: filters.insightType?.toUpperCase(),
                 }),
-                ...(filters.createdBy !== 'All users' && { created_by: filters.createdBy }),
+                ...(filters.createdBy !== 'All users' && {
+                    created_by: JSON.stringify(filters.createdBy),
+                }),
+                ...(filters.tags && filters.tags.length > 0 && { tags: JSON.stringify(filters.tags) }),
                 ...(filters.dateFrom &&
                     filters.dateFrom !== 'all' && {
                         date_from: filters.dateFrom,
                         date_to: filters.dateTo,
+                    }),
+                ...(filters.createdDateFrom &&
+                    filters.createdDateFrom !== 'all' && {
+                        created_date_from: filters.createdDateFrom,
+                        created_date_to: filters.createdDateTo,
+                    }),
+                ...(filters.lastViewedDateFrom &&
+                    filters.lastViewedDateFrom !== 'all' && {
+                        last_viewed_date_from: filters.lastViewedDateFrom,
+                        last_viewed_date_to: filters.lastViewedDateTo,
                     }),
                 ...(!!filters.dashboardId && {
                     dashboards: [filters.dashboardId],

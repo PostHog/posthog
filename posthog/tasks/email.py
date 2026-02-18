@@ -50,6 +50,7 @@ class NotificationSetting(Enum):
     ERROR_TRACKING_ISSUE_ASSIGNED = "error_tracking_issue_assigned"
     DISCUSSIONS_MENTIONED = "discussions_mentioned"
     PROJECT_API_KEY_EXPOSED = "project_api_key_exposed"
+    MATERIALIZED_VIEW_SYNC_FAILED = "materialized_view_sync_failed"
 
 
 NotificationSettingType = Literal[
@@ -58,6 +59,7 @@ NotificationSettingType = Literal[
     "error_tracking_issue_assigned",
     "discussions_mentioned",
     "project_api_key_exposed",
+    "materialized_view_sync_failed",
 ]
 
 
@@ -151,6 +153,9 @@ def should_send_notification(
 
     elif notification_type == NotificationSetting.PROJECT_API_KEY_EXPOSED.value:
         return settings.get(notification_type, True)
+
+    elif notification_type == NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED.value:
+        return settings.get(notification_type, False)
 
     # The below typeerror is ignored because we're currently handling the notification
     # types above, so technically it's unreachable. However if another is added but
@@ -430,6 +435,47 @@ def send_batch_export_run_failure(
     message.send()
 
 
+def send_saved_query_materialization_failure(saved_query_id: str) -> None:
+    """Send email notification when a materialized view sync fails."""
+    from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+
+    if not is_email_available(with_absolute_urls=True):
+        logger.warning("Email service is not available for materialization failure notification")
+        return
+
+    try:
+        saved_query = DataWarehouseSavedQuery.objects.select_related("team").get(id=saved_query_id)
+    except DataWarehouseSavedQuery.DoesNotExist:
+        logger.warning("Saved query %s not found for materialization failure notification", saved_query_id)
+        return
+
+    team: Team = saved_query.team
+
+    memberships_to_email = get_members_to_notify(team, NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED.value)
+    if not memberships_to_email:
+        return
+
+    logger.info("Preparing materialization failure notification email for saved query %s", saved_query_id)
+
+    today = datetime.date.today().strftime("%Y-%m-%d")
+    campaign_key = f"saved_query_materialization_failure_{saved_query_id}_{today}"
+
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject=f"PostHog: Materialized view '{saved_query.name}' sync failed",
+        template_name="saved_query_materialization_failure",
+        template_context={
+            "team": team,
+            "saved_query_id": str(saved_query.id),
+            "saved_query_name": saved_query.name,
+        },
+    )
+
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
 @shared_task(**EMAIL_TASK_KWARGS)
 def send_canary_email(user_email: str) -> None:
     message = EmailMessage(
@@ -581,6 +627,31 @@ def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
     )
     message.add_user_recipient(user)
     message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_two_factor_reset_email(user_id: int, token: str) -> None:
+    """Send 2FA reset email to user when an admin initiates a reset."""
+    user: User = User.objects.get(pk=user_id)
+
+    reset_link = f"{settings.SITE_URL}/reset_2fa/{user.uuid}/{token}"
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"2fa_reset_{user.uuid}-{timezone.now().timestamp()}",
+        subject="Reset your two-factor authentication",
+        template_name="2fa_reset",
+        template_context={
+            "preheader": "An administrator has initiated a 2FA reset for your account.",
+            "user_name": user.first_name,
+            "user_email": user.email,
+            "url": reset_link,
+            "expiration_hours": 1,
+            "site_url": settings.SITE_URL,
+        },
+    )
+    message.add_user_recipient(user)
+    message.send(send_async=False)
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -1024,30 +1095,34 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
             last_editors[hog_function_id] = None
             last_edit_dates[hog_function_id] = None
 
-    # Build function metrics
+    # Build function metrics. Only include functions with at least one failure; per-user threshold
+    # (data_pipeline_error_threshold) then filters which functions each user sees in send_hog_functions_digest_email.
     function_metrics = []
     for hog_function in hog_functions:
         hog_function_id = str(hog_function["id"])
-        if hog_function_id in metrics_by_function:
-            metrics = metrics_by_function[hog_function_id]
-            total_runs = metrics["succeeded"] + metrics["failed"]
-            failure_rate = (metrics["failed"] / total_runs * 100) if total_runs > 0 else 0
+        if hog_function_id not in metrics_by_function:
+            continue
 
-            # Only include functions with failure rate > 1%
-            if failure_rate > 1.0:
-                function_info = {
-                    "id": hog_function_id,
-                    "name": hog_function["name"],
-                    "type": hog_function["type"],
-                    "created_by_email": hog_function["created_by__email"],
-                    "last_edited_by_email": last_editors.get(hog_function_id),
-                    "last_edit_date": last_edit_dates.get(hog_function_id),
-                    "succeeded": metrics["succeeded"],
-                    "failed": metrics["failed"],
-                    "failure_rate": round(failure_rate, 1),
-                    "url": f"{settings.SITE_URL}/project/{team_id}/pipeline/destinations/hog-{hog_function_id}",
-                }
-                function_metrics.append(function_info)
+        metrics = metrics_by_function[hog_function_id]
+        if metrics["failed"] <= 0:
+            continue
+
+        total_runs = metrics["succeeded"] + metrics["failed"]
+        failure_rate = (metrics["failed"] / total_runs * 100) if total_runs > 0 else 0
+
+        function_info = {
+            "id": hog_function_id,
+            "name": hog_function["name"],
+            "type": hog_function["type"],
+            "created_by_email": hog_function["created_by__email"],
+            "last_edited_by_email": last_editors.get(hog_function_id),
+            "last_edit_date": last_edit_dates.get(hog_function_id),
+            "succeeded": metrics["succeeded"],
+            "failed": metrics["failed"],
+            "failure_rate": round(failure_rate, 1),
+            "url": f"{settings.SITE_URL}/project/{team_id}/pipeline/destinations/hog-{hog_function_id}",
+        }
+        function_metrics.append(function_info)
 
     if not function_metrics:
         logger.info(f"No functions with failures found for team {team_id}")
@@ -1216,3 +1291,57 @@ def send_new_ticket_notification(ticket_id: str, team_id: int, first_message_con
 
     message.send()
     logger.info(f"Sent new ticket notification for ticket {ticket.id} to {len(memberships_to_email)} recipients")
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_project_deleted_email(
+    user_id: int,
+    project_name: str,
+) -> None:
+    """Send email notification when project deletion is complete."""
+    user = User.objects.filter(id=user_id).first()
+    if not user:
+        logger.warning(f"User {user_id} not found for project deletion email")
+        return
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"project_deleted_{user_id}_{timezone.now().timestamp()}",
+        subject=f"Your project '{project_name}' has been deleted",
+        template_name="project_deleted",
+        template_context={
+            "project_name": project_name,
+            "site_url": settings.SITE_URL,
+        },
+    )
+    message.add_user_recipient(user)
+    message.send()
+    logger.info(f"Sent project deletion confirmation email to user {user_id} for project {project_name}")
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_organization_deleted_email(
+    user_id: int,
+    organization_name: str,
+    project_names: list[str],
+) -> None:
+    """Send email notification when organization deletion is complete."""
+    user = User.objects.filter(id=user_id).first()
+    if not user:
+        logger.warning(f"User {user_id} not found for organization deletion email")
+        return
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"organization_deleted_{user_id}_{timezone.now().timestamp()}",
+        subject=f"Your organization '{organization_name}' has been deleted",
+        template_name="organization_deleted",
+        template_context={
+            "organization_name": organization_name,
+            "project_names": project_names,
+            "site_url": settings.SITE_URL,
+        },
+    )
+    message.add_user_recipient(user)
+    message.send()
+    logger.info(f"Sent organization deletion confirmation email to user {user_id} for organization {organization_name}")

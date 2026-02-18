@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use sqlx::FromRow;
 
-use super::{PostgresStorage, DB_QUERY_DURATION};
+use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::DistinctIdLookup;
 use crate::storage::types::{DistinctIdMapping, DistinctIdWithVersion};
@@ -24,12 +24,15 @@ impl DistinctIdLookup for PostgresStorage {
         &self,
         team_id: i64,
         person_id: i64,
+        consistency: ConsistencyLevel,
     ) -> StorageResult<Vec<DistinctIdWithVersion>> {
         let labels = [(
             "operation".to_string(),
             "get_distinct_ids_for_person".to_string(),
         )];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let pool = self.pool_for_consistency(consistency);
 
         let rows = sqlx::query_as::<_, DistinctIdWithVersionRow>(
             r#"
@@ -40,7 +43,7 @@ impl DistinctIdLookup for PostgresStorage {
         )
         .bind(team_id)
         .bind(person_id)
-        .fetch_all(&self.pool)
+        .fetch_all(pool)
         .await?;
 
         Ok(rows
@@ -56,6 +59,7 @@ impl DistinctIdLookup for PostgresStorage {
         &self,
         team_id: i64,
         person_ids: &[i64],
+        consistency: ConsistencyLevel,
     ) -> StorageResult<Vec<DistinctIdMapping>> {
         if person_ids.is_empty() {
             return Ok(Vec::new());
@@ -67,6 +71,8 @@ impl DistinctIdLookup for PostgresStorage {
         )];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
+        let pool = self.pool_for_consistency(consistency);
+
         let rows = sqlx::query_as::<_, DistinctIdRow>(
             r#"
             SELECT person_id, distinct_id
@@ -76,7 +82,7 @@ impl DistinctIdLookup for PostgresStorage {
         )
         .bind(team_id)
         .bind(person_ids)
-        .fetch_all(&self.pool)
+        .fetch_all(pool)
         .await?;
 
         Ok(rows

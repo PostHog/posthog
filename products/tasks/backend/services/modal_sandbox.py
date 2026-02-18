@@ -1,8 +1,11 @@
 import os
+import time
 import uuid
+import shlex
 import logging
+from collections.abc import Iterable
 from functools import lru_cache
-from typing import cast
+from typing import Any, cast
 
 from django.conf import settings
 
@@ -11,7 +14,6 @@ import requests
 
 from posthog.exceptions_capture import capture_exception
 
-from products.tasks.backend.constants import SETUP_REPOSITORY_PROMPT
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.temporal.exceptions import (
     SandboxCleanupError,
@@ -22,17 +24,17 @@ from products.tasks.backend.temporal.exceptions import (
     SnapshotCreationError,
 )
 
-from .sandbox import ExecutionResult, SandboxConfig, SandboxStatus, SandboxTemplate
+from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
 
 logger = logging.getLogger(__name__)
 
 WORKING_DIR = "/tmp/workspace"
-DEFAULT_TASK_TIMEOUT_SECONDS = 20 * 60  # 20 minutes
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
 NOTEBOOK_MODAL_APP_NAME = "posthog-sandbox-notebook"
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
+AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 
 
 @lru_cache(maxsize=2)
@@ -115,12 +117,19 @@ class ModalSandbox:
     config: SandboxConfig
     _sandbox: modal.Sandbox
     _app: modal.App
+    _sandbox_url: str | None
 
-    def __init__(self, sandbox: modal.Sandbox, config: SandboxConfig):
+    def __init__(self, sandbox: modal.Sandbox, config: SandboxConfig, sandbox_url: str | None = None):
         self.id = sandbox.object_id
         self.config = config
         self._sandbox = sandbox
         self._app = ModalSandbox._get_app_for_template(config.template)
+        self._sandbox_url = sandbox_url
+
+    @property
+    def sandbox_url(self) -> str | None:
+        """Return the URL for connecting to the agent server, or None if not available."""
+        return self._sandbox_url
 
     @staticmethod
     def _get_default_app() -> modal.App:
@@ -136,13 +145,16 @@ class ModalSandbox:
     def create(config: SandboxConfig) -> "ModalSandbox":
         try:
             app = ModalSandbox._get_app_for_template(config.template)
-            image = _get_template_image(config.template)
+            base_image = _get_template_image(config.template)
+            image = base_image
+            used_snapshot_image = False
 
             if config.snapshot_id:
                 snapshot = SandboxSnapshot.objects.get(id=config.snapshot_id)
                 if snapshot.status == SandboxSnapshot.Status.COMPLETE:
                     try:
                         image = modal.Image.from_id(snapshot.external_id)
+                        used_snapshot_image = True
                     except Exception as e:
                         logger.warning(f"Failed to load snapshot image {snapshot.external_id}: {e}")
                         capture_exception(e)
@@ -168,7 +180,15 @@ class ModalSandbox:
             if secrets:
                 create_kwargs["secrets"] = secrets
 
-            sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+            try:
+                sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+            except Exception as e:
+                if not used_snapshot_image:
+                    raise
+                logger.warning(f"Failed to create sandbox with snapshot image, falling back to base image: {e}")
+                capture_exception(e)
+                create_kwargs["image"] = base_image
+                sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
 
             if config.metadata:
                 sb.set_tags(config.metadata)
@@ -251,6 +271,100 @@ class ModalSandbox:
                 cause=e,
             )
 
+    def execute_stream(
+        self,
+        command: str,
+        timeout_seconds: int | None = None,
+    ) -> ExecutionStream:
+        if not self.is_running():
+            raise SandboxExecutionError(
+                f"Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+
+        if timeout_seconds is None:
+            timeout_seconds = self.config.default_execution_timeout_seconds
+
+        try:
+            process = self._sandbox.exec("bash", "-c", command, timeout=timeout_seconds)
+        except TimeoutError as e:
+            capture_exception(e)
+            raise SandboxTimeoutError(
+                f"Execution timed out after {timeout_seconds} seconds",
+                {"sandbox_id": self.id, "timeout_seconds": timeout_seconds},
+                cause=e,
+            )
+        except Exception as e:
+            capture_exception(e)
+            logger.exception(f"Failed to execute command: {e}")
+            raise SandboxExecutionError(
+                f"Failed to execute command",
+                {"sandbox_id": self.id, "command": command, "error": str(e)},
+                cause=e,
+            )
+
+        class _ModalExecutionStream:
+            def __init__(self, process: Any):
+                self._process = process
+                self._stdout_buffer: list[str] = []
+                self._stdout_iterated = False
+
+            def iter_stdout(self) -> Iterable[str]:
+                self._stdout_iterated = True
+                for line in self._process.stdout:
+                    output = line.decode("utf-8") if isinstance(line, bytes) else line
+                    self._stdout_buffer.append(output)
+                    yield output
+
+            def wait(self) -> ExecutionResult:
+                self._process.wait()
+                if not self._stdout_iterated:
+                    stdout = self._process.stdout.read()
+                    stdout_text = stdout.decode("utf-8") if isinstance(stdout, bytes) else stdout
+                else:
+                    stdout_text = "".join(self._stdout_buffer)
+
+                stderr = self._process.stderr.read()
+                stderr_text = stderr.decode("utf-8") if isinstance(stderr, bytes) else stderr
+                return ExecutionResult(
+                    stdout=stdout_text,
+                    stderr=stderr_text,
+                    exit_code=self._process.returncode,
+                    error=None,
+                )
+
+        return _ModalExecutionStream(process)
+
+    def write_file(self, path: str, payload: bytes) -> ExecutionResult:
+        if not self.is_running():
+            raise SandboxExecutionError(
+                "Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+
+        temp_path = f"{path}.tmp-{uuid.uuid4().hex}"
+        try:
+            with self._sandbox.open(temp_path, "wb") as file_handle:
+                file_handle.write(payload)
+            mv_command = f"mv {shlex.quote(temp_path)} {shlex.quote(path)}"
+            result = self.execute(mv_command, timeout_seconds=self.config.default_execution_timeout_seconds)
+            if result.exit_code != 0:
+                logger.warning(
+                    "sandbox_write_failed",
+                    extra={"stdout": result.stdout, "stderr": result.stderr, "sandbox_id": self.id},
+                )
+            return result
+        except Exception as e:
+            capture_exception(e)
+            logger.exception(f"Failed to write file to sandbox: {e}")
+            raise SandboxExecutionError(
+                "Failed to write file",
+                {"sandbox_id": self.id, "path": path, "error": str(e)},
+                cause=e,
+            )
+
     def clone_repository(self, repository: str, github_token: str | None = "") -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError(f"Sandbox not in running state.")
@@ -275,22 +389,8 @@ class ModalSandbox:
         return self.execute(clone_command, timeout_seconds=5 * 60)
 
     def setup_repository(self, repository: str) -> ExecutionResult:
-        if not self.is_running():
-            raise RuntimeError(f"Sandbox not in running state.")
-
-        org, repo = repository.lower().split("/")
-        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
-
-        check_result = self.execute(f"test -d {repo_path} && echo 'exists' || echo 'missing'")
-        if "missing" in check_result.stdout:
-            raise RuntimeError(f"Repository path {repo_path} does not exist. Clone the repository first.")
-
-        agent_setup_command = self._get_setup_command(repo_path)
-        setup_command = f"cd {repo_path} && {agent_setup_command}"
-
-        result = self.execute(setup_command, timeout_seconds=15 * 60)
-
-        return result
+        """No-op: Repository setup is now handled by agent-server."""
+        return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
 
     def is_git_clean(self, repository: str) -> tuple[bool, str]:
         if not self.is_running():
@@ -305,36 +405,74 @@ class ModalSandbox:
         return is_clean, result.stdout
 
     def execute_task(self, task_id: str, run_id: str, repository: str, create_pr: bool = True) -> ExecutionResult:
+        """No-op: Task execution is now handled by agent-server."""
+        return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
+
+    def get_connect_credentials(self) -> AgentServerResult:
+        """Get connect credentials (URL and token) for this sandbox.
+
+        Modal connect tokens provide authenticated HTTP access to port 8080 in the sandbox.
+        Should be called after sandbox creation to get the URL and token needed for connection.
+        """
         if not self.is_running():
-            raise RuntimeError(f"Sandbox not in running state.")
+            raise RuntimeError("Sandbox not in running state.")
+
+        credentials = self._sandbox.create_connect_token()
+        self._sandbox_url = credentials.url
+
+        logger.info(f"Got connect credentials for sandbox {self.id}: {credentials.url}")
+        return AgentServerResult(url=credentials.url, token=credentials.token)
+
+    def start_agent_server(self, repository: str, task_id: str, run_id: str, mode: str = "background") -> None:
+        """Start the agent-server HTTP server in the sandbox.
+
+        The sandbox URL and token should be obtained via get_connect_credentials()
+        before calling this method. The agent-server runs on port 8080 which is
+        exposed via Modal's connect token mechanism.
+        """
+        if not self.is_running():
+            raise RuntimeError("Sandbox not in running state.")
 
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        task_command = self._get_task_command(task_id, run_id, repo_path, create_pr)
-        command = f"cd {repo_path} && {task_command}"
+        command = (
+            f"cd /scripts && "
+            f"nohup npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {repo_path} "
+            f"--taskId {task_id} --runId {run_id} --mode {mode} "
+            f"> /tmp/agent-server.log 2>&1 &"
+        )
 
-        logger.info(f"Executing task {task_id} for run {run_id} in {repo_path} in sandbox {self.id}")
-        logger.info(f"Task command: {task_command}")
-        logger.info(f"Full command: {command}")
+        logger.info(f"Starting agent-server in sandbox {self.id} for {repository}")
+        result = self.execute(command, timeout_seconds=30)
 
-        result = self.execute(command, timeout_seconds=DEFAULT_TASK_TIMEOUT_SECONDS)
-
-        logger.info(f"Task execution completed: exit_code={result.exit_code}")
-        logger.info(f"Task stdout length: {len(result.stdout)} chars")
-        logger.info(f"Task stderr length: {len(result.stderr)} chars")
         if result.exit_code != 0:
-            logger.warning(f"Task stdout preview: {result.stdout[:500]}")
-            logger.warning(f"Task stderr preview: {result.stderr[:500]}")
+            raise SandboxExecutionError(
+                "Failed to start agent-server",
+                {"sandbox_id": self.id, "stderr": result.stderr},
+                cause=RuntimeError(result.stderr),
+            )
 
-        return result
+        if not self._wait_for_health_check():
+            log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
+            raise SandboxExecutionError(
+                "Agent-server failed to start",
+                {"sandbox_id": self.id, "log": log_result.stdout},
+                cause=RuntimeError("Health check failed after retries"),
+            )
 
-    def _get_task_command(self, task_id: str, run_id: str, repo_path: str, create_pr: bool = True) -> str:
-        create_pr_flag = "true" if create_pr else "false"
-        return f"git reset --hard HEAD && IS_SANDBOX=True node /scripts/runAgent.mjs --taskId {task_id} --runId {run_id} --repositoryPath {repo_path} --createPR {create_pr_flag}"
+        logger.info(f"Agent-server started in sandbox {self.id}")
 
-    def _get_setup_command(self, repo_path: str) -> str:
-        return f"git reset --hard HEAD && IS_SANDBOX=True && node /scripts/runAgent.mjs --repositoryPath {repo_path} --prompt '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}' --max-turns 20"
+    def _wait_for_health_check(self, max_attempts: int = 20, delay_seconds: float = 1.0) -> bool:
+        """Poll health endpoint until server is ready."""
+        health_cmd = f"curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{AGENT_SERVER_PORT}/health"
+        for attempt in range(max_attempts):
+            result = self.execute(health_cmd, timeout_seconds=5)
+            if result.stdout.strip() == "200":
+                logger.info(f"Agent-server health check passed on attempt {attempt + 1}")
+                return True
+            time.sleep(delay_seconds)
+        return False
 
     def create_snapshot(self) -> str:
         if not self.is_running():

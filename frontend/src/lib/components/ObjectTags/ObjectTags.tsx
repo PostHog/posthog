@@ -65,7 +65,7 @@ export function ObjectTags({
         style.color = 'var(--color-text-secondary)'
     }
 
-    const hasTags = tagsAvailable && tagsAvailable.length > 0
+    const hasTags = tags && tags.length > 0
 
     return (
         <div

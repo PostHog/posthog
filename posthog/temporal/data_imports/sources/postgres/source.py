@@ -19,6 +19,8 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
 from posthog.temporal.data_imports.sources.postgres.postgres import (
+    SSL_REQUIRED_AFTER_DATE,
+    SSLRequiredError,
     filter_postgres_incremental_fields,
     get_postgres_row_count,
     get_schemas as get_postgres_schemas,
@@ -33,6 +35,7 @@ PostgresErrors = {
     "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
     'database "': "Database does not exist",
     "timeout expired": "Connection timed out. Does your database have our IP addresses allowed?",
+    "SSL/TLS connection is required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
 }
 
 
@@ -136,6 +139,10 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             "OperationalError: connection failed: connection to server at": None,
             "password authentication failed connection": None,
             "connection timeout expired": None,
+            "SSLRequiredError": None,
+            "SSL/TLS connection is required": None,
+            "DiskFull": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
+            "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
         }
 
     def get_schemas(self, config: PostgresSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
@@ -204,6 +211,8 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
 
         try:
             self.get_schemas(config, team_id)
+        except SSLRequiredError as e:
+            return False, str(e)
         except OperationalError as e:
             error_msg = " ".join(str(n) for n in e.args)
             for key, value in PostgresErrors.items():
@@ -229,7 +238,10 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
 
         ssh_tunnel = self.make_ssh_tunnel_func(config)
 
-        schema = ExternalDataSchema.objects.get(id=inputs.schema_id)
+        schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+
+        # Require SSL for sources created after the cutoff date
+        require_ssl = schema.source.created_at >= SSL_REQUIRED_AFTER_DATE
 
         return postgres_source(
             tunnel=ssh_tunnel,
@@ -246,4 +258,5 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             chunk_size_override=schema.chunk_size_override,
             team_id=inputs.team_id,
+            require_ssl=require_ssl,
         )

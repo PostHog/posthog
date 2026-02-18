@@ -37,12 +37,10 @@ from social_django.views import auth
 from two_factor.utils import default_device
 from two_factor.views.core import REMEMBER_COOKIE_PREFIX
 from two_factor.views.utils import get_remember_device_cookie, validate_remember_device_cookie
-from webauthn import generate_authentication_options, verify_authentication_response
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_json
-from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor, UserVerificationRequirement
+from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor
 
 from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
-from posthog.auth import get_webauthn_rp_id, get_webauthn_rp_origin
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
@@ -59,6 +57,7 @@ from posthog.helpers.two_factor_session import (
 from posthog.models import OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # noqa: F401
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.passkey import generate_passkey_authentication_options, verify_passkey_authentication_response
 from posthog.rate_limit import EmailMFAResendThrottle, EmailMFAThrottle, TwoFactorThrottle, UserPasswordResetThrottle
 from posthog.tasks.email import (
     login_from_new_device_notification,
@@ -66,6 +65,7 @@ from posthog.tasks.email import (
     send_two_factor_auth_backup_code_used_email,
 )
 from posthog.utils import get_instance_available_sso_providers, get_ip_address, get_short_user_agent
+from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
 mfa_logger = structlog.get_logger("posthog.auth.mfa")
 
@@ -230,6 +230,18 @@ class LoginSerializer(serializers.Serializer):
             )
 
         request = self.context["request"]
+
+        # Evaluate signin attempt with WorkOS Radar (log-only mode, does not block)
+        # Get user_id if user exists, for better tracking in the event
+        existing_user = User.objects.filter(email__iexact=validated_data["email"]).first()
+        evaluate_auth_attempt(
+            request=request._request,
+            email=validated_data["email"],
+            action=RadarAction.SIGNIN,
+            auth_method=RadarAuthMethod.PASSWORD,
+            user_id=str(existing_user.distinct_id) if existing_user else None,
+        )
+
         axes_request = getattr(request, "_request", request)
         was_authenticated_before_login_attempt = bool(getattr(request, "user", None) and request.user.is_authenticated)
 
@@ -470,14 +482,11 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
 
             # Verify the authentication response
             expected_challenge = base64url_to_bytes(challenge_b64)
-            verification = verify_authentication_response(
+            verification = verify_passkey_authentication_response(
                 credential=credential_dict,
                 expected_challenge=expected_challenge,
-                expected_rp_id=get_webauthn_rp_id(),
-                expected_origin=get_webauthn_rp_origin(),
                 credential_public_key=credential.public_key,
                 credential_current_sign_count=credential.counter,
-                require_user_verification=True,
             )
 
             # Update sign count
@@ -685,12 +694,7 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         ]
 
         # Generate authentication options
-        options = generate_authentication_options(
-            rp_id=get_webauthn_rp_id(),
-            allow_credentials=allow_credentials,
-            user_verification=UserVerificationRequirement.REQUIRED,
-            timeout=300000,  # 5 minutes
-        )
+        options = generate_passkey_authentication_options(allow_credentials=allow_credentials)
 
         # Store challenge in session
         request.session[WEBAUTHN_2FA_CHALLENGE_KEY] = bytes_to_base64url(options.challenge)

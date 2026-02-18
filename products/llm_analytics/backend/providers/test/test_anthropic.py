@@ -19,9 +19,9 @@ class TestAnthropicConfig(SimpleTestCase):
 
     def test_supported_models_include_expected(self):
         expected_models = [
+            "claude-haiku-4-5",
             "claude-sonnet-4-5",
-            "claude-3-5-sonnet-20241022",
-            "claude-3-5-haiku-20241022",
+            "claude-opus-4-5",
         ]
         for model in expected_models:
             assert model in AnthropicConfig.SUPPORTED_MODELS
