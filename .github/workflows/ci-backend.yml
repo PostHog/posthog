@@ -495,25 +495,55 @@ jobs:
                   npm_config_fetch_retry_maxtimeout: 60000
               run: pnpm install --frozen-lockfile
 
-            - name: Check if OpenAPI types are up to date
+            - name: Get app token for OpenAPI type commits
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
+              id: openapi-app-token
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              with:
+                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
+            - name: Check and update OpenAPI types
               run: |
                   ./bin/hogli build:openapi
-                  if ! git diff --exit-code; then
-                      echo ""
-                      echo "::error::OpenAPI types are out of date!"
-                      echo ""
-                      echo "The TypeScript API types in products/*/frontend/generated/ are auto-generated"
-                      echo "from Django serializers and views. When you modify the backend API, you need"
-                      echo "to regenerate these types."
-                      echo ""
-                      echo "To fix, run locally:  hogli build:openapi"
-                      echo "Then commit the updated generated files."
-                      echo ""
-                      echo "More info: https://posthog.com/handbook/engineering/type-system"
-                      echo ""
-                      echo "Questions? #team-devex on Slack"
+                  if git diff --exit-code; then
+                      echo "OpenAPI types are up to date"
+                      exit 0
+                  fi
+
+                  echo "OpenAPI types are out of date"
+
+                  # On non-PR builds or fork PRs, fail with instructions
+                  if [ "${{ github.event_name }}" != "pull_request" ] || \
+                     [ "${{ github.event.pull_request.head.repo.full_name }}" != "PostHog/posthog" ]; then
+                      echo "::error::OpenAPI types are out of date! Run locally: hogli build:openapi"
                       exit 1
                   fi
+
+                  echo "::notice::Committing updated OpenAPI types to PR branch"
+
+                  BRANCH="${{ github.event.pull_request.head.ref }}"
+                  TOKEN="${{ steps.openapi-app-token.outputs.token }}"
+
+                  git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${{ github.repository }}.git"
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+
+                  # Switch to PR branch and regenerate types there
+                  git fetch origin "$BRANCH"
+                  git checkout -f -B "$BRANCH" "origin/$BRANCH"
+                  ./bin/hogli build:openapi
+
+                  if git diff --exit-code; then
+                      echo "Types already up to date on PR branch"
+                      exit 0
+                  fi
+
+                  git add frontend/src/generated/
+                  git add products/*/frontend/generated/ 2>/dev/null || true
+                  git commit -m "chore: update OpenAPI generated types"
+                  git push origin "$BRANCH"
+                  echo "::notice::Pushed updated OpenAPI types to $BRANCH"
 
     django:
         needs: [changes, detect-snapshot-mode, get_clickhouse_versions]
