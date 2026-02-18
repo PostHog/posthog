@@ -67,7 +67,8 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
         // If inputTokens < cacheReadTokens + cacheWriteTokens, the tokens can't be inclusive
         // (inclusive means cache tokens are a subset of input tokens). This guards against
         // SDKs that report exclusive counts through the Vercel gateway.
-        const isActuallyInclusive = inclusiveInputTokens && inputTokens >= cacheReadTokens + cacheWriteTokens
+        const isActuallyInclusive =
+            inclusiveInputTokens && Number(inputTokens) >= Number(cacheReadTokens) + Number(cacheWriteTokens)
         const uncachedTokens = isActuallyInclusive
             ? bigDecimal.subtract(bigDecimal.subtract(inputTokens, cacheReadTokens), cacheWriteTokens)
             : inputTokens

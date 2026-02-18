@@ -264,6 +264,24 @@ describe('calculateInputCost()', () => {
             expectCostToBeCloseTo(result, 0.00663855, 8)
         })
 
+        it('handles string token values correctly for inclusive accounting', () => {
+            const event = createTestEvent({
+                properties: {
+                    $ai_provider: 'gateway',
+                    $ai_framework: 'vercel',
+                    $ai_model: 'anthropic/claude-sonnet-4.5',
+                    $ai_input_tokens: '14013',
+                    $ai_cache_read_input_tokens: '13306',
+                    $ai_cache_creation_input_tokens: '701',
+                },
+            })
+
+            const result = calculateInputCost(event, ANTHROPIC_MODEL)
+
+            // Same as the numeric inclusive test — strings must produce identical results
+            expectCostToBeCloseTo(result, 0.00663855, 8)
+        })
+
         it('falls back to exclusive accounting when Vercel gateway tokens are provably not inclusive', () => {
             // When inputTokens < cacheReadTokens + cacheWriteTokens, the tokens can't be inclusive.
             // This happens when SDKs (e.g., posthog-ai) report Anthropic-style exclusive counts
