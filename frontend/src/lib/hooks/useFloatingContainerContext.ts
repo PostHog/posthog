@@ -16,7 +16,7 @@ export const useFloatingContainer = (): HTMLElement | null | undefined => {
     const [el, setEl] = useState<HTMLElement | null | undefined>(undefined)
 
     useLayoutEffect(() => {
-        setEl(ref?.current ?? null)
+        setEl(ref?.current)
     }, [ref])
 
     return el
