@@ -3809,6 +3809,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     bucketing_identifier?: FeatureFlagBucketingIdentifier | null
     _should_create_usage_dashboard?: boolean
     last_called_at?: string | null
+    is_used_in_replay_settings?: boolean
 }
 
 export interface OrganizationFeatureFlag {

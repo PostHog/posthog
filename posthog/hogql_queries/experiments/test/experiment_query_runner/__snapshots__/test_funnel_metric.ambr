@@ -42,18 +42,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_events_after_exposure_0_ordered
@@ -99,18 +99,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_events_after_exposure_1_unordered
@@ -178,18 +178,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_events_out_of_order
@@ -235,18 +235,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_excludes_different_feature_flags
@@ -292,18 +292,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_excludes_events_after_experiment_end_date
@@ -347,18 +347,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_ordered_vs_unordered_comparison
@@ -404,18 +404,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_ordered_vs_unordered_comparison.1
@@ -483,18 +483,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_action
@@ -540,18 +540,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_conversion_window
@@ -597,18 +597,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_custom_conversion_window
@@ -654,18 +654,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_many_steps
@@ -719,18 +719,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_multiple_similar_steps
@@ -778,18 +778,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_step_property_filter
@@ -835,18 +835,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_unordered_steps
@@ -914,18 +914,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_funnel_metric
@@ -969,18 +969,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_group_aggregation_funnel_metric
@@ -1017,18 +1017,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter
@@ -1117,18 +1117,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter.2
@@ -1289,18 +1289,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent.2
@@ -1461,18 +1461,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent.2
@@ -1643,18 +1643,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter.2
@@ -1825,18 +1825,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent.2
@@ -2007,18 +2007,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent.2
@@ -2172,18 +2172,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter.2
@@ -2337,18 +2337,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent.2
@@ -2502,18 +2502,18 @@
   FROM entity_metrics
   WHERE notEmpty(variant)
   GROUP BY entity_metrics.variant
-  LIMIT 2000 SETTINGS readonly=2,
-                      max_execution_time=600,
-                      allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0,
-                      max_ast_elements=4000000,
-                      max_expanded_ast_elements=4000000,
-                      max_bytes_before_external_group_by=39728447488,
-                      allow_experimental_analyzer=1,
-                      transform_null_in=1,
-                      optimize_min_equality_disjunction_chain_length=4294967295,
-                      allow_experimental_join_condition=1,
-                      use_hive_partitioning=0
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=39728447488,
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent.2
