@@ -161,3 +161,7 @@ docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/ru
 - Markdown: prefer semantic line breaks; no hard wrapping
 - Use American English spelling
 - When mentioning PostHog products, the product names should use Sentence casing, not Title Casing. For example, 'Product analytics', not 'Product Analytics'. Any other buttons, tab text, tooltips, etc should also all use Sentence casing. For example, 'Save as view' instead of 'Save As View'.
+
+## Skills
+
+Skills are created inside [.agents/skills](.agents/skills/) by default and them symlinked to [.claude/skills](.claude/skills). Make sure you always treat `.agents/skills` as the source of truth.
