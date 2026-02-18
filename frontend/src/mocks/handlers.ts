@@ -148,7 +148,6 @@ export const defaultMocks: Mocks = {
         ],
         '/api/users/@me/two_factor_status/': () => [200, { is_enabled: true, backup_codes: [], method: 'TOTP' }],
         '/api/users/@me/hedgehog_config/': {
-            skin: 'spiderhog',
             color: null,
             enabled: false,
             accessories: ['tophat', 'sunglasses'],
