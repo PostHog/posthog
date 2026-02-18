@@ -17,7 +17,6 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.workflow import ChildWorkflowHandle
 
-from posthog.models.team.team import Team
 from posthog.temporal.ai.video_segment_clustering.clustering_workflow import VideoSegmentClusteringWorkflow
 from posthog.temporal.ai.video_segment_clustering.constants import DEFAULT_LOOKBACK_WINDOW
 from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs, WorkflowResult
@@ -143,7 +142,11 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
 
 @activity.defn
 async def get_proactive_tasks_enabled_team_ids_activity() -> list[int]:
+    from products.signals.backend.models import SignalSourceConfig
+
     enabled_team_ids: list[int] = []
-    async for team in Team.objects.filter(proactive_tasks_enabled=True).only("id"):
-        enabled_team_ids.append(team.id)
+    async for config in SignalSourceConfig.objects.filter(
+        source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS, enabled=True
+    ).only("team_id"):
+        enabled_team_ids.append(config.team_id)
     return enabled_team_ids

@@ -25,8 +25,12 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.permissions import APIScopePermission
 
 from products.signals.backend.api import emit_signal
-from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.serializers import SignalReportArtefactSerializer, SignalReportSerializer
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalSourceConfig
+from products.signals.backend.serializers import (
+    SignalReportArtefactSerializer,
+    SignalReportSerializer,
+    SignalSourceConfigSerializer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +71,23 @@ class SignalViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
         return Response({"status": "ok"}, status=status.HTTP_202_ACCEPTED)
+
+
+class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    serializer_class = SignalSourceConfigSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"
+    queryset = SignalSourceConfig.objects.all()
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team=self.team).order_by("-created_at")
+
+    def perform_create(self, serializer):
+        serializer.save(team=self.team, created_by=self.request.user)
+
+    def perform_update(self, serializer):
+        serializer.save()
 
 
 @extend_schema_view(
