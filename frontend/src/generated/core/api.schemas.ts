@@ -2161,7 +2161,7 @@ export const AnnotationScopeEnumApi = {
 export interface AnnotationApi {
     readonly id: number
     /**
-     * @maxLength 400
+     * @maxLength 8192
      * @nullable
      */
     content?: string | null
@@ -2200,7 +2200,7 @@ export interface PaginatedAnnotationListApi {
 export interface PatchedAnnotationApi {
     readonly id?: number
     /**
-     * @maxLength 400
+     * @maxLength 8192
      * @nullable
      */
     content?: string | null
