@@ -47,6 +47,25 @@ class TestApprovalsFeatureGating(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/{endpoint}/")
         assert response.status_code == status.HTTP_200_OK
 
+    @parameterized.expand(["approve", "reject", "cancel"])
+    @patch("posthog.permissions.is_cloud", return_value=True)
+    def test_change_request_actions_require_feature_on_cloud(self, action, _mock_is_cloud):
+        cr = ChangeRequest.objects.create(
+            team=self.team,
+            organization=self.organization,
+            created_by=self.user,
+            action_key="feature_flag.enable",
+            resource_type="feature_flag",
+            resource_id="123",
+            state=ChangeRequestState.PENDING,
+            intent={"gated_changes": {"active": True}},
+            intent_display={"description": "Enable feature flag"},
+            policy_snapshot={"quorum": 1, "users": [self.user.id], "allow_self_approve": True},
+            expires_at=timezone.now() + timedelta(days=7),
+        )
+        response = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/{action}/")
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+
 
 class TestChangeRequestViewSet(APIBaseTest):
     def setUp(self):
