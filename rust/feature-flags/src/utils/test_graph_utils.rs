@@ -765,6 +765,85 @@ mod tests {
             );
         }
     }
+
+    mod into_evaluation_stages {
+        use super::*;
+
+        /// Verifies that `into_evaluation_stages` (owned) produces the same stage
+        /// groupings as `evaluation_stages` (borrowed) across varied graph shapes.
+        #[test]
+        fn test_into_evaluation_stages_matches_borrowed_version() {
+            let cases: Vec<(&str, Vec<TestItem>)> = vec![
+                (
+                    "linear_chain",
+                    vec![
+                        TestItem::new(1, HashSet::from([2])),
+                        TestItem::new(2, HashSet::from([3])),
+                        TestItem::new(3, HashSet::new()),
+                    ],
+                ),
+                (
+                    "independent_nodes",
+                    vec![
+                        TestItem::new(1, HashSet::new()),
+                        TestItem::new(2, HashSet::new()),
+                        TestItem::new(3, HashSet::new()),
+                    ],
+                ),
+                (
+                    "diamond_dag",
+                    vec![
+                        TestItem::new(1, HashSet::from([2, 3])),
+                        TestItem::new(2, HashSet::from([4])),
+                        TestItem::new(3, HashSet::from([4])),
+                        TestItem::new(4, HashSet::new()),
+                    ],
+                ),
+                (
+                    "complex_shared_deps",
+                    vec![
+                        TestItem::new(1, HashSet::from([2])),
+                        TestItem::new(2, HashSet::from([3])),
+                        TestItem::new(3, HashSet::from([4])),
+                        TestItem::new(4, HashSet::from([6])),
+                        TestItem::new(5, HashSet::from([4])),
+                        TestItem::new(6, HashSet::new()),
+                        TestItem::new(7, HashSet::new()),
+                        TestItem::new(8, HashSet::from([9])),
+                        TestItem::new(9, HashSet::new()),
+                    ],
+                ),
+            ];
+
+            for (name, items) in cases {
+                // Build two identical graphs — one for borrowed, one for owned
+                let (borrowed_graph, errors, _) = DependencyGraph::from_nodes(&items).unwrap();
+                assert!(errors.is_empty(), "{name}: unexpected errors: {errors:?}");
+                let (owned_graph, errors, _) = DependencyGraph::from_nodes(&items).unwrap();
+                assert!(errors.is_empty(), "{name}: unexpected errors: {errors:?}");
+
+                let borrowed_stages = borrowed_graph.evaluation_stages().unwrap();
+                let owned_stages = owned_graph.into_evaluation_stages().unwrap();
+
+                assert_eq!(
+                    borrowed_stages.len(),
+                    owned_stages.len(),
+                    "{name}: stage count mismatch"
+                );
+
+                for (i, (borrowed, owned)) in
+                    borrowed_stages.iter().zip(owned_stages.iter()).enumerate()
+                {
+                    let borrowed_ids: HashSet<_> = borrowed.iter().map(|item| item.id).collect();
+                    let owned_ids: HashSet<_> = owned.iter().map(|item| item.id).collect();
+                    assert_eq!(
+                        borrowed_ids, owned_ids,
+                        "{name}: stage {i} mismatch: borrowed={borrowed_ids:?}, owned={owned_ids:?}"
+                    );
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

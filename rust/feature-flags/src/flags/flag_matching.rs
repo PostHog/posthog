@@ -12,7 +12,9 @@ use crate::flags::flag_matching_utils::{
     populate_missing_initial_properties, set_feature_flag_hash_key_overrides,
     should_write_hash_key_override,
 };
-use crate::flags::flag_models::{FeatureFlag, FeatureFlagId, FeatureFlagList, FlagPropertyGroup};
+use crate::flags::flag_models::{
+    FeatureFlag, FeatureFlagId, FeatureFlagList, FlagFilters, FlagPropertyGroup,
+};
 use crate::flags::flag_operations::flags_require_db_preparation;
 use crate::handler::with_canonical_log;
 use crate::metrics::consts::{
@@ -39,6 +41,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{error, instrument, warn};
 use uuid::Uuid;
+
+const DEFAULT_PARALLEL_EVAL_THRESHOLD: usize = 100;
 
 /// Parameters for feature flag evaluation with various override options
 #[derive(Debug, Default)]
@@ -219,7 +223,26 @@ pub struct FeatureFlagMatcher {
     parallel_eval_threshold: usize,
 }
 
-const DEFAULT_PARALLEL_EVAL_THRESHOLD: usize = 100;
+/// Lightweight snapshot of a flag's identity fields, saved before moving
+/// flags into the Rayon pool. Used to reconstruct per-flag error results
+/// if the rayon task panics.
+struct FlagSnapshot {
+    key: String,
+    id: FeatureFlagId,
+    active: bool,
+    version: Option<i32>,
+}
+
+impl FlagSnapshot {
+    pub fn from_flag(flag: &FeatureFlag) -> Self {
+        FlagSnapshot {
+            key: flag.key.clone(),
+            id: flag.id,
+            active: flag.active,
+            version: flag.version,
+        }
+    }
+}
 
 impl FeatureFlagMatcher {
     #[allow(clippy::too_many_arguments)]
@@ -733,6 +756,8 @@ impl FeatureFlagMatcher {
     /// (e.g., Kahn's algorithm) for handling flag dependencies.
     ///
     /// Dispatches between sequential and parallel evaluation based on flag count.
+    /// Sequential: borrows flags by reference (zero-copy).
+    /// Parallel: moves owned flags into a rayon task via oneshot channel.
     #[allow(clippy::too_many_arguments)]
     #[instrument(skip_all, fields(team_id = %self.team_id, distinct_id = %self.distinct_id))]
     async fn evaluate_flags_in_level(
@@ -791,19 +816,15 @@ impl FeatureFlagMatcher {
                 });
             }
             EvaluationType::Parallel => {
-                let results: Vec<_> = flags_to_evaluate
-                    .par_iter()
-                    .map(|flag| {
-                        let result = self.evaluate_single_flag(
-                            flag,
-                            &precomputed_property_overrides,
-                            flags_with_missing_deps,
-                            hash_key_overrides,
-                            request_hash_key_override,
-                        );
-                        (flag, result)
-                    })
-                    .collect();
+                let results = self
+                    .evaluate_batch_parallel(
+                        flags_to_evaluate,
+                        precomputed_property_overrides,
+                        flags_with_missing_deps,
+                        hash_key_overrides,
+                        request_hash_key_override,
+                    )
+                    .await;
 
                 for (flag, result) in &results {
                     self.process_flag_result(
@@ -936,6 +957,90 @@ impl FeatureFlagMatcher {
         }
 
         Ok(None)
+    }
+
+    /// Pushes CPU-bound flag evaluation onto the Rayon pool via `rayon::spawn` +
+    /// `tokio::sync::oneshot`, so the calling Tokio worker thread is free to serve
+    /// other requests while evaluation runs.
+    async fn evaluate_batch_parallel(
+        &self,
+        flags_to_evaluate: Vec<FeatureFlag>,
+        precomputed_property_overrides: HashMap<String, Option<HashMap<String, Value>>>,
+        flags_with_missing_deps: &HashSet<i32>,
+        hash_key_overrides: &Option<HashMap<String, String>>,
+        request_hash_key_override: &Option<String>,
+    ) -> Vec<(FeatureFlag, Result<FeatureFlagMatch, FlagError>)> {
+        let matcher = self.clone();
+        let missing_deps = flags_with_missing_deps.clone();
+        let hash_overrides = hash_key_overrides.clone();
+        let req_hash_override = request_hash_key_override.clone();
+
+        // Save lightweight snapshots before moving flags into rayon.
+        // If the rayon task panics, we use these to construct per-flag error results
+        // instead of silently dropping flags from the response.
+        let team_id = self.team_id;
+        let flag_snapshots: Vec<_> = flags_to_evaluate
+            .iter()
+            .map(FlagSnapshot::from_flag)
+            .collect();
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        // TODO: Canonical log counters (cohorts_evaluated, flags_device_id_bucketing,
+        // property_cache_hits/misses, hash_key_override_status) are silently lost on rayon
+        // threads because CANONICAL_LOG uses tokio::task_local!. Fix by adding a thread_local!
+        // fallback: install a fresh FlagsCanonicalLogLine per flag eval, take it after, send
+        // deltas back through the oneshot channel, and merge into the real canonical log here.
+        // See: https://github.com/PostHog/posthog/issues/47752
+        rayon::spawn(move || {
+            let results: Vec<_> = flags_to_evaluate
+                .into_par_iter()
+                .map(|flag| {
+                    let result = matcher.evaluate_single_flag(
+                        &flag,
+                        &precomputed_property_overrides,
+                        &missing_deps,
+                        &hash_overrides,
+                        &req_hash_override,
+                    );
+                    (flag, result)
+                })
+                .collect();
+            drop(tx.send(results));
+        });
+
+        rx.await.unwrap_or_else(|_| {
+            error!("Rayon parallel evaluation task was dropped (likely panicked)");
+            Self::build_panic_fallback(flag_snapshots, team_id)
+        })
+    }
+
+    /// Constructs per-flag error results from lightweight snapshots when the
+    /// rayon task panics and drops the oneshot sender.
+    fn build_panic_fallback(
+        snapshots: Vec<FlagSnapshot>,
+        team_id: TeamId,
+    ) -> Vec<(FeatureFlag, Result<FeatureFlagMatch, FlagError>)> {
+        snapshots
+            .into_iter()
+            .map(|snapshot| {
+                let stub = FeatureFlag {
+                    id: snapshot.id,
+                    key: snapshot.key,
+                    active: snapshot.active,
+                    version: snapshot.version,
+                    filters: FlagFilters::default(),
+                    team_id,
+                    name: None,
+                    deleted: false,
+                    ensure_experience_continuity: None,
+                    evaluation_runtime: None,
+                    evaluation_tags: None,
+                    bucketing_identifier: None,
+                };
+                (stub, Err(FlagError::BatchEvaluationPanicked))
+            })
+            .collect()
     }
 
     fn evaluate_single_flag(
@@ -1919,5 +2024,67 @@ impl FeatureFlagMatcher {
             .fin();
 
         errors_while_computing_flags
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_panic_fallback_preserves_flag_identity() {
+        let team_id = 42;
+        let snapshots = vec![
+            FlagSnapshot {
+                key: "flag_a".to_string(),
+                id: 10,
+                active: true,
+                version: Some(3),
+            },
+            FlagSnapshot {
+                key: "flag_b".to_string(),
+                id: 20,
+                active: false,
+                version: None,
+            },
+            FlagSnapshot {
+                key: "flag_c".to_string(),
+                id: 30,
+                active: true,
+                version: Some(1),
+            },
+        ];
+
+        let results = FeatureFlagMatcher::build_panic_fallback(snapshots, team_id);
+
+        assert_eq!(results.len(), 3);
+
+        let (stub_a, err_a) = &results[0];
+        assert_eq!(stub_a.key, "flag_a");
+        assert_eq!(stub_a.id, 10);
+        assert!(stub_a.active);
+        assert_eq!(stub_a.version, Some(3));
+        assert!(matches!(err_a, Err(FlagError::BatchEvaluationPanicked)));
+
+        let (stub_b, err_b) = &results[1];
+        assert_eq!(stub_b.key, "flag_b");
+        assert_eq!(stub_b.id, 20);
+        assert!(!stub_b.active);
+        assert_eq!(stub_b.version, None);
+        assert!(matches!(err_b, Err(FlagError::BatchEvaluationPanicked)));
+
+        let (stub_c, err_c) = &results[2];
+        assert_eq!(stub_c.key, "flag_c");
+        assert_eq!(stub_c.id, 30);
+        assert!(stub_c.active);
+        assert_eq!(stub_c.version, Some(1));
+        assert!(matches!(err_c, Err(FlagError::BatchEvaluationPanicked)));
+
+        for (stub, _) in &results {
+            assert_eq!(stub.team_id, team_id);
+            assert_eq!(stub.name, None);
+            assert!(!stub.deleted);
+            assert!(stub.filters.groups.is_empty());
+        }
     }
 }
