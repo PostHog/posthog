@@ -1,6 +1,8 @@
+import json
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, Optional, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.db.models import F
@@ -633,32 +635,56 @@ class BillingManager:
         return res.json()
 
     def get_usage_data(self, organization: Organization, params: dict[str, Any]) -> dict[str, Any]:
-        """
-        Get usage data from the billing service.
-        """
-        res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/v2/usage/",
-            headers=self.get_auth_headers(organization),
-            params=params,
-        )
-
-        handle_billing_service_error(res)
-
-        return res.json()
+        return self._request_with_post_fallback(organization, "/api/v2/usage/", params)
 
     def get_spend_data(self, organization: Organization, params: dict[str, Any]) -> dict[str, Any]:
+        return self._request_with_post_fallback(organization, "/api/v2/spend/", params)
+
+    def _request_with_post_fallback(
+        self, organization: Organization, path: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
         """
-        Get spend data from the billing service.
+        GET with automatic POST fallback for large payloads.
+
+        Tries GET first with query params. If the server responds with 414
+        (URI Too Long) or 431 (Request Header Fields Too Large), retries as
+        POST with a JSON body. This handles orgs with many teams whose
+        teams_map serialization exceeds URL/header limits.
         """
-        res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/v2/spend/",
-            headers=self.get_auth_headers(organization),
-            params=params,
-        )
+        url = f"{BILLING_SERVICE_URL}{path}"
+        headers = self.get_auth_headers(organization)
+
+        res = requests.get(url, headers=headers, params=self._to_query_params(params))
+
+        if res.status_code in (414, 431):
+            logger.info(
+                "billing_get_to_post_fallback",
+                path=path,
+                status_code=res.status_code,
+                organization_id=str(organization.id),
+            )
+            res = requests.post(url, headers=headers, json=self._to_post_body(params))
 
         handle_billing_service_error(res)
-
         return res.json()
+
+    @staticmethod
+    def _to_query_params(params: dict[str, Any]) -> dict[str, Any]:
+        """Serialize complex types to JSON strings for GET query params."""
+        result = {}
+        for k, v in params.items():
+            if isinstance(v, (dict, list)):
+                result[k] = json.dumps(v)
+            elif isinstance(v, UUID):
+                result[k] = str(v)
+            else:
+                result[k] = v
+        return result
+
+    @staticmethod
+    def _to_post_body(params: dict[str, Any]) -> dict[str, Any]:
+        """Ensure non-serializable types (like UUIDs) are stringified for JSON."""
+        return {k: str(v) if isinstance(v, UUID) else v for k, v in params.items()}
 
     def handle_billing_provider_webhook(
         self,
