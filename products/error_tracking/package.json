@@ -1,13 +1,15 @@
 {
     "name": "@posthog/products-error-tracking",
-    "scripts": {},
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    },
     "dependencies": {
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
-        "posthog-js": "1.347.2"
+        "posthog-js": "catalog:"
     },
     "peerDependencies": {
         "@dnd-kit/core": "*",

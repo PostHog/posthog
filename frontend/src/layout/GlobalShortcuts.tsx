@@ -7,6 +7,7 @@ import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { openCHQueriesDebugModal } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
 import { commandLogic } from 'lib/components/Command/commandLogic'
+import { openJumpToTimestampModal } from 'lib/components/DateFilter/openJumpToTimestampModal'
 import { healthMenuLogic } from 'lib/components/HealthMenu/healthMenuLogic'
 import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
@@ -155,6 +156,14 @@ export function GlobalShortcuts(): null {
         intent: 'Toggle theme (dark / light)',
         interaction: 'function',
         callback: () => toggleTheme(),
+    })
+
+    useAppShortcut({
+        name: 'jump-to-timestamp',
+        keybind: [keyBinds.jumpToTimestamp],
+        intent: 'Jump to timestamp',
+        interaction: 'function',
+        callback: openJumpToTimestampModal,
     })
 
     return null

@@ -11724,6 +11724,10 @@
             "required": ["results"],
             "type": "object"
         },
+        "DomainConnectProviderName": {
+            "const": "Cloudflare",
+            "type": "string"
+        },
         "DurationType": {
             "enum": ["duration", "active_seconds", "inactive_seconds"],
             "type": "string"
@@ -15417,7 +15421,109 @@
                 "Shopify",
                 "Attio",
                 "SnapchatAds",
-                "PinterestAds"
+                "Linear",
+                "Intercom",
+                "Amplitude",
+                "Mixpanel",
+                "Jira",
+                "ActiveCampaign",
+                "Marketo",
+                "Adjust",
+                "AppsFlyer",
+                "Freshdesk",
+                "GoogleAnalytics",
+                "Pipedrive",
+                "SendGrid",
+                "Slack",
+                "PagerDuty",
+                "Asana",
+                "Notion",
+                "Airtable",
+                "Greenhouse",
+                "BambooHR",
+                "Lever",
+                "GitLab",
+                "Datadog",
+                "Sentry",
+                "Pendo",
+                "FullStory",
+                "AmazonAds",
+                "PinterestAds",
+                "AppleSearchAds",
+                "QuickBooks",
+                "Xero",
+                "NetSuite",
+                "WooCommerce",
+                "BigCommerce",
+                "PayPal",
+                "Square",
+                "Zoom",
+                "Trello",
+                "Monday",
+                "ClickUp",
+                "Confluence",
+                "Recurly",
+                "SalesLoft",
+                "Outreach",
+                "Gong",
+                "Calendly",
+                "Typeform",
+                "Iterable",
+                "ZohoCRM",
+                "Close",
+                "Oracle",
+                "DynamoDB",
+                "Elasticsearch",
+                "Kafka",
+                "LaunchDarkly",
+                "Braintree",
+                "Recharge",
+                "HelpScout",
+                "Gorgias",
+                "Instagram",
+                "YouTubeAnalytics",
+                "FacebookPages",
+                "TwitterAds",
+                "Workday",
+                "ServiceNow",
+                "Pardot",
+                "Copper",
+                "Front",
+                "ChartMogul",
+                "Zuora",
+                "Paddle",
+                "CircleCI",
+                "CockroachDB",
+                "Firebase",
+                "AzureBlob",
+                "GoogleDrive",
+                "OneDrive",
+                "SharePoint",
+                "Box",
+                "SFTP",
+                "MicrosoftTeams",
+                "Aircall",
+                "Webflow",
+                "Okta",
+                "Auth0",
+                "Productboard",
+                "Smartsheet",
+                "Wrike",
+                "Plaid",
+                "SurveyMonkey",
+                "Eventbrite",
+                "RingCentral",
+                "Twilio",
+                "Freshsales",
+                "Shortcut",
+                "ConvertKit",
+                "Drip",
+                "CampaignMonitor",
+                "MailerLite",
+                "Omnisend",
+                "Brevo",
+                "Postmark",
+                "Granola"
             ],
             "type": "string"
         },
@@ -15628,6 +15734,7 @@
                 "error_tracking",
                 "heatmap",
                 "session_replay",
+                "session_profile",
                 "survey",
                 "product_tour",
                 "user_interview",
@@ -17028,8 +17135,33 @@
             },
             "type": "object"
         },
-        "HedgehogColorOptions": {
-            "enum": ["green", "red", "blue", "purple", "dark", "light", "sepia", "invert", "invert-hue", "greyscale"],
+        "HedgehogActorAccessoryOption": {
+            "enum": [
+                "beret",
+                "cap",
+                "chef",
+                "cowboy",
+                "eyepatch",
+                "flag",
+                "glasses",
+                "graduation",
+                "parrot",
+                "party",
+                "pineapple",
+                "sunglasses",
+                "tophat",
+                "xmas-hat",
+                "xmas-antlers",
+                "xmas-scarf"
+            ],
+            "type": "string"
+        },
+        "HedgehogActorColorOption": {
+            "enum": ["green", "red", "blue", "purple", "dark", "light", "greyscale", "sepia", "invert", "rainbow"],
+            "type": "string"
+        },
+        "HedgehogActorSkinOption": {
+            "enum": ["default", "spiderhog", "robohog", "hogzilla", "ghost"],
             "type": "string"
         },
         "HogCompileResponse": {
@@ -20074,6 +20206,103 @@
                             "const": "campaigns",
                             "type": "string"
                         },
+                        "conversionActionTypes": {
+                            "additionalProperties": false,
+                            "properties": {
+                                "fallback": {
+                                    "items": [
+                                        {
+                                            "const": "purchase",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_purchase",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "app_custom_event.fb_mobile_purchase",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "lead",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_lead",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "onsite_conversion.lead_grouped",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "complete_registration",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_complete_registration",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "app_custom_event.fb_mobile_complete_registration",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_complete_registration_add_meta_leads",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "app_install",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "mobile_app_install",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "subscribe",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_subscribe",
+                                            "type": "string"
+                                        }
+                                    ],
+                                    "maxItems": 14,
+                                    "minItems": 14,
+                                    "type": "array"
+                                },
+                                "omni": {
+                                    "items": [
+                                        {
+                                            "const": "omni_purchase",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "omni_lead",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "omni_complete_registration",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "omni_app_install",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "omni_subscribe",
+                                            "type": "string"
+                                        }
+                                    ],
+                                    "maxItems": 5,
+                                    "minItems": 5,
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["omni", "fallback"],
+                            "type": "object"
+                        },
                         "defaultSources": {
                             "items": [
                                 {
@@ -20165,7 +20394,8 @@
                         "tableKeywords",
                         "tableExclusions",
                         "defaultSources",
-                        "primarySource"
+                        "primarySource",
+                        "conversionActionTypes"
                     ],
                     "type": "object"
                 },
@@ -21361,6 +21591,29 @@
                 }
             ]
         },
+        "MetaAdsConversionFallbackActionTypes": {
+            "enum": [
+                "purchase",
+                "offsite_conversion.fb_pixel_purchase",
+                "app_custom_event.fb_mobile_purchase",
+                "lead",
+                "offsite_conversion.fb_pixel_lead",
+                "onsite_conversion.lead_grouped",
+                "complete_registration",
+                "offsite_conversion.fb_pixel_complete_registration",
+                "app_custom_event.fb_mobile_complete_registration",
+                "offsite_complete_registration_add_meta_leads",
+                "app_install",
+                "mobile_app_install",
+                "subscribe",
+                "offsite_conversion.fb_pixel_subscribe"
+            ],
+            "type": "string"
+        },
+        "MetaAdsConversionOmniActionTypes": {
+            "enum": ["omni_purchase", "omni_lead", "omni_complete_registration", "omni_app_install", "omni_subscribe"],
+            "type": "string"
+        },
         "MetaAdsDefaultSources": {
             "enum": [
                 "meta",
@@ -21388,14 +21641,24 @@
             "properties": {
                 "accessories": {
                     "items": {
-                        "type": "string"
+                        "$ref": "#/definitions/HedgehogActorAccessoryOption"
                     },
                     "type": "array"
                 },
                 "color": {
                     "anyOf": [
                         {
-                            "$ref": "#/definitions/HedgehogColorOptions"
+                            "$ref": "#/definitions/HedgehogActorColorOption"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "skin": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/HedgehogActorSkinOption"
                         },
                         {
                             "type": "null"
@@ -21406,7 +21669,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["use_as_profile", "color", "accessories"],
+            "required": ["use_as_profile"],
             "type": "object"
         },
         "ModeContext": {
@@ -22801,7 +23064,9 @@
                 "semver_lte",
                 "semver_tilde",
                 "semver_caret",
-                "semver_wildcard"
+                "semver_wildcard",
+                "icontains_multi",
+                "not_icontains_multi"
             ],
             "type": "string"
         },
@@ -22876,6 +23141,11 @@
                 },
                 "filters_override": {
                     "$ref": "#/definitions/DashboardFilter"
+                },
+                "limit_context": {
+                    "description": "Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value.",
+                    "enum": ["posthog_ai", null],
+                    "type": ["string", "null"]
                 },
                 "name": {
                     "description": "Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name.",
@@ -31510,7 +31780,11 @@
                 "numerical_event_properties",
                 "person_properties",
                 "pageview_urls",
+                "pageview_events",
                 "screens",
+                "screen_events",
+                "email_addresses",
+                "autocapture_events",
                 "custom_events",
                 "wildcard",
                 "groups",
@@ -31536,7 +31810,7 @@
                 "activity_log_properties",
                 "max_ai_context",
                 "workflow_variables",
-                "quick_filters",
+                "suggested_filters",
                 "empty"
             ],
             "type": "string"

@@ -35,6 +35,7 @@ class PinterestAdsSource(SimpleSource[PinterestAdsSourceConfig], OAuthMixin):
             label="Pinterest Ads",
             caption="Collect campaign data, ad performance, and advertising metrics from Pinterest Ads. Ensure you have granted PostHog access to your Pinterest Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/pinterest-ads).",
             betaSource=True,
+            unreleasedSource=True,
             featureFlag="pinterest-ads-source",
             iconPath="/static/services/pinterest.com.png",
             docsUrl="https://posthog.com/docs/cdp/sources/pinterest-ads",
