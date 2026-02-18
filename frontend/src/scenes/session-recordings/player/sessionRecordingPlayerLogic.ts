@@ -438,7 +438,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'loadSnapshotSourcesFailure',
                 'loadNextSnapshotSource',
                 'setTargetTimestamp',
-                'setLoadingPhase',
+                'updatePlaybackPosition',
+                'setPlayerActive',
             ],
             sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingData', 'loadRecordingMetaSuccess'],
@@ -1426,7 +1427,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
             const isBufferingSegment = values.segmentForTimestamp(values.currentTimestamp)?.kind === 'buffer'
-            // Also consider buffering if we're doing timestamp-based loading and don't have a playable FullSnapshot yet
             const isBuffering = isBufferingSegment || values.isWaitingForPlayableFullSnapshot
 
             if (values.currentPlayerState === SessionPlayerState.BUFFER && !isBuffering) {
@@ -1467,9 +1467,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const currentEvents = values.player?.replayer?.service.state.context.events ?? []
             const eventsToAdd: eventWithTime[] = []
 
-            // For timestamp-based loading: don't add events until we have a playable FullSnapshot
-            // This prevents partial data from being added while we're loading blobs out of order
-            // Once we have coverage (FullSnapshot to target), we add all events at once
             if (values.isWaitingForPlayableFullSnapshot) {
                 actions.checkBufferingCompleted()
                 breakpoint()
@@ -1479,8 +1476,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (values.currentSegment?.windowId !== undefined) {
                 const allSnapshots = values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []
 
-                const isTimestampBased = values.featureFlags[FEATURE_FLAGS.REPLAY_TIMESTAMP_BASED_LOADING] === 'test'
-                if (isTimestampBased && allSnapshots.length > currentEvents.length) {
+                const useStoreBasedLoading = values.featureFlags[FEATURE_FLAGS.REPLAY_SNAPSHOT_STORE] === 'test'
+                if (useStoreBasedLoading) {
+                    // The store path loads sources incrementally (not all at once),
+                    // so we need timestamp-based diffing to find truly new events.
                     eventsToAdd.push(...findNewEvents(allSnapshots, currentEvents))
                 } else {
                     eventsToAdd.push(...allSnapshots.slice(currentEvents.length))
@@ -1625,9 +1624,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.pausedMediaElements = []
             actions.setCurrentTimestamp(timestamp)
 
-            // For timestamp-based loading: set target timestamp first so selectors update
-            const isTimestampBased = values.featureFlags[FEATURE_FLAGS.REPLAY_TIMESTAMP_BASED_LOADING] === 'test'
-            if (isTimestampBased) {
+            // For store-based loading: set target timestamp so scheduler can seek
+            const useStoreBasedLoading = values.featureFlags[FEATURE_FLAGS.REPLAY_SNAPSHOT_STORE] === 'test'
+            if (useStoreBasedLoading) {
                 actions.setTargetTimestamp(timestamp)
             }
 
@@ -1639,7 +1638,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             // If next time is greater than last buffered time, set to buffering
-            // Also buffer if we're doing timestamp-based loading and don't have a playable FullSnapshot
             else if (segment?.kind === 'buffer' || values.isWaitingForPlayableFullSnapshot) {
                 const isPastEnd = values.sessionPlayerData.end && timestamp >= values.sessionPlayerData.end.valueOf()
                 if (isPastEnd) {
@@ -1784,12 +1782,22 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const rrwebPlayerTime = values.player?.replayer?.getCurrentTime()
             let newTimestamp = values.fromRRWebPlayerTime(rrwebPlayerTime)
 
-            if (newTimestamp == undefined && values.currentTimestamp) {
-                // This can happen if the player is not loaded due to us being in a "gap" segment
-                // In this case, we should progress time forward manually
-                if (values.currentSegment?.kind === 'gap') {
-                    newTimestamp = values.currentTimestamp + values.roughAnimationFPS
-                }
+            // Detect when the replayer is stuck (same timestamp for consecutive frames).
+            // This happens in gap segments (no events) and in window segments where
+            // the replayer has no events at the current offset (e.g. inactive segments
+            // deep into a window's timeline). After a few stuck frames, advance time
+            // manually so playback doesn't freeze.
+            if (newTimestamp !== undefined && newTimestamp === cache._lastAnimTimestamp) {
+                cache._stuckFrames = (cache._stuckFrames || 0) + 1
+            } else {
+                cache._stuckFrames = 0
+            }
+            cache._lastAnimTimestamp = newTimestamp
+
+            const isStuck = cache._stuckFrames >= 5
+            const shouldManuallyAdvance = values.currentSegment?.kind === 'gap' || isStuck
+            if (shouldManuallyAdvance && values.currentTimestamp) {
+                newTimestamp = values.currentTimestamp + values.roughAnimationFPS
             }
 
             // If we're beyond buffered position, set to buffering
@@ -1841,6 +1849,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // The normal loop. Progress the player position and continue the loop
             actions.setCurrentTimestamp(newTimestamp)
 
+            // Throttled position update for store-based loading (every 5s)
+            if (
+                values.featureFlags[FEATURE_FLAGS.REPLAY_SNAPSHOT_STORE] === 'test' &&
+                (!cache.lastPlaybackPositionUpdate || newTimestamp - cache.lastPlaybackPositionUpdate > 5000)
+            ) {
+                cache.lastPlaybackPositionUpdate = newTimestamp
+                actions.updatePlaybackPosition(newTimestamp)
+            }
+
             cache.disposables.add(() => {
                 const timerId = requestAnimationFrame(actions.updateAnimation)
                 return () => cancelAnimationFrame(timerId)
@@ -1853,6 +1870,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         stopAnimation: () => {
             cache.disposables.dispose('animationTimer')
             cache.lastFrameTime = undefined
+            cache._stuckFrames = 0
+            cache._lastAnimTimestamp = undefined
         },
         pauseIframePlayback: () => {
             const iframe = values.rootFrame?.querySelector('iframe')

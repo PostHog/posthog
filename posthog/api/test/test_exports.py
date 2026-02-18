@@ -413,7 +413,7 @@ class TestExports(APIBaseTest):
 
     @patch("posthog.tasks.exports.csv_exporter.requests.request")
     def test_can_download_a_csv(self, patched_request) -> None:
-        with self.settings(SITE_URL="http://testserver"):
+        with self.settings(SITE_URL="http://testserver", OBJECT_STORAGE_ENABLED=False):
             _create_event(
                 event="event_name",
                 team=self.team,
@@ -477,8 +477,7 @@ class TestExports(APIBaseTest):
             instance = response.json()
 
             # limit the query to force it to page against the API
-            with self.settings(OBJECT_STORAGE_ENABLED=False):
-                exporter.export_asset(instance["id"], limit=1)
+            exporter.export_asset(instance["id"], limit=1)
 
             download_response: Optional[HttpResponse] = None
             attempt_count = 0
