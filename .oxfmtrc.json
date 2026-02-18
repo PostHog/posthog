@@ -10,12 +10,13 @@
         "newlinesBetween": true,
         "internalPattern": ["~/", "@/"],
         "groups": [
+            "global-styles",
             "side_effect_style",
             "style",
             "mocks",
             "spies",
             "side_effect",
-            "external",
+            ["builtin", "external"],
             "posthog-packages",
             "lib-and-scenes",
             "internal",
@@ -25,6 +26,10 @@
             ["sibling", "parent", "index"]
         ],
         "customGroups": [
+            {
+                "groupName": "global-styles",
+                "elementNamePattern": ["~/styles"]
+            },
             {
                 "groupName": "mocks",
                 "elementNamePattern": ["*.mock", "*.mocks", "**/*.mock", "**/*.mocks"]
@@ -63,7 +68,10 @@
             }
         },
         {
-            "files": ["products/workflows/frontend/Workflows/hogflows/panel/HogFlowEditorPanelBuild.tsx"],
+            "files": [
+                "products/workflows/frontend/Workflows/hogflows/panel/HogFlowEditorPanelBuild.tsx",
+                "frontend/src/lib/components/CyclotronJob/integrations/IntegrationChoice.tsx"
+            ],
             "options": {
                 "experimentalSortImports": {
                     "partitionByComment": true
