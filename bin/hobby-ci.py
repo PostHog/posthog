@@ -108,6 +108,24 @@ class HobbyTester:
             "fi"
         )
 
+    def _get_resolve_node_tag_script(self):
+        """Return bash script to resolve the node image tag.
+        The node container build only runs when node-related files change, so
+        posthog/posthog-node:<sha> may not exist for most commits. This checks
+        DockerHub and falls back to 'latest' if the commit-specific tag is missing.
+        Returns a single-line bash command suitable for YAML runcmd.
+        """
+        return (
+            'echo "$LOG_PREFIX Checking if node image exists for commit $CURRENT_COMMIT..."; '
+            'if curl -sf "https://hub.docker.com/v2/repositories/posthog/posthog-node/tags/$CURRENT_COMMIT" > /dev/null 2>&1; then '
+            "  export POSTHOG_NODE_TAG=$CURRENT_COMMIT; "
+            '  echo "$LOG_PREFIX Node image found for commit, using tag: $CURRENT_COMMIT"; '
+            "else "
+            "  export POSTHOG_NODE_TAG=latest; "
+            '  echo "$LOG_PREFIX Node image not found for commit, falling back to tag: latest"; '
+            "fi"
+        )
+
     def _build_user_data(self):
         """Build cloud-init user_data script with SSH pubkey in cloud-config"""
         cloud_config = """#cloud-config
@@ -138,6 +156,7 @@ runcmd:
             "cd ..",
             'echo "$LOG_PREFIX Waiting for docker image to be available on DockerHub..."',
             self._get_wait_for_image_script(),
+            self._get_resolve_node_tag_script(),
             'echo "$LOG_PREFIX Downloading hobby installer from GitHub releases..."',
             "curl -L https://github.com/PostHog/posthog/releases/download/hobby-latest/hobby-installer -o hobby-installer",
             "chmod +x hobby-installer",
@@ -328,6 +347,33 @@ runcmd:
         if result["exit_code"] != 0:
             raise RuntimeError(f"Failed to update .env: {result['stderr']}")
         print(f"✅ Updated POSTHOG_APP_TAG to {new_sha}")
+
+        # Resolve node image tag: use commit-specific tag if available, otherwise 'latest'
+        print("🔍 Checking if node image exists for this commit...")
+        check_node_cmd = (
+            f'curl -sf "https://hub.docker.com/v2/repositories/posthog/posthog-node/tags/{new_sha}" > /dev/null 2>&1'
+        )
+        result = self.run_ssh_command(check_node_cmd, timeout=30)
+        if result["exit_code"] == 0:
+            node_tag = new_sha
+            print(f"✅ Node image found for commit, using tag: {new_sha}")
+        else:
+            node_tag = "latest"
+            print(f"ℹ️ Node image not found for commit, falling back to tag: latest")
+
+        # Update or add POSTHOG_NODE_TAG in .env
+        update_node_tag_cmd = (
+            f"cd /hobby && "
+            f"if grep -q '^POSTHOG_NODE_TAG=' .env; then "
+            f"  sed -i 's/^POSTHOG_NODE_TAG=.*/POSTHOG_NODE_TAG={node_tag}/' .env; "
+            f"else "
+            f"  echo 'POSTHOG_NODE_TAG={node_tag}' >> .env; "
+            f"fi && grep POSTHOG_NODE_TAG .env"
+        )
+        result = self.run_ssh_command(update_node_tag_cmd, timeout=30)
+        if result["exit_code"] != 0:
+            raise RuntimeError(f"Failed to update POSTHOG_NODE_TAG: {result['stderr']}")
+        print(f"✅ Updated POSTHOG_NODE_TAG to {node_tag}")
 
         # Pull new images with retry logic
         print("🐋 Pulling new Docker images...")

@@ -1838,6 +1838,10 @@ export interface QueryRequest {
      * Up to 128 characters for a name.
      */
     name?: string
+    /**
+     * Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value.
+     */
+    limit_context?: 'posthog_ai' | null
 }
 
 export interface QueryUpgradeRequest {
@@ -2867,6 +2871,7 @@ export type FileSystemIconType =
     | 'error_tracking'
     | 'heatmap'
     | 'session_replay'
+    | 'session_profile'
     | 'survey'
     | 'product_tour'
     | 'user_interview'
@@ -4846,6 +4851,109 @@ export const externalDataSources = [
     'Shopify',
     'Attio',
     'SnapchatAds',
+    'Linear',
+    'Intercom',
+    'Amplitude',
+    'Mixpanel',
+    'Jira',
+    'ActiveCampaign',
+    'Marketo',
+    'Adjust',
+    'AppsFlyer',
+    'Freshdesk',
+    'GoogleAnalytics',
+    'Pipedrive',
+    'SendGrid',
+    'Slack',
+    'PagerDuty',
+    'Asana',
+    'Notion',
+    'Airtable',
+    'Greenhouse',
+    'BambooHR',
+    'Lever',
+    'GitLab',
+    'Datadog',
+    'Sentry',
+    'Pendo',
+    'FullStory',
+    'AmazonAds',
+    'PinterestAds',
+    'AppleSearchAds',
+    'QuickBooks',
+    'Xero',
+    'NetSuite',
+    'WooCommerce',
+    'BigCommerce',
+    'PayPal',
+    'Square',
+    'Zoom',
+    'Trello',
+    'Monday',
+    'ClickUp',
+    'Confluence',
+    'Recurly',
+    'SalesLoft',
+    'Outreach',
+    'Gong',
+    'Calendly',
+    'Typeform',
+    'Iterable',
+    'ZohoCRM',
+    'Close',
+    'Oracle',
+    'DynamoDB',
+    'Elasticsearch',
+    'Kafka',
+    'LaunchDarkly',
+    'Braintree',
+    'Recharge',
+    'HelpScout',
+    'Gorgias',
+    'Instagram',
+    'YouTubeAnalytics',
+    'FacebookPages',
+    'TwitterAds',
+    'Workday',
+    'ServiceNow',
+    'Pardot',
+    'Copper',
+    'Front',
+    'ChartMogul',
+    'Zuora',
+    'Paddle',
+    'CircleCI',
+    'CockroachDB',
+    'Firebase',
+    'AzureBlob',
+    'GoogleDrive',
+    'OneDrive',
+    'SharePoint',
+    'Box',
+    'SFTP',
+    'MicrosoftTeams',
+    'Aircall',
+    'Webflow',
+    'Okta',
+    'Auth0',
+    'Productboard',
+    'Smartsheet',
+    'Wrike',
+    'Plaid',
+    'SurveyMonkey',
+    'Eventbrite',
+    'RingCentral',
+    'Twilio',
+    'Freshsales',
+    'Shortcut',
+    'ConvertKit',
+    'Drip',
+    'CampaignMonitor',
+    'MailerLite',
+    'Omnisend',
+    'Brevo',
+    'Postmark',
+    'Granola',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -4915,6 +5023,31 @@ export const MARKETING_INTEGRATION_CONFIGS = {
             'threads',
         ] as const,
         primarySource: 'meta',
+        conversionActionTypes: {
+            omni: [
+                'omni_purchase',
+                'omni_lead',
+                'omni_complete_registration',
+                'omni_app_install',
+                'omni_subscribe',
+            ] as const,
+            fallback: [
+                'purchase',
+                'offsite_conversion.fb_pixel_purchase',
+                'app_custom_event.fb_mobile_purchase',
+                'lead',
+                'offsite_conversion.fb_pixel_lead',
+                'onsite_conversion.lead_grouped',
+                'complete_registration',
+                'offsite_conversion.fb_pixel_complete_registration',
+                'app_custom_event.fb_mobile_complete_registration',
+                'offsite_complete_registration_add_meta_leads',
+                'app_install',
+                'mobile_app_install',
+                'subscribe',
+                'offsite_conversion.fb_pixel_subscribe',
+            ] as const,
+        },
     },
     TikTokAds: {
         sourceType: 'TikTokAds' as const,
@@ -4974,6 +5107,12 @@ export type MetaAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['Met
 export type TikTokAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['tableExclusions'][number]
 export type RedditAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['tableExclusions'][number]
 export type BingAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['tableExclusions'][number]
+
+// Conversion action types for Meta Ads - extracted as types so they generate as StrEnum in Python
+export type MetaAdsConversionOmniActionTypes =
+    (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['conversionActionTypes']['omni'][number]
+export type MetaAdsConversionFallbackActionTypes =
+    (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['conversionActionTypes']['fallback'][number]
 
 export const MARKETING_INTEGRATION_FIELD_MAP = Object.fromEntries(
     VALID_NATIVE_MARKETING_SOURCES.map((source) => [
@@ -5440,4 +5579,8 @@ export interface ReplayInactivityPeriod {
     active: boolean
     recording_ts_from_s?: number
     recording_ts_to_s?: number
+}
+
+export enum DomainConnectProviderName {
+    Cloudflare = 'Cloudflare',
 }

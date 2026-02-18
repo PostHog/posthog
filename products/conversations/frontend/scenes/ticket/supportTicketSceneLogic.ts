@@ -95,6 +95,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         loadTicket: true,
         setTicket: (ticket: Ticket | null) => ({ ticket }),
         setTicketLoading: (loading: boolean) => ({ loading }),
+        incrementUnreadCustomerCount: true,
         updateTicket: true,
 
         loadMessages: true,
@@ -195,6 +196,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             null as Ticket | null,
             {
                 setTicket: (_, { ticket }) => ticket,
+                incrementUnreadCustomerCount: (state) =>
+                    state ? { ...state, unread_customer_count: state.unread_customer_count + 1 } : state,
             },
         ],
         ticketLoading: [
@@ -471,6 +474,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 lemonToast.success(isPrivate ? 'Private message sent' : 'Message sent')
                 actions.setMessageSending(false)
                 onSuccess?.()
+                if (!isPrivate) {
+                    actions.incrementUnreadCustomerCount()
+                }
                 setTimeout(() => {
                     actions.loadMessages()
                 }, 300)

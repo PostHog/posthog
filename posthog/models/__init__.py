@@ -64,6 +64,7 @@ from .message_template import MessageTemplate
 from .message_category import MessageCategory
 from .message_preferences import MessageRecipientPreference
 from .messaging import MessagingRecord
+from .object_media_preview import ObjectMediaPreview
 from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain
 from .organization_integration import OrganizationIntegration
@@ -79,6 +80,7 @@ from .property_definition import PropertyDefinition
 from .proxy_record import ProxyRecord
 from .quick_filter import QuickFilter
 from .remote_config import RemoteConfig
+from .resource_transfer.resource_transfer import ResourceTransfer
 from .scheduled_change import ScheduledChange
 from .schema import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
 from .share_password import SharePassword
@@ -172,6 +174,7 @@ __all__ = [
     "Notebook",
     "MigrationStatus",
     "NotificationViewed",
+    "ObjectMediaPreview",
     "Organization",
     "OrganizationDomain",
     "OrganizationIntegration",
@@ -201,6 +204,7 @@ __all__ = [
     "QuickFilter",
     "RetentionFilter",
     "RemoteConfig",
+    "ResourceTransfer",
     "EventSchema",
     "SavedHeatmap",
     "SchemaPropertyGroup",
