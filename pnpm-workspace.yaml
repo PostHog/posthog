@@ -33,7 +33,6 @@ catalog:
     '@parcel/transformer-typescript-types': 2.13.3
     typescript: 5.4.5
     oxfmt: ^0.33.0
-    prettier: ^3.6.2
     # Testing
     jest: ^29.7.0
     '@types/jest': ^29.5.12

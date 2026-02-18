@@ -157,7 +157,7 @@
         "eslint-plugin-promise": "^6.1.1",
         "jest": "^30.0.0",
         "pino-pretty": "^9.1.0",
-        "prettier": "catalog:",
+        "prettier": "^3.6.2",
         "supertest": "^7.0.0",
         "ts-jest": "^29.1.0",
         "ts-node": "^10.9.1",

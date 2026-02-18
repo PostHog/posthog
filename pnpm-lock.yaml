@@ -81,9 +81,6 @@ catalogs:
     posthog-js:
       specifier: ^1.347.2
       version: 1.347.2
-    prettier:
-      specifier: ^3.6.2
-      version: 3.6.2
     ts-pattern:
       specifier: '4.3'
       version: 4.3.0
@@ -1669,7 +1666,7 @@ importers:
         specifier: ^9.1.0
         version: 9.4.0
       prettier:
-        specifier: 'catalog:'
+        specifier: ^3.6.2
         version: 3.6.2
       supertest:
         specifier: ^7.0.0
