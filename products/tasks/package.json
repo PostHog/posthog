@@ -25,6 +25,7 @@
     },
     "dependencies": {
         "fast-deep-equal": "catalog:",
-        "kea-subscriptions": "catalog:"
+        "kea-subscriptions": "catalog:",
+        "torph": "^0.0.5"
     }
 }

@@ -44,7 +44,6 @@ class EventBuilder {
         }
         this.event.distinct_id = distinctId
         this.event.team_id = team.id
-        this.event.token = team.api_token
     }
 
     withEvent(event: string) {
@@ -85,11 +84,6 @@ class EventBuilder {
         return this
     }
 
-    withToken(token: string) {
-        this.event.token = token
-        return this
-    }
-
     build(): PipelineEvent {
         return this.event as PipelineEvent
     }
@@ -120,27 +114,27 @@ const DEFAULT_TEAM: Team = {
 
 let offsetIncrementer = 0
 
+let currentToken: string
+
 const createKafkaMessage = (event: PipelineEvent, timestamp: number = DateTime.now().toMillis()): Message => {
     // TRICKY: This is the slightly different format that capture sends
+    const token = currentToken
     const captureEvent = {
         uuid: event.uuid,
         distinct_id: event.distinct_id,
         ip: event.ip,
         now: event.now,
-        token: event.token,
+        token,
         data: JSON.stringify(event),
     }
 
     // Build headers to match what the Rust capture service sends
     // timestamp: milliseconds since epoch as string (already normalized with clock skew correction)
     // now: ISO timestamp string of when the event was received by capture
-    const headers: { [key: string]: Buffer }[] = []
-    if (event.token) {
-        headers.push({ token: Buffer.from(event.token) })
-    }
-    if (event.distinct_id) {
-        headers.push({ distinct_id: Buffer.from(event.distinct_id) })
-    }
+    const headers: { [key: string]: Buffer }[] = [
+        { token: Buffer.from(token) },
+        { distinct_id: Buffer.from(event.distinct_id!) },
+    ]
     if (event.timestamp) {
         // The timestamp header is in milliseconds since epoch, as a string
         const timestampMs = DateTime.fromISO(event.timestamp).toMillis()
@@ -152,7 +146,7 @@ const createKafkaMessage = (event: PipelineEvent, timestamp: number = DateTime.n
     }
 
     return {
-        key: `${event.token}:${event.distinct_id}`,
+        key: `${token}:${event.distinct_id}`,
         value: Buffer.from(JSON.stringify(captureEvent)),
         size: 1,
         topic: 'test',
@@ -163,8 +157,8 @@ const createKafkaMessage = (event: PipelineEvent, timestamp: number = DateTime.n
     }
 }
 
-export const createKafkaMessages: (events: PipelineEvent[]) => Message[] = (events) => {
-    return events.map(createKafkaMessage)
+export const createKafkaMessages = (events: PipelineEvent[]): Message[] => {
+    return events.map((e) => createKafkaMessage(e))
 }
 
 const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {}) => {
@@ -225,6 +219,7 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
             jest.spyOn(hub.groupRepository, 'updateGroup')
             jest.spyOn(hub.groupRepository, 'updateGroupOptimistically')
 
+            currentToken = fetchedTeam.api_token
             await ingester.start()
             await testFn(ingester, hub, fetchedTeam)
             await ingester.stop()
