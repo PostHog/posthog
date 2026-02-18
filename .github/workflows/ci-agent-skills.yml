@@ -209,12 +209,14 @@ jobs:
                       products/posthog_ai/dist/skills.zip \
                       --title "Agent skills ${{ steps.version.outputs.tag }}" \
                       --notes "Build from ${{ github.sha }}" \
+                      --target "${{ github.sha }}" \
                       --latest=false
 
-                  gh release delete agent-skills-latest --yes || true
+                  gh release delete agent-skills-latest --cleanup-tag --yes || true
                   git push origin :refs/tags/agent-skills-latest || true
                   gh release create agent-skills-latest \
                       products/posthog_ai/dist/skills.zip \
                       --title "Agent skills (Latest)" \
                       --notes "Latest build — same as ${{ steps.version.outputs.tag }}" \
+                      --target "${{ github.sha }}" \
                       --latest=false
