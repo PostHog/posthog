@@ -4779,6 +4779,21 @@ export interface IntegrationType {
     errors?: string
 }
 
+export interface OAuthApplicationType {
+    id: string
+    name: string
+    client_id: string
+    client_secret?: string
+    redirect_uris: string
+    redirect_uris_list: string[]
+    is_verified: boolean
+    is_first_party: boolean
+    is_dcr_client: boolean
+    created_at: string
+    updated_at: string
+    created_by?: UserBasicType | null
+}
+
 export interface EmailIntegrationDomainGroupedType {
     domain: string
     integrations: IntegrationType[]
