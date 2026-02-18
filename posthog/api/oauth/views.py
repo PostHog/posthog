@@ -581,6 +581,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             }
             if access_token.application:
                 data["client_id"] = access_token.application.client_id
+                data["client_name"] = access_token.application.name
             return JsonResponse(data)
 
         # Fall back to refresh token (lookup by plaintext token — OAuthRefreshToken has
@@ -601,6 +602,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             }
             if refresh_token.application:
                 data["client_id"] = refresh_token.application.client_id
+                data["client_name"] = refresh_token.application.name
             return JsonResponse(data)
 
         return JsonResponse({"active": False}, status=200)
