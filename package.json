@@ -100,7 +100,7 @@
         "onlyBuiltDependencies": [
             "@modelcontextprotocol/ext-apps",
             "@parcel/watcher",
-            "github:PostHog/chartjs-plugin-stacked100#625b3bf",
+            "github:PostHog/chartjs-plugin-stacked100#built-1.7.1",
             "@swc/core",
             "core-js",
             "core-js-pure",

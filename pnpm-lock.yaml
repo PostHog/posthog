@@ -775,7 +775,7 @@ importers:
         specifier: ^2.2.0
         version: 2.2.0(chart.js@4.5.1)
       chartjs-plugin-stacked100:
-        specifier: github:PostHog/chartjs-plugin-stacked100#625b3bf
+        specifier: github:PostHog/chartjs-plugin-stacked100#built-1.7.1
         version: https://codeload.github.com/PostHog/chartjs-plugin-stacked100/tar.gz/625b3bfcad93940da89d38a7402f1cb0eb7c8b13(chart.js@4.5.1)
       chartjs-plugin-trendline:
         specifier: ^3.2.0
