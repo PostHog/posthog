@@ -13,8 +13,9 @@ from posthog.schema import (
 )
 
 from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
+from posthog.types import EntityNode
 
-testdata_equals = [
+testdata_equals: list[tuple[EntityNode, EntityNode, bool]] = [
     (EventsNode(), EventsNode(), True),
     (EventsNode(event="$pageview"), EventsNode(event="$pageview"), True),
     (ActionsNode(id=1), ActionsNode(id=1), True),
@@ -103,7 +104,7 @@ testdata_equals = [
     ),
 ]
 
-testdata_group_equals = [
+testdata_group_equals: list[tuple[EntityNode, EntityNode, bool]] = [
     # identical single-node groups
     (
         GroupNode(operator=FilterLogicalOperator.OR_, nodes=[EventsNode(event="$pageview")]),
@@ -237,7 +238,7 @@ def test_is_equal(a, b, expected):
     assert is_equal(a, b) == expected
 
 
-testdata_superset = [
+testdata_superset: list[tuple[EntityNode, EntityNode, bool]] = [
     # everything equal
     (
         EventsNode(
@@ -301,7 +302,7 @@ testdata_superset = [
     ),
 ]
 
-testdata_group_superset = [
+testdata_group_superset: list[tuple[EntityNode, EntityNode, bool]] = [
     # a has fewer properties (less filtered) so a is superset of b
     (
         GroupNode(
