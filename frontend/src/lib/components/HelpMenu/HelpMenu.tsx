@@ -79,6 +79,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                         className="group"
                         menuItem={!iconOnly}
                         fullWidth={iconOnly}
+                        data-attr="help-menu-button"
                     >
                         <span className="flex text-secondary group-hover:text-primary">
                             <IconQuestion className="size-[17px]" />
@@ -120,6 +121,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                                 className:
                                                     'flex flex-col gap-1 p-2 border border-primary rounded h-32 items-center justify-center shadow hover:border-accent transition-colors',
                                             }}
+                                            data-attr="help-menu-ask-posthog-ai-button"
                                         >
                                             <span className="size-3 [&>svg]:size-4 mb-3">
                                                 <IconSparkles className="text-ai" />
@@ -136,7 +138,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                 <Menu.Item
                                     onClick={() => openSidePanel(SidePanelTab.Support)}
                                     render={
-                                        <ButtonPrimitive menuItem>
+                                        <ButtonPrimitive menuItem data-attr="help-menu-support-button">
                                             <IconSupport />
                                             Support
                                             <IconOpenSidebar className="size-3" />
@@ -154,6 +156,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             disableDocsPanel
                                             tooltip="Open docs in new browser tab"
                                             tooltipPlacement="right"
+                                            data-attr="help-menu-docs-button"
                                         >
                                             <IconBook />
                                             Docs
@@ -162,7 +165,12 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                 />
                                 <Menu.Item
                                     render={(props) => (
-                                        <Link {...props} to={urls.settings()} buttonProps={{ menuItem: true }}>
+                                        <Link
+                                            {...props}
+                                            to={urls.settings()}
+                                            buttonProps={{ menuItem: true }}
+                                            data-attr="help-menu-settings-button"
+                                        >
                                             <IconGear />
                                             Settings
                                         </Link>
@@ -179,6 +187,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             target="_blank"
                                             buttonProps={{ menuItem: true }}
                                             to="https://posthog.com/changelog"
+                                            data-attr="help-menu-changelog-button"
                                         >
                                             <IconLive />
                                             Changelog
@@ -194,7 +203,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                                 {...props}
                                                 to={urls.moveToPostHogCloud()}
                                                 buttonProps={{ menuItem: true }}
-                                                data-attr="top-menu-item-upgrade-to-cloud"
+                                                data-attr="help-menu-upgrade-to-cloud-button"
                                             >
                                                 <IconConfetti />
                                                 Try PostHog Cloud
@@ -207,7 +216,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                     <Menu.SubmenuRoot>
                                         <Menu.SubmenuTrigger
                                             render={
-                                                <ButtonPrimitive menuItem>
+                                                <ButtonPrimitive menuItem data-attr="help-menu-admin-button">
                                                     <IconBlank />
                                                     Admin (Lucky you!)
                                                     <MenuOpenIndicator intent="sub" />
@@ -232,7 +241,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                                                     {...props}
                                                                     to="/admin/"
                                                                     buttonProps={{ menuItem: true }}
-                                                                    data-attr="top-menu-django-admin"
+                                                                    data-attr="help-menu-django-admin-button"
                                                                     disableClientSideRouting
                                                                 >
                                                                     <IconShieldLock />
@@ -248,7 +257,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                                                     buttonProps={{ menuItem: true }}
                                                                     tooltip="Async migrations"
                                                                     tooltipPlacement="right"
-                                                                    data-attr="top-menu-instance-panel"
+                                                                    data-attr="help-menu-instance-panel-button"
                                                                 >
                                                                     <IconServer />
                                                                     Instance panel
@@ -266,7 +275,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                                                 render={
                                                                     <ButtonPrimitive
                                                                         menuItem
-                                                                        data-attr="menu-item-debug-ch-queries"
+                                                                        data-attr="help-menu-debug-ch-queries-button"
                                                                     >
                                                                         <IconDatabase />
                                                                         Debug CH queries
@@ -294,7 +303,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             setHelpMenuOpen(false)
                                         }}
                                         render={
-                                            <ButtonPrimitive menuItem>
+                                            <ButtonPrimitive menuItem data-attr="help-menu-show-tour-again-button">
                                                 <IconPreview />
                                                 Show tour again <LemonTag size="small">Temporary</LemonTag>
                                             </ButtonPrimitive>
@@ -305,7 +314,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                 <Menu.SubmenuRoot>
                                     <Menu.SubmenuTrigger
                                         render={
-                                            <ButtonPrimitive menuItem>
+                                            <ButtonPrimitive menuItem data-attr="help-menu-display-options-button">
                                                 <IconEllipsis />
                                                 Display options
                                                 <MenuOpenIndicator intent="sub" />
@@ -328,6 +337,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                                                 tooltip="Open shortcut menu"
                                                                 tooltipPlacement="right"
                                                                 menuItem
+                                                                data-attr="help-menu-shortcuts-button"
                                                             >
                                                                 <span className="size-4 flex items-center justify-center">
                                                                     ⌘
@@ -344,7 +354,10 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                                     <Menu.Item
                                                         onClick={toggleZenMode}
                                                         render={
-                                                            <ButtonPrimitive menuItem>
+                                                            <ButtonPrimitive
+                                                                menuItem
+                                                                data-attr="help-menu-zen-mode-button"
+                                                            >
                                                                 <IconExpand45 />
                                                                 Zen mode
                                                             </ButtonPrimitive>
@@ -376,7 +389,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                                     menuItem
                                                     tooltip="This is your dedicated PostHog human. Click to copy their email. They can help you with trying out new products, solving problems, and reducing your spend."
                                                     tooltipPlacement="right"
-                                                    data-attr="top-menu-account-owner"
+                                                    data-attr="help-menu-account-owner-button"
                                                 >
                                                     <ProfilePicture
                                                         user={{

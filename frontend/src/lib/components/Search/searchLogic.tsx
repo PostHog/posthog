@@ -34,6 +34,7 @@ export interface SearchItem {
     groupNoun?: string | null
     itemType?: string | null
     tags?: string[]
+    searchKeywords?: string[]
     record?: Record<string, unknown>
 }
 
@@ -296,6 +297,9 @@ export const searchLogic = kea<searchLogicType>([
             (featureFlags, isDev, sceneLogViewsByRef): SearchItem[] => {
                 const allProducts = getTreeItemsProducts()
                 const filteredProducts = allProducts.filter((product) => {
+                    if (!product.href) {
+                        return false
+                    }
                     if (!isDev && product.category === 'Unreleased') {
                         return false
                     }
@@ -371,6 +375,10 @@ export const searchLogic = kea<searchLogicType>([
                     return true
                 })
 
+                const categorySearchKeywords: Record<string, string[]> = {
+                    Pipeline: ['data pipelines', 'data pipeline'],
+                }
+
                 const items = filteredMetadata.map((item) => ({
                     id: `data-management-${item.path}`,
                     name: item.path,
@@ -380,6 +388,7 @@ export const searchLogic = kea<searchLogicType>([
                     href: item.href || '#',
                     itemType: item.iconType || item.type || null,
                     tags: item.tags,
+                    searchKeywords: item.category ? categorySearchKeywords[item.category] : undefined,
                     lastViewedAt: item.sceneKey ? (sceneLogViewsByRef[item.sceneKey] ?? null) : null,
                     record: {
                         type: item.type || item.iconType,
@@ -817,13 +826,24 @@ export const searchLogic = kea<searchLogicType>([
                         return items
                     }
                     const searchLower = search.toLowerCase()
-                    const searchChunks = searchLower.split(' ').filter((s) => s)
-                    return items.filter((item) =>
-                        searchChunks.every(
+                    return items.filter((item) => {
+                        const name = item.name.toLowerCase()
+                        const category = item.category.toLowerCase()
+                        if (name.includes(searchLower) || category.includes(searchLower)) {
+                            return true
+                        }
+                        if (item.searchKeywords?.some((kw) => kw.toLowerCase().includes(searchLower))) {
+                            return true
+                        }
+                        // Chunk matching: every word in the query must match somewhere
+                        const searchChunks = searchLower.split(' ').filter((s) => s)
+                        return searchChunks.every(
                             (chunk) =>
-                                item.name.toLowerCase().includes(chunk) || item.category.toLowerCase().includes(chunk)
+                                name.includes(chunk) ||
+                                category.includes(chunk) ||
+                                (item.searchKeywords?.some((kw) => kw.toLowerCase().includes(chunk)) ?? false)
                         )
-                    )
+                    })
                 }
 
                 // Always show recents first - show loading skeleton until first load completes
