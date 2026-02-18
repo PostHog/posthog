@@ -295,7 +295,7 @@ services:
         restart: on-failure
         environment:
             ETCD_NAME: etcd0
-            ETCD_ADVERTISE_CLIENT_URLS: http://0.0.0.0:2379
+            ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379
             ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
         ports:
             - '127.0.0.1:2379:2379'

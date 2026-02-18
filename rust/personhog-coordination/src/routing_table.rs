@@ -97,52 +97,43 @@ impl RoutingTable {
         self.load_initial().await?;
 
         // Run heartbeat, assignment watch, and handoff watch concurrently
-        let heartbeat_cancel = cancel.child_token();
-        let assignment_cancel = cancel.child_token();
-        let handoff_cancel = cancel.child_token();
+        let mut tasks = tokio::task::JoinSet::new();
 
-        let heartbeat_handle = {
+        {
             let store = Arc::clone(&self.store);
             let interval = self.config.heartbeat_interval;
-            let token = heartbeat_cancel.clone();
-            tokio::spawn(async move {
+            let token = cancel.child_token();
+            tasks.spawn(async move {
                 util::run_lease_keepalive(store, lease_id, interval, token).await
-            })
-        };
+            });
+        }
 
-        let assignment_handle = {
+        {
             let store = Arc::clone(&self.store);
             let table = Arc::clone(&self.table);
-            let token = assignment_cancel.clone();
-            tokio::spawn(async move { Self::watch_assignments_loop(store, table, token).await })
-        };
+            let token = cancel.child_token();
+            tasks.spawn(async move { Self::watch_assignments_loop(store, table, token).await });
+        }
 
-        let handoff_handle = {
+        {
             let store = Arc::clone(&self.store);
             let handler = Arc::clone(&self.handler);
             let router_name = self.config.router_name.clone();
-            let token = handoff_cancel.clone();
-            tokio::spawn(async move {
+            let token = cancel.child_token();
+            tasks.spawn(async move {
                 Self::watch_handoffs_loop(store, handler, router_name, token).await
-            })
-        };
+            });
+        }
 
         let result = tokio::select! {
             _ = cancel.cancelled() => Ok(()),
-            result = assignment_handle => {
-                result.map_err(|e| Error::InvalidState(format!("assignment watch panicked: {e}")))?
-            }
-            result = handoff_handle => {
-                result.map_err(|e| Error::InvalidState(format!("handoff watch panicked: {e}")))?
-            }
-            result = heartbeat_handle => {
-                result.map_err(|e| Error::InvalidState(format!("heartbeat panicked: {e}")))?
+            Some(result) = tasks.join_next() => {
+                result.map_err(|e| Error::InvalidState(format!("task panicked: {e}")))?
             }
         };
 
-        heartbeat_cancel.cancel();
-        assignment_cancel.cancel();
-        handoff_cancel.cancel();
+        // Abort and await all remaining tasks for clean shutdown
+        tasks.shutdown().await;
 
         result
     }
@@ -164,6 +155,35 @@ impl RoutingTable {
             table.insert(a.partition, a.owner);
         }
         tracing::info!(count = table.len(), "loaded initial routing table");
+        drop(table);
+
+        // Catch up on any in-progress handoffs that reached Ready before we
+        // started watching. Without this, a late-joining router would never ack
+        // these handoffs, blocking completion forever.
+        let handoffs = self.store.list_handoffs().await?;
+        for handoff in handoffs {
+            if handoff.phase == HandoffPhase::Ready {
+                tracing::info!(
+                    router = %self.config.router_name,
+                    partition = handoff.partition,
+                    old_owner = %handoff.old_owner,
+                    new_owner = %handoff.new_owner,
+                    "catching up on in-progress handoff"
+                );
+
+                self.handler
+                    .execute_cutover(handoff.partition, &handoff.old_owner, &handoff.new_owner)
+                    .await?;
+
+                let ack = RouterCutoverAck {
+                    router_name: self.config.router_name.clone(),
+                    partition: handoff.partition,
+                    acked_at: util::now_seconds(),
+                };
+                self.store.put_router_ack(&ack).await?;
+            }
+        }
+
         Ok(())
     }
 

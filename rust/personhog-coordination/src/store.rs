@@ -88,6 +88,21 @@ impl EtcdStore {
         }
     }
 
+    /// Like `get_json` but also returns the key's version for use in CAS transactions.
+    async fn get_json_versioned<T: DeserializeOwned>(
+        &self,
+        key: String,
+    ) -> Result<Option<(T, i64)>> {
+        let resp = self.client.clone().get(key, None).await?;
+        match resp.kvs().first() {
+            Some(kv) => {
+                let value = serde_json::from_slice(kv.value())?;
+                Ok(Some((value, kv.version())))
+            }
+            None => Ok(None),
+        }
+    }
+
     async fn list_json<T: DeserializeOwned>(&self, prefix: String) -> Result<Vec<T>> {
         let options = GetOptions::new().with_prefix();
         let resp = self.client.clone().get(prefix, Some(options)).await?;
@@ -141,14 +156,19 @@ impl EtcdStore {
         self.list_json(self.key(StoreKey::PodsPrefix)).await
     }
 
-    pub async fn update_pod_status(&self, pod_name: &str, status: PodStatus) -> Result<()> {
+    pub async fn update_pod_status(
+        &self,
+        pod_name: &str,
+        status: PodStatus,
+        lease_id: i64,
+    ) -> Result<()> {
         let key = self.key(StoreKey::Pod(pod_name));
         let mut pod: RegisteredPod = self
             .get_json(key.clone())
             .await?
             .ok_or_else(|| Error::NotFound(format!("pod {pod_name}")))?;
         pod.status = status;
-        self.put_json(key, &pod, None).await
+        self.put_json(key, &pod, Some(lease_id)).await
     }
 
     pub async fn watch_pods(&self) -> Result<WatchStream> {
@@ -289,9 +309,17 @@ impl EtcdStore {
     }
 
     /// Atomically: set handoff phase to Complete and update the assignment owner.
-    pub async fn complete_handoff(&self, partition: u32) -> Result<()> {
-        let mut handoff = self
-            .get_handoff(partition)
+    ///
+    /// Uses compare-and-swap on the handoff key's version to prevent stale
+    /// writes (e.g. if another actor already completed or deleted the handoff
+    /// between our read and write).
+    ///
+    /// Returns `Ok(false)` if the handoff was modified concurrently (CAS failed).
+    pub async fn complete_handoff(&self, partition: u32) -> Result<bool> {
+        let handoff_key = self.key(StoreKey::Handoff(partition));
+
+        let (mut handoff, version) = self
+            .get_json_versioned::<HandoffState>(handoff_key.clone())
             .await?
             .ok_or_else(|| Error::NotFound(format!("handoff for partition {partition}")))?;
 
@@ -303,15 +331,20 @@ impl EtcdStore {
             status: AssignmentStatus::Active,
         };
 
-        let handoff_key = self.key(StoreKey::Handoff(partition));
         let assignment_key = self.key(StoreKey::Assignment(partition));
 
-        let txn = Txn::new().and_then(vec![
-            TxnOp::put(handoff_key, serde_json::to_vec(&handoff)?, None),
-            TxnOp::put(assignment_key, serde_json::to_vec(&assignment)?, None),
-        ]);
-        self.client.clone().txn(txn).await?;
-        Ok(())
+        let txn = Txn::new()
+            .when(vec![Compare::version(
+                handoff_key.clone(),
+                CompareOp::Equal,
+                version,
+            )])
+            .and_then(vec![
+                TxnOp::put(handoff_key, serde_json::to_vec(&handoff)?, None),
+                TxnOp::put(assignment_key, serde_json::to_vec(&assignment)?, None),
+            ]);
+        let resp = self.client.clone().txn(txn).await?;
+        Ok(resp.succeeded())
     }
 
     // ── Leader election ─────────────────────────────────────────

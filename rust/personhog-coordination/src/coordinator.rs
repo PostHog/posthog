@@ -117,47 +117,38 @@ impl Coordinator {
         self.handle_pod_change().await?;
 
         // Watch pods, handoffs, and router acks concurrently
-        let pod_cancel = cancel.child_token();
-        let handoff_cancel = cancel.child_token();
-        let ack_cancel = cancel.child_token();
+        let mut tasks = tokio::task::JoinSet::new();
 
-        let pod_handle = {
+        {
             let store = Arc::clone(&self.store);
             let strategy = Arc::clone(&self.strategy);
-            let token = pod_cancel.clone();
-            tokio::spawn(async move { Self::watch_pods_loop(store, strategy, token).await })
-        };
-
-        let handoff_handle = {
-            let store = Arc::clone(&self.store);
-            let token = handoff_cancel.clone();
-            tokio::spawn(async move { Self::watch_handoffs_loop(store, token).await })
-        };
-
-        let ack_handle = {
-            let store = Arc::clone(&self.store);
-            let token = ack_cancel.clone();
-            tokio::spawn(async move { Self::watch_handoff_acks_loop(store, token).await })
-        };
-
-        tokio::select! {
-            _ = cancel.cancelled() => Ok(()),
-            result = pod_handle => {
-                handoff_cancel.cancel();
-                ack_cancel.cancel();
-                result.map_err(|e| Error::InvalidState(format!("pod watch task panicked: {e}")))?
-            }
-            result = handoff_handle => {
-                pod_cancel.cancel();
-                ack_cancel.cancel();
-                result.map_err(|e| Error::InvalidState(format!("handoff watch task panicked: {e}")))?
-            }
-            result = ack_handle => {
-                pod_cancel.cancel();
-                handoff_cancel.cancel();
-                result.map_err(|e| Error::InvalidState(format!("ack watch task panicked: {e}")))?
-            }
+            let token = cancel.child_token();
+            tasks.spawn(async move { Self::watch_pods_loop(store, strategy, token).await });
         }
+
+        {
+            let store = Arc::clone(&self.store);
+            let token = cancel.child_token();
+            tasks.spawn(async move { Self::watch_handoffs_loop(store, token).await });
+        }
+
+        {
+            let store = Arc::clone(&self.store);
+            let token = cancel.child_token();
+            tasks.spawn(async move { Self::watch_handoff_acks_loop(store, token).await });
+        }
+
+        let result = tokio::select! {
+            _ = cancel.cancelled() => Ok(()),
+            Some(result) = tasks.join_next() => {
+                result.map_err(|e| Error::InvalidState(format!("task panicked: {e}")))?
+            }
+        };
+
+        // Abort and await all remaining tasks for clean shutdown
+        tasks.shutdown().await;
+
+        result
     }
 
     async fn watch_pods_loop(
@@ -263,7 +254,16 @@ impl Coordinator {
                 routers = routers.len(),
                 "all routers acked, completing handoff"
             );
-            store.complete_handoff(partition).await?;
+            match store.complete_handoff(partition).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    tracing::warn!(partition, "handoff was modified concurrently, skipping");
+                }
+                Err(Error::NotFound(_)) => {
+                    tracing::warn!(partition, "handoff already deleted, ignoring duplicate ack");
+                }
+                Err(e) => return Err(e),
+            }
         }
 
         Ok(())
