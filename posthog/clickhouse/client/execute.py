@@ -54,6 +54,12 @@ QUERY_ERROR_COUNTER = Counter(
     labelnames=["exception_type", "query_type", "workload", "chargeable"],
 )
 
+QUERY_MISSING_TAGS_COUNTER = Counter(
+    "posthog_clickhouse_query_missing_tags",
+    "Queries executed with missing team_id, product, kind, or query_type tags.",
+    labelnames=["missing_tag", "kind"],
+)
+
 InsertParams = Union[list, tuple, types.GeneratorType]
 NonInsertParams = dict[str, Any]
 QueryArgs = Optional[Union[InsertParams, NonInsertParams]]
@@ -204,6 +210,27 @@ def sync_execute(
 
     if team_id is not None:
         tags.team_id = team_id
+
+    if not TEST and (tags.team_id is None or tags.product is None or tags.kind is None or tags.query_type is None):
+        missing = []
+        if tags.team_id is None:
+            missing.append("team_id")
+            QUERY_MISSING_TAGS_COUNTER.labels(missing_tag="team_id", kind=tags.kind or "unknown").inc()
+        if tags.product is None:
+            missing.append("product")
+            QUERY_MISSING_TAGS_COUNTER.labels(missing_tag="product", kind=tags.kind or "unknown").inc()
+        if tags.kind is None:
+            missing.append("kind")
+            QUERY_MISSING_TAGS_COUNTER.labels(missing_tag="kind", kind="unknown").inc()
+        if tags.query_type is None:
+            missing.append("query_type")
+            QUERY_MISSING_TAGS_COUNTER.labels(missing_tag="query_type", kind=tags.kind or "unknown").inc()
+
+        logger.warning(
+            "sync_execute called with missing query tags: %s\n%s",
+            ", ".join(missing),
+            "".join(traceback.format_stack()),
+        )
 
     prepared_sql, prepared_args, tags = _prepare_query(query=query, args=args, workload=workload)
     query_id = validated_client_query_id()
