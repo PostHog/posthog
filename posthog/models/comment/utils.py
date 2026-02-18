@@ -54,9 +54,11 @@ def build_mention_display_name_lookup(user_ids: Iterable[int]) -> dict[int, str]
 def build_comment_item_url(
     scope: str, item_id: Optional[str], slug: Optional[str] = None, team_id: Optional[int] = None
 ) -> str:
+    is_ticket_scope = is_ticket_comment_scope(scope)
+
     if slug:
         url = f"{settings.SITE_URL}{slug}"
-    elif is_ticket_comment_scope(scope) and item_id and team_id is not None:
+    elif is_ticket_scope and item_id and team_id is not None:
         url = f"{settings.SITE_URL}/project/{team_id}/conversations/tickets/{item_id}"
     elif scope in SCOPE_TO_PATH_MAPPING and item_id:
         path = SCOPE_TO_PATH_MAPPING[scope].format(item_id=item_id)
@@ -64,10 +66,10 @@ def build_comment_item_url(
     else:
         url = settings.SITE_URL
 
-    if is_ticket_comment_scope(scope):
+    if is_ticket_scope:
         url = url.split("#", 1)[0]
 
-    should_append_discussion_panel = not is_ticket_comment_scope(scope) and "/conversations/tickets/" not in url
+    should_append_discussion_panel = not is_ticket_scope and "/conversations/tickets/" not in url
     if should_append_discussion_panel and "#panel=discussion" not in url:
         url = f"{url}#panel=discussion"
 
@@ -80,6 +82,7 @@ def extract_plain_text_from_rich_content(
     if not rich_content:
         return ""
 
+    mention_display_names = mention_display_names or {}
     text_parts: list[str] = []
 
     def traverse(node: Any) -> None:
@@ -94,13 +97,16 @@ def extract_plain_text_from_rich_content(
                 if label:
                     text_parts.append(f"@{label}")
                 elif isinstance(mention_id, int):
-                    mention_display_name = mention_display_names.get(mention_id) if mention_display_names else None
-                    text_parts.append(f"@{mention_display_name}" if mention_display_name else f"@member:{mention_id}")
+                    mention_display_name = mention_display_names.get(mention_id)
+                    if mention_display_name:
+                        text_parts.append(f"@{mention_display_name}")
+                    else:
+                        text_parts.append(f"@member:{mention_id}")
             elif node_type == "hardBreak":
                 text_parts.append("\n")
 
             for value in node.values():
-                if isinstance(value, dict | list):
+                if isinstance(value, (dict, list)):
                     traverse(value)
         elif isinstance(node, list):
             for item in node:

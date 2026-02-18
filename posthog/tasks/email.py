@@ -805,6 +805,7 @@ def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], s
 
         team = comment.team
         commenter = comment.created_by
+        mentioned_user_id_set = set(mentioned_user_ids)
         memberships_to_email = get_members_to_notify(team, NotificationSetting.DISCUSSIONS_MENTIONED.value)
 
         if not commenter:
@@ -819,7 +820,7 @@ def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], s
         memberships_to_email = [
             membership
             for membership in memberships_to_email
-            if (membership.user.id in mentioned_user_ids and membership.user != commenter)
+            if membership.user.id in mentioned_user_id_set and membership.user != commenter
         ]
 
         if not memberships_to_email:
@@ -839,8 +840,14 @@ def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], s
 
         if is_ticket_mention:
             ticket_reference = f"ticket #{ticket_number}" if ticket_number else "a ticket"
+            mention_heading = "You were mentioned in a ticket"
+            mention_location = ticket_reference
+            reply_button_label = "Reply to ticket"
             subject = f"[Tickets]: {commenter.first_name} mentioned you in {ticket_reference} in project '{team}'"
         else:
+            mention_heading = "You were mentioned in a discussion"
+            mention_location = "a discussion"
+            reply_button_label = "Reply to comment"
             subject = f"[Discussions]: {commenter.first_name} mentioned you in project '{team}'"
 
         campaign_key: str = f"discussions_user_mentioned_{comment.id}_updated_at_{comment.created_at.timestamp()}"
@@ -855,6 +862,9 @@ def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], s
                 "href": href,
                 "is_ticket_mention": is_ticket_mention,
                 "ticket_number": ticket_number,
+                "mention_heading": mention_heading,
+                "mention_location": mention_location,
+                "reply_button_label": reply_button_label,
             },
         )
 
