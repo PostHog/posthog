@@ -5,12 +5,10 @@ from django.db import models
 
 import pydantic
 
-from posthog.schema import AlertCalculationInterval, AlertState, InsightThreshold
+from posthog.schema import AlertCalculationInterval, AlertState, InsightThreshold, InsightThresholdType
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.insight import Insight
 from posthog.models.utils import CreatedMetaFields, UUIDTModel
-from posthog.schema_migrations.upgrade_manager import upgrade_query
 
 ALERT_STATE_CHOICES = [
     (AlertState.FIRING, AlertState.FIRING),
@@ -18,16 +16,6 @@ ALERT_STATE_CHOICES = [
     (AlertState.ERRORED, AlertState.ERRORED),
     (AlertState.SNOOZED, AlertState.SNOOZED),
 ]
-
-
-def are_alerts_supported_for_insight(insight: Insight) -> bool:
-    with upgrade_query(insight):
-        query = insight.query
-        while query.get("source"):
-            query = query["source"]
-        if query is None or query.get("kind") != "TrendsQuery":
-            return False
-    return True
 
 
 # TODO: Enable `@deprecated` once we move to Python 3.13
@@ -52,6 +40,32 @@ class Threshold(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     name = models.CharField(max_length=255, blank=True)
     configuration = models.JSONField(default=dict)
+
+    @classmethod
+    def build_configuration(
+        cls,
+        *,
+        threshold_type: InsightThresholdType = InsightThresholdType.ABSOLUTE,
+        lower: float | None = None,
+        upper: float | None = None,
+        existing: dict | None = None,
+    ) -> dict:
+        """Build a threshold configuration dict, optionally merging into existing config."""
+        if existing is not None:
+            config = dict(existing)
+            bounds = dict(config.get("bounds", {}))
+            if threshold_type is not None:
+                config["type"] = threshold_type
+        else:
+            config: dict = {"type": threshold_type}
+            bounds = {}
+
+        if lower is not None:
+            bounds["lower"] = lower
+        if upper is not None:
+            bounds["upper"] = upper
+        config["bounds"] = bounds
+        return config
 
     def clean(self):
         try:
@@ -125,6 +139,20 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             )
         )
 
+    def reset_check_schedule(self, *, conditions_changed: bool = False, interval_changed: bool = False) -> list[str]:
+        """Reset alert state and schedule when conditions or interval change.
+
+        Returns list of field names that were modified (for use with update_fields).
+        """
+        updated: list[str] = []
+        if conditions_changed:
+            self.state = AlertState.NOT_FIRING
+            updated.append("state")
+        if conditions_changed or interval_changed:
+            self.next_check_at = None
+            updated.append("next_check_at")
+        return updated
+
     def save(self, *args, **kwargs):
         if not self.enabled:
             # When disabling an alert, set the state to not firing
@@ -135,8 +163,8 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         super().save(*args, **kwargs)
 
     @classmethod
-    def check_alert_limit(cls, team_id: int, organization) -> str | None:
-        """Check if the team has reached its alert limit. Returns an error message or None."""
+    def check_alert_limit(cls, team_id: int, organization) -> None:
+        """Raise ValidationError if the team has reached its alert limit."""
         from posthog.constants import AvailableFeature
 
         alerts_feature = organization.get_available_feature(AvailableFeature.ALERTS)
@@ -146,13 +174,11 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             allowed = alerts_feature.get("limit")
             # If allowed_alerts_count is None then the user is allowed unlimited alertss
             if allowed is not None and existing_count >= allowed:
-                return f"Your team has reached the limit of {allowed} alerts on your plan."
+                raise ValidationError(f"Your team has reached the limit of {allowed} alerts on your plan.")
         else:
             # If the org doesn't have alerts feature, limit to that on free tier
             if existing_count >= cls.ALERTS_ALLOWED_ON_FREE_TIER:
-                return f"Your plan is limited to {cls.ALERTS_ALLOWED_ON_FREE_TIER} alerts."
-
-        return None
+                raise ValidationError(f"Your plan is limited to {cls.ALERTS_ALLOWED_ON_FREE_TIER} alerts.")
 
 
 class AlertSubscription(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
