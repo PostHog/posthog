@@ -18,9 +18,7 @@ export function DisableSurvey(): JSX.Element | null {
                 <p className="font-medium m-0">Thanks for your feedback!</p>
             ) : (
                 <div className="flex flex-col gap-3">
-                    <p className="font-medium m-0">
-                        Do you mind telling us why are you disabling exception autocapture?
-                    </p>
+                    <p className="font-medium m-0">Help us improve — why are you disabling exception autocapture?</p>
                     <LemonTextArea
                         placeholder="Share your feedback..."
                         value={response}
