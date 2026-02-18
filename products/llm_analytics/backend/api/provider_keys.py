@@ -22,6 +22,7 @@ from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
+from .metrics import llma_track_latency
 
 
 def validate_provider_key(provider: str, api_key: str) -> tuple[str, str | None]:
@@ -172,6 +173,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
         instance.delete()
 
     @action(detail=True, methods=["post"])
+    @llma_track_latency("llma_provider_keys_validate")
     @monitor(feature=None, endpoint="llma_provider_keys_validate", method="POST")
     def validate(self, request: Request, **_kwargs) -> Response:
         instance = self.get_object()
@@ -202,27 +204,33 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
+    @llma_track_latency("llma_provider_keys_list")
     @monitor(feature=None, endpoint="llma_provider_keys_list", method="GET")
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
 
+    @llma_track_latency("llma_provider_keys_retrieve")
     @monitor(feature=None, endpoint="llma_provider_keys_retrieve", method="GET")
     def retrieve(self, request, *args, **kwargs):
         return super().retrieve(request, *args, **kwargs)
 
+    @llma_track_latency("llma_provider_keys_create")
     @monitor(feature=None, endpoint="llma_provider_keys_create", method="POST")
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
 
+    @llma_track_latency("llma_provider_keys_update")
     @monitor(feature=None, endpoint="llma_provider_keys_update", method="PUT")
     def update(self, request, *args, **kwargs):
         return super().update(request, *args, **kwargs)
 
+    @llma_track_latency("llma_provider_keys_partial_update")
     @monitor(feature=None, endpoint="llma_provider_keys_partial_update", method="PATCH")
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
 
     @action(detail=True, methods=["get"])
+    @llma_track_latency("llma_provider_keys_dependent_configs")
     @monitor(feature=None, endpoint="llma_provider_keys_dependent_configs", method="GET")
     def dependent_configs(self, request: Request, **_kwargs) -> Response:
         """Get evaluations using this key and alternative keys for replacement."""
@@ -256,6 +264,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
             }
         )
 
+    @llma_track_latency("llma_provider_keys_destroy")
     @monitor(feature=None, endpoint="llma_provider_keys_destroy", method="DELETE")
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -296,6 +305,7 @@ class LLMProviderKeyValidationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "llm_provider_key"
     permission_classes = [IsAuthenticated, AccessControlPermission]
 
+    @llma_track_latency("llma_provider_key_validations_create")
     @monitor(feature=None, endpoint="llma_provider_key_validations_create", method="POST")
     def create(self, request: Request, **_kwargs) -> Response:
         api_key = request.data.get("api_key")
