@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronRight, IconExpand } from '@posthog/icons'
+import { IconChevronRight, IconExpand, IconGear } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonSkeleton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -13,8 +13,9 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { InboxSetup } from './InboxSetup'
 import { inboxSceneLogic } from './inboxSceneLogic'
-import { SignalReport, SignalReportArtefact } from './types'
+import { SignalReport, SignalReportArtefact, SignalSourceConfig } from './types'
 
 export const scene: SceneExport = {
     component: InboxScene,
@@ -141,6 +142,30 @@ function ReportRow({ report }: { report: SignalReport }): JSX.Element {
     )
 }
 
+function ConfigSummaryCard({ config }: { config: SignalSourceConfig }): JSX.Element {
+    const { toggleSetupMode } = useActions(inboxSceneLogic)
+    const filters = config.config?.recording_filters
+
+    return (
+        <div className="border rounded-lg bg-surface-primary px-4 py-3 mb-4 flex items-center justify-between">
+            <div>
+                <div className="flex items-center gap-2 mb-0.5">
+                    <LemonTag type="success" size="small">
+                        Active
+                    </LemonTag>
+                    <span className="text-sm font-medium">Session analysis</span>
+                </div>
+                <p className="text-xs text-secondary m-0">
+                    {filters ? 'Custom filters configured' : 'Analyzing all sessions'}
+                </p>
+            </div>
+            <LemonButton type="secondary" size="small" icon={<IconGear />} onClick={toggleSetupMode}>
+                Edit
+            </LemonButton>
+        </div>
+    )
+}
+
 function EmptyInbox(): JSX.Element {
     return (
         <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -174,13 +199,43 @@ function InboxSkeleton(): JSX.Element {
 }
 
 export function InboxScene(): JSX.Element {
-    const { reports, reportsLoading, isRunningSessionAnalysis } = useValues(inboxSceneLogic)
-    const { loadReports, runSessionAnalysis } = useActions(inboxSceneLogic)
+    const {
+        reports,
+        reportsLoading,
+        isRunningSessionAnalysis,
+        sourceConfigsLoading,
+        hasSessionAnalysisSource,
+        sessionAnalysisConfig,
+        setupMode,
+    } = useValues(inboxSceneLogic)
+    const { loadReports, runSessionAnalysis, toggleSetupMode } = useActions(inboxSceneLogic)
     const { isDev } = useValues(preflightLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
 
     if (!isProductAutonomyEnabled) {
         return <></>
+    }
+
+    const showSetup = setupMode || (!hasSessionAnalysisSource && !sourceConfigsLoading)
+
+    if (showSetup) {
+        return (
+            <SceneContent>
+                <SceneTitleSection
+                    name="Inbox"
+                    description="Set up automatic session analysis to get actionable reports."
+                    resourceType={{ type: 'inbox' }}
+                    actions={
+                        hasSessionAnalysisSource ? (
+                            <LemonButton type="secondary" size="small" onClick={toggleSetupMode}>
+                                Back to reports
+                            </LemonButton>
+                        ) : undefined
+                    }
+                />
+                <InboxSetup />
+            </SceneContent>
+        )
     }
 
     return (
@@ -215,6 +270,8 @@ export function InboxScene(): JSX.Element {
                     </div>
                 }
             />
+
+            {sessionAnalysisConfig && <ConfigSummaryCard config={sessionAnalysisConfig} />}
 
             {reportsLoading && reports.length === 0 ? (
                 <InboxSkeleton />

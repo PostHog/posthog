@@ -30,3 +30,16 @@ export interface SignalReportArtefactResponse {
     results: SignalReportArtefact[]
     count: number
 }
+
+export interface SignalSourceConfig {
+    id: string
+    source_type: SignalSourceType
+    enabled: boolean
+    config: Record<string, any>
+    created_at: string
+    updated_at: string
+}
+
+export enum SignalSourceType {
+    SESSION_ANALYSIS = 'session_analysis',
+}
