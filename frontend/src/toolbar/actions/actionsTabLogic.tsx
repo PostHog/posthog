@@ -238,7 +238,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                     return
                 }
                 const response: ActionType = await res.json()
-                breakpoint()
+                breakpoint() // guard against stale async after unmount
 
                 actions.selectAction(null)
                 actionsLogic.actions.updateAction({ action: response })
