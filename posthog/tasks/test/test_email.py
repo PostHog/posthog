@@ -1161,6 +1161,69 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         expected_href = f"{settings.SITE_URL}/replay/test-replay-id#panel=discussion"
         assert actual_href == expected_href, f"Expected {expected_href}, got {actual_href}"
 
+    def test_send_discussions_mentioned_for_ticket_uses_ticket_copy_and_named_mentions(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        from posthog.models import Comment
+
+        from products.conversations.backend.models import Ticket
+        from products.conversations.backend.models.constants import Channel
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        mentioned_user = User.objects.create_and_join(
+            organization=self.organization,
+            email="mentioned-ticket@posthog.com",
+            password=None,
+            first_name="Ben",
+        )
+
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="ticket-session-id",
+            distinct_id="distinct-id-123",
+        )
+
+        comment = Comment.objects.create(
+            team=self.team,
+            content=f"@member:{mentioned_user.id} what happens if I mention you?",
+            rich_content={
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {"type": "ph-mention", "attrs": {"id": mentioned_user.id}},
+                            {"type": "text", "text": " what happens if I mention you?"},
+                        ],
+                    }
+                ],
+            },
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            created_by=self.user,
+        )
+
+        send_discussions_mentioned(
+            comment_id=str(comment.id),
+            mentioned_user_ids=[mentioned_user.id],
+            slug="",
+        )
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        assert mocked_email_messages[0].subject.startswith("[Tickets]:")
+        assert mocked_email_messages[0].properties["is_ticket_mention"] is True
+        assert mocked_email_messages[0].properties["ticket_number"] == ticket.ticket_number
+        assert mocked_email_messages[0].properties["content"] == "@Ben what happens if I mention you?"
+        assert mocked_email_messages[0].properties["href"] == (
+            f"{settings.SITE_URL}/project/{self.team.id}/conversations/tickets/{ticket.id}"
+        )
+        assert "#panel=discussion" not in mocked_email_messages[0].properties["href"]
+        assert "You were mentioned in a ticket" in mocked_email_messages[0].html_body
+        assert "Reply to ticket" in mocked_email_messages[0].html_body
+
     def test_send_discussions_mentioned_replay_without_slug_generates_href_from_item_id(
         self, MockEmailMessage: MagicMock
     ) -> None:

@@ -1,15 +1,25 @@
 {% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
-{% block heading %}You were mentioned in a discussion{% endblock %}
+{% block heading %}{% if is_ticket_mention %}You were mentioned in a ticket{% else %}You were mentioned in a discussion{% endif %}{% endblock %}
 {% block section %}
 <!-- prettier-ignore -->
 <p>
-    <b>{{ commenter.first_name }}</b> mentioned you in a comment in the project <b>{{ team.name }}</b>.
+    <b>{{ commenter.first_name }}</b> mentioned you in a comment in
+    {% if is_ticket_mention %}
+        {% if ticket_number %}
+            ticket #{{ ticket_number }}
+        {% else %}
+            a ticket
+        {% endif %}
+    {% else %}
+        a discussion
+    {% endif %}
+    in the project <b>{{ team.name }}</b>.
 </p>
 <p>
     {{ content }}
 </p>
 <div class="mb mt text-center">
-    <a class="button" href="{{ href }}">Reply to comment</a>
+    <a class="button" href="{{ href }}">{% if is_ticket_mention %}Reply to ticket{% else %}Reply to comment{% endif %}</a>
 </div>
 <div class="mt">
     <p>

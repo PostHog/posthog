@@ -32,7 +32,13 @@ from posthog.models import (
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
-from posthog.models.comment.utils import build_comment_item_url
+from posthog.models.comment.utils import (
+    build_comment_item_url,
+    build_mention_display_name_lookup,
+    extract_plain_text_from_rich_content,
+    is_ticket_comment_scope,
+    replace_mention_placeholders,
+)
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.utils import UUIDT
 from posthog.ph_client import get_client
@@ -821,18 +827,37 @@ def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], s
             logger.warning("Skipping discussions mentioned email: no valid recipients after filtering")
             return
 
-        href = build_comment_item_url(comment.scope, comment.item_id, slug)
+        mention_display_names = build_mention_display_name_lookup(mentioned_user_ids)
+        comment_content = extract_plain_text_from_rich_content(comment.rich_content, mention_display_names)
+        if not comment_content and comment.content:
+            comment_content = replace_mention_placeholders(comment.content, mention_display_names)
+
+        href = build_comment_item_url(comment.scope, comment.item_id, slug, team_id=comment.team_id)
+        is_ticket_mention = is_ticket_comment_scope(comment.scope)
+        ticket_number: int | None = None
+        if is_ticket_mention and comment.item_id:
+            ticket = Ticket.objects.filter(id=comment.item_id, team=team).only("ticket_number").first()
+            if ticket:
+                ticket_number = ticket.ticket_number
+
+        if is_ticket_mention:
+            ticket_reference = f"ticket #{ticket_number}" if ticket_number else "a ticket"
+            subject = f"[Tickets]: {commenter.first_name} mentioned you in {ticket_reference} in project '{team}'"
+        else:
+            subject = f"[Discussions]: {commenter.first_name} mentioned you in project '{team}'"
 
         campaign_key: str = f"discussions_user_mentioned_{comment.id}_updated_at_{comment.created_at.timestamp()}"
         message = EmailMessage(
             campaign_key=campaign_key,
-            subject=f"[Discussions]: {commenter.first_name} mentioned you in project '{team}'",
+            subject=subject,
             template_name="discussions_mentioned",
             template_context={
                 "commenter": commenter,
-                "content": comment.content,
+                "content": comment_content or comment.content or "",
                 "team": team,
                 "href": href,
+                "is_ticket_mention": is_ticket_mention,
+                "ticket_number": ticket_number,
             },
         )
 
