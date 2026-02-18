@@ -99,7 +99,7 @@ export const privilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
 export const PERSON_DISPLAY_NAME_COLUMN_NAME = 'person_display_name -- Person'
 
-// Sync with .../api/person.py and cdp/constants.ts
+// Sync with .../api/person.py and cdp/utils.ts
 export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = ['email', 'name', 'username']
 
 // Feature Flags & Experiments
