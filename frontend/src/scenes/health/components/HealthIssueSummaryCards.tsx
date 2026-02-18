@@ -21,6 +21,10 @@ export const HealthIssueSummaryCards = (): JSX.Element => {
         )
     }
 
+    if (!healthIssuesLoading && healthIssues === null) {
+        return <></>
+    }
+
     return (
         <div className="grid grid-cols-1 @2xl/main-content:grid-cols-3 gap-4 max-w-3xl">
             {categorySummaries.map((summary) => (

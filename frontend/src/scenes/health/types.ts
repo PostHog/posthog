@@ -1,5 +1,6 @@
 export type HealthIssueSeverity = 'critical' | 'warning' | 'info'
 export type HealthIssueStatus = 'active' | 'resolved'
+export const SEVERITY_ORDER: HealthIssueSeverity[] = ['critical', 'warning', 'info']
 
 export interface HealthIssue {
     id: string

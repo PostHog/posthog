@@ -7,9 +7,8 @@ import type { HealthIssueCategory } from '../healthCategories'
 import { healthSceneLogic } from '../healthSceneLogic'
 import { severityToTagType } from '../healthUtils'
 import type { HealthIssue, HealthIssueSeverity } from '../types'
+import { SEVERITY_ORDER } from '../types'
 import { HealthIssueCard } from './HealthIssueCard'
-
-const SEVERITY_ORDER: HealthIssueSeverity[] = ['critical', 'warning', 'info']
 
 const worstSeverity = (issues: HealthIssue[]): HealthIssueSeverity => {
     for (const severity of SEVERITY_ORDER) {

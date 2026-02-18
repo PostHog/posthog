@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { unifiedHealthMenuLogic } from 'lib/components/HealthMenu/unifiedHealthMenuLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -14,6 +15,7 @@ import { Breadcrumb } from '~/types'
 import { CATEGORY_ORDER, HEALTH_CATEGORY_CONFIG, categoryForKind } from './healthCategories'
 import type { healthSceneLogicType } from './healthSceneLogicType'
 import type { CategoryHealthSummary, HealthIssue, HealthIssueSeverity } from './types'
+import { SEVERITY_ORDER } from './types'
 
 export interface HealthIssuesResponse {
     results: HealthIssue[]
@@ -87,12 +89,6 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
         categorySummaries: [
             (s) => [s.issues],
             (issues: HealthIssue[]): CategoryHealthSummary[] => {
-                const SEVERITY_RANK: Record<HealthIssueSeverity, number> = {
-                    critical: 0,
-                    warning: 1,
-                    info: 2,
-                }
-
                 const countByCategory: Record<string, number> = {}
                 const worstByCategory: Record<string, HealthIssueSeverity> = {}
 
@@ -100,7 +96,7 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
                     const category = categoryForKind(issue.kind)
                     countByCategory[category] = (countByCategory[category] ?? 0) + 1
                     const current = worstByCategory[category]
-                    if (!current || SEVERITY_RANK[issue.severity] < SEVERITY_RANK[current]) {
+                    if (!current || SEVERITY_ORDER.indexOf(issue.severity) < SEVERITY_ORDER.indexOf(current)) {
                         worstByCategory[category] = issue.severity
                     }
                 }
@@ -152,6 +148,7 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
             try {
                 await api.update(`api/environments/@current/health_issues/${id}/`, { dismissed: true })
                 actions.loadHealthIssues()
+                unifiedHealthMenuLogic.actions.loadHealthSummary()
             } catch {
                 lemonToast.error('Failed to dismiss issue')
             }
@@ -160,6 +157,7 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
             try {
                 await api.update(`api/environments/@current/health_issues/${id}/`, { dismissed: false })
                 actions.loadHealthIssues()
+                unifiedHealthMenuLogic.actions.loadHealthSummary()
             } catch {
                 lemonToast.error('Failed to undismiss issue')
             }
