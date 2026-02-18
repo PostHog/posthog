@@ -292,7 +292,7 @@ function DictionaryField({
     }, [entries, onChange])
 
     const handleEnableIncludeObject = (): void => {
-        setEntries([[EXTEND_OBJECT_KEY, '{event.properties}'], ...entries])
+        setEntries((prev) => [[EXTEND_OBJECT_KEY, '{event.properties}'], ...prev])
     }
 
     return (
@@ -349,7 +349,7 @@ function DictionaryField({
                 size="small"
                 type="secondary"
                 onClick={() => {
-                    setEntries([...entries, ['', '']])
+                    setEntries((prev) => [...prev, ['', '']])
                 }}
             >
                 Add entry

@@ -34,20 +34,23 @@ export function VariantScreenshot({
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (_, __, id) => {
-            if (id && mediaIds.length < 5) {
-                const newMediaIds = [...mediaIds, id]
-                setMediaIds(newMediaIds)
-
+            if (!id) {
+                return
+            }
+            setMediaIds((prev) => {
+                if (prev.length >= 5) {
+                    lemonToast.error('Maximum of 5 images allowed')
+                    return prev
+                }
+                const newMediaIds = [...prev, id]
                 const updatedVariantImages = {
                     ...experiment.parameters?.variant_screenshot_media_ids,
                     [variantKey]: newMediaIds,
                 }
-
                 updateExperimentVariantImages(updatedVariantImages)
                 reportExperimentVariantScreenshotUploaded(experiment.id)
-            } else if (mediaIds.length >= 5) {
-                lemonToast.error('Maximum of 5 images allowed')
-            }
+                return newMediaIds
+            })
         },
         onError: (detail) => {
             lemonToast.error(`Error uploading image: ${detail}`)
