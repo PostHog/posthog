@@ -43,7 +43,6 @@ jobs:
                         - 'frontend/**'
                         - 'ee/frontend/**'
                         - 'common/esbuilder/**'
-                        - 'common/hogql_parser/**'
                         - 'products/**/*.ts'
                         - 'products/**/*.tsx'
                         - 'playwright/**'
@@ -86,12 +85,6 @@ jobs:
                   node-version: 24.13.0
                   cache: 'pnpm'
 
-            - name: Setup Emscripten for WASM build
-              uses: ./.github/actions/setup-emsdk
-
-            - name: Install Ninja
-              run: sudo apt-get install -y ninja-build
-
             - name: Install package.json dependencies with pnpm
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
@@ -133,12 +126,6 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: 'pnpm'
-
-            - name: Setup Emscripten for WASM build
-              uses: ./.github/actions/setup-emsdk
-
-            - name: Install Ninja
-              run: sudo apt-get install -y ninja-build
 
             - name: Install package.json dependencies with pnpm
               run: |
@@ -209,12 +196,6 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: 'pnpm'
-
-            - name: Setup Emscripten for WASM build
-              uses: ./.github/actions/setup-emsdk
-
-            - name: Install Ninja
-              run: sudo apt-get install -y ninja-build
 
             - name: Install package.json dependencies with pnpm
               run: |
@@ -289,12 +270,6 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
-
-            - name: Setup Emscripten for WASM build
-              uses: ./.github/actions/setup-emsdk
-
-            - name: Install Ninja
-              run: sudo apt-get install -y ninja-build
 
             - name: Install package.json dependencies with pnpm
               run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
