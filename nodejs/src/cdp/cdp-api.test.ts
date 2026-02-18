@@ -633,10 +633,10 @@ describe('CDP API', () => {
 
     describe('batch hogflow invocations', () => {
         let batchHogFlow: HogFlow
-        let originalKafkaProducer: any
+        let originalCdpKafkaProducer: any
 
         beforeEach(async () => {
-            originalKafkaProducer = hub.kafkaProducer
+            originalCdpKafkaProducer = api['cdpKafkaProducer']
             batchHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),
                 name: 'test batch hog flow',
@@ -662,7 +662,7 @@ describe('CDP API', () => {
         })
 
         afterEach(() => {
-            hub.kafkaProducer = originalKafkaProducer
+            api['cdpKafkaProducer'] = originalCdpKafkaProducer
         })
 
         it('errors if missing team', async () => {
@@ -712,7 +712,7 @@ describe('CDP API', () => {
 
         it('queues batch job request to kafka', async () => {
             const mockProduce = jest.fn().mockResolvedValue(undefined)
-            hub.kafkaProducer = { produce: mockProduce } as any
+            api['cdpKafkaProducer'] = { produce: mockProduce } as any
 
             const res = await supertest(app)
                 .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-123`)
@@ -743,7 +743,7 @@ describe('CDP API', () => {
 
         it('queues batch job with filters from hog flow config when not provided', async () => {
             const mockProduce = jest.fn().mockResolvedValue(undefined)
-            hub.kafkaProducer = { produce: mockProduce } as any
+            api['cdpKafkaProducer'] = { produce: mockProduce } as any
 
             const res = await supertest(app)
                 .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-456`)
@@ -769,14 +769,14 @@ describe('CDP API', () => {
         })
 
         it('errors if kafka producer not available', async () => {
-            hub.kafkaProducer = undefined as any
+            api['cdpKafkaProducer'] = undefined as any
 
             const res = await supertest(app)
                 .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-123`)
                 .send({})
 
             expect(res.status).toEqual(500)
-            expect(res.body.error).toEqual('Kafka producer not available')
+            expect(res.body.error).toEqual('CDP Kafka producer not available')
         })
     })
 })
