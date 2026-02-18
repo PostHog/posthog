@@ -1,5 +1,8 @@
+import os
 from dataclasses import dataclass, field
 from typing import Optional
+
+WEIGHT_THRESHOLD = float(os.getenv("SIGNAL_WEIGHT_THRESHOLD", "1.0"))
 
 
 @dataclass
