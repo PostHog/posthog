@@ -3,6 +3,16 @@
 Emits Signals from newly imported external data source records (Zendesk tickets, GitHub issues, etc.)
 to surface actionable product feedback.
 
+## How emitted signals are used
+
+Each emitted signal is sent to the Signals workflow (`products/signals/backend/api.py:emit_signal`)
+where its `description` is embedded for semantic search.
+Signals from different sources and types are then combined into signal groups and processed into signal reports to help users find issues with their products.
+
+This means the `description` field must be written for embedding quality:
+it should capture the meaning of the record in a source-agnostic way
+so that semantically similar signals group well regardless of origin.
+
 ## Architecture
 
 The pipeline is a Temporal child workflow, fire-and-forget from the main import job:
