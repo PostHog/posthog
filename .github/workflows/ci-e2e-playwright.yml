@@ -314,12 +314,6 @@ jobs:
                   touch frontend/dist/exporter.html
                   ./bin/download-mmdb
 
-            - name: Setup Emscripten for WASM build
-              uses: ./.github/actions/setup-emsdk
-
-            - name: Install Ninja
-              run: sudo apt-get install -y ninja-build
-
             - name: Install package.json dependencies with pnpm
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
