@@ -19,7 +19,7 @@ export const aiCostModalityExtractionCounter = new Counter({
 })
 
 export const aiCostTotalOutcomeCounter = new Counter({
-    name: 'llma_ai_cost_total_outcome',
+    name: 'llma_ai_cost_outcome_total',
     help: 'Outcome of total cost calculation (positive, zero, negative)',
     labelNames: ['outcome'],
 })
