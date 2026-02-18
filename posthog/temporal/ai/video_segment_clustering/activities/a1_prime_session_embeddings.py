@@ -78,6 +78,24 @@ async def get_sessions_to_prime_activity(
     )
 
 
+def _load_user_recording_filters(team_id: int) -> dict | None:
+    from products.signals.backend.models import SignalSourceConfig
+
+    try:
+        config = SignalSourceConfig.objects.get(
+            team_id=team_id,
+            source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS,
+            enabled=True,
+        )
+    except SignalSourceConfig.DoesNotExist:
+        return None
+
+    recording_filters = config.config.get("recording_filters")
+    if recording_filters and isinstance(recording_filters, dict):
+        return recording_filters
+    return None
+
+
 def _fetch_recent_session_ids(team: Team, lookback_hours: int) -> list[str]:
     """Fetch session IDs of recordings that ended within the lookback period.
 
@@ -88,24 +106,46 @@ def _fetch_recent_session_ids(team: Team, lookback_hours: int) -> list[str]:
     Returns:
         List of session IDs of finished recordings in the timeframe
     """
-    # RecordingsQuery for consistency with the session recordings API
-    query = RecordingsQuery(
-        filter_test_accounts=True,
-        date_from=f"-{lookback_hours}h",
-        limit=MAX_SESSIONS_TO_PRIME_EMBEDDINGS,
-        having_predicates=[
-            RecordingPropertyFilter(
-                key="active_seconds",  # Ignore sessions that are too short
-                operator=PropertyOperator.GTE,
-                value=MIN_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S,
-            ),
-            RecordingPropertyFilter(
-                key="ongoing",  # Only include finished sessions
-                operator=PropertyOperator.EXACT,
-                value=0,  # The bool is represented as 0/1 in ClickiHouse
-            ),
-        ],
-    )
+    baseline_having_predicates: list[RecordingPropertyFilter] = [
+        RecordingPropertyFilter(
+            key="active_seconds",
+            operator=PropertyOperator.GTE,
+            value=MIN_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S,
+        ),
+        RecordingPropertyFilter(
+            key="ongoing",
+            operator=PropertyOperator.EXACT,
+            value=0,  # The bool is represented as 0/1 in ClickHouse
+        ),
+    ]
+
+    user_filters = _load_user_recording_filters(team.id)
+    if user_filters:
+        from posthog.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
+            convert_filters_to_recordings_query,
+        )
+
+        user_query = convert_filters_to_recordings_query(user_filters)
+        query = RecordingsQuery(
+            filter_test_accounts=user_query.filter_test_accounts
+            if user_query.filter_test_accounts is not None
+            else True,
+            date_from=f"-{lookback_hours}h",
+            limit=MAX_SESSIONS_TO_PRIME_EMBEDDINGS,
+            having_predicates=baseline_having_predicates + (user_query.having_predicates or []),
+            properties=user_query.properties,
+            events=user_query.events,
+            actions=user_query.actions,
+            console_log_filters=user_query.console_log_filters,
+            operand=user_query.operand,
+        )
+    else:
+        query = RecordingsQuery(
+            filter_test_accounts=True,
+            date_from=f"-{lookback_hours}h",
+            limit=MAX_SESSIONS_TO_PRIME_EMBEDDINGS,
+            having_predicates=baseline_having_predicates,
+        )
 
     with tags_context(product=Product.SESSION_SUMMARY):
         result = SessionRecordingListFromQuery(team=team, query=query).run()
