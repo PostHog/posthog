@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 
 import type { disableSurveyLogicType } from './disableSurveyLogicType'
 
-const SURVEY_ID = '019c7121-f593-0000-2a0f-963ae6b3f5df'
+const SURVEY_ID = '019c72ac-3098-0000-8da2-c133ed9d9b9b'
 
 export const disableSurveyLogic = kea<disableSurveyLogicType>([
     path(['scenes', 'error-tracking', 'configuration', 'disableSurveyLogic']),
