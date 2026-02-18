@@ -4,6 +4,7 @@ import { ToastOptions, ToastContentProps as ToastifyRenderProps, toast } from 'r
 import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
 
 import { isChristmas } from 'lib/holidays'
+import { hashCodeForString } from 'lib/utils'
 
 import { LemonButton } from '../LemonButton'
 import { Spinner } from '../Spinner'
@@ -75,7 +76,10 @@ function ensureToastId(toastOptions: ToastOptions, message?: string | JSX.Elemen
     }
     // Use a deterministic ID based on the message content so that react-toastify
     // will skip showing a duplicate toast if one with the same message is already visible.
-    const toastId = typeof message === 'string' ? `lemon-${message}` : `lemon-${Math.round(Math.random() * 10000000)}`
+    const toastId =
+        typeof message === 'string'
+            ? `lemon-${hashCodeForString(message)}`
+            : `lemon-${Math.round(Math.random() * 10000000)}`
     return { ...toastOptions, toastId }
 }
 
