@@ -519,6 +519,7 @@ jobs:
               with:
                   apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
                   accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+                  packageManager: npm
                   command: pages deploy playwright/playwright-report --project-name=playwright-report --branch=${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || 'master' }}
 
             - name: Write report URL to job summary
