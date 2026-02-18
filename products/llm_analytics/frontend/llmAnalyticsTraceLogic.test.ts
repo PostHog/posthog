@@ -56,7 +56,7 @@ describe('llmAnalyticsTraceLogic', () => {
         await expectLogic(logic).toMatchValues({
             traceId: traceIdWithColon,
             eventId: eventId,
-            dateRange: { dateFrom: null, dateTo: null },
+            dateRange: { dateFrom: timestamp, dateTo: null },
         })
     })
 
