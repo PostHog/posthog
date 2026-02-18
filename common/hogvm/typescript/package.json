@@ -2,10 +2,21 @@
     "name": "@posthog/hogvm",
     "version": "1.0.67",
     "description": "PostHog Hog Virtual Machine",
-    "types": "dist/index.d.ts",
+    "license": "MIT",
+    "author": "PostHog <hey@posthog.com>",
+    "repository": "https://github.com/PostHog/posthog",
     "source": "src/index.ts",
+    "files": [
+        "dist",
+        "src",
+        "jest.config.js",
+        "tsconfig.build.json",
+        "tsconfig.json",
+        ".oxfmtrc.json"
+    ],
     "main": "dist/index.js",
     "module": "dist/module.js",
+    "types": "dist/index.d.ts",
     "scripts": {
         "test": "jest --runInBand --forceExit",
         "clean": "rm -rf dist .parcel-cache",
@@ -15,13 +26,13 @@
         "build:cli": "mkdir -p ./dist && cp ./src/cli.js ./dist/cli.js",
         "compile:stl": "cd ../../.. && python3 -m common.hogvm.stl.compile",
         "check": "tsc -p tsconfig.build.json --noEmit",
-        "prettier": "prettier --write src",
-        "prettier:check": "prettier --check src",
+        "format:oxfmt": "oxfmt src",
+        "format:check": "oxfmt --check src",
         "prepublishOnly": "pnpm build"
     },
-    "author": "PostHog <hey@posthog.com>",
-    "repository": "https://github.com/PostHog/posthog",
-    "license": "MIT",
+    "dependencies": {
+        "luxon": "^3.4.4"
+    },
     "devDependencies": {
         "@parcel/config-default": "2.13.3",
         "@parcel/packager-ts": "catalog:",
@@ -36,23 +47,12 @@
         "@types/node": "catalog:",
         "crypto-browserify": "^3.12.0",
         "jest": "catalog:",
+        "oxfmt": "catalog:",
         "parcel": "^2.13.3",
-        "prettier": "catalog:",
         "re2": "^1.23.0",
         "typescript": "catalog:"
     },
-    "files": [
-        "dist",
-        "src",
-        "jest.config.js",
-        "tsconfig.build.json",
-        "tsconfig.json",
-        ".prettierrc"
-    ],
     "peerDependencies": {
-        "luxon": "^3.4.4"
-    },
-    "dependencies": {
         "luxon": "^3.4.4"
     }
 }

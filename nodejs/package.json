@@ -2,11 +2,11 @@
     "name": "@posthog/nodejs",
     "version": "1.10.5",
     "description": "PostHog Node.js services",
-    "types": "dist/index.d.ts",
+    "license": "MIT",
+    "author": "PostHog <hey@posthog.com>",
+    "repository": "https://github.com/PostHog/posthog",
     "main": "dist/index.js",
-    "engines": {
-        "node": ">=24 <25"
-    },
+    "types": "dist/index.d.ts",
     "scripts": {
         "test": "SHARD_IDX=${SHARD_INDEX:-1}; SHARD_TOTAL=${SHARD_COUNT:-1}; echo $SHARD_IDX/$SHARD_TOTAL; jest --runInBand --forceExit --shard=$SHARD_IDX/$SHARD_TOTAL",
         "start": "pnpm start:dev",
@@ -22,8 +22,8 @@
         "typescript:check": "tsc --noEmit -p .",
         "lint": "eslint .",
         "lint:fix": "eslint --fix .",
-        "prettier": "prettier --write .",
-        "prettier:check": "prettier --check .",
+        "format:oxfmt": "oxfmt .",
+        "format:check": "oxfmt --check .",
         "prepublishOnly": "pnpm build",
         "setup:dev:clickhouse": "cd .. && DEBUG=1 python manage.py migrate_clickhouse",
         "setup:test": "cd .. && TEST=1 python manage.py setup_test_environment && cd nodejs && pnpm run setup:test:rust",
@@ -41,9 +41,6 @@
         "update-ai-costs": "ts-node src/ingestion/ai/costs/scripts/update-ai-costs.ts",
         "sync-segment-icons": "DATABASE_URL=something ts-node src/cdp/segment/sync-segment-icons.ts"
     },
-    "author": "PostHog <hey@posthog.com>",
-    "repository": "https://github.com/PostHog/posthog",
-    "license": "MIT",
     "dependencies": {
         "@amplitude/ua-parser-js": "^0.7.33",
         "@aws-sdk/client-dynamodb": "^3.952.0",
@@ -159,14 +156,17 @@
         "eslint-plugin-node": "^11.1.0",
         "eslint-plugin-promise": "^6.1.1",
         "jest": "^30.0.0",
+        "oxfmt": "catalog:",
         "pino-pretty": "^9.1.0",
-        "prettier": "catalog:",
         "supertest": "^7.0.0",
         "ts-jest": "^29.1.0",
         "ts-node": "^10.9.1",
         "tsc-alias": "^1.8.16",
         "tsconfig-paths": "^4.2.0",
         "tsx": "^4.7.0"
+    },
+    "engines": {
+        "node": ">=24 <25"
     },
     "cyclotron": {
         "//This is a short term workaround to ensure that cyclotron changes trigger a rebuild": true,

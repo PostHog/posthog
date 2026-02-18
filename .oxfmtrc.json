@@ -1,0 +1,97 @@
+{
+    "$schema": "./node_modules/oxfmt/configuration_schema.json",
+    "trailingComma": "es5",
+    "tabWidth": 4,
+    "semi": false,
+    "singleQuote": true,
+    "printWidth": 120,
+    "proseWrap": "preserve",
+    "experimentalSortImports": {
+        "newlinesBetween": true,
+        "internalPattern": ["~/", "@/"],
+        "groups": [
+            "side_effect_style",
+            "style",
+            "side_effect",
+            "external",
+            "posthog-packages",
+            "lib-and-scenes",
+            "internal",
+            "public",
+            "products",
+            "storybook",
+            ["sibling", "parent", "index"]
+        ],
+        "customGroups": [
+            {
+                "groupName": "posthog-packages",
+                "elementNamePattern": ["@posthog/*", "@posthog/**"]
+            },
+            {
+                "groupName": "lib-and-scenes",
+                "elementNamePattern": ["lib/*", "lib/**", "scenes/*", "scenes/**"]
+            },
+            {
+                "groupName": "public",
+                "elementNamePattern": ["public/*", "public/**"]
+            },
+            {
+                "groupName": "products",
+                "elementNamePattern": ["products/*", "products/**"]
+            },
+            {
+                "groupName": "storybook",
+                "elementNamePattern": ["storybook/*", "storybook/**"]
+            }
+        ]
+    },
+    "overrides": [
+        {
+            "files": ["*.md", "*.mdx"],
+            "options": {
+                "tabWidth": 2
+            }
+        }
+    ],
+    "ignorePatterns": [
+        "venv",
+        "env",
+        ".venv",
+        "__pycache__/",
+        "staticfiles",
+        ".env",
+        "*.code-workspace",
+        ".mypy_cache",
+        ".cache/",
+        "*Type.ts",
+        ".idea",
+        ".yalc",
+        ".python-version",
+        "storybook-static",
+        "common/storybook/dist/",
+        "dist/",
+        "node_modules/",
+        "pnpm-lock.yaml",
+        "posthog/templates/**/*",
+        "common/hogvm/typescript/src/stl/bytecode.ts",
+        "common/hogvm/__tests__/__snapshots__/*",
+        "common/hogql_parser/build_wasm/",
+        "common/hogql_parser/build/",
+        "common/hogql_parser/dist/",
+        "rust/",
+        "livestream/",
+        "cli/target/",
+        "cli/tests/_cases/**/*",
+        "frontend/src/products.tsx",
+        "frontend/src/products.json",
+        "frontend/src/layout.html",
+        "**/fixtures/**",
+        "services/mcp/**/generated.ts",
+        "services/mcp/worker-configuration.d.ts",
+        "frontend/src/taxonomy/core-filter-definitions-by-group.json",
+        "frontend/dist/",
+        "frontend/**/*LogicType.ts",
+        "bin/validate-setup-tasks.mjs",
+        "frontend/bin/docs/build-survey-sdk-docs.ts"
+    ]
+}

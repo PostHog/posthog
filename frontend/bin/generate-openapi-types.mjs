@@ -495,16 +495,16 @@ for (const result of results) {
     }
 }
 
-// Run prettier once on all generated files
+// Run oxfmt once on all generated files
 if (outputDirs.length > 0) {
     console.log('')
     console.log('Formatting generated files...')
     const globs = outputDirs.map((d) => `"${d}/**/*.ts"`).join(' ')
     try {
-        execSync(`pnpm exec prettier --write ${globs}`, { stdio: 'pipe', cwd: repoRoot })
+        execSync(`pnpm exec oxfmt ${globs}`, { stdio: 'pipe', cwd: repoRoot })
         console.log('   ✓ Formatted')
     } catch {
-        console.log('   ⚠️  Prettier formatting skipped (not critical)')
+        console.log('   ⚠️  Formatting skipped (not critical)')
     }
 }
 

@@ -86,8 +86,8 @@ jobs:
                   pnpm --filter=@posthog/nodejs... install --frozen-lockfile
                   bin/turbo --filter=@posthog/nodejs prepare
 
-            - name: Check formatting with prettier
-              run: pnpm --filter=@posthog/nodejs prettier:check
+            - name: Check formatting with oxfmt
+              run: pnpm --filter=@posthog/nodejs format:check
 
             - name: Lint with ESLint
               run: pnpm --filter=@posthog/nodejs lint

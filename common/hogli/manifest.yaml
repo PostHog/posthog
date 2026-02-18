@@ -284,8 +284,7 @@ build:
             - clickhouse
             - django
     build:schema-mcp:
-        cmd: cd services/mcp && npx tsx scripts/generate-tool-schema.ts && pnpm prettier
-            --write schema/tool-inputs.json
+        cmd: cd services/mcp && npx tsx scripts/generate-tool-schema.ts && pnpm exec oxfmt schema/tool-inputs.json
         description: Generate MCP tool-inputs.json schema from Zod definitions
     build:openapi-types:
         cmd: pnpm --filter=@posthog/frontend run openapi:types
@@ -473,18 +472,16 @@ quality:
         cmd: pnpm format
         description: Format both backend and frontend code
     format:yaml:
-        cmd: pnpm prettier --write
+        cmd: pnpm exec oxfmt
         description: Format JSON, YAML files
     format:css:
-        cmd: pnpm stylelint --fix --allow-empty-input "$@" && pnpm prettier --write "$@"
+        cmd: pnpm stylelint --fix --allow-empty-input "$@" && pnpm exec oxfmt "$@"
         description: Format CSS/SCSS files
     format:js:
-        cmd: pnpm oxlint --fix --fix-suggestions --quiet "$@" && pnpm prettier --write
-            "$@"
+        cmd: pnpm oxlint --fix --fix-suggestions --quiet "$@" && pnpm exec oxfmt "$@"
         description: Format JavaScript/TypeScript files (frontend)
     format:nodejs:
-        cmd: pnpm --dir nodejs exec eslint --fix "$@" && pnpm --dir nodejs exec prettier
-            --write "$@"
+        cmd: pnpm --dir nodejs exec eslint --fix "$@" && pnpm --dir nodejs exec oxfmt "$@"
         description: Format nodejs JavaScript files
     format:rust:
         cmd: rustfmt
@@ -500,7 +497,7 @@ quality:
         description: Fix Python code quality issues
     format:markdown:
         cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix
-            "$@" && pnpm exec prettier --write "$@"
+            "$@" && pnpm exec oxfmt "$@"
         description: Format Markdown files
 tools:
     tool:temporal-django-worker:
