@@ -1,3 +1,5 @@
+import { Fragment } from 'react'
+
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     ActivityChange,
@@ -102,15 +104,15 @@ const featureFlagActionsMapping: Record<
                             const newButtons =
                                 nonEmptyProperties.map((property, idx) => {
                                     return (
-                                        <>
+                                        <Fragment key={property.key ?? idx}>
                                             {' '}
                                             {idx === 0 && (
                                                 <span>
                                                     <strong>{rollout_percentage ?? 100}%</strong> of{' '}
                                                 </span>
                                             )}
-                                            <PropertyFilterButton key={property.key} item={property} />
-                                        </>
+                                            <PropertyFilterButton item={property} />
+                                        </Fragment>
                                     )
                                 }) || []
                             newButtons[0] = (
