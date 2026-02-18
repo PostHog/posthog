@@ -10,7 +10,7 @@ from posthog.redis import get_client
 logger = structlog.get_logger(__name__)
 
 IDEMPOTENCY_KEY_PREFIX = "warehouse_pipelines:processed"
-IDEMPOTENCY_TTL_SECONDS = 48 * 60 * 60  # 2 days (48 hours)
+IDEMPOTENCY_TTL_SECONDS = 72 * 60 * 60  # 3 days (72 hours) same as the topic retention period
 
 
 @contextmanager
