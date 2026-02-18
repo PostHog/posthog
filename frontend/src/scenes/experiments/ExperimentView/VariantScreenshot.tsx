@@ -28,7 +28,7 @@ export function VariantScreenshot({
         return Array.isArray(variantImages) ? variantImages : [variantImages]
     }
 
-    const [mediaIds, setMediaIds] = useState<string[]>(getInitialMediaIds())
+    const [mediaIds, setMediaIds] = useState<string[]>(getInitialMediaIds)
     const [loadingImages, setLoadingImages] = useState<Record<string, boolean>>({})
     const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null)
 
