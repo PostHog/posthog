@@ -690,7 +690,7 @@ class BillingManager:
         encoding) are parsed back into native types so the billing service
         receives structured data rather than escaped strings.
         """
-        result = {}
+        result: dict[str, Any] = {}
         for k, v in params.items():
             if isinstance(v, UUID):
                 result[k] = str(v)
