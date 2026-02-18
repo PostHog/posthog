@@ -1062,6 +1062,9 @@ importers:
       tailwindcss:
         specifier: 4.0.7
         version: 4.0.7
+      torph:
+        specifier: ^0.0.5
+        version: 0.0.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       ts-pattern:
         specifier: 'catalog:'
         version: 4.3.0
@@ -2283,6 +2286,9 @@ importers:
       stylelint:
         specifier: '*'
         version: 15.11.0(typescript@5.4.5)
+      torph:
+        specifier: ^0.0.5
+        version: 0.0.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       typescript:
         specifier: 5.4.5
         version: 5.4.5
@@ -2647,6 +2653,9 @@ importers:
       react-dom:
         specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
+      torph:
+        specifier: ^0.0.5
+        version: 0.0.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
@@ -19756,6 +19765,23 @@ packages:
   topojson-client@3.1.0:
     resolution: {integrity: sha512-605uxS6bcYxGXw9qi62XyrV6Q3xwbndjachmNxu8HWTtVPxZfEJN9fd/SZS1Q54Sn2y0TMyMxFj/cJINqGHrKw==}
     hasBin: true
+
+  torph@0.0.5:
+    resolution: {integrity: sha512-A9mwvWouyRIIZ8Y9McJioZ4O5itSjgtfPQMGxU+qvA5MYaF31EY1Cq3OpOLT34wXLhsfOC7tto5Gzg0d6I3NQg==}
+    peerDependencies:
+      react: 18.3.1
+      react-dom: 18.3.1
+      svelte: '>=4'
+      vue: '>=3'
+    peerDependenciesMeta:
+      react:
+        optional: true
+      react-dom:
+        optional: true
+      svelte:
+        optional: true
+      vue:
+        optional: true
 
   tough-cookie@4.1.3:
     resolution: {integrity: sha512-aX/y5pVRkfRnfmuX+OdbSdXvPe6ieKX/G2s7e98f4poJHnqH3281gDPm/metm6E/WRamfx7WC4HUqkWHfQHprw==}
@@ -43188,6 +43214,11 @@ snapshots:
   topojson-client@3.1.0:
     dependencies:
       commander: 2.20.3
+
+  torph@0.0.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+    optionalDependencies:
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
 
   tough-cookie@4.1.3:
     dependencies:

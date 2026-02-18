@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
+import { TextMorph } from 'torph/react'
 
 import {
     IconCopy,
@@ -280,7 +281,7 @@ export function EllipsisAnimation(): JSX.Element {
         return () => clearInterval(interval)
     }, [isPageVisible])
 
-    return <span>{ellipsis}</span>
+    return <TextMorph as="span">{ellipsis}</TextMorph>
 }
 
 export function PageHeaderCustom(): JSX.Element {
