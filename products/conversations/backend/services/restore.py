@@ -170,7 +170,7 @@ class RestoreService:
             migrated_ids = [t.id for t in tickets]
 
             if migrated_ids:
-                Ticket.objects.filter(id__in=migrated_ids).update(widget_session_id=widget_session_id)
+                Ticket.objects.filter(team=token.team, id__in=migrated_ids).update(widget_session_id=widget_session_id)
 
             # Invalidate any other unused tokens for the same email
             RestoreService.invalidate_existing_tokens(token.team, token.recipient_email, exclude_token_id=token.id)

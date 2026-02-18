@@ -634,7 +634,7 @@ class RestoreRequestThrottle(SimpleRateThrottle):
 
     def get_cache_key(self, request, view):
         # Throttle by email hash
-        email = request.data.get("email", "")
+        email = request.data.get("email", "") if isinstance(request.data, dict) else ""
         if email:
             ident = hashlib.sha256(email.lower().strip().encode()).hexdigest()
         else:
