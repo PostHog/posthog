@@ -16,12 +16,19 @@ from products.error_tracking.backend.weekly_digest import (
     get_top_issues_for_team,
 )
 
+from ee.clickhouse.materialized_columns.columns import materialize
+
 
 def _days_ago(n: int) -> str:
     return (timezone.now() - timedelta(days=n)).isoformat()
 
 
 class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        materialize("events", "$exception_issue_id", is_nullable=True)
+
     def _create_issue(self, name: str = "TestError", description: str = "something broke") -> ErrorTrackingIssue:
         issue = ErrorTrackingIssue.objects.create(
             id=uuid7(),
