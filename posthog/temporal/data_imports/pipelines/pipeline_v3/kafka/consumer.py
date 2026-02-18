@@ -102,6 +102,10 @@ class KafkaConsumerService:
                 partition=p.partition,
                 offset=p.offset,
             )
+        try:
+            consumer.commit(asynchronous=False)
+        except Exception:
+            logger.warning("failed_to_commit_on_revoke")
 
     def _get_dlq_producer(self) -> _KafkaProducer:
         if self._dlq_producer is None:

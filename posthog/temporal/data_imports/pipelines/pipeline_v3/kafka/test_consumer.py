@@ -1,3 +1,5 @@
+from typing import Any
+
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -7,7 +9,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.load.config import Cons
 
 
 def _make_config(**kwargs) -> ConsumerConfig:
-    defaults = {
+    defaults: dict[str, Any] = {
         "input_topic": "test-topic",
         "consumer_group": "test-group",
         "dlq_topic": "test-dlq",
@@ -103,7 +105,8 @@ class TestKafkaConsumerServiceCallbacks:
             partitions.append(p)
 
         with patch("posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.consumer.logger") as mock_logger:
-            service._on_revoke(MagicMock(), partitions)
+            mock_consumer = MagicMock()
+            service._on_revoke(mock_consumer, partitions)
 
             assert mock_logger.info.call_count == len(partition_data)
             for topic, partition, offset in partition_data:
@@ -113,3 +116,14 @@ class TestKafkaConsumerServiceCallbacks:
                     partition=partition,
                     offset=offset,
                 )
+            mock_consumer.commit.assert_called_once_with(asynchronous=False)
+
+    def test_on_revoke_logs_warning_on_commit_failure(self):
+        service = _make_service()
+        mock_consumer = MagicMock()
+        mock_consumer.commit.side_effect = Exception("commit failed")
+
+        with patch("posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.consumer.logger") as mock_logger:
+            service._on_revoke(mock_consumer, [])
+
+            mock_logger.warning.assert_called_once_with("failed_to_commit_on_revoke")
