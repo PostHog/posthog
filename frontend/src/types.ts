@@ -3511,6 +3511,10 @@ export interface ProductTourContent {
     displayFrequency?: ProductTourDisplayFrequency
 }
 
+export type ProductTourDraftContent = Partial<
+    Pick<ProductTour, 'name' | 'description' | 'content' | 'auto_launch' | 'targeting_flag_filters' | 'linked_flag_id'>
+>
+
 export interface ProductTour {
     id: string
     name: string
@@ -3527,6 +3531,8 @@ export interface ProductTour {
     created_by: UserBasicType | null
     updated_at: string
     archived: boolean
+    draft_content: ProductTourDraftContent | null
+    has_draft: boolean
 }
 
 export interface Survey extends WithAccessControl {

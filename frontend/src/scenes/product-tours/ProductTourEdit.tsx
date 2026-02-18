@@ -15,10 +15,8 @@ import { ProductTourStepsEditor } from './editor'
 import { productTourLogic } from './productTourLogic'
 
 export function ProductTourEdit({ id }: { id: string }): JSX.Element {
-    const { productTour, productTourForm, isProductTourFormSubmitting, pendingToolbarOpen } = useValues(
-        productTourLogic({ id })
-    )
-    const { editingProductTour, setProductTourFormValue, submitProductTourForm, submitAndOpenToolbar } = useActions(
+    const { productTour, productTourForm, pendingToolbarOpen } = useValues(productTourLogic({ id }))
+    const { discardDraft, publishDraft, setProductTourFormValue, submitAndOpenToolbar } = useActions(
         productTourLogic({ id })
     )
 
@@ -52,15 +50,10 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                             >
                                 Preview
                             </LemonButton>
-                            <LemonButton type="secondary" size="small" onClick={() => editingProductTour(false)}>
+                            <LemonButton type="secondary" size="small" onClick={discardDraft}>
                                 Cancel
                             </LemonButton>
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={() => submitProductTourForm()}
-                                loading={isProductTourFormSubmitting && !pendingToolbarOpen}
-                            >
+                            <LemonButton type="primary" size="small" onClick={publishDraft}>
                                 Save
                             </LemonButton>
                         </div>
