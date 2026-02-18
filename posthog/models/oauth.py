@@ -33,10 +33,10 @@ class OAuthApplicationAuthBrand(enum.Enum):
 
 
 def is_loopback_host(hostname: str | None) -> bool:
-    """Check if hostname is a loopback address (localhost or 127.0.0.0/8)."""
+    """Check if hostname is a loopback address (localhost, 127.0.0.0/8, or ::1)."""
     if not hostname:
         return False
-    if hostname == "localhost":
+    if hostname in ("localhost", "::1", "[::1]"):
         return True
     # Check for IPv4 loopback range 127.0.0.0/8
     if hostname.startswith("127.") and hostname.count(".") == 3:

@@ -32,10 +32,24 @@ from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
 from posthog.api.email_verification import EmailVerifier
+from posthog.api.oauth.toolbar_service import (
+    ToolbarOAuthError,
+    ToolbarOAuthState,
+    build_authorization_url,
+    build_toolbar_oauth_state,
+    exchange_code_for_tokens,
+    generate_pkce_pair,
+    get_or_create_toolbar_oauth_application,
+    new_state_nonce,
+    normalize_and_validate_app_url,
+    refresh_tokens,
+    validate_and_consume_toolbar_oauth_state,
+)
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
@@ -68,7 +82,7 @@ from posthog.models import Dashboard, Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications, ShortcutPosition
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
-from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerificationThrottle
+from posthog.rate_limit import ToolbarOAuthRefreshThrottle, UserAuthenticationThrottle, UserEmailVerificationThrottle
 from posthog.tasks import user_identify
 from posthog.tasks.email import (
     send_email_change_emails,
@@ -77,6 +91,7 @@ from posthog.tasks.email import (
     send_two_factor_auth_enabled_email,
 )
 from posthog.user_permissions import UserPermissions
+from posthog.utils import render_template
 
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
 REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Redirect to site failed")
@@ -465,6 +480,8 @@ class UserViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "user"
+    # None = derive scopes from scope_object per HTTP method; individual actions can override via @action(required_scopes=...)
+    required_scopes: list[str] | None = None
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
     authentication_classes = [
@@ -497,6 +514,11 @@ class UserViewSet(
     filterset_fields = ["is_staff", "email"]
     queryset = User.objects.filter(is_active=True)
     lookup_field = "uuid"
+
+    def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
+        if self.action == "hedgehog_config":
+            return ["user:read"] if request.method == "GET" else ["user:write"]
+        return None
 
     def get_object(self) -> User:
         lookup_value = self.kwargs[self.lookup_field]
@@ -778,6 +800,317 @@ class UserViewSet(
         send_two_factor_auth_disabled_email.delay(user.id)
 
         return Response({"success": True})
+
+
+###
+# Toolbar
+
+
+class ToolbarOAuthStartSerializer(serializers.Serializer):
+    app_url = serializers.URLField()
+    code_challenge = serializers.CharField()
+    code_challenge_method = serializers.ChoiceField(choices=["S256"], default="S256")
+    action_id = serializers.IntegerField(required=False, allow_null=True)
+    experiment_id = serializers.CharField(required=False, allow_null=True)
+    product_tour_id = serializers.CharField(required=False, allow_null=True)
+    user_intent = serializers.CharField(required=False, allow_null=True)
+
+
+class ToolbarOAuthExchangeSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    state = serializers.CharField()
+    code_verifier = serializers.CharField()
+
+
+@session_auth_required
+@require_http_methods(["POST"])
+def toolbar_oauth_start(request):
+    """
+    Start browser OAuth for toolbar.
+
+    Returns the `/oauth/authorize` URL with PKCE params and signed state.
+    """
+    try:
+        body = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"code": "invalid_json", "detail": "Request body must be valid JSON"}, status=400)
+
+    serializer = ToolbarOAuthStartSerializer(data=body)
+    try:
+        serializer.is_valid(raise_exception=True)
+    except exceptions.ValidationError as exc:
+        return JsonResponse({"code": "invalid_request", "detail": exc.detail}, status=400)
+
+    team = request.user.team
+    if not team:
+        return JsonResponse({"code": "no_team", "detail": "No project found"}, status=400)
+
+    try:
+        app_url = normalize_and_validate_app_url(team, serializer.validated_data["app_url"])
+
+        oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
+
+        signed_state, expires_at = build_toolbar_oauth_state(
+            ToolbarOAuthState(
+                nonce=new_state_nonce(),
+                user_id=request.user.id,
+                team_id=team.id,
+                app_url=app_url,
+                action_id=serializer.validated_data.get("action_id"),
+                experiment_id=serializer.validated_data.get("experiment_id"),
+                product_tour_id=serializer.validated_data.get("product_tour_id"),
+                user_intent=serializer.validated_data.get("user_intent"),
+            )
+        )
+
+        authorization_url = build_authorization_url(
+            application=oauth_app,
+            state=signed_state,
+            code_challenge=serializer.validated_data["code_challenge"],
+        )
+    except ToolbarOAuthError as exc:
+        return JsonResponse({"code": exc.code, "detail": exc.detail}, status=exc.status_code)
+
+    logger.info("toolbar_oauth_start_success", team_id=team.id, user_id=request.user.id, app_url=app_url)
+    return JsonResponse({"authorization_url": authorization_url, "expires_at": expires_at.isoformat()})
+
+
+@session_auth_required
+@require_http_methods(["POST"])
+def toolbar_oauth_exchange(request):
+    """
+    Complete toolbar OAuth by exchanging code for tokens server-side.
+
+    State is validated and consumed before exchanging the authorization code.
+    """
+    try:
+        body = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"code": "invalid_json", "detail": "Request body must be valid JSON"}, status=400)
+
+    serializer = ToolbarOAuthExchangeSerializer(data=body)
+    try:
+        serializer.is_valid(raise_exception=True)
+    except exceptions.ValidationError as exc:
+        return JsonResponse({"code": "invalid_request", "detail": exc.detail}, status=400)
+
+    # Check if the user has a team
+    team = request.user.team
+    if not team:
+        return JsonResponse({"code": "no_team", "detail": "No project found"}, status=400)
+
+    try:
+        state_payload = validate_and_consume_toolbar_oauth_state(
+            signed_state=serializer.validated_data["state"],
+            request_user=request.user,
+            request_team=team,
+        )
+        oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
+
+        # Keep the code exchange on the backend so the popup never handles tokens.
+        token_payload = exchange_code_for_tokens(
+            client_id=oauth_app.client_id,
+            code=serializer.validated_data["code"],
+            code_verifier=serializer.validated_data["code_verifier"],
+        )
+        logger.info("toolbar_oauth_exchange_success", team_id=team.id, user_id=request.user.id)
+        return JsonResponse(
+            {
+                "access_token": token_payload["access_token"],
+                "refresh_token": token_payload["refresh_token"],
+                "token_type": token_payload["token_type"],
+                "expires_in": token_payload["expires_in"],
+                "scope": token_payload["scope"],
+                "app_url": state_payload["app_url"],
+            }
+        )
+    except ToolbarOAuthError as exc:
+        logger.warning("toolbar_oauth_exchange_failed", code=exc.code, user_id=request.user.id)
+        return JsonResponse({"code": exc.code, "detail": exc.detail}, status=exc.status_code)
+
+
+@require_http_methods(["GET"])
+def toolbar_oauth_authorize(request):
+    """
+    Start the toolbar OAuth flow.
+
+    Validates the redirect URL, generates PKCE + signed state, stores the
+    code_verifier in the session, and renders a consent page with the
+    authorization URL.
+    """
+    redirect_url = request.GET.get("redirect")
+    if not redirect_url:
+        return HttpResponse("You need to pass a url to ?redirect=", status=400)
+
+    team = request.user.team
+    if not team:
+        return HttpResponse("No project found", status=400)
+
+    try:
+        app_url = normalize_and_validate_app_url(team, redirect_url)
+        code_verifier, code_challenge = generate_pkce_pair()
+
+        oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
+
+        signed_state, _expires_at = build_toolbar_oauth_state(
+            ToolbarOAuthState(
+                nonce=new_state_nonce(),
+                user_id=request.user.id,
+                team_id=team.id,
+                app_url=app_url,
+            )
+        )
+
+        authorization_url = build_authorization_url(
+            application=oauth_app, state=signed_state, code_challenge=code_challenge
+        )
+    except ToolbarOAuthError as exc:
+        return HttpResponse(exc.detail, status=exc.status_code)
+
+    request.session["toolbar_oauth_code_verifier"] = code_verifier
+
+    return redirect(authorization_url)
+
+
+@require_http_methods(["GET"])
+def toolbar_oauth_callback(request):
+    """
+    OAuth callback endpoint (redirect_uri for toolbar OAuth).
+
+    Two modes:
+    - Toolbar flow (code_verifier in session): exchanges the code for tokens
+      server-side and postMessages them to the opener (the toolbar page).
+    - posthog-js flow (no code_verifier): relays code/state to the opener
+      for client-side exchange.
+    """
+    error = request.GET.get("error")
+    if error:
+        payload = {
+            "type": "toolbar_oauth_callback",
+            "error": error,
+            "error_description": request.GET.get("error_description"),
+        }
+        # Error payloads contain no sensitive data, so "*" is safe and ensures
+        # the opener (on the customer's domain) can receive the message.
+        return render_template(
+            "toolbar_oauth_callback.html",
+            request=request,
+            context={"payload": payload, "target_origin": "*"},
+        )
+
+    code = request.GET.get("code")
+    state = request.GET.get("state")
+
+    if not request.user.is_authenticated:
+        code_verifier = None
+    else:
+        code_verifier = request.session.pop("toolbar_oauth_code_verifier", None)
+
+    if code_verifier and code and state:
+        # Toolbar flow: exchange code for tokens on the server
+        team = request.user.team
+        if not team:
+            payload = {"type": "toolbar_oauth_callback", "error": "no_team", "error_description": "No project found"}
+            return render_template(
+                "toolbar_oauth_callback.html",
+                request=request,
+                context={"payload": payload, "target_origin": "*"},
+            )
+
+        try:
+            state_payload = validate_and_consume_toolbar_oauth_state(
+                signed_state=state,
+                request_user=request.user,
+                request_team=team,
+            )
+            oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
+            token_payload = exchange_code_for_tokens(
+                client_id=oauth_app.client_id,
+                code=code,
+                code_verifier=code_verifier,
+            )
+        except ToolbarOAuthError as exc:
+            payload = {"type": "toolbar_oauth_callback", "error": exc.code, "error_description": exc.detail}
+            return render_template(
+                "toolbar_oauth_callback.html",
+                request=request,
+                context={"payload": payload, "target_origin": "*"},
+            )
+
+        app_url = state_payload["app_url"]
+        parsed = urllib.parse.urlparse(app_url)
+        target_origin = f"{parsed.scheme}://{parsed.netloc}"
+
+        payload = {
+            "type": "toolbar_oauth_callback",
+            "access_token": token_payload["access_token"],
+            "refresh_token": token_payload["refresh_token"],
+            "expires_in": token_payload["expires_in"],
+            "client_id": oauth_app.client_id,
+        }
+        return render_template(
+            "toolbar_oauth_callback.html",
+            request=request,
+            context={"payload": payload, "target_origin": target_origin},
+        )
+
+    # posthog-js flow: relay code/state for client-side exchange
+    payload = {
+        "type": "toolbar_oauth_result",
+        "code": code,
+        "state": state,
+        "error": error,
+        "error_description": request.GET.get("error_description"),
+    }
+    return render_template(
+        "toolbar_oauth_callback.html",
+        request=request,
+        context={"payload": payload, "target_origin": settings.SITE_URL},
+    )
+
+
+class ToolbarOAuthRefreshView(APIView):
+    """
+    Refresh toolbar OAuth tokens.
+
+    No session auth — the refresh_token itself is the credential.
+    CSRF exempt via DRF's SessionAuthentication not being listed.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [ToolbarOAuthRefreshThrottle]
+
+    def post(self, request):
+        try:
+            body = json.loads(request.body or "{}")
+        except json.JSONDecodeError:
+            return JsonResponse({"code": "invalid_json", "detail": "Request body must be valid JSON"}, status=400)
+
+        refresh_token = body.get("refresh_token")
+        client_id = body.get("client_id")
+        if not refresh_token or not client_id:
+            return JsonResponse(
+                {"code": "invalid_request", "detail": "refresh_token and client_id are required"}, status=400
+            )
+
+        try:
+            token_payload = refresh_tokens(client_id=client_id, refresh_token=refresh_token)
+        except ToolbarOAuthError as exc:
+            logger.warning("toolbar_oauth_refresh_failed", code=exc.code)
+            return JsonResponse({"code": exc.code, "detail": exc.detail}, status=exc.status_code)
+
+        logger.info("toolbar_oauth_refresh_success")
+        return JsonResponse(
+            {
+                "access_token": token_payload["access_token"],
+                "refresh_token": token_payload["refresh_token"],
+                "expires_in": token_payload["expires_in"],
+            }
+        )
+
+
+toolbar_oauth_refresh = ToolbarOAuthRefreshView.as_view()
 
 
 @session_auth_required
