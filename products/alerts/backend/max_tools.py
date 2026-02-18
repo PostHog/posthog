@@ -18,6 +18,8 @@ from posthog.schema import (
 from posthog.exceptions_capture import capture_exception
 from posthog.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from posthog.models.insight import Insight
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.tool import MaxTool
@@ -129,10 +131,6 @@ class UpdateAlertAction(BaseModel):
     alert_id: str = Field(description="The ID of the alert to update (find via list_data with kind='alerts')")
     name: str | None = Field(default=None, description="New alert name")
     condition_type: AlertConditionType | None = Field(default=None, description="New condition type")
-    insight_id: str | int | None = Field(
-        default=None,
-        description="Move the alert to a different insight by providing its ID",
-    )
     calculation_interval: AlertCalculationInterval | None = Field(default=None, description="New calculation interval")
     upper_threshold: float | None = Field(default=None, description="New upper threshold bound")
     lower_threshold: float | None = Field(default=None, description="New lower threshold bound")
@@ -284,23 +282,6 @@ class UpsertAlertTool(MaxTool):
                 alert.skip_weekend = action.skip_weekend
                 update_fields.append("skip_weekend")
 
-            if action.insight_id is not None:
-                try:
-                    insight, _ = await self._resolve_and_validate_insight(
-                        action.insight_id, action_description="move alert to"
-                    )
-                except Insight.DoesNotExist:
-                    return "Insight not found. Provide a valid insight ID or short ID.", {
-                        "error": "insight_not_found",
-                    }
-                except ValueError as e:
-                    return str(e), {"error": "unsupported_insight"}
-                alert.insight = insight
-                update_fields.append("insight")
-                if alert.threshold is not None:
-                    alert.threshold.insight = insight
-                    await sync_to_async(alert.threshold.save)(update_fields=["insight"])
-
             has_threshold_changes = (
                 action.upper_threshold is not None
                 or action.lower_threshold is not None
@@ -450,8 +431,18 @@ class UpsertAlertTool(MaxTool):
     @sync_to_async
     @transaction.atomic
     def _persist_alert(
-        *, team, user, insight, name, unsaved_threshold, condition, config, calculation_interval, enabled, skip_weekend
-    ):
+        *,
+        team: Team,
+        user: User,
+        insight: Insight,
+        name: str,
+        unsaved_threshold: Threshold,
+        condition: dict,
+        config: dict,
+        calculation_interval: AlertCalculationInterval,
+        enabled: bool,
+        skip_weekend: bool,
+    ) -> tuple[AlertConfiguration, Threshold]:
         unsaved_threshold.save()
 
         alert = AlertConfiguration.objects.create(
