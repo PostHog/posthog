@@ -94,7 +94,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
     """
     Determines the maximum number of tool calls allowed in a single generation.
     """
-    THINKING_CONFIG = {"type": "enabled", "budget_tokens": 1024}
+    THINKING_CONFIG = {"type": "enabled", "budget_tokens": 10240}
     """
     Determines the thinking configuration for the model.
     """
@@ -230,8 +230,11 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
                 "context-1m-2025-08-07",
                 "fine-grained-tool-streaming-2025-05-14",
             ],
-            max_tokens=8192,
+            max_tokens=16384,
             thinking=self.THINKING_CONFIG,
+            # langchain-anthropic 0.3.x doesn't have a first-class effort field;
+            # forward it via model_kwargs so the Anthropic API receives output_config.
+            model_kwargs={"output_config": {"effort": "medium"}},
             conversation_start_dt=state.start_dt,
             billable=True,
         )
