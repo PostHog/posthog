@@ -129,6 +129,9 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
 
     @staticmethod
     def _is_simple_column_name(value: str) -> bool:
+        # Handle single character case first
+        if len(value) == 1:
+            return value.isalnum() or value == '_'
         return (
             bool(value)
             and value.replace("_", "").replace(".", "").isalnum()
