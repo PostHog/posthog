@@ -364,6 +364,7 @@
                 "plan",
                 "execution",
                 "survey",
+                "onboarding",
                 "research",
                 "flags"
             ],
@@ -1997,7 +1998,8 @@
                 "manage_memories",
                 "create_notebook",
                 "list_data",
-                "finalize_plan"
+                "finalize_plan",
+                "recommend_products"
             ],
             "type": "string"
         },
@@ -15421,7 +15423,109 @@
                 "Shopify",
                 "Attio",
                 "SnapchatAds",
-                "Linear"
+                "Linear",
+                "Intercom",
+                "Amplitude",
+                "Mixpanel",
+                "Jira",
+                "ActiveCampaign",
+                "Marketo",
+                "Adjust",
+                "AppsFlyer",
+                "Freshdesk",
+                "GoogleAnalytics",
+                "Pipedrive",
+                "SendGrid",
+                "Slack",
+                "PagerDuty",
+                "Asana",
+                "Notion",
+                "Airtable",
+                "Greenhouse",
+                "BambooHR",
+                "Lever",
+                "GitLab",
+                "Datadog",
+                "Sentry",
+                "Pendo",
+                "FullStory",
+                "AmazonAds",
+                "PinterestAds",
+                "AppleSearchAds",
+                "QuickBooks",
+                "Xero",
+                "NetSuite",
+                "WooCommerce",
+                "BigCommerce",
+                "PayPal",
+                "Square",
+                "Zoom",
+                "Trello",
+                "Monday",
+                "ClickUp",
+                "Confluence",
+                "Recurly",
+                "SalesLoft",
+                "Outreach",
+                "Gong",
+                "Calendly",
+                "Typeform",
+                "Iterable",
+                "ZohoCRM",
+                "Close",
+                "Oracle",
+                "DynamoDB",
+                "Elasticsearch",
+                "Kafka",
+                "LaunchDarkly",
+                "Braintree",
+                "Recharge",
+                "HelpScout",
+                "Gorgias",
+                "Instagram",
+                "YouTubeAnalytics",
+                "FacebookPages",
+                "TwitterAds",
+                "Workday",
+                "ServiceNow",
+                "Pardot",
+                "Copper",
+                "Front",
+                "ChartMogul",
+                "Zuora",
+                "Paddle",
+                "CircleCI",
+                "CockroachDB",
+                "Firebase",
+                "AzureBlob",
+                "GoogleDrive",
+                "OneDrive",
+                "SharePoint",
+                "Box",
+                "SFTP",
+                "MicrosoftTeams",
+                "Aircall",
+                "Webflow",
+                "Okta",
+                "Auth0",
+                "Productboard",
+                "Smartsheet",
+                "Wrike",
+                "Plaid",
+                "SurveyMonkey",
+                "Eventbrite",
+                "RingCentral",
+                "Twilio",
+                "Freshsales",
+                "Shortcut",
+                "ConvertKit",
+                "Drip",
+                "CampaignMonitor",
+                "MailerLite",
+                "Omnisend",
+                "Brevo",
+                "Postmark",
+                "Granola"
             ],
             "type": "string"
         },
@@ -20506,6 +20610,114 @@
                         "primarySource"
                     ],
                     "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
+                        "conversionFields": {
+                            "items": [
+                                {
+                                    "const": "conversion_purchases",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "conversion_sign_ups",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "conversion_subscribe",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 3,
+                            "minItems": 3,
+                            "type": "array"
+                        },
+                        "conversionValueFields": {
+                            "items": [
+                                {
+                                    "const": "conversion_purchases_value",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "conversion_sign_ups_value",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "conversion_subscribe_value",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 3,
+                            "minItems": 3,
+                            "type": "array"
+                        },
+                        "defaultSources": {
+                            "items": {
+                                "const": "snapchat",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "snapchat",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "SnapchatAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_stats_daily",
+                            "type": "string"
+                        },
+                        "tableExclusions": {
+                            "items": {
+                                "const": "stats_daily",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        },
+                        "tableKeywords": {
+                            "items": {
+                                "const": "campaigns",
+                                "type": "string"
+                            },
+                            "maxItems": 1,
+                            "minItems": 1,
+                            "type": "array"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "tableKeywords",
+                        "tableExclusions",
+                        "defaultSources",
+                        "primarySource",
+                        "conversionFields",
+                        "conversionValueFields"
+                    ],
+                    "type": "object"
                 }
             ]
         },
@@ -21693,7 +21905,7 @@
             "type": "string"
         },
         "NativeMarketingSource": {
-            "enum": ["GoogleAds", "LinkedinAds", "MetaAds", "TikTokAds", "RedditAds", "BingAds"],
+            "enum": ["GoogleAds", "LinkedinAds", "MetaAds", "TikTokAds", "RedditAds", "BingAds", "SnapchatAds"],
             "type": "string"
         },
         "NewExperimentQueryResponse": {
@@ -30528,6 +30740,26 @@
         },
         "SlashCommandName": {
             "enum": ["/init", "/remember", "/usage", "/feedback", "/ticket"],
+            "type": "string"
+        },
+        "SnapchatAdsConversionFields": {
+            "enum": ["conversion_purchases", "conversion_sign_ups", "conversion_subscribe"],
+            "type": "string"
+        },
+        "SnapchatAdsConversionValueFields": {
+            "enum": ["conversion_purchases_value", "conversion_sign_ups_value", "conversion_subscribe_value"],
+            "type": "string"
+        },
+        "SnapchatAdsDefaultSources": {
+            "enum": ["snapchat"],
+            "type": "string"
+        },
+        "SnapchatAdsTableExclusions": {
+            "enum": ["stats_daily"],
+            "type": "string"
+        },
+        "SnapchatAdsTableKeywords": {
+            "enum": ["campaigns"],
             "type": "string"
         },
         "SourceConfig": {

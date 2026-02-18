@@ -1,7 +1,6 @@
 # ============================================================================
-# NOTE: Tach is currently NOT enforced in CI
+# Tach module boundary config — enforced in CI (check-migrations job)
 # ============================================================================
-# This config documents existing coupling and provides infrastructure for future isolation.
 #
 # Current state:
 # - All existing products in 'non_isolated' layer (can import from each other)
@@ -9,15 +8,12 @@
 # - Zero violations = current code is blessed as-is
 #
 # For new isolated products:
-# - Add with layer="products" to prevent coupling
+# - Run `hogli product:bootstrap <name>` (auto-adds with layer="products")
 # - See commented example at bottom of file
 #
-# Local development usage:
+# Local development:
 #   tach check        # Verify you haven't violated boundaries
-#   tach test         # Run only tests affected by your changes
 #   tach sync         # Update dependencies from actual imports
-#
-# To enforce in CI: Add to GitHub Actions workflow after team alignment
 # ============================================================================
 
 interfaces = []
@@ -51,6 +47,7 @@ depends_on = [
     "products.error_tracking",
     "products.experiments",
     "products.llm_analytics",
+    "products.logs",
 ]
 # layer intentionally omitted - core is coupled to everything
 
@@ -83,6 +80,7 @@ depends_on = [
     "products.replay",
     "products.revenue_analytics",
     "products.surveys",
+    "products.tasks",
 ]
 # layer intentionally omitted - core is coupled to everything
 
@@ -93,6 +91,7 @@ depends_on = [
     "ee",
     "products.batch_exports",
     "products.customer_analytics",
+    "products.data_modeling",
     "products.data_warehouse",
     "products.desktop_recordings",
     "products.early_access_features",
@@ -106,8 +105,12 @@ depends_on = [
     "products.marketing_analytics",
     "products.notebooks",
     "products.revenue_analytics",
+    "products.signals",
+    "products.slack_app",
+    "products.surveys",
     "products.tasks",
     "products.user_interviews",
+    "products.web_analytics",
     "products.workflows",
 ]
 # layer intentionally omitted - core is coupled to everything
@@ -144,10 +147,19 @@ depends_on = [
 layer = "non_isolated"
 
 [[modules]]
+path = "products.data_modeling"
+depends_on = [
+    "posthog",
+    "products.data_warehouse",
+]
+layer = "non_isolated"
+
+[[modules]]
 path = "products.data_warehouse"
 depends_on = [
     "ee",
     "posthog",
+    "products.data_modeling",
     "products.revenue_analytics",
 ]
 layer = "non_isolated"
@@ -248,7 +260,9 @@ layer = "non_isolated"
 [[modules]]
 path = "products.notebooks"
 depends_on = [
+    "ee",
     "posthog",
+    "products.tasks",
 ]
 layer = "non_isolated"
 
@@ -286,10 +300,30 @@ depends_on = [
 layer = "non_isolated"
 
 [[modules]]
+path = "products.signals"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.tasks",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.slack_app"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
 path = "products.tasks"
 depends_on = [
+    "ee",
     "posthog",
+    "products.error_tracking",
     "products.llm_analytics",
+    "products.slack_app",
 ]
 layer = "non_isolated"
 
@@ -337,3 +371,15 @@ layer = "non_isolated"
 # - ❌ Import from other "products" layer modules (enforced isolation)
 # - ✅ Isolated testing with 'tach test' (only runs affected tests)
 # ============================================================================
+
+
+# Example isolated product (add with stacked PR):
+#
+# [[modules]]
+# path = "products.visual_review"
+# depends_on = ["posthog"]
+# layer = "products"
+# interfaces = [
+#     "products.visual_review.backend.facade",
+#     "products.visual_review.backend.presentation.views",
+# ]

@@ -153,6 +153,7 @@ interface MetricLoadingConfig {
     metrics: any[]
     experimentId: Experiment['id']
     refresh?: boolean
+    teamId?: number | null
     onSetLegacyResults: (
         results: (
             | CachedLegacyExperimentQueryResponse
@@ -163,17 +164,49 @@ interface MetricLoadingConfig {
     ) => void
     onSetResults: (results: CachedNewExperimentQueryResponse[]) => void
     onSetErrors: (errors: any[]) => void
-    onTimeout: (experimentId: Experiment['id'], metric: any) => void
+}
+
+const OUT_OF_MEMORY_ERROR_CODES = new Set(['memory_limit_exceeded', 'query_memory_limit_exceeded'])
+
+function isOutOfMemoryError(errorCode: string | null, errorMessage: string | null): boolean {
+    if (errorCode && OUT_OF_MEMORY_ERROR_CODES.has(errorCode)) {
+        return true
+    }
+
+    return !!errorMessage && /(out of memory|memory limit exceeded|exceeded memory limit)/i.test(errorMessage)
+}
+
+function parseMetricErrorDetail(error: any): { detail: any; hasDiagnostics: boolean } {
+    const errorDetailText = typeof error.detail === 'string' ? error.detail : null
+    const errorDetailMatch = errorDetailText?.match(/\{.*\}/)
+
+    if (!errorDetailMatch) {
+        return { detail: error.detail || error.message, hasDiagnostics: false }
+    }
+
+    try {
+        return { detail: JSON.parse(errorDetailMatch[0]), hasDiagnostics: true }
+    } catch {
+        return { detail: error.detail || error.message, hasDiagnostics: false }
+    }
+}
+
+function isTimeoutError(errorDetail: unknown, errorMessage: string | null, statusCode: number | null): boolean {
+    if (statusCode === 504) {
+        return true
+    }
+
+    return errorDetail === QUERY_TIMEOUT_ERROR_MESSAGE || errorMessage === QUERY_TIMEOUT_ERROR_MESSAGE
 }
 
 const loadMetrics = async ({
     metrics,
     experimentId,
     refresh,
+    teamId,
     onSetLegacyResults,
     onSetResults,
     onSetErrors,
-    onTimeout,
 }: MetricLoadingConfig): Promise<void[]> => {
     const legacyResults: (
         | CachedLegacyExperimentQueryResponse
@@ -235,21 +268,46 @@ const loadMetrics = async ({
                 }
                 onSetLegacyResults([...legacyResults])
                 onSetResults([...results])
+
+                eventUsageLogic.actions.reportExperimentMetricFinished(
+                    experimentId,
+                    metric,
+                    teamId,
+                    response?.query_status?.id || null
+                )
             } catch (error: any) {
-                const errorDetailMatch = error.detail?.match(/\{.*\}/)
-                const errorDetail = errorDetailMatch ? JSON.parse(errorDetailMatch[0]) : error.detail || error.message
+                const errorCode = typeof error.code === 'string' ? error.code : null
+                const statusCode = typeof error.status === 'number' ? error.status : null
+                const errorMessage =
+                    typeof error.detail === 'string'
+                        ? error.detail
+                        : typeof error.message === 'string'
+                          ? error.message
+                          : null
+                const { detail: errorDetail, hasDiagnostics } = parseMetricErrorDetail(error)
+                const queryId = response?.query_status?.id || error.queryId || null
 
                 currentErrors[index] = {
                     detail: errorDetail,
-                    statusCode: error.status,
-                    hasDiagnostics: !!errorDetailMatch,
-                    queryId: response?.query_status?.id || error.queryId || null,
+                    statusCode,
+                    hasDiagnostics,
+                    code: errorCode,
+                    queryId,
                     timestamp: Date.now(),
                 }
                 onSetErrors(currentErrors)
 
-                if (errorDetail === QUERY_TIMEOUT_ERROR_MESSAGE) {
-                    onTimeout(experimentId, metric)
+                if (isTimeoutError(errorDetail, errorMessage, statusCode)) {
+                    eventUsageLogic.actions.reportExperimentMetricTimeout(experimentId, metric, teamId, queryId)
+                } else if (isOutOfMemoryError(errorCode, errorMessage)) {
+                    eventUsageLogic.actions.reportExperimentMetricOutOfMemory(
+                        experimentId,
+                        metric,
+                        teamId,
+                        queryId,
+                        errorCode,
+                        errorMessage
+                    )
                 }
 
                 legacyResults[index] = null
@@ -333,6 +391,8 @@ export const experimentLogic = kea<experimentLogicType>([
         values: [
             projectLogic,
             ['currentProjectId'],
+            teamLogic,
+            ['currentTeamId'],
             groupsModel,
             ['aggregationLabel', 'groupTypes', 'showGroupsOptions'],
             featureFlagLogic,
@@ -1454,7 +1514,7 @@ export const experimentLogic = kea<experimentLogicType>([
                  * create a new dashboard
                  */
                 const dashboard: DashboardType = await api.create(
-                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/`,
+                    `api/environments/${values.currentTeamId}/dashboards/`,
                     {
                         name: 'Experiment: ' + values.experiment.name,
                         description: `Dashboard for [${experimentUrl}](${experimentUrl})`,
@@ -1587,10 +1647,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 metrics,
                 experimentId: values.experimentId,
                 refresh,
+                teamId: values.currentTeamId,
                 onSetLegacyResults: actions.setLegacyPrimaryMetricsResults,
                 onSetResults: actions.setPrimaryMetricsResults,
                 onSetErrors: actions.setPrimaryMetricsResultsErrors,
-                onTimeout: actions.reportExperimentMetricTimeout,
             })
 
             actions.setPrimaryMetricsResultsLoading(false)
@@ -1615,10 +1675,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 metrics: secondaryMetrics,
                 experimentId: values.experimentId,
                 refresh,
+                teamId: values.currentTeamId,
                 onSetLegacyResults: actions.setLegacySecondaryMetricsResults,
                 onSetResults: actions.setSecondaryMetricsResults,
                 onSetErrors: actions.setSecondaryMetricsResultsErrors,
-                onTimeout: actions.reportExperimentMetricTimeout,
             })
 
             actions.setSecondaryMetricsResultsLoading(false)
@@ -1653,6 +1713,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 metrics: singleMetricArray,
                 experimentId: values.experimentId,
                 refresh: true,
+                teamId: values.currentTeamId,
                 onSetLegacyResults: (results) => {
                     currentLegacyResults[index] = results[0]
                     actions.setLegacyPrimaryMetricsResults(currentLegacyResults)
@@ -1665,7 +1726,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     currentErrors[index] = errors[0]
                     actions.setPrimaryMetricsResultsErrors(currentErrors)
                 },
-                onTimeout: actions.reportExperimentMetricTimeout,
             })
         },
         retrySecondaryMetric: async ({ index }: { index: number }) => {
@@ -1697,6 +1757,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 metrics: singleMetricArray,
                 experimentId: values.experimentId,
                 refresh: true,
+                teamId: values.currentTeamId,
                 onSetLegacyResults: (results) => {
                     currentLegacyResults[index] = results[0]
                     actions.setLegacySecondaryMetricsResults(currentLegacyResults)
@@ -1709,7 +1770,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     currentErrors[index] = errors[0]
                     actions.setSecondaryMetricsResultsErrors(currentErrors)
                 },
-                onTimeout: actions.reportExperimentMetricTimeout,
             })
         },
         openReleaseConditionsModal: () => {
