@@ -12,6 +12,7 @@ import {
     IconFolderOpen,
     IconGear,
     IconHome,
+    IconNotification,
     IconPeople,
     IconSearch,
     IconShortcut,
@@ -104,6 +105,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { featureFlags } = useValues(featureFlagLogic)
     const { toggleCommand } = useActions(commandLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+    const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -140,6 +142,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             return true
         }
         if (itemIdentifier === 'Settings' && currentPath.startsWith('/settings/')) {
+            return true
+        }
+        if (itemIdentifier === 'Inbox' && currentPath.startsWith('/inbox')) {
             return true
         }
         if (itemIdentifier === 'Toolbar' && currentPath === '/toolbar') {
@@ -208,6 +213,18 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             collapsedTooltip: 'Activity',
             documentationUrl: 'https://posthog.com/docs/data/events',
         },
+        ...(isProductAutonomyEnabled
+            ? [
+                  {
+                      identifier: 'Inbox',
+                      label: 'Inbox',
+                      icon: <IconNotification />,
+                      to: urls.inbox(),
+                      onClick: () => handleStaticNavbarItemClick(urls.inbox(), true),
+                      collapsedTooltip: 'Inbox',
+                  },
+              ]
+            : []),
         ...(featureFlags[FEATURE_FLAGS.CUSTOM_PRODUCTS_SIDEBAR] === 'test'
             ? []
             : [
@@ -616,6 +633,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         buttonProps={{ menuItem: isLayoutNavCollapsed ? false : true }}
                                         tooltip={isLayoutNavCollapsed ? 'Settings' : undefined}
                                         tooltipPlacement="right"
+                                        data-attr="navbar-settings-button"
                                     >
                                         <IconGear />
                                         {!isLayoutNavCollapsed && 'Settings'}
@@ -625,6 +643,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         buttonProps={{ menuItem: isLayoutNavCollapsed ? false : true }}
                                         tooltip={isLayoutNavCollapsed ? 'Exports' : undefined}
                                         tooltipPlacement="right"
+                                        data-attr="navbar-exports-button"
                                     >
                                         <IconDownload />
                                         {!isLayoutNavCollapsed && 'Exports'}

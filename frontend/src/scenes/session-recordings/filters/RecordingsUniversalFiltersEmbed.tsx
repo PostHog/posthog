@@ -510,6 +510,8 @@ const ReplayFiltersTab = ({
 
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
+    const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
+
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.Replay,
         TaxonomicFilterGroupType.Events,
@@ -523,6 +525,10 @@ const ReplayFiltersTab = ({
 
     if (allowReplayHogQLFilters) {
         taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
+    }
+
+    if (showQuickFilters) {
+        taxonomicGroupTypes.unshift(TaxonomicFilterGroupType.SuggestedFilters)
     }
 
     const { appliedSavedFilter } = useValues(sessionRecordingSavedFiltersLogic)
@@ -640,34 +646,38 @@ const ReplayFiltersTab = ({
             >
                 <div className="flex items-center gap-2 px-2 mt-2">
                     <span className="font-medium">Add filters:</span>
-                    <QuickFilterButton
-                        filterKey="email"
-                        label="Email"
-                        propertyType={PropertyFilterType.Person}
-                        filters={filters}
-                        setFilters={setFilters}
-                    />
-                    <QuickFilterButton
-                        filterKey="$user_id"
-                        label="User ID"
-                        propertyType={PropertyFilterType.Person}
-                        filters={filters}
-                        setFilters={setFilters}
-                    />
-                    <QuickFilterButton
-                        filterKey="$pathname"
-                        label="Path name"
-                        propertyType={PropertyFilterType.Event}
-                        filters={filters}
-                        setFilters={setFilters}
-                    />
-                    <QuickFilterButton
-                        filterKey="$current_url"
-                        label="Current URL"
-                        propertyType={PropertyFilterType.Event}
-                        filters={filters}
-                        setFilters={setFilters}
-                    />
+                    {!showQuickFilters && (
+                        <>
+                            <QuickFilterButton
+                                filterKey="email"
+                                label="Email"
+                                propertyType={PropertyFilterType.Person}
+                                filters={filters}
+                                setFilters={setFilters}
+                            />
+                            <QuickFilterButton
+                                filterKey="$user_id"
+                                label="User ID"
+                                propertyType={PropertyFilterType.Person}
+                                filters={filters}
+                                setFilters={setFilters}
+                            />
+                            <QuickFilterButton
+                                filterKey="$pathname"
+                                label="Path name"
+                                propertyType={PropertyFilterType.Event}
+                                filters={filters}
+                                setFilters={setFilters}
+                            />
+                            <QuickFilterButton
+                                filterKey="$current_url"
+                                label="Current URL"
+                                propertyType={PropertyFilterType.Event}
+                                filters={filters}
+                                setFilters={setFilters}
+                            />
+                        </>
+                    )}
                     {/* Add filter button scoped to the first nested group */}
                     {filters.filter_group.values.length > 0 &&
                         isUniversalGroupFilterLike(filters.filter_group.values[0]) && (

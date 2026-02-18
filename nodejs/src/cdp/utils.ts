@@ -16,15 +16,8 @@ export const CDP_TEST_ID = '[CDP-TEST-HIDDEN]'
 export const MAX_LOG_LENGTH = 10000
 const TRUNCATION_SUFFIX = '... (truncated)'
 
-export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
-    'email',
-    'Email',
-    'name',
-    'Name',
-    'username',
-    'Username',
-    'UserName',
-]
+// Sync with person.py and constants.tsx
+export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = ['email', 'name', 'username']
 
 export const getPersonDisplayName = (team: Team, distinctId: string, properties: Record<string, any>): string => {
     const personDisplayNameProperties = team.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES

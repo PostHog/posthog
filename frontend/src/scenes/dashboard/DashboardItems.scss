@@ -10,6 +10,10 @@
     /* remove initial loading animation, animations are only needed in edit mode */
     &.dashboard-view-mode .react-grid-item {
         transition: border-color 100ms ease;
+
+        /* Skip rendering for off-screen tiles during resize/reflow */
+        content-visibility: auto;
+        contain-intrinsic-size: auto 30rem;
     }
 }
 

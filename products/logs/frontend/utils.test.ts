@@ -1,4 +1,4 @@
-import { isDistinctIdKey, isSessionIdKey } from './utils'
+import { getSessionIdFromLogAttributes, isDistinctIdKey, isSessionIdKey } from './utils'
 
 describe('logs utils', () => {
     describe.each([
@@ -57,6 +57,29 @@ describe('logs utils', () => {
     ])('isSessionIdKey(%s)', (key, expected) => {
         it(`returns ${expected}`, () => {
             expect(isSessionIdKey(key)).toBe(expected)
+        })
+    })
+
+    describe.each([
+        ['from attributes', { session_id: 'abc123' }, undefined, 'abc123'],
+        ['from resource_attributes', undefined, { session_id: 'xyz789' }, 'xyz789'],
+        ['attributes takes precedence', { session_id: 'from-attr' }, { session_id: 'from-resource' }, 'from-attr'],
+        ['nested key in attributes', { 'foo.session_id': 'nested' }, undefined, 'nested'],
+        ['$session_id variant', { $session_id: 'dollar-sign' }, undefined, 'dollar-sign'],
+        ['no session id', { other_key: 'value' }, { another_key: 'value' }, null],
+        ['empty objects', {}, {}, null],
+        ['undefined inputs', undefined, undefined, null],
+        ['ignores falsy values', { session_id: '' }, { session_id: 'fallback' }, 'fallback'],
+        ['ignores null values', { session_id: null }, { session_id: 'fallback' }, 'fallback'],
+        ['converts number to string', { session_id: 12345 }, undefined, '12345'],
+    ])('getSessionIdFromLogAttributes - %s', (_, attributes, resourceAttributes, expected) => {
+        it(`returns ${expected}`, () => {
+            expect(
+                getSessionIdFromLogAttributes(
+                    attributes as Record<string, unknown> | undefined,
+                    resourceAttributes as Record<string, unknown> | undefined
+                )
+            ).toBe(expected)
         })
     })
 })
