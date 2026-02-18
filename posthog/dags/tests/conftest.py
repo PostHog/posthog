@@ -4,10 +4,10 @@ from posthog.conftest import django_db_setup
 __all__ = ["django_db_setup"]
 
 from collections.abc import Iterator
-from unittest.mock import patch
 
 import pytest
 from posthog.test.base import reset_clickhouse_database
+from unittest.mock import patch
 
 from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 

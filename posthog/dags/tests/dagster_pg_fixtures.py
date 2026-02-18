@@ -14,8 +14,8 @@ import os
 import tempfile
 
 import pytest
-import yaml
 
+import yaml
 
 _DAGSTER_TEST_PG_URL = os.environ.get(
     "DAGSTER_TEST_POSTGRES_URL",
