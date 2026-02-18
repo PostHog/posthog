@@ -969,7 +969,6 @@ def toolbar_oauth_authorize(request):
 
     request.session["toolbar_oauth_code_verifier"] = code_verifier
 
-    # Redirect to the authorization URL
     return redirect(authorization_url)
 
 

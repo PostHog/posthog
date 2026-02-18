@@ -305,7 +305,15 @@ def _post_to_token_endpoint(data: dict[str, str], error_code: str) -> dict[str, 
     if response.status_code >= 400:
         error = payload.get("error", error_code)
         detail = payload.get("error_description", "OAuth token request failed")
-        error_status = response.status_code if 400 <= response.status_code < 600 else 502
+        # Remap 401/403 from the internal OAuth server to 400: these mean
+        # "bad client parameters", not "caller needs to authenticate".
+        raw_status = response.status_code
+        if raw_status in (401, 403):
+            error_status = 400
+        elif 400 <= raw_status < 600:
+            error_status = raw_status
+        else:
+            error_status = 502
         logger.warning("toolbar_oauth_token_request_failed", code=error, status=error_status, detail=detail)
         raise ToolbarOAuthError(error, detail, error_status)
 
