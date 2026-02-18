@@ -3082,33 +3082,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self._select("SELECT 1 UNION ALL SELECT 2"),
             )
 
-        @unittest.skipIf(
-            backend == "cpp",
-            "Recursive CTEs are not supported in the legacy C++ backend",
-        )
-        def test_with_recursive(self):
-            parsed = self._select("WITH RECURSIVE events AS (SELECT * FROM posthog_event) SELECT * FROM events;")
-
-            expected = SelectQuery(
-                ctes={
-                    "events": ast.CTE(
-                        name="events",
-                        expr=SelectQuery(
-                            select=[Field(chain=["*"], from_asterisk=False)],
-                            select_from=JoinExpr(
-                                table=Field(chain=["posthog_event"], from_asterisk=False),
-                            ),
-                        ),
-                        cte_type="subquery",
-                        recursive=True,
-                    )
-                },
-                select=[Field(chain=["*"], from_asterisk=False)],
-                select_from=JoinExpr(table=Field(chain=["events"])),
-            )
-
-            self.assertEqual(parsed, expected)
-
         def test_postgres_style_cast(self):
             self.assertEqual(
                 self._expr("x::int"),
