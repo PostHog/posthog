@@ -107,7 +107,7 @@ function EndpointHogQLQuery({
             display: ChartDisplayType.ActionsLineGraph,
         })
         runQuery(query.query)
-    }, [query.query, query.variables, runQuery, setQueryInput, setSourceQuery])
+    }, [query.query, query.variables]) // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (queryInput === query.query) {
