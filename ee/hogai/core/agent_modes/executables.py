@@ -220,7 +220,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
 
     def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
         base_model = MaxChatAnthropic(
-            model="claude-sonnet-4-5",
+            model="claude-sonnet-4-6",
             streaming=True,
             stream_usage=True,
             user=self._user,
