@@ -74,9 +74,7 @@ function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    animation: {
-                        duration: 0,
-                    },
+                    animation: false,
                     scales: {
                         x: {
                             display: false,

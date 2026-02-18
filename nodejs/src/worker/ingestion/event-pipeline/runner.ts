@@ -23,7 +23,6 @@ import {
     pipelineStepStalledCounter,
     pipelineStepThrowCounter,
 } from './metrics'
-import { normalizeEventStep } from './normalizeEventStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonlessStep } from './processPersonlessStep'
 import { processPersonsStep } from './processPersonsStep'
@@ -160,19 +159,22 @@ export class EventPipelineRunner {
     }
 
     async runEventPipeline(
-        event: PipelineEvent,
+        normalizedEvent: PluginEvent,
+        timestamp: DateTime,
         team: Team,
         processPerson: boolean = true,
         forceDisablePersonProcessing: boolean = false
     ): Promise<EventPipelinePipelineResult> {
-        this.originalEvent = event
+        this.originalEvent = normalizedEvent
 
         try {
-            const pluginEvent: PluginEvent = {
-                ...event,
-                team_id: team.id,
-            }
-            return await this.runEventPipelineSteps(pluginEvent, team, processPerson, forceDisablePersonProcessing)
+            return await this.runEventPipelineSteps(
+                normalizedEvent,
+                timestamp,
+                team,
+                processPerson,
+                forceDisablePersonProcessing
+            )
         } catch (error) {
             if (error instanceof StepErrorNoRetry) {
                 // At the step level we have chosen to drop these events and send them to DLQ
@@ -189,27 +191,14 @@ export class EventPipelineRunner {
     }
 
     async runEventPipelineSteps(
-        event: PluginEvent,
+        normalizedEvent: PluginEvent,
+        timestamp: DateTime,
         team: Team,
         processPerson: boolean,
         forceDisablePersonProcessing: boolean
     ): Promise<EventPipelinePipelineResult> {
         const kafkaAcks: Promise<unknown>[] = []
         const warnings: PipelineWarning[] = []
-
-        const normalizeResult = await this.runStep<[PluginEvent, DateTime], typeof normalizeEventStep>(
-            normalizeEventStep,
-            [event, processPerson, this.headers, this.options.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE],
-            team.id,
-            true,
-            kafkaAcks,
-            warnings
-        )
-        if (!isOkResult(normalizeResult)) {
-            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
-            return normalizeResult
-        }
-        const [normalizedEvent, timestamp] = normalizeResult.value
 
         const personProcessingResult = await this.processPersonForEvent(
             normalizedEvent,

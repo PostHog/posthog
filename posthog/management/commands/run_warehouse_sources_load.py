@@ -2,7 +2,7 @@ from django.core.management.base import BaseCommand
 
 import structlog
 
-from posthog.kafka_client.topics import KAFKA_WAREHOUSE_PIPELINES_EXPORT_SIGNALS
+from posthog.kafka_client.topics import KAFKA_WAREHOUSE_SOURCES_JOBS, KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka import KafkaConsumerService
 from posthog.temporal.data_imports.pipelines.pipeline_v3.load import (
     ConsumerConfig,
@@ -15,7 +15,7 @@ logger = structlog.get_logger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Run the warehouse pipeline load Kafka consumer service"
+    help = "Run the warehouse sources load Kafka consumer service"
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -39,7 +39,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--input-topic",
             type=str,
-            default=KAFKA_WAREHOUSE_PIPELINES_EXPORT_SIGNALS,
+            default=KAFKA_WAREHOUSE_SOURCES_JOBS,
             help="Kafka topic to consume messages from",
         )
         parser.add_argument(
@@ -54,6 +54,12 @@ class Command(BaseCommand):
             default=60.0,
             help="Health check timeout in seconds (default: 60.0)",
         )
+        parser.add_argument(
+            "--dlq-topic",
+            type=str,
+            default=KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ,
+            help="Kafka topic for dead-letter queue messages",
+        )
 
     def handle(self, *args, **options):
         health_port = options["health_port"]
@@ -62,15 +68,17 @@ class Command(BaseCommand):
         input_topic = options["input_topic"]
         consumer_group = options["consumer_group"]
         health_timeout = options["health_timeout"]
+        dlq_topic = options["dlq_topic"]
 
         logger.info(
-            "warehouse_pipeline_load_starting",
+            "warehouse_sources_load_starting",
             health_port=health_port,
             batch_size=batch_size,
             batch_timeout=batch_timeout,
             input_topic=input_topic,
             consumer_group=consumer_group,
             health_timeout=health_timeout,
+            dlq_topic=dlq_topic,
         )
 
         health_state = HealthState(timeout_seconds=health_timeout)
@@ -80,6 +88,7 @@ class Command(BaseCommand):
         config = ConsumerConfig(
             input_topic=input_topic,
             consumer_group=consumer_group,
+            dlq_topic=dlq_topic,
             batch_size=batch_size,
             batch_timeout_seconds=batch_timeout,
             health_port=health_port,

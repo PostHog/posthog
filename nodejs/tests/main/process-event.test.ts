@@ -95,16 +95,19 @@ describe('processEvent', () => {
         timestamp: DateTime,
         eventUuid: string
     ): Promise<void> {
-        const pluginEvent: PluginEvent = {
+        const normalizedEvent: PluginEvent = {
             distinct_id: distinctId,
             site_url: _siteUrl,
             team_id: teamId,
-            timestamp: timestamp.toUTC().toISO(),
-            now: timestamp.toUTC().toISO(),
-            ip: ip,
+            timestamp: timestamp.toUTC().toISO()!,
+            now: timestamp.toUTC().toISO()!,
+            ip: null,
             uuid: eventUuid,
+            properties: { $ip: ip },
+            event: 'default event',
             ...data,
-        } as any as PluginEvent
+        }
+        const eventTimestamp = timestamp.toUTC()
 
         const personsStoreForBatch = new BatchWritingPersonsStore(
             new PostgresPersonRepository(hub.postgres),
@@ -130,11 +133,11 @@ describe('processEvent', () => {
             hub.kafkaProducer,
             hub.teamManager,
             hub.groupTypeManager,
-            pluginEvent,
+            normalizedEvent,
             personsStoreForBatch,
             groupStoreForBatch
         )
-        const res = await runner.runEventPipeline(pluginEvent, team)
+        const res = await runner.runEventPipeline(normalizedEvent, eventTimestamp, team)
         if (isOkResult(res)) {
             // Create the event
             const createEventStep = createCreateEventStep()
@@ -253,17 +256,18 @@ describe('processEvent', () => {
         properties: any = {},
         personRepository?: PostgresPersonRepository
     ) => {
-        const event = {
+        const normalizedEvent = {
             event: eventName,
             distinct_id: properties.distinct_id ?? state.currentDistinctId,
-            properties: properties,
+            properties: { ...properties, $ip: '127.0.0.1' },
             now: new Date().toISOString(),
             sent_at: new Date().toISOString(),
-            ip: '127.0.0.1',
+            ip: null,
             site_url: 'https://posthog.com',
             team_id: team.id,
             uuid: new UUIDT().toString(),
         }
+        const eventTimestamp = DateTime.fromISO(normalizedEvent.now, { zone: 'utc' })
         const personsStoreForBatch = new BatchWritingPersonsStore(
             personRepository || new PostgresPersonRepository(hub.postgres),
             hub.kafkaProducer
@@ -288,11 +292,11 @@ describe('processEvent', () => {
             hub.kafkaProducer,
             hub.teamManager,
             hub.groupTypeManager,
-            event,
+            normalizedEvent,
             personsStoreForBatch,
             groupStoreForBatch
         )
-        const res = await runner.runEventPipeline(event, team)
+        const res = await runner.runEventPipeline(normalizedEvent, eventTimestamp, team)
         if (isOkResult(res)) {
             // Create the event
             const createEventStep = createCreateEventStep()
@@ -367,45 +371,6 @@ describe('processEvent', () => {
         expect(Object.keys(event.properties)).not.toContain('$ip')
     })
 
-    test('ip capture', async () => {
-        await createPerson(hub, team, ['asdfasdfasdf'])
-
-        await processEvent(
-            'asdfasdfasdf',
-            '11.12.13.14',
-            '',
-            {
-                event: '$pageview',
-                properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
-            } as any as PluginEvent,
-            team.id,
-            now,
-            new UUIDT().toString()
-        )
-        const [event] = getEventsFromKafka()
-        expect(event.properties['$ip']).toBe('11.12.13.14')
-    })
-
-    test('ip override', async () => {
-        await createPerson(hub, team, ['asdfasdfasdf'])
-
-        await processEvent(
-            'asdfasdfasdf',
-            '11.12.13.14',
-            '',
-            {
-                event: '$pageview',
-                properties: { $ip: '1.0.0.1', distinct_id: 'asdfasdfasdf', token: team.api_token },
-            } as any as PluginEvent,
-            team.id,
-            now,
-            new UUIDT().toString()
-        )
-
-        const [event] = getEventsFromKafka()
-        expect(event.properties['$ip']).toBe('1.0.0.1')
-    })
-
     test('anonymized ip capture', async () => {
         await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
@@ -418,11 +383,11 @@ describe('processEvent', () => {
 
         await processEvent(
             'asdfasdfasdf',
-            '11.12.13.14',
+            null,
             '',
             {
                 event: '$pageview',
-                properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
+                properties: { distinct_id: 'asdfasdfasdf', token: team.api_token, $ip: '11.12.13.14' },
             } as any as PluginEvent,
             team.id,
             now,
