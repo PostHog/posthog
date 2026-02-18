@@ -6,6 +6,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { PaginatedResponse } from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
@@ -260,7 +261,7 @@ export const productToursLogic = kea<productToursLogicType>([
         createBanner: (name: string) => ({ name }),
         createTour: (name: string) => ({ name }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         productTours: {
             __default: [] as ProductTour[],
             loadProductTours: async () => {
@@ -277,6 +278,45 @@ export const productToursLogic = kea<productToursLogicType>([
                 const updatedTour = await api.productTours.update(id, updatePayload)
                 lemonToast.success('Product tour updated')
                 return values.productTours.map((t: ProductTour) => (t.id === id ? updatedTour : t))
+            },
+        },
+        duplicatedProductTour: {
+            __default: null as ProductTour | null,
+            duplicateProductTour: async (tour: ProductTour) => {
+                const duplicatedContent: ProductTourContent = {
+                    ...tour.content,
+                    steps: (tour.content?.steps ?? []).map((step) => ({
+                        ...step,
+                        id: uuid(),
+                    })),
+                }
+
+                try {
+                    const createdTour = await api.productTours.create({
+                        name: `${tour.name} (copy ${dayjs().format('YYYY-MM-DD HH:mm:ss')})`,
+                        description: tour.description,
+                        content: duplicatedContent,
+                        targeting_flag_filters: tour.targeting_flag_filters,
+                        linked_flag_id: tour.linked_flag_id,
+                        auto_launch: tour.auto_launch,
+                    })
+
+                    lemonToast.success('Product tour duplicated', {
+                        toastId: `product-tour-duplicated-${createdTour.id}`,
+                        button: {
+                            label: 'View tour',
+                            action: () => {
+                                router.actions.push(urls.productTour(createdTour.id))
+                            },
+                        },
+                    })
+
+                    actions.loadProductTours()
+                    return createdTour
+                } catch {
+                    lemonToast.error('Error duplicating Product tour')
+                    return null
+                }
             },
         },
     })),

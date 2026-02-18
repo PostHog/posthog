@@ -165,6 +165,7 @@ data/seaweedfs/
 # Ignore Agent OS (Claude Code) files
 .claude/agents/agent-os
 .claude/commands/agent-os
+
 agent-os/
 
 # MCP build files
