@@ -116,24 +116,27 @@ export function Timestamp({
         <Tooltip title={tooltipContent} placement="top" visible={isHovered}>
             <LemonButton
                 data-attr="recording-timestamp"
-                className="text-center whitespace-nowrap font-mono text-xs inline [--lemon-button-gap:0.125rem]"
+                className="text-center whitespace-nowrap text-xs"
                 noPadding={noPadding}
-                icon={<IconClock className="text-muted text-sm" />}
+                size="xsmall"
+                icon={<IconClock className="text-muted" />}
                 onMouseEnter={() => setIsHovered(true)}
                 onMouseLeave={() => setIsHovered(false)}
                 onClick={() => {
                     setTimestampFormat(nextFormat)
                 }}
             >
-                {timestampFormat === TimestampFormat.Relative ? (
-                    <RelativeTimestampLabel size={size} />
-                ) : (
-                    <SimpleTimeLabel
-                        startTime={activeTimestamp}
-                        timestampFormat={timestampFormat}
-                        containerSize={size}
-                    />
-                )}
+                <span className="font-mono">
+                    {timestampFormat === TimestampFormat.Relative ? (
+                        <RelativeTimestampLabel size={size} />
+                    ) : (
+                        <SimpleTimeLabel
+                            startTime={activeTimestamp}
+                            timestampFormat={timestampFormat}
+                            containerSize={size}
+                        />
+                    )}
+                </span>
             </LemonButton>
         </Tooltip>
     )
