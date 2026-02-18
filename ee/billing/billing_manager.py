@@ -683,8 +683,29 @@ class BillingManager:
 
     @staticmethod
     def _to_post_body(params: dict[str, Any]) -> dict[str, Any]:
-        """Ensure non-serializable types (like UUIDs) are stringified for JSON."""
-        return {k: str(v) if isinstance(v, UUID) else v for k, v in params.items()}
+        """Convert params to a JSON-safe POST body.
+
+        Handles two conversions: UUIDs are stringified, and string values
+        that contain JSON arrays or objects (from frontend query-param
+        encoding) are parsed back into native types so the billing service
+        receives structured data rather than escaped strings.
+        """
+        result = {}
+        for k, v in params.items():
+            if isinstance(v, UUID):
+                result[k] = str(v)
+            elif isinstance(v, str):
+                try:
+                    parsed = json.loads(v)
+                    if isinstance(parsed, (list, dict)):
+                        result[k] = parsed
+                    else:
+                        result[k] = v
+                except (json.JSONDecodeError, ValueError):
+                    result[k] = v
+            else:
+                result[k] = v
+        return result
 
     def handle_billing_provider_webhook(
         self,

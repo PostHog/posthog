@@ -898,6 +898,20 @@ class TestParamSerialization(BaseTest):
         result = BillingManager._to_post_body(params)
         assert result == params
 
+    @parameterized.expand(
+        [
+            ("json_list", '["event_count_in_period", "recordings"]', ["event_count_in_period", "recordings"]),
+            ("json_int_list", "[1, 2, 3]", [1, 2, 3]),
+            ("json_dict", '{"1": "Team A"}', {"1": "Team A"}),
+            ("plain_string", "2025-01-01", "2025-01-01"),
+            ("json_number_string", "42", "42"),
+            ("json_bool_string", "true", "true"),
+        ]
+    )
+    def test_to_post_body_parses_json_encoded_strings(self, _name, input_value, expected):
+        result = BillingManager._to_post_body({"field": input_value})
+        assert result["field"] == expected
+
 
 class TestRequestWithPostFallback(BaseTest):
     def setUp(self):
@@ -938,6 +952,27 @@ class TestRequestWithPostFallback(BaseTest):
 
         mock_post.assert_called_once()
         post_json = mock_post.call_args[1]["json"]
+        assert post_json["teams_map"] == {"1": "Team A"}
+        assert post_json["start_date"] == "2025-01-01"
+
+    @parameterized.expand([("get_usage_data",), ("get_spend_data",)])
+    @patch("ee.billing.billing_manager.requests.post")
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_post_fallback_parses_json_encoded_strings(self, method_name, mock_get, mock_post):
+        mock_get.return_value = MagicMock(status_code=414)
+        mock_post.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"results": []}))
+
+        params = {
+            "start_date": "2025-01-01",
+            "usage_types": '["event_count_in_period", "recordings"]',
+            "team_ids": "[1, 2]",
+            "teams_map": {"1": "Team A"},
+        }
+        getattr(self.manager, method_name)(self.organization, params)
+
+        post_json = mock_post.call_args[1]["json"]
+        assert post_json["usage_types"] == ["event_count_in_period", "recordings"]
+        assert post_json["team_ids"] == [1, 2]
         assert post_json["teams_map"] == {"1": "Team A"}
         assert post_json["start_date"] == "2025-01-01"
 
