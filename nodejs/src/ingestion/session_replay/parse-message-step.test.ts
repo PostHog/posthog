@@ -64,11 +64,11 @@ describe('createParseMessageStep', () => {
         headers?: Record<string, string>,
         overrides?: Partial<Message>
     ): Message {
-        const kafkaHeaders = headers
+        const kafkaHeaders: Message['headers'] = headers
             ? Object.entries(headers).map(([key, value]) => ({ [key]: Buffer.from(value) }))
             : []
 
-        return {
+        const message: Message = {
             partition,
             offset,
             topic: 'test-topic',
@@ -77,8 +77,9 @@ describe('createParseMessageStep', () => {
             timestamp: Date.now(),
             headers: kafkaHeaders,
             size: payload?.length ?? 0,
-            ...overrides,
-        } as Message
+        }
+
+        return { ...message, ...overrides }
     }
 
     function createInput(
