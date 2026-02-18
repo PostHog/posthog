@@ -51,7 +51,7 @@ jobs:
                           .replace(/"/g, '\\"');
                       }
 
-                      core.setOutput('author', escapeSlack(name));
+                      core.setOutput('author', escapeSlack(name.split(' ')[0]));
                       core.setOutput('title', escapeSlack(context.payload.pull_request.title));
 
             - name: Post to Slack
@@ -69,7 +69,7 @@ jobs:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: ":eyes: <${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }} ${{ steps.meta.outputs.title }}> by ${{ steps.meta.outputs.author }}"
+                            text: ":eyes: <${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }} ${{ steps.meta.outputs.title }}>\nby ${{ steps.meta.outputs.author }}"
 
             - name: Save Slack message info
               run: |
@@ -193,8 +193,8 @@ jobs:
                         github.rest.users.getByUsername({ username: context.payload.review.user.login }),
                       ]);
 
-                      core.setOutput('author', escapeSlack(author.data.name || context.payload.pull_request.user.login));
-                      core.setOutput('reviewer', escapeSlack(reviewer.data.name || context.payload.review.user.login));
+                      core.setOutput('author', escapeSlack((author.data.name || context.payload.pull_request.user.login).split(' ')[0]));
+                      core.setOutput('reviewer', escapeSlack((reviewer.data.name || context.payload.review.user.login).split(' ')[0]));
                       core.setOutput('title', escapeSlack(context.payload.pull_request.title));
 
             - name: Add checkmark reaction
@@ -226,4 +226,4 @@ jobs:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: ":white_check_mark: <${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }} ${{ steps.meta.outputs.title }}> by ${{ steps.meta.outputs.author }} — reviewed and approved by ${{ steps.meta.outputs.reviewer }}"
+                            text: ":white_check_mark: <${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }} ${{ steps.meta.outputs.title }}>\nby ${{ steps.meta.outputs.author }} — reviewed and approved by ${{ steps.meta.outputs.reviewer }}"
