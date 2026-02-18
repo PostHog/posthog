@@ -23,7 +23,9 @@ The pipeline is a Temporal child workflow, fire-and-forget from the main import 
    - Looks up the config from the registry for the given source type and schema
    - Queries new records via HogQL (filtered by partition field since last sync)
    - Runs each record through the source's **emitter function** to produce signal outputs
-   - Optionally filters through an **LLM actionability check** if the config defines a prompt
+   - Optionally **summarizes long descriptions** via LLM if the config defines a `summarization_prompt` and `description_summarization_threshold`.
+     Descriptions exceeding the threshold are summarized; if the summary is still too long, retries once with error context; truncates as last resort.
+   - Optionally filters through an **LLM actionability check** if the config defines a prompt (runs after summarization)
    - Emits surviving outputs as Signals via `products/signals/backend/api/emit_signal`
 3. **Registry** (`posthog/temporal/data_imports/signals/registry.py`) maps (source type, schema name) pairs to their config.
    All emitters are auto-registered at module load time.
@@ -38,7 +40,7 @@ checked at the parent workflow level before spawning the child.
    `posthog/temporal/data_imports/signals/github_issues.py`) for the pattern:
    define which fields to query,
    write a pure emitter function that transforms a record dict into a signal output (or `None` if data is insufficient),
-   optionally define an LLM actionability prompt,
+   optionally define an LLM actionability prompt and/or a summarization prompt with threshold,
    and export the final config as a module-level constant.
 2. **Register in `posthog/temporal/data_imports/signals/registry.py`** — import the config and add it inside `_register_all_emitters()`.
    The source type must match an `ExternalDataSourceType` enum value,
