@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
@@ -70,6 +71,7 @@ describe('event-pipeline-runner-v1-step', () => {
     let mockEventPipelineRunner: jest.Mocked<EventPipelineRunner>
     let mockMessage: Message
     let mockEvent: PluginEvent
+    let mockTimestamp: DateTime
     let mockTeam: Team
     let mockHeaders: any
 
@@ -112,6 +114,8 @@ describe('event-pipeline-runner-v1-step', () => {
             now: '2023-01-01T00:00:00.000Z',
         })
 
+        mockTimestamp = DateTime.fromISO('2023-01-01T00:00:00.000Z', { zone: 'utc' })
+
         mockTeam = createTestTeam()
 
         mockHeaders = {
@@ -142,7 +146,8 @@ describe('event-pipeline-runner-v1-step', () => {
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                event: mockEvent,
+                normalizedEvent: mockEvent,
+                timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
@@ -160,7 +165,13 @@ describe('event-pipeline-runner-v1-step', () => {
                 mockGroupStore,
                 mockHeaders
             )
-            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(mockEvent, mockTeam, true, false)
+            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(
+                mockEvent,
+                mockTimestamp,
+                mockTeam,
+                true,
+                false
+            )
             expect(result.type).toBe(PipelineResultType.OK)
             expect(result.sideEffects).toEqual([ackPromise])
             if (result.type === PipelineResultType.OK) {
@@ -184,7 +195,8 @@ describe('event-pipeline-runner-v1-step', () => {
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                event: mockEvent,
+                normalizedEvent: mockEvent,
+                timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
@@ -209,7 +221,8 @@ describe('event-pipeline-runner-v1-step', () => {
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                event: mockEvent,
+                normalizedEvent: mockEvent,
+                timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
@@ -233,7 +246,8 @@ describe('event-pipeline-runner-v1-step', () => {
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                event: mockEvent,
+                normalizedEvent: mockEvent,
+                timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
@@ -262,7 +276,8 @@ describe('event-pipeline-runner-v1-step', () => {
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                event: mockEvent,
+                normalizedEvent: mockEvent,
+                timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
@@ -293,7 +308,8 @@ describe('event-pipeline-runner-v1-step', () => {
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                event: mockEvent,
+                normalizedEvent: mockEvent,
+                timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
@@ -324,7 +340,8 @@ describe('event-pipeline-runner-v1-step', () => {
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                event: mockEvent,
+                normalizedEvent: mockEvent,
+                timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
@@ -360,7 +377,8 @@ describe('event-pipeline-runner-v1-step', () => {
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                event: mockEvent,
+                normalizedEvent: mockEvent,
+                timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
@@ -369,7 +387,13 @@ describe('event-pipeline-runner-v1-step', () => {
 
             await step(input)
             expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledTimes(1)
-            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(mockEvent, mockTeam, true, false)
+            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(
+                mockEvent,
+                mockTimestamp,
+                mockTeam,
+                true,
+                false
+            )
         })
     })
 
@@ -391,7 +415,8 @@ describe('event-pipeline-runner-v1-step', () => {
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                event: mockEvent,
+                normalizedEvent: mockEvent,
+                timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: false,
@@ -399,7 +424,13 @@ describe('event-pipeline-runner-v1-step', () => {
             }
 
             await step(input)
-            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(mockEvent, mockTeam, false, true)
+            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(
+                mockEvent,
+                mockTimestamp,
+                mockTeam,
+                false,
+                true
+            )
         })
 
         it('should pass processPerson=true and forceDisablePersonProcessing=false to runEventPipeline', async () => {
@@ -413,7 +444,8 @@ describe('event-pipeline-runner-v1-step', () => {
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                event: mockEvent,
+                normalizedEvent: mockEvent,
+                timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
@@ -421,7 +453,13 @@ describe('event-pipeline-runner-v1-step', () => {
             }
 
             await step(input)
-            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(mockEvent, mockTeam, true, false)
+            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(
+                mockEvent,
+                mockTimestamp,
+                mockTeam,
+                true,
+                false
+            )
         })
 
         it('should pass processPerson=false and forceDisablePersonProcessing=false to runEventPipeline', async () => {
@@ -435,7 +473,8 @@ describe('event-pipeline-runner-v1-step', () => {
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                event: mockEvent,
+                normalizedEvent: mockEvent,
+                timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: false,
@@ -443,7 +482,13 @@ describe('event-pipeline-runner-v1-step', () => {
             }
 
             await step(input)
-            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(mockEvent, mockTeam, false, false)
+            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(
+                mockEvent,
+                mockTimestamp,
+                mockTeam,
+                false,
+                false
+            )
         })
 
         it('should pass processPerson=true and forceDisablePersonProcessing=true to runEventPipeline', async () => {
@@ -457,7 +502,8 @@ describe('event-pipeline-runner-v1-step', () => {
             )
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
-                event: mockEvent,
+                normalizedEvent: mockEvent,
+                timestamp: mockTimestamp,
                 team: mockTeam,
                 headers: mockHeaders,
                 processPerson: true,
@@ -465,7 +511,13 @@ describe('event-pipeline-runner-v1-step', () => {
             }
 
             await step(input)
-            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(mockEvent, mockTeam, true, true)
+            expect(mockEventPipelineRunner.runEventPipeline).toHaveBeenCalledWith(
+                mockEvent,
+                mockTimestamp,
+                mockTeam,
+                true,
+                true
+            )
         })
     })
 })
