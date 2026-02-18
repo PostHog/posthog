@@ -2,13 +2,12 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ActionDraftType, ActionForm } from '~/toolbar/types'
 import {
@@ -228,15 +227,21 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
 
                 let response: ActionType
                 if (selectedActionId && selectedActionId !== 'new') {
-                    response = await api.update(
+                    const fetchResponse = await toolbarFetch(
                         `${apiHost}/api/projects/@current/actions/${selectedActionId}/?temporary_token=${temporaryToken}`,
-                        actionToSave
+                        'PATCH',
+                        actionToSave,
+                        'use-as-provided'
                     )
+                    response = await fetchResponse.json()
                 } else {
-                    response = await api.create(
+                    const fetchResponse = await toolbarFetch(
                         `${apiHost}/api/projects/@current/actions/?temporary_token=${temporaryToken}`,
-                        actionToSave
+                        'POST',
+                        actionToSave,
+                        'use-as-provided'
                     )
+                    response = await fetchResponse.json()
                 }
                 breakpoint()
 

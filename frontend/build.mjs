@@ -108,6 +108,9 @@ await buildInParallel(
                             'scenes/activity/explore/EventDetails',
                             'scenes/web-analytics/WebAnalyticsDashboard',
                             'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager.ts',
+                            // lib/api makes relative URL requests that resolve to the embedded site's origin
+                            // instead of the PostHog server - use toolbarFetch from toolbarConfigLogic instead
+                            'lib/api',
                         ]
 
                         // Patterns to match for denying imports

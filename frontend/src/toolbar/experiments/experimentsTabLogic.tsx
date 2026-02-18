@@ -3,14 +3,13 @@ import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 
 import { EXPERIMENT_TARGET_SELECTOR } from 'lib/actionUtils'
-import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { percentageDistribution } from '~/scenes/experiments/utils'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { WebExperiment, WebExperimentDraftType, WebExperimentForm } from '~/toolbar/types'
 import { elementToQuery, joinWithUiHost } from '~/toolbar/utils'
@@ -195,36 +194,40 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 const { apiHost, uiHost, temporaryToken } = values
                 const { selectedExperimentId } = values
 
-                let response: WebExperiment
-                try {
-                    if (selectedExperimentId && selectedExperimentId !== 'new') {
-                        response = await api.update(
-                            `${apiHost}/api/projects/@current/web_experiments/${selectedExperimentId}/?temporary_token=${temporaryToken}`,
-                            experimentToSave
-                        )
-                    } else {
-                        response = await api.create(
-                            `${apiHost}/api/projects/@current/web_experiments/?temporary_token=${temporaryToken}`,
-                            experimentToSave
-                        )
-                    }
-
-                    experimentsLogic.actions.updateExperiment({ experiment: response })
-                    actions.selectExperiment(null)
-
-                    lemonToast.success('Experiment saved', {
-                        button: {
-                            label: 'Open in PostHog',
-                            action: () => window.open(joinWithUiHost(uiHost, urls.experiment(response.id)), '_blank'),
-                        },
-                    })
-                    breakpoint()
-                } catch (e) {
-                    const apiError = e as ApiError
-                    if (apiError) {
-                        lemonToast.error(`Experiment save failed: ${apiError.data.detail}`)
-                    }
+                let fetchResponse: Response
+                if (selectedExperimentId && selectedExperimentId !== 'new') {
+                    fetchResponse = await toolbarFetch(
+                        `${apiHost}/api/projects/@current/web_experiments/${selectedExperimentId}/?temporary_token=${temporaryToken}`,
+                        'PATCH',
+                        experimentToSave,
+                        'use-as-provided'
+                    )
+                } else {
+                    fetchResponse = await toolbarFetch(
+                        `${apiHost}/api/projects/@current/web_experiments/?temporary_token=${temporaryToken}`,
+                        'POST',
+                        experimentToSave,
+                        'use-as-provided'
+                    )
                 }
+
+                if (!fetchResponse.ok) {
+                    const errorData = await fetchResponse.json().catch(() => ({}))
+                    lemonToast.error(`Experiment save failed: ${errorData.detail || fetchResponse.statusText}`)
+                    return
+                }
+
+                const response: WebExperiment = await fetchResponse.json()
+                experimentsLogic.actions.updateExperiment({ experiment: response })
+                actions.selectExperiment(null)
+
+                lemonToast.success('Experiment saved', {
+                    button: {
+                        label: 'Open in PostHog',
+                        action: () => window.open(joinWithUiHost(uiHost, urls.experiment(response.id)), '_blank'),
+                    },
+                })
+                breakpoint()
             },
 
             // whether we show errors after touch (true) or submit (false)
