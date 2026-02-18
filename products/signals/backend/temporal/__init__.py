@@ -2,8 +2,7 @@ from products.signals.backend.temporal.actionability_judge import actionability_
 from products.signals.backend.temporal.grouping import (
     EmitSignalWorkflow,
     TeamSignalGroupingWorkflow,
-    assign_signal_to_report_activity,
-    emit_to_clickhouse_activity,
+    assign_and_emit_signal_activity,
     fetch_signal_type_examples_activity,
     generate_search_queries_activity,
     get_embedding_activity,
@@ -30,8 +29,7 @@ WORKFLOWS = [
 
 ACTIVITIES = [
     actionability_judge_activity,
-    assign_signal_to_report_activity,
-    emit_to_clickhouse_activity,
+    assign_and_emit_signal_activity,
     fetch_signal_type_examples_activity,
     fetch_signals_for_report_activity,
     generate_search_queries_activity,

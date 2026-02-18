@@ -2,9 +2,8 @@ from datetime import timedelta
 
 from django.conf import settings
 
-from asgiref.sync import sync_to_async
-
 from posthog.models import Team
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.temporal.grouping import TeamSignalGroupingWorkflow
@@ -47,7 +46,7 @@ async def emit_signal(
             extra={"variant": "B", "p_value": 0.003},
         )
     """
-    organization = await sync_to_async(lambda: team.organization)()
+    organization = await database_sync_to_async(lambda: team.organization)()
     if not organization.is_ai_data_processing_approved:
         return
 

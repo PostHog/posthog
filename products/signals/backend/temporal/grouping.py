@@ -25,6 +25,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.embedding_worker import emit_embedding_request, generate_embedding
 from posthog.models import Team
+from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
@@ -45,155 +46,6 @@ logger = structlog.get_logger(__name__)
 EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
 WEIGHT_THRESHOLD = float(os.getenv("SIGNAL_WEIGHT_THRESHOLD", "1.0"))
 MAX_QUERIES = 3
-
-
-@temporalio.workflow.defn(name="emit-signal")
-class EmitSignalWorkflow:
-    """
-    Workflow for processing a new signal.
-
-    Flow:
-    1. Generate embedding for signal content
-    2. Find nearest signals already assigned to reports
-    3. LLM determines if new signal matches an existing report
-    4. Create or update report, check for promotion
-    5. Emit signal to ClickHouse with correct report_id
-    """
-
-    @staticmethod
-    def parse_inputs(inputs: list[str]) -> EmitSignalInputs:
-        loaded = json.loads(inputs[0])
-        return EmitSignalInputs(**loaded)
-
-    @staticmethod
-    def workflow_id_for(team_id: int, source_product: str, source_type: str, source_id: str) -> str:
-        return f"{team_id}:{source_product}:{source_type}:{source_id}"
-
-    @temporalio.workflow.run
-    async def run(self, inputs: EmitSignalInputs) -> str:
-        signal_id = str(uuid.uuid4())
-
-        # Fetch signal type examples and embedding in parallel (examples needed for query generation)
-        embedding_result, type_examples_result = await asyncio.gather(
-            workflow.execute_activity(
-                get_embedding_activity,
-                GenerateEmbeddingInput(team_id=inputs.team_id, content=inputs.description),
-                start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            ),
-            workflow.execute_activity(
-                fetch_signal_type_examples_activity,
-                FetchSignalTypeExamplesInput(team_id=inputs.team_id),
-                start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            ),
-        )
-
-        search_queries_result = await workflow.execute_activity(
-            generate_search_queries_activity,
-            GenerateSearchQueriesInput(
-                description=inputs.description,
-                source_product=inputs.source_product,
-                source_type=inputs.source_type,
-                signal_type_examples=type_examples_result.examples,
-            ),
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-        queries = search_queries_result.queries
-
-        query_embedding_results: list[GenerateEmbeddingOutput] = await asyncio.gather(
-            *[
-                workflow.execute_activity(
-                    get_embedding_activity,
-                    GenerateEmbeddingInput(team_id=inputs.team_id, content=query),
-                    start_to_close_timeout=timedelta(minutes=2),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
-                for query in queries
-            ]
-        )
-
-        query_results: list[RunSignalSemanticSearchOutput] = await asyncio.gather(
-            *[
-                workflow.execute_activity(
-                    run_signal_semantic_search_activity,
-                    RunSignalSemanticSearchInput(
-                        team_id=inputs.team_id,
-                        embedding=emb_result.embedding,
-                        limit=10,
-                    ),
-                    start_to_close_timeout=timedelta(minutes=2),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
-                for emb_result in query_embedding_results
-            ]
-        )
-
-        match_result = await workflow.execute_activity(
-            llm_match_signal_activity,
-            LLMMatchSignalInput(
-                description=inputs.description,
-                source_product=inputs.source_product,
-                source_type=inputs.source_type,
-                queries=queries,
-                query_results=[r.candidates for r in query_results],
-            ),
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-        assign_result: AssignSignalOutput = await workflow.execute_activity(
-            assign_signal_to_report_activity,
-            AssignSignalInput(
-                team_id=inputs.team_id,
-                signal_id=signal_id,
-                description=inputs.description,
-                weight=inputs.weight,
-                source_product=inputs.source_product,
-                source_type=inputs.source_type,
-                source_id=inputs.source_id,
-                extra=inputs.extra,
-                embedding=embedding_result.embedding,
-                match_result=match_result,
-            ),
-            start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-        await workflow.execute_activity(
-            emit_to_clickhouse_activity,
-            EmitToClickHouseInput(
-                team_id=inputs.team_id,
-                signal_id=signal_id,
-                description=inputs.description,
-                source_product=inputs.source_product,
-                source_type=inputs.source_type,
-                source_id=inputs.source_id,
-                weight=inputs.weight,
-                extra=inputs.extra,
-                report_id=assign_result.report_id,
-            ),
-            start_to_close_timeout=timedelta(minutes=1),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-
-        if assign_result.promoted:
-            try:
-                await workflow.start_child_workflow(
-                    SignalReportSummaryWorkflow.run,
-                    SignalReportSummaryWorkflowInputs(team_id=inputs.team_id, report_id=assign_result.report_id),
-                    id=SignalReportSummaryWorkflow.workflow_id_for(inputs.team_id, assign_result.report_id),
-                    task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                    parent_close_policy=ParentClosePolicy.ABANDON,
-                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                    execution_timeout=timedelta(minutes=30),
-                )
-            except temporalio.exceptions.WorkflowAlreadyStartedError:
-                pass
-
-        return signal_id
 
 
 @dataclass
@@ -289,7 +141,7 @@ async def fetch_signal_type_examples_activity(input: FetchSignalTypeExamplesInpu
         examples = []
         for row in result.results or []:
             source_product, source_type, content, metadata_str, timestamp = row
-            metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str or {}
+            metadata = json.loads(metadata_str)
             examples.append(
                 SignalTypeExample(
                     source_product=source_product,
@@ -672,7 +524,7 @@ async def llm_match_signal_activity(input: LLMMatchSignalInput) -> MatchResult:
 
 
 @dataclass
-class AssignSignalInput:
+class AssignAndEmitSignalInput:
     team_id: int
     signal_id: str
     description: str
@@ -683,21 +535,20 @@ class AssignSignalInput:
     extra: dict
     embedding: list[float]
     match_result: MatchResult
+    timestamp: Optional[datetime] = None
 
 
 @dataclass
-class AssignSignalOutput:
+class AssignAndEmitSignalOutput:
     report_id: str
     promoted: bool
 
 
 @temporalio.activity.defn
-async def assign_signal_to_report_activity(input: AssignSignalInput) -> AssignSignalOutput:
-    """Create or update a SignalReport and check for promotion to candidate status."""
-
+async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> AssignAndEmitSignalOutput:
     match_result = input.match_result
 
-    def do_assign() -> tuple[str, bool]:
+    def do_assign_and_emit() -> tuple[str, bool]:
         with transaction.atomic():
             promoted = False
 
@@ -722,77 +573,47 @@ async def assign_signal_to_report_activity(input: AssignSignalInput) -> AssignSi
                 report.save(update_fields=["status", "promoted_at", "updated_at"])
                 promoted = True
 
-            return str(report.id), promoted
+            report_id = str(report.id)
+
+            metadata = {
+                "source_product": input.source_product,
+                "source_type": input.source_type,
+                "source_id": input.source_id,
+                "weight": input.weight,
+                "report_id": report_id,
+                "extra": input.extra,
+            }
+
+            emit_embedding_request(
+                content=input.description,
+                team_id=input.team_id,
+                product="signals",
+                document_type="signal",
+                rendering="plain",
+                document_id=input.signal_id,
+                models=[m.value for m in EmbeddingModelName],
+                timestamp=input.timestamp or timezone.now(),
+                metadata=metadata,
+            )
+
+            return report_id, promoted
 
     try:
-        report_id, promoted = await sync_to_async(do_assign, thread_sensitive=False)()
+        report_id, promoted = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)()
         logger.debug(
-            f"Assigned signal to report {report_id}",
+            f"Assigned and emitted signal to report {report_id}",
             report_id=report_id,
             team_id=input.team_id,
+            signal_id=input.signal_id,
             promoted=promoted,
             is_new_report=isinstance(match_result, NewReportMatch),
         )
-        return AssignSignalOutput(report_id=report_id, promoted=promoted)
+        return AssignAndEmitSignalOutput(report_id=report_id, promoted=promoted)
     except Exception as e:
         logger.exception(
-            f"Failed to assign signal to report: {e}",
+            f"Failed to assign/emit signal: {e}",
             team_id=input.team_id,
             signal_id=input.signal_id,
-        )
-        raise
-
-
-@dataclass
-class EmitToClickHouseInput:
-    team_id: int
-    signal_id: str
-    description: str
-    source_product: str
-    source_type: str
-    source_id: str
-    weight: float
-    extra: dict
-    report_id: str
-    timestamp: Optional[datetime] = None
-
-
-@temporalio.activity.defn
-async def emit_to_clickhouse_activity(input: EmitToClickHouseInput) -> None:
-    """Emit signal to Kafka for ClickHouse storage via the embedding worker."""
-    try:
-        metadata = {
-            "source_product": input.source_product,
-            "source_type": input.source_type,
-            "source_id": input.source_id,
-            "weight": input.weight,
-            "report_id": input.report_id,
-            "extra": input.extra,
-        }
-
-        emit_embedding_request(
-            content=input.description,
-            team_id=input.team_id,
-            product="signals",
-            document_type="signal",
-            rendering="plain",
-            document_id=input.signal_id,
-            models=[EMBEDDING_MODEL.value],
-            timestamp=input.timestamp or timezone.now(),
-            metadata=metadata,
-        )
-
-        logger.debug(
-            f"Emitted signal {input.signal_id} to ClickHouse",
-            signal_id=input.signal_id,
-            team_id=input.team_id,
-            report_id=input.report_id,
-        )
-    except Exception as e:
-        logger.exception(
-            f"Failed to emit signal to ClickHouse: {e}",
-            signal_id=input.signal_id,
-            team_id=input.team_id,
         )
         raise
 
@@ -874,9 +695,9 @@ async def _process_one_signal(inputs: EmitSignalInputs) -> str:
         retry_policy=RetryPolicy(maximum_attempts=3),
     )
 
-    assign_result: AssignSignalOutput = await workflow.execute_activity(
-        assign_signal_to_report_activity,
-        AssignSignalInput(
+    assign_result: AssignAndEmitSignalOutput = await workflow.execute_activity(
+        assign_and_emit_signal_activity,
+        AssignAndEmitSignalInput(
             team_id=inputs.team_id,
             signal_id=signal_id,
             description=inputs.description,
@@ -889,23 +710,6 @@ async def _process_one_signal(inputs: EmitSignalInputs) -> str:
             match_result=match_result,
         ),
         start_to_close_timeout=timedelta(minutes=2),
-        retry_policy=RetryPolicy(maximum_attempts=3),
-    )
-
-    await workflow.execute_activity(
-        emit_to_clickhouse_activity,
-        EmitToClickHouseInput(
-            team_id=inputs.team_id,
-            signal_id=signal_id,
-            description=inputs.description,
-            source_product=inputs.source_product,
-            source_type=inputs.source_type,
-            source_id=inputs.source_id,
-            weight=inputs.weight,
-            extra=inputs.extra,
-            report_id=assign_result.report_id,
-        ),
-        start_to_close_timeout=timedelta(minutes=1),
         retry_policy=RetryPolicy(maximum_attempts=3),
     )
 
@@ -996,3 +800,26 @@ class TeamSignalGroupingWorkflow:
                         pending_signals=list(self._signal_buffer),
                     )
                 )
+
+
+@temporalio.workflow.defn(name="emit-signal")
+class EmitSignalWorkflow:
+    """
+    Legacy one-shot workflow for processing a single signal.
+
+    Kept temporarily for in-flight workflows during migration to TeamSignalGroupingWorkflow.
+    Will be removed once all existing executions have completed.
+    """
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> EmitSignalInputs:
+        loaded = json.loads(inputs[0])
+        return EmitSignalInputs(**loaded)
+
+    @staticmethod
+    def workflow_id_for(team_id: int, source_product: str, source_type: str, source_id: str) -> str:
+        return f"{team_id}:{source_product}:{source_type}:{source_id}"
+
+    @temporalio.workflow.run
+    async def run(self, inputs: EmitSignalInputs) -> str:
+        return await _process_one_signal(inputs)

@@ -13,10 +13,21 @@ from posthoganalytics.ai.anthropic import AsyncAnthropic
 logger = structlog.get_logger(__name__)
 
 MATCHING_MODEL = os.getenv("SIGNAL_MATCHING_LLM_MODEL", "claude-sonnet-4-5")
+
+# Models that support Anthropic extended thinking. Keep in sync with the models we actually use.
+ANTHROPIC_THINKING_MODELS = {
+    "claude-haiku-4-5",
+    "claude-sonnet-4-5",
+    "claude-opus-4-5",
+    "claude-opus-4-1",
+    "claude-sonnet-4-0",
+    "claude-opus-4-0",
+    "claude-3-7-sonnet-latest",
+}
 MAX_RETRIES = 3
 MAX_RESPONSE_TOKENS = 4096
 MAX_QUERY_TOKENS = 2048
-TIMEOUT = 300.0
+TIMEOUT = 100.0
 
 
 def get_async_anthropic_client() -> AsyncAnthropic:
@@ -85,6 +96,7 @@ async def call_llm(
 ) -> T:
     # Worth noting a lot of this code only really works for the Anthropic API, I think (prefilling and thinking in particular). Haven't
     # looked into the OpenAI SDK yet - that'll be for the switch to the LLM gateway.
+    thinking = thinking and MATCHING_MODEL in ANTHROPIC_THINKING_MODELS
     client = get_async_anthropic_client()
 
     messages: list[MessageParam] = [

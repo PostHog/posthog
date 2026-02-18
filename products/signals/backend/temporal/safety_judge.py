@@ -54,9 +54,12 @@ def _build_safety_judge_prompt(
     signals: list[SignalData],
 ) -> str:
     return f"""REPORT TO REVIEW:
-
-Title: {title}
-Summary: {summary}
+<title>
+{title}
+<title>
+<summary>
+{summary}
+<summary>
 
 UNDERLYING SIGNALS:
 

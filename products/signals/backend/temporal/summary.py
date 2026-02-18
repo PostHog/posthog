@@ -18,6 +18,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
+from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.temporal.actionability_judge import (
@@ -76,7 +77,7 @@ class SignalReportSummaryWorkflow:
             workflow.logger.error(f"No signals found for report {inputs.report_id}, marking as failed")
             await workflow.execute_activity(
                 mark_report_failed_activity,
-                MarkReportFailedInput(report_id=inputs.report_id, error="No signals found"),
+                MarkReportFailedInput(team_id=inputs.team_id, report_id=inputs.report_id, error="No signals found"),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
@@ -84,7 +85,9 @@ class SignalReportSummaryWorkflow:
 
         await workflow.execute_activity(
             mark_report_in_progress_activity,
-            MarkReportInProgressInput(report_id=inputs.report_id, signal_count=len(fetch_result.signals)),
+            MarkReportInProgressInput(
+                team_id=inputs.team_id, report_id=inputs.report_id, signal_count=len(fetch_result.signals)
+            ),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -129,6 +132,7 @@ class SignalReportSummaryWorkflow:
                 await workflow.execute_activity(
                     mark_report_failed_activity,
                     MarkReportFailedInput(
+                        team_id=inputs.team_id,
                         report_id=inputs.report_id,
                         error=f"Failed safety review: {safety_result.explanation}",
                     ),
@@ -144,6 +148,7 @@ class SignalReportSummaryWorkflow:
                 await workflow.execute_activity(
                     reset_report_to_potential_activity,
                     ResetReportToPotentialInput(
+                        team_id=inputs.team_id,
                         report_id=inputs.report_id,
                         reason=f"Not actionable: {actionability_result.explanation}",
                     ),
@@ -159,6 +164,7 @@ class SignalReportSummaryWorkflow:
                 await workflow.execute_activity(
                     mark_report_pending_input_activity,
                     MarkReportPendingInput(
+                        team_id=inputs.team_id,
                         report_id=inputs.report_id,
                         title=summarize_result.title,
                         summary=summarize_result.summary,
@@ -172,6 +178,7 @@ class SignalReportSummaryWorkflow:
             await workflow.execute_activity(
                 mark_report_ready_activity,
                 MarkReportReadyInput(
+                    team_id=inputs.team_id,
                     report_id=inputs.report_id,
                     title=summarize_result.title,
                     summary=summarize_result.summary,
@@ -183,7 +190,7 @@ class SignalReportSummaryWorkflow:
         except Exception as e:
             await workflow.execute_activity(
                 mark_report_failed_activity,
-                MarkReportFailedInput(report_id=inputs.report_id, error=str(e)),
+                MarkReportFailedInput(team_id=inputs.team_id, report_id=inputs.report_id, error=str(e)),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
@@ -243,7 +250,7 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
             document_id, content, metadata_str, timestamp = row
             # Purposefully throw here if we fail - we rely on metadata being correct, and it's not llm generated, so
             # no defensive parsing, we want to fail loudly.
-            metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str or {}
+            metadata = json.loads(metadata_str)
             signals.append(
                 SignalData(
                     signal_id=document_id,
@@ -275,6 +282,7 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
 
 @dataclass
 class MarkReportInProgressInput:
+    team_id: int
     report_id: str
     signal_count: int
 
@@ -286,13 +294,13 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
 
         @transaction.atomic
         def do_update():
-            report = SignalReport.objects.select_for_update().get(id=input.report_id)
+            report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             report.status = SignalReport.Status.IN_PROGRESS
             report.last_run_at = timezone.now()
             report.signals_at_run = input.signal_count
             report.save(update_fields=["status", "last_run_at", "signals_at_run", "updated_at"])
 
-        await sync_to_async(do_update, thread_sensitive=False)()
+        await database_sync_to_async(do_update, thread_sensitive=False)()
         logger.debug(
             f"Marked report {input.report_id} as in_progress",
             report_id=input.report_id,
@@ -308,6 +316,7 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
 
 @dataclass
 class MarkReportReadyInput:
+    team_id: int
     report_id: str
     title: str
     summary: str
@@ -320,14 +329,14 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> None:
 
         @transaction.atomic
         def do_update():
-            report = SignalReport.objects.select_for_update().get(id=input.report_id)
+            report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             report.status = SignalReport.Status.READY
             report.title = input.title
             report.summary = input.summary
             report.error = None
             report.save(update_fields=["status", "title", "summary", "error", "updated_at"])
 
-        await sync_to_async(do_update, thread_sensitive=False)()
+        await database_sync_to_async(do_update, thread_sensitive=False)()
         logger.debug(
             f"Marked report {input.report_id} as ready",
             report_id=input.report_id,
@@ -343,6 +352,7 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> None:
 
 @dataclass
 class MarkReportFailedInput:
+    team_id: int
     report_id: str
     error: str
 
@@ -354,12 +364,12 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
 
         @transaction.atomic
         def do_update():
-            report = SignalReport.objects.select_for_update().get(id=input.report_id)
+            report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             report.status = SignalReport.Status.FAILED
             report.error = input.error
             report.save(update_fields=["status", "error", "updated_at"])
 
-        await sync_to_async(do_update, thread_sensitive=False)()
+        await database_sync_to_async(do_update, thread_sensitive=False)()
         logger.debug(
             f"Marked report {input.report_id} as failed",
             report_id=input.report_id,
@@ -375,6 +385,7 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
 
 @dataclass
 class MarkReportPendingInput:
+    team_id: int
     report_id: str
     title: str
     summary: str
@@ -388,14 +399,14 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
 
         @transaction.atomic
         def do_update():
-            report = SignalReport.objects.select_for_update().get(id=input.report_id)
+            report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             report.status = SignalReport.Status.PENDING_INPUT
             report.title = input.title
             report.summary = input.summary
             report.error = input.reason
             report.save(update_fields=["status", "title", "summary", "error", "updated_at"])
 
-        await sync_to_async(do_update, thread_sensitive=False)()
+        await database_sync_to_async(do_update, thread_sensitive=False)()
         logger.debug(
             f"Marked report {input.report_id} as pending_input",
             report_id=input.report_id,
@@ -411,6 +422,7 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
 
 @dataclass
 class ResetReportToPotentialInput:
+    team_id: int
     report_id: str
     reason: str
 
@@ -422,14 +434,14 @@ async def reset_report_to_potential_activity(input: ResetReportToPotentialInput)
 
         @transaction.atomic
         def do_update():
-            report = SignalReport.objects.select_for_update().get(id=input.report_id)
+            report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             report.status = SignalReport.Status.POTENTIAL
             report.total_weight = 0.0
             report.promoted_at = None
             report.error = input.reason
             report.save(update_fields=["status", "total_weight", "promoted_at", "error", "updated_at"])
 
-        await sync_to_async(do_update, thread_sensitive=False)()
+        await database_sync_to_async(do_update, thread_sensitive=False)()
         logger.debug(
             f"Reset report {input.report_id} to potential",
             report_id=input.report_id,

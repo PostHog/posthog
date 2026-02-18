@@ -88,8 +88,6 @@ def render_signal_to_text(
     lines.append(f"- Weight: {signal.weight}")
     lines.append(f"- Timestamp: {signal.timestamp}")
     lines.append(f"- Description: {signal.content}")
-    if signal.extra:
-        lines.append(f"- Extra metadata: {signal.extra}")
     return "\n".join(lines)
 
 
