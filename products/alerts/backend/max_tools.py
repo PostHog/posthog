@@ -198,14 +198,15 @@ class UpsertAlertTool(MaxTool):
                     "error": "unsupported_insight",
                 }
 
+            bounds: dict[str, float] = {}
+            if action.lower_threshold is not None:
+                bounds["lower"] = action.lower_threshold
+            if action.upper_threshold is not None:
+                bounds["upper"] = action.upper_threshold
             threshold_config = {
                 "type": action.threshold_type,
-                "bounds": {},
+                "bounds": bounds,
             }
-            if action.lower_threshold is not None:
-                threshold_config["bounds"]["lower"] = action.lower_threshold
-            if action.upper_threshold is not None:
-                threshold_config["bounds"]["upper"] = action.upper_threshold
 
             truncated_name = action.name[:255]
 

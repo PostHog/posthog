@@ -130,6 +130,7 @@ class TestUpsertAlertTool(BaseTest):
         assert alert.calculation_interval == AlertCalculationInterval.DAILY
 
         threshold = await sync_to_async(lambda: alert.threshold)()
+        assert threshold is not None
         assert threshold.configuration["bounds"]["lower"] == 100.0
         assert threshold.configuration["type"] == InsightThresholdType.ABSOLUTE
 
@@ -153,6 +154,7 @@ class TestUpsertAlertTool(BaseTest):
 
         alert = await sync_to_async(AlertConfiguration.objects.get)(id=artifact["alert_id"])
         threshold = await sync_to_async(lambda: alert.threshold)()
+        assert threshold is not None
         assert threshold.configuration["bounds"]["lower"] == 50.0
         assert threshold.configuration["bounds"]["upper"] == 200.0
 
@@ -176,6 +178,7 @@ class TestUpsertAlertTool(BaseTest):
 
         alert = await sync_to_async(AlertConfiguration.objects.get)(id=artifact["alert_id"])
         threshold = await sync_to_async(lambda: alert.threshold)()
+        assert threshold is not None
         assert threshold.configuration["type"] == InsightThresholdType.PERCENTAGE
         assert threshold.configuration["bounds"]["upper"] == 0.5
 
@@ -257,6 +260,7 @@ class TestUpsertAlertTool(BaseTest):
         assert "created successfully" in content
 
         alert = await sync_to_async(AlertConfiguration.objects.get)(id=artifact["alert_id"])
+        assert alert.config is not None
         assert alert.config["series_index"] == 1
 
     @pytest.mark.django_db
@@ -602,6 +606,7 @@ class TestUpsertAlertTool(BaseTest):
         assert "created successfully" in content
         alert = await sync_to_async(AlertConfiguration.objects.get)(id=artifact["alert_id"])
         threshold = await sync_to_async(lambda: alert.threshold)()
+        assert threshold is not None
         assert threshold.configuration["bounds"]["lower"] == -50.0
 
     @pytest.mark.django_db
@@ -622,6 +627,7 @@ class TestUpsertAlertTool(BaseTest):
         assert "created successfully" in content
         alert = await sync_to_async(AlertConfiguration.objects.get)(id=artifact["alert_id"])
         threshold = await sync_to_async(lambda: alert.threshold)()
+        assert threshold is not None
         assert threshold.configuration["bounds"]["lower"] == 0.0
 
     # -- Update: happy path --
@@ -653,6 +659,7 @@ class TestUpsertAlertTool(BaseTest):
         assert "updated successfully" in content
         await sync_to_async(alert.refresh_from_db)()
         threshold = await sync_to_async(lambda: alert.threshold)()
+        assert threshold is not None
         assert threshold.configuration["bounds"]["upper"] == 200.0
         assert threshold.configuration["bounds"]["lower"] == 100.0
 
@@ -849,6 +856,7 @@ class TestUpsertAlertTool(BaseTest):
         assert alert.enabled is True
 
         threshold = await sync_to_async(lambda: alert.threshold)()
+        assert threshold is not None
         assert threshold.configuration["bounds"]["lower"] == 100.0
 
     @pytest.mark.django_db
@@ -873,6 +881,7 @@ class TestUpsertAlertTool(BaseTest):
         assert "updated successfully" in content
         await sync_to_async(alert.refresh_from_db)()
         threshold = await sync_to_async(lambda: alert.threshold)()
+        assert threshold is not None
         assert threshold.configuration["type"] == InsightThresholdType.PERCENTAGE
         assert threshold.configuration["bounds"]["lower"] == 0.5
 
@@ -893,6 +902,7 @@ class TestUpsertAlertTool(BaseTest):
         # original threshold unchanged
         await sync_to_async(alert.refresh_from_db)()
         threshold = await sync_to_async(lambda: alert.threshold)()
+        assert threshold is not None
         assert threshold.configuration["bounds"]["lower"] == 50.0
 
     @pytest.mark.django_db
@@ -910,4 +920,5 @@ class TestUpsertAlertTool(BaseTest):
         assert "updated successfully" in content
         await sync_to_async(alert.refresh_from_db)()
         threshold = await sync_to_async(lambda: alert.threshold)()
+        assert threshold is not None
         assert await sync_to_async(lambda: threshold.insight_id)() == insight_b.id
