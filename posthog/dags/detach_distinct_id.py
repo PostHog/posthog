@@ -246,11 +246,11 @@ def detach_distinct_id_op(
 
     # --- 6. Verification hints ---
     log.info("--- Verification queries (run manually) ---")
+    escaped_did = json.dumps(config.distinct_id)
     log.info(
         f"Postgres: SELECT * FROM posthog_persondistinctid "
-        f"WHERE team_id = {config.team_id} AND distinct_id = '{config.distinct_id}'"
+        f"WHERE team_id = {config.team_id} AND distinct_id = {escaped_did}"
     )
-    escaped_did = json.dumps(config.distinct_id)
     log.info(
         f"ClickHouse (pdi2): SELECT distinct_id, argMax(person_id, version), "
         f"argMax(is_deleted, version), max(version) "
