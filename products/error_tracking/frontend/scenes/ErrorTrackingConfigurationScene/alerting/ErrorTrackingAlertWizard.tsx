@@ -27,7 +27,7 @@ function WizardCard({
     description,
     onClick,
 }: {
-    icon: React.ReactNode
+    icon?: React.ReactNode
     name: string
     description: string
     onClick: () => void
@@ -43,7 +43,7 @@ function WizardCard({
             )}
         >
             <div className="flex items-center gap-4">
-                <div className="shrink-0">{icon}</div>
+                {icon && <div className="shrink-0">{icon}</div>}
                 <div>
                     <h3 className="font-semibold text-base mb-0.5 transition-colors group-hover:text-link">{name}</h3>
                     <p className="text-secondary text-sm mb-0">{description}</p>
@@ -53,13 +53,16 @@ function WizardCard({
     )
 }
 
-function DestinationStep(): JSX.Element {
+function DestinationStep({ onBack }: { onBack: () => void }): JSX.Element {
     const { destinationOptions, existingAlertsLoading } = useValues(errorTrackingAlertWizardLogic)
     const { setDestination } = useActions(errorTrackingAlertWizardLogic)
 
     if (existingAlertsLoading) {
         return (
             <div className="space-y-4">
+                <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} onClick={onBack}>
+                    Alerts list
+                </LemonButton>
                 <h2 className="text-xl font-semibold">Where should we send alerts?</h2>
                 <div className="space-y-3">
                     {[1, 2, 3].map((i) => (
@@ -73,7 +76,10 @@ function DestinationStep(): JSX.Element {
     return (
         <div className="space-y-4">
             <div>
-                <h2 className="text-xl font-semibold mb-1">Where should we send alerts?</h2>
+                <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} onClick={onBack}>
+                    Alerts list
+                </LemonButton>
+                <h2 className="text-xl font-semibold mb-1 mt-2">Where should we send alerts?</h2>
                 <p className="text-secondary text-sm">Choose your preferred notification channel</p>
             </div>
             <div className="space-y-3">
@@ -103,7 +109,7 @@ function TriggerStep(): JSX.Element {
                     icon={<IconArrowLeft />}
                     onClick={() => setStep('destination')}
                 >
-                    Back
+                    Choose destination
                 </LemonButton>
                 <h2 className="text-xl font-semibold mb-1 mt-2">What should trigger the alert?</h2>
                 <p className="text-secondary text-sm">Choose when you want to be notified</p>
@@ -112,7 +118,6 @@ function TriggerStep(): JSX.Element {
                 {TRIGGER_OPTIONS.map((option: TriggerOption) => (
                     <WizardCard
                         key={option.key}
-                        icon={<span className="text-3xl">{option.icon}</span>}
                         name={option.name}
                         description={option.description}
                         onClick={() => setTrigger(option.key)}
@@ -149,7 +154,7 @@ function ConfigureStep(): JSX.Element {
         <div className="space-y-4">
             <div>
                 <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} onClick={() => setStep('trigger')}>
-                    Back
+                    Choose trigger
                 </LemonButton>
                 <h2 className="text-xl font-semibold mb-1 mt-2">Configure your alert</h2>
                 <p className="text-secondary text-sm">Fill in the details to complete setup</p>
@@ -400,20 +405,14 @@ export function ErrorTrackingAlertWizard({
     const { currentStep } = useValues(errorTrackingAlertWizardLogic)
 
     return (
-        <div className="space-y-6">
-            <div className="flex items-center justify-between">
-                <LemonButton type="secondary" size="small" onClick={onCancel}>
-                    Cancel
-                </LemonButton>
-            </div>
-
-            <div className="max-w-lg mx-auto">
-                {currentStep === 'destination' && <DestinationStep />}
+        <div className="flex flex-col min-h-[400px]">
+            <div className="max-w-lg mx-auto flex-1 w-full">
+                {currentStep === 'destination' && <DestinationStep onBack={onCancel} />}
                 {currentStep === 'trigger' && <TriggerStep />}
                 {currentStep === 'configure' && <ConfigureStep />}
             </div>
 
-            <p className="text-center text-xs text-muted">
+            <p className="text-center text-xs text-muted mt-6">
                 Need more control?{' '}
                 <button type="button" onClick={onSwitchToTraditional} className="text-link hover:underline">
                     Go back to traditional editor

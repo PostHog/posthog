@@ -71,7 +71,6 @@ export interface TriggerOption {
     key: WizardTrigger
     name: string
     description: string
-    icon: string
 }
 
 export const TRIGGER_OPTIONS: TriggerOption[] = [
@@ -79,13 +78,11 @@ export const TRIGGER_OPTIONS: TriggerOption[] = [
         key: 'error-tracking-issue-created',
         name: 'Issue created',
         description: 'Get notified when a new error issue is detected',
-        icon: '🆕',
     },
     {
         key: 'error-tracking-issue-reopened',
         name: 'Issue reopened',
         description: 'Get notified when a previously resolved issue comes back',
-        icon: '🔄',
     },
 ]
 
@@ -242,9 +239,9 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
                     return
                 }
 
-                const templateId = ALL_DESTINATIONS.find((d) => d.key === dest)!.templatePrefix
+                const destOption = ALL_DESTINATIONS.find((d) => d.key === dest)!
                 const subTemplates = HOG_FUNCTION_SUB_TEMPLATES[trigger]
-                const subTemplate = subTemplates.find((t) => t.template_id === templateId)
+                const subTemplate = subTemplates.find((t) => t.template_id === destOption.templatePrefix)
 
                 if (!subTemplate) {
                     lemonToast.error('Template not found for this combination')
@@ -253,7 +250,7 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
 
                 const configuration: Record<string, any> = {
                     type: 'internal_destination',
-                    template_id: `${templateId}-${trigger}`,
+                    template_id: destOption.templatePrefix,
                     filters: subTemplate.filters,
                     enabled: true,
                     masking: null,
