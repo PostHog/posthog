@@ -1,3 +1,5 @@
+from typing import cast
+
 from posthog.test.base import BaseTest
 
 from posthog.schema import LogPropertyFilter, LogPropertyFilterType, PropertyOperator
@@ -12,8 +14,8 @@ class TestGetLowercaseIndexHint(BaseTest):
 
     maxDiff = None
 
-    def _hint(self, property) -> ast.Expr:
-        return clear_locations(get_lowercase_index_hint(property, team=self.team))
+    def _hint(self, property: LogPropertyFilter) -> ast.Call:
+        return cast(ast.Call, clear_locations(get_lowercase_index_hint(property, team=self.team)))
 
     def _rewrite(self, expr: ast.Expr) -> ast.Expr:
         return clear_locations(_LowercaseIndexRewriter().visit(expr))
@@ -107,8 +109,8 @@ class TestGetLowercaseIndexHint(BaseTest):
         needles = search_call.args[1]
         assert isinstance(needles, ast.Array)
         assert len(needles.exprs) == 2
-        assert needles.exprs[0].value == "error"
-        assert needles.exprs[1].value == "warning"
+        assert cast(ast.Constant, needles.exprs[0]).value == "error"
+        assert cast(ast.Constant, needles.exprs[1]).value == "warning"
 
         # right side of >: 0
         assert isinstance(inner.right, ast.Constant)
@@ -124,8 +126,8 @@ class TestGetLowercaseIndexHint(BaseTest):
         )
         result = self._hint(prop)
 
-        inner = result.args[0]
-        assert inner.right.value == "%fatal error%"
+        inner = cast(ast.CompareOperation, result.args[0])
+        assert cast(ast.Constant, inner.right).value == "%fatal error%"
 
     def test_icontains_multi_with_mixed_case_needles(self):
         """Multiple mixed-case needles are all lowered."""
@@ -137,9 +139,10 @@ class TestGetLowercaseIndexHint(BaseTest):
         )
         result = self._hint(prop)
 
-        search_call = result.args[0].left
-        needles = search_call.args[1]
-        assert [e.value for e in needles.exprs] == ["foo", "bar", "baz"]
+        inner = cast(ast.CompareOperation, result.args[0])
+        search_call = cast(ast.Call, inner.left)
+        needles = cast(ast.Array, search_call.args[1])
+        assert [cast(ast.Constant, e).value for e in needles.exprs] == ["foo", "bar", "baz"]
 
     def test_icontains_multi_operator_single_value(self):
         """ICONTAINS_MULTI with a single string value uses multiSearch path."""
@@ -161,4 +164,4 @@ class TestGetLowercaseIndexHint(BaseTest):
         assert search_call.name == "multiSearchAny"
         needles = search_call.args[1]
         assert isinstance(needles, ast.Array)
-        assert [e.value for e in needles.exprs] == ["err"]
+        assert [cast(ast.Constant, e).value for e in needles.exprs] == ["err"]

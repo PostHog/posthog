@@ -1197,7 +1197,7 @@ def get_property_operator(property):
     return get_from_dict_or_attr(property, "operator")
 
 
-def get_lowercase_index_hint(property, team: Team) -> ast.Expr:
+def get_lowercase_index_hint(property, team: Team) -> ast.Call:
     """
     Returns an index hint for a case insensitive index on `lower(key)`
     e.g. for the property `body ILIKE '%STR%'` return `indexHint(lower(body) ILIKE '%str%')`
