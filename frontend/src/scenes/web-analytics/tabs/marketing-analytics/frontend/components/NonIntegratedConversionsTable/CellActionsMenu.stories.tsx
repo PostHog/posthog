@@ -46,6 +46,12 @@ const MARKETING_SOURCE_ICONS: Record<string, { name: string; iconPath: string; f
         fields: [],
         caption: 'Bing Ads',
     },
+    SnapchatAds: {
+        name: 'SnapchatAds',
+        iconPath: '/static/services/snapchat.png',
+        fields: [],
+        caption: 'Snapchat Ads',
+    },
 }
 
 const meta: Meta<typeof LemonMenuOverlay> = {

@@ -149,7 +149,7 @@ function findEventWithParents(
 }
 
 export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
-    path(['scenes', 'llm-analytics', 'llmAnalyticsTraceLogic']),
+    path(['scenes', 'llm-analytics', 'llmAnalyticsTraceDataLogic']),
     props({} as TraceDataLogicProps),
     key((props) => props.traceId),
     connect((props: TraceDataLogicProps) => ({
@@ -336,7 +336,13 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
                     return null
                 }
 
-                return showableEvents.find((event) => event.id === effectiveEventId) || null
+                const matchedEvent =
+                    showableEvents.find((event) => {
+                        return event.id === effectiveEventId
+                    }) || null
+
+                // If URL carries a stale/invalid event id, fall back to trace root instead of hard-failing.
+                return matchedEvent || trace || null
             },
         ],
         tree: [(s) => [s.filteredTree], (filteredTree): TraceTreeNode[] => filteredTree],

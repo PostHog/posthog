@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
 import React from 'react'
 
 import { IconCode, IconEye, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
@@ -13,7 +12,6 @@ import { isObject } from 'lib/utils'
 
 import { LLMInputOutput } from '../LLMInputOutput'
 import { SearchHighlight } from '../SearchHighlight'
-import { llmAnalyticsTraceLogic } from '../llmAnalyticsTraceLogic'
 import { containsSearchQuery } from '../searchUtils'
 import { CompatMessage, MultiModalContentItem, VercelSDKImageMessage } from '../types'
 import {
@@ -33,6 +31,24 @@ import { HighlightedXMLViewer } from './HighlightedXMLViewer'
 import { MessageActionsMenu } from './MessageActionsMenu'
 import { XMLViewer } from './XMLViewer'
 
+type ConversationDisplayOption = 'expand_all' | 'collapse_except_output_and_last_input' | 'text_view'
+type MessageType = 'input' | 'output'
+
+function getInitialMessageShowStates(
+    inputCount: number,
+    outputCount: number,
+    displayOption: ConversationDisplayOption = 'collapse_except_output_and_last_input'
+): { input: boolean[]; output: boolean[] } {
+    const inputStates = new Array(inputCount).fill(false).map((_, i) => {
+        if (displayOption === 'expand_all') {
+            return true
+        }
+        return i === inputCount - 1
+    })
+    const outputStates = new Array(outputCount).fill(true)
+    return { input: inputStates, output: outputStates }
+}
+
 export function ConversationMessagesDisplay({
     inputNormalized,
     outputNormalized,
@@ -41,6 +57,8 @@ export function ConversationMessagesDisplay({
     raisedError,
     bordered = false,
     searchQuery,
+    displayOption,
+    traceId,
 }: {
     inputNormalized: CompatMessage[]
     outputNormalized: CompatMessage[]
@@ -49,45 +67,64 @@ export function ConversationMessagesDisplay({
     raisedError?: boolean
     bordered?: boolean
     searchQuery?: string
+    displayOption?: ConversationDisplayOption
+    traceId?: string | null
 }): JSX.Element {
-    const {
-        inputMessageShowStates,
-        outputMessageShowStates,
-        searchQuery: currentSearchQuery,
-        displayOption,
-    } = useValues(llmAnalyticsTraceLogic)
-    const { initializeMessageStates, toggleMessage, showAllMessages, hideAllMessages, applySearchResults } =
-        useActions(llmAnalyticsTraceLogic)
+    const [messageShowStates, setMessageShowStates] = React.useState(() =>
+        getInitialMessageShowStates(inputNormalized.length, outputNormalized.length, displayOption)
+    )
+    const [isRenderingMarkdown, setIsRenderingMarkdown] = React.useState(true)
+    const [isRenderingXml, setIsRenderingXml] = React.useState(false)
+    const previousSearchQueryRef = React.useRef('')
+    const inputMessageShowStates = messageShowStates.input
+    const outputMessageShowStates = messageShowStates.output
 
-    // Initialize message states when component mounts or messages change or display option changes
-    React.useEffect(() => {
-        initializeMessageStates(inputNormalized.length, outputNormalized.length)
-    }, [inputNormalized.length, outputNormalized.length, displayOption, initializeMessageStates])
+    const toggleMessage = (type: MessageType, index: number): void => {
+        setMessageShowStates((state) => {
+            const nextTypeState = [...state[type]]
+            if (index < 0 || index >= nextTypeState.length) {
+                return state
+            }
+            nextTypeState[index] = !nextTypeState[index]
+            return { ...state, [type]: nextTypeState }
+        })
+    }
 
-    // Apply search results when search query changes
+    const showAllMessages = (type: MessageType): void => {
+        setMessageShowStates((state) => ({ ...state, [type]: state[type].map(() => true) }))
+    }
+
+    const hideAllMessages = (type: MessageType): void => {
+        setMessageShowStates((state) => ({ ...state, [type]: state[type].map(() => false) }))
+    }
+
+    // Initialize message states when message counts or display option changes.
     React.useEffect(() => {
-        if (searchQuery?.trim()) {
+        setMessageShowStates(
+            getInitialMessageShowStates(inputNormalized.length, outputNormalized.length, displayOption)
+        )
+    }, [inputNormalized.length, outputNormalized.length, displayOption])
+
+    // Expand only messages matching the current search query.
+    React.useEffect(() => {
+        const trimmedSearchQuery = searchQuery?.trim() ?? ''
+        if (trimmedSearchQuery) {
             const inputMatches = inputNormalized.map((msg) => {
                 const msgStr = JSON.stringify(msg)
-                return containsSearchQuery(msgStr, searchQuery)
+                return containsSearchQuery(msgStr, trimmedSearchQuery)
             })
             const outputMatches = outputNormalized.map((msg) => {
                 const msgStr = JSON.stringify(msg)
-                return containsSearchQuery(msgStr, searchQuery)
+                return containsSearchQuery(msgStr, trimmedSearchQuery)
             })
-            applySearchResults(inputMatches, outputMatches)
-        } else if (currentSearchQuery !== searchQuery) {
-            // Reset to display option defaults when search is cleared
-            initializeMessageStates(inputNormalized.length, outputNormalized.length)
+            setMessageShowStates({ input: inputMatches, output: outputMatches })
+        } else if (previousSearchQueryRef.current) {
+            setMessageShowStates(
+                getInitialMessageShowStates(inputNormalized.length, outputNormalized.length, displayOption)
+            )
         }
-    }, [
-        searchQuery,
-        currentSearchQuery,
-        inputNormalized,
-        outputNormalized,
-        applySearchResults,
-        initializeMessageStates,
-    ])
+        previousSearchQueryRef.current = trimmedSearchQuery
+    }, [searchQuery, inputNormalized, outputNormalized, inputNormalized.length, outputNormalized.length, displayOption])
 
     const allInputsExpanded = inputMessageShowStates.every(Boolean)
     const allInputsCollapsed = inputMessageShowStates.every((state: boolean) => !state)
@@ -148,6 +185,11 @@ export function ConversationMessagesDisplay({
                         show={inputMessageShowStates[i] || false}
                         onToggle={() => toggleMessage('input', i)}
                         searchQuery={searchQuery}
+                        traceId={traceId}
+                        isRenderingMarkdown={isRenderingMarkdown}
+                        isRenderingXml={isRenderingXml}
+                        onToggleMarkdownRendering={() => setIsRenderingMarkdown((state) => !state)}
+                        onToggleXmlRendering={() => setIsRenderingXml((state) => !state)}
                     />
                     {i < inputNormalized.length - 1 && (
                         <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
@@ -175,6 +217,11 @@ export function ConversationMessagesDisplay({
                                     isOutput
                                     onToggle={() => toggleMessage('output', i)}
                                     searchQuery={searchQuery}
+                                    traceId={traceId}
+                                    isRenderingMarkdown={isRenderingMarkdown}
+                                    isRenderingXml={isRenderingXml}
+                                    onToggleMarkdownRendering={() => setIsRenderingMarkdown((state) => !state)}
+                                    onToggleXmlRendering={() => setIsRenderingXml((state) => !state)}
                                 />
                             ))
                         ) : (
@@ -372,6 +419,11 @@ export const LLMMessageDisplay = React.memo(
         minimal = false,
         onToggle,
         searchQuery,
+        traceId,
+        isRenderingMarkdown = true,
+        isRenderingXml = false,
+        onToggleMarkdownRendering,
+        onToggleXmlRendering,
     }: {
         message: CompatMessage
         isOutput?: boolean
@@ -381,14 +433,19 @@ export const LLMMessageDisplay = React.memo(
         minimal?: boolean
         onToggle?: () => void
         searchQuery?: string
+        traceId?: string | null
+        isRenderingMarkdown?: boolean
+        isRenderingXml?: boolean
+        onToggleMarkdownRendering?: () => void
+        onToggleXmlRendering?: () => void
     }): JSX.Element => {
         const { role, content, ...additionalKwargs } = message
-        let { isRenderingMarkdown, isRenderingXml } = useValues(llmAnalyticsTraceLogic)
-        const { toggleMarkdownRendering, toggleXmlRendering } = useActions(llmAnalyticsTraceLogic)
+        let resolvedIsRenderingMarkdown = isRenderingMarkdown
+        let resolvedIsRenderingXml = isRenderingXml
 
         if (minimal) {
-            isRenderingMarkdown = true
-            isRenderingXml = false
+            resolvedIsRenderingMarkdown = true
+            resolvedIsRenderingXml = false
         }
 
         // Compute whether the content looks like Markdown.
@@ -473,7 +530,7 @@ export const LLMMessageDisplay = React.memo(
 
             // If the content appears to be XML, render based on the toggle.
             if (isXmlCandidate && typeof content === 'string') {
-                if (isRenderingXml) {
+                if (resolvedIsRenderingXml) {
                     return searchQuery?.trim() ? (
                         <HighlightedXMLViewer collapsed={3} searchQuery={searchQuery}>
                             {content}
@@ -495,7 +552,7 @@ export const LLMMessageDisplay = React.memo(
 
             // If the content appears to be Markdown, render based on the toggle.
             if (isMarkdownCandidate && typeof content === 'string') {
-                if (isRenderingMarkdown) {
+                if (resolvedIsRenderingMarkdown) {
                     // Check if content has HTML-like tags that might break markdown rendering
                     const hasHtmlLikeTags = /<[^>]+>/.test(content)
 
@@ -597,9 +654,9 @@ export const LLMMessageDisplay = React.memo(
                                     <LemonButton
                                         size="small"
                                         noPadding
-                                        icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
+                                        icon={resolvedIsRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
                                         tooltip="Toggle markdown rendering"
-                                        onClick={toggleMarkdownRendering}
+                                        onClick={onToggleMarkdownRendering}
                                     />
                                 )}
                                 {isXmlCandidate && role !== 'tool' && role !== 'tools' && (
@@ -608,8 +665,8 @@ export const LLMMessageDisplay = React.memo(
                                         noPadding
                                         icon={<IconCode />}
                                         tooltip="Toggle XML syntax highlighting"
-                                        onClick={toggleXmlRendering}
-                                        active={isRenderingXml}
+                                        onClick={onToggleXmlRendering}
+                                        active={resolvedIsRenderingXml}
                                     />
                                 )}
                                 <CopyToClipboardInline
@@ -619,6 +676,7 @@ export const LLMMessageDisplay = React.memo(
                                 />
                                 <MessageActionsMenu
                                     content={typeof content === 'string' ? content : JSON.stringify(content, null, 2)}
+                                    traceId={traceId}
                                 />
                             </>
                         )}
