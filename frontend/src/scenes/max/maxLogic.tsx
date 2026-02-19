@@ -585,17 +585,12 @@ export function getScrollableContainer(element?: Element | null): HTMLElement | 
     }
     let current = element.parentElement
     while (current) {
-        if (current.classList.contains('SidePanel3000__content')) {
-            return current
-        }
         if (current.tagName === 'MAIN') {
             return current
         }
-        // New side panel layout (UX_REMOVE_SIDEPANEL flag)
         if (current instanceof HTMLElement && current.dataset.attr === 'side-panel-content') {
             return current
         }
-        // Full screen Max with UX_REMOVE_SIDEPANEL flag (AiFirstMaxInstance)
         if (current instanceof HTMLElement && current.dataset.attr === 'max-scrollable') {
             return current
         }

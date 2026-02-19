@@ -5,12 +5,9 @@ import { useState } from 'react'
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { MaxMemorySettings } from 'scenes/settings/environment/MaxMemorySettings'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
-
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
 import { maxLogic } from '../maxLogic'
 import { FloatingSuggestionsDisplay } from './FloatingSuggestionsDisplay'
@@ -24,17 +21,11 @@ export function SidebarQuestionInputWithSuggestions({
     const { dataProcessingAccepted, activeSuggestionGroup } = useValues(maxLogic)
     const { setActiveGroup } = useActions(maxLogic)
     const { coreMemory, coreMemoryLoading } = useValues(maxSettingsLogic)
-    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const [settingsModalOpen, setSettingsModalOpen] = useState(false)
 
     const handleSettingsClick = (): void => {
-        if (isRemovingSidePanelFlag) {
-            setSettingsModalOpen(true)
-        } else {
-            openSettingsPanel({ sectionId: 'environment-max' })
-        }
+        setSettingsModalOpen(true)
     }
 
     const tip =
@@ -75,16 +66,14 @@ export function SidebarQuestionInputWithSuggestions({
                     ]}
                 />
             </div>
-            {isRemovingSidePanelFlag && (
-                <LemonModal
-                    title="PostHog AI memory"
-                    isOpen={settingsModalOpen}
-                    onClose={() => setSettingsModalOpen(false)}
-                    width="40rem"
-                >
-                    <MaxMemorySettings />
-                </LemonModal>
-            )}
+            <LemonModal
+                title="PostHog AI memory"
+                isOpen={settingsModalOpen}
+                onClose={() => setSettingsModalOpen(false)}
+                width="40rem"
+            >
+                <MaxMemorySettings />
+            </LemonModal>
         </DismissableLayer>
     )
 }

@@ -19,7 +19,6 @@ import {
 } from '@posthog/icons'
 import { ProfilePicture } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -56,7 +55,6 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
     const { user } = useValues(userLogic)
     const { isCloud, preflight } = useValues(preflightLogic)
     const { showOfframpModal } = useActions(sidePanelOfframpLogic)
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
     const { billing } = useValues(billingLogic)
 
@@ -296,20 +294,18 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                     </Menu.SubmenuRoot>
                                 )}
 
-                                {isRemovingSidePanelFlag && (
-                                    <Menu.Item
-                                        onClick={() => {
-                                            showOfframpModal()
-                                            setHelpMenuOpen(false)
-                                        }}
-                                        render={
-                                            <ButtonPrimitive menuItem>
-                                                <IconBlank />
-                                                Where's the panel? 🤔
-                                            </ButtonPrimitive>
-                                        }
-                                    />
-                                )}
+                                <Menu.Item
+                                    onClick={() => {
+                                        showOfframpModal()
+                                        setHelpMenuOpen(false)
+                                    }}
+                                    render={
+                                        <ButtonPrimitive menuItem>
+                                            <IconBlank />
+                                            Where's the panel? 🤔
+                                        </ButtonPrimitive>
+                                    }
+                                />
 
                                 <Menu.SubmenuRoot>
                                     <Menu.SubmenuTrigger

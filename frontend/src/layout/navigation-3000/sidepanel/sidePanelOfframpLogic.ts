@@ -1,9 +1,6 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import type { sidePanelOfframpLogicType } from './sidePanelOfframpLogicType'
 
 export const sidePanelOfframpLogic = kea<sidePanelOfframpLogicType>([
@@ -32,9 +29,8 @@ export const sidePanelOfframpLogic = kea<sidePanelOfframpLogicType>([
     }),
     selectors({
         shouldShowOfframpModal: [
-            (s) => [s.isOfframpModalVisible, featureFlagLogic.selectors.featureFlags],
-            (isOfframpModalVisible, featureFlags): boolean =>
-                isOfframpModalVisible && !!featureFlags[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL],
+            (s) => [s.isOfframpModalVisible],
+            (isOfframpModalVisible): boolean => isOfframpModalVisible,
         ],
     }),
     listeners({

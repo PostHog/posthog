@@ -74,7 +74,6 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
     const { response } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
     const { editorVimModeEnabled } = useValues(userPreferencesLogic)
     const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
@@ -274,32 +273,30 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                             data-attr="sql-editor-vim-toggle"
                         />
                     )}
-                    {isRemovingSidePanelFlag && (
-                        <SceneTitlePanelButton
-                            buttonClassName="size-[26px]"
-                            maxToolProps={{
-                                identifier: 'execute_sql',
-                                context: {
-                                    current_query: queryInput,
-                                },
-                                contextDescription: {
-                                    text: 'Current query',
-                                    icon: iconForType('sql_editor'),
-                                },
-                                callback: (toolOutput: string) => {
-                                    setSuggestedQueryInput(toolOutput, 'max_ai')
-                                },
-                                suggestions: [],
-                                onMaxOpen: () => {
-                                    reportAIQueryPromptOpen()
-                                },
-                                introOverride: {
-                                    headline: 'What data do you want to analyze?',
-                                    description: 'Let me help you quickly write SQL, and tweak it.',
-                                },
-                            }}
-                        />
-                    )}
+                    <SceneTitlePanelButton
+                        buttonClassName="size-[26px]"
+                        maxToolProps={{
+                            identifier: 'execute_sql',
+                            context: {
+                                current_query: queryInput,
+                            },
+                            contextDescription: {
+                                text: 'Current query',
+                                icon: iconForType('sql_editor'),
+                            },
+                            callback: (toolOutput: string) => {
+                                setSuggestedQueryInput(toolOutput, 'max_ai')
+                            },
+                            suggestions: [],
+                            onMaxOpen: () => {
+                                reportAIQueryPromptOpen()
+                            },
+                            introOverride: {
+                                headline: 'What data do you want to analyze?',
+                                description: 'Let me help you quickly write SQL, and tweak it.',
+                            },
+                        }}
+                    />
                 </div>
             </div>
             <QueryPane

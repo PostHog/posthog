@@ -2,13 +2,12 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconBrackets, IconEllipsis, IconPencil, IconSidePanel, IconSparkles, IconWrench, IconX } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { IconBrackets, IconPencil, IconSidePanel, IconSparkles, IconWrench } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ProductSetupButton } from 'lib/components/ProductSetup'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
@@ -30,114 +29,88 @@ import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 import { SceneDivider } from './SceneDivider'
 
 export function SceneTitlePanelButton({
-    inPanel = false,
     maxToolProps,
     buttonClassName = 'size-[33px]',
 }: {
-    inPanel?: boolean
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
     buttonClassName?: string
 }): JSX.Element | null {
-    const { scenePanelOpenManual, scenePanelIsPresent } = useValues(sceneLayoutLogic)
-    const { setScenePanelOpen } = useActions(sceneLayoutLogic)
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+    const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
 
     const inactiveMaxToolProps: UseMaxToolOptions = { identifier: 'read_data', active: false }
-    const { openMax, definition } = useMaxTool(
-        maxToolProps && isRemovingSidePanelFlag ? { ...maxToolProps, active: true } : inactiveMaxToolProps
-    )
+    const { openMax, definition } = useMaxTool(maxToolProps ? { ...maxToolProps, active: true } : inactiveMaxToolProps)
 
-    if (isRemovingSidePanelFlag) {
-        // Open Info tab if scene has panel content, otherwise default to PostHog AI
-        const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
+    // Open Info tab if scene has panel content, otherwise default to PostHog AI
+    const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
 
-        if (sidePanelOpen) {
-            return null
-        }
-
-        return (
-            <>
-                <ButtonPrimitive
-                    className={buttonClassName}
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        e.preventDefault()
-                        if (openMax) {
-                            openMax()
-                        } else {
-                            openSidePanel(SidePanelTab.Max)
-                        }
-                    }}
-                    tooltip={
-                        definition ? (
-                            <>
-                                Open PostHog AI
-                                <br />
-                                <div className="flex items-center">
-                                    {definition.icon || <IconWrench />}
-                                    <i className="ml-1.5">{definition.name}</i>
-                                </div>
-                            </>
-                        ) : (
-                            'Open PostHog AI'
-                        )
-                    }
-                    tooltipPlacement="bottom-end"
-                    tooltipCloseDelayMs={0}
-                    iconOnly
-                    data-attr="open-context-panel-ai-button"
-                >
-                    <div className="relative">
-                        <IconSparkles className="text-ai group-hover/button-primitive:animate-hue-rotate" />
-                        {maxToolProps && (
-                            <IconBrackets className="absolute size-2.5 top-0 -right-1 text-black dark:text-white" />
-                        )}
-                    </div>
-                </ButtonPrimitive>
-
-                {/* Size to mimic lemon button small */}
-                <ButtonPrimitive
-                    className={cn(buttonClassName, 'group -mr-[2px]')}
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        e.preventDefault()
-                        openSidePanel(defaultTab)
-                    }}
-                    tooltip={
-                        <>
-                            Open context panel
-                            <RenderKeybind className="relative -top-px ml-1" keybind={[keyBinds.toggleRightNav]} />
-                        </>
-                    }
-                    tooltipPlacement="bottom-end"
-                    tooltipCloseDelayMs={0}
-                    iconOnly
-                    data-attr="open-context-panel-button"
-                >
-                    <IconSidePanel className="text-primary group-hover:text-primary z-10" />
-                </ButtonPrimitive>
-            </>
-        )
-    }
-
-    // Old behavior: only show when scene panel is present
-    if (!scenePanelIsPresent || inPanel !== scenePanelOpenManual) {
+    if (sidePanelOpen) {
         return null
     }
 
     return (
-        <LemonButton
-            className={cn(!inPanel && '-mr-2')}
-            onClick={() => setScenePanelOpen(!scenePanelOpenManual)}
-            icon={inPanel ? <IconX className="text-primary p-0.5" /> : <IconEllipsis className="text-primary" />}
-            tooltip={inPanel ? 'Close Info & actions panel' : 'Open Info & actions panel'}
-            data-attr="info-actions-panel"
-            aria-label={inPanel ? 'Close Info & actions panel' : 'Open Info & actions panel'}
-            active={inPanel ? true : scenePanelOpenManual}
-            size="small"
-        />
+        <>
+            <ButtonPrimitive
+                className={buttonClassName}
+                onClick={(e) => {
+                    e.stopPropagation()
+                    e.preventDefault()
+                    if (openMax) {
+                        openMax()
+                    } else {
+                        openSidePanel(SidePanelTab.Max)
+                    }
+                }}
+                tooltip={
+                    definition ? (
+                        <>
+                            Open PostHog AI
+                            <br />
+                            <div className="flex items-center">
+                                {definition.icon || <IconWrench />}
+                                <i className="ml-1.5">{definition.name}</i>
+                            </div>
+                        </>
+                    ) : (
+                        'Open PostHog AI'
+                    )
+                }
+                tooltipPlacement="bottom-end"
+                tooltipCloseDelayMs={0}
+                iconOnly
+                data-attr="open-context-panel-ai-button"
+            >
+                <div className="relative">
+                    <IconSparkles className="text-ai group-hover/button-primitive:animate-hue-rotate" />
+                    {maxToolProps && (
+                        <IconBrackets className="absolute size-2.5 top-0 -right-1 text-black dark:text-white" />
+                    )}
+                </div>
+            </ButtonPrimitive>
+
+            {/* Size to mimic lemon button small */}
+            <ButtonPrimitive
+                className={cn(buttonClassName, 'group -mr-[2px]')}
+                onClick={(e) => {
+                    e.stopPropagation()
+                    e.preventDefault()
+                    openSidePanel(defaultTab)
+                }}
+                tooltip={
+                    <>
+                        Open context panel
+                        <RenderKeybind className="relative -top-px ml-1" keybind={[keyBinds.toggleRightNav]} />
+                    </>
+                }
+                tooltipPlacement="bottom-end"
+                tooltipCloseDelayMs={0}
+                iconOnly
+                data-attr="open-context-panel-button"
+            >
+                <IconSidePanel className="text-primary group-hover:text-primary z-10" />
+            </ButtonPrimitive>
+        </>
     )
 }
 type ResourceType = {
@@ -219,7 +192,7 @@ type SceneMainTitleProps = {
      */
     isGeneratingName?: boolean
     /**
-     * Props for MaxTool registration - when provided behind UX_REMOVE_SIDEPANEL flag,
+     * Props for MaxTool registration - when provided,
      * the AI button in the title section registers the tool with Max
      */
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
@@ -249,7 +222,6 @@ export function SceneTitleSection({
     const { zenMode } = useValues(navigation3000Logic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
     const [isScrolled, setIsScrolled] = useState(false)
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const effectiveDescription = description
 
     // Always include ProductSetupButton alongside other actions
@@ -303,7 +275,7 @@ export function SceneTitleSection({
                     'bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 -mx-4 px-4 -mt-4 duration-300',
                     noBorder ? '' : 'border-b border-transparent transition-border',
                     isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent',
-                    isRemovingSidePanelFlag && 'pl-4 pr-2',
+                    'pl-4 pr-2',
                     className
                 )}
             >
@@ -349,7 +321,7 @@ export function SceneTitleSection({
                         <div
                             className={cn(
                                 'flex gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first',
-                                isRemovingSidePanelFlag && 'gap-1 self-end'
+                                'gap-1 self-end'
                             )}
                         >
                             {effectiveActions}

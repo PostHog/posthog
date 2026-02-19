@@ -7,7 +7,6 @@ import { CSSTransition } from 'react-transition-group'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 
 import { SuggestionGroup, maxLogic } from '../maxLogic'
@@ -24,7 +23,6 @@ export function SidebarQuestionInput({
     sidePanel?: boolean
 }): JSX.Element {
     const { focusCounter, threadVisible } = useValues(maxLogic)
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     // Use raw state values instead of selector to ensure re-renders on state changes
     const {
@@ -80,10 +78,7 @@ export function SidebarQuestionInput({
         <QuestionInput
             isSticky={isSticky}
             textAreaRef={textAreaRef}
-            containerClassName={cn(
-                'px-3 mx-auto self-center pb-1 backdrop-blur-sm z-50',
-                sidePanel && isRemovingSidePanelFlag && 'px-0'
-            )}
+            containerClassName={cn('px-3 mx-auto self-center pb-1 backdrop-blur-sm z-50', sidePanel && 'px-0')}
             isThreadVisible={threadVisible}
         >
             <SuggestionsList />
