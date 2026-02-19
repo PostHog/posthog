@@ -183,6 +183,15 @@ On Apple Silicon Macs, you may get build errors related to OpenSSL. For nodejs: 
 **Nodejs services rebuild**
 If the nodejs won't start, try `cd nodejs && pnpm rebuild && pnpm i`.
 
+**Events not ingesting to local environment**
+This is usually due to nodejs not running or not starting. If the Node.js process silently fails to start, try resetting your node_modules:
+
+```bash
+rm -rf node_modules
+pnpm store prune
+pnpm install --force
+```
+
 **Python setuptools error**
 If you see `import gyp  # noqa: E402` during nodejs install, run `brew install python-setuptools`.
 
