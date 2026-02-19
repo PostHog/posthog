@@ -2,15 +2,13 @@ import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Protocol, runtime_checkable
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
 
 from django.conf import settings
 
 import snappy
 import aiohttp
-import aioboto3
 import structlog
-from botocore.client import Config
 
 from posthog.storage.recordings.errors import BlockFetchError, RecordingDeletedError
 
@@ -19,18 +17,7 @@ logger = structlog.get_logger(__name__)
 
 @runtime_checkable
 class BlockStorage(Protocol):
-    """
-    Protocol for fetching recording blocks.
-
-    Both the S3 storage client and the Recording API client implement this interface,
-    allowing them to be used interchangeably when fetching blocks.
-
-    The session_id and team_id parameters are required for the Recording API client
-    to construct the correct URL, but are ignored by the S3 storage client.
-
-    Delete is intentionally excluded — only EncryptedBlockStorage supports it since
-    cleartext recordings don't have encryption keys to shred.
-    """
+    """Protocol for fetching recording blocks via the Recording API."""
 
     async def fetch_decompressed_block(self, block_url: str, session_id: str, team_id: int) -> str:
         """Fetch and decompress a recording block. Returns decompressed content."""
@@ -39,117 +26,6 @@ class BlockStorage(Protocol):
     async def fetch_compressed_block(self, block_url: str, session_id: str, team_id: int) -> bytes:
         """Fetch a recording block. Returns compressed bytes."""
         ...
-
-
-class ClearTextBlockStorage:
-    def __init__(self, aws_client, bucket: str) -> None:
-        self.aws_client = aws_client
-        self.bucket = bucket
-
-    async def _fetch_compressed_block(self, block_url: str) -> bytes:
-        """Internal method to fetch and validate compressed block"""
-        parsed_url = urlparse(block_url)
-        key = parsed_url.path.lstrip("/")
-        query_params = parse_qs(parsed_url.query)
-        byte_range = query_params.get("range", [""])[0].replace("bytes=", "")
-        start_byte, end_byte = map(int, byte_range.split("-")) if "-" in byte_range else (None, None)
-
-        if start_byte is None or end_byte is None:
-            raise BlockFetchError("Invalid byte range in block URL")
-
-        expected_length = end_byte - start_byte + 1
-
-        try:
-            s3_response = await self.aws_client.get_object(
-                Bucket=self.bucket,
-                Key=key,
-                Range=f"bytes={start_byte}-{end_byte}",
-            )
-            compressed_block = await s3_response["Body"].read()
-        except Exception as e:
-            logger.exception(
-                "async_recording_block_storage.fetch_compressed_block_failed",
-                bucket=self.bucket,
-                key=key,
-                error=e,
-                exc_info=False,
-            )
-            raise BlockFetchError("Block content not found") from e
-
-        if not compressed_block:
-            raise BlockFetchError("Block content not found")
-
-        if len(compressed_block) != expected_length:
-            raise BlockFetchError(
-                f"Unexpected data length. Expected {expected_length} bytes, got {len(compressed_block)} bytes"
-            )
-
-        return compressed_block
-
-    async def fetch_decompressed_block(self, block_url: str, session_id: str, team_id: int) -> str:
-        try:
-            compressed_block = await self._fetch_compressed_block(block_url)
-            decompressed_block = snappy.decompress(compressed_block).decode("utf-8")
-            # Strip any trailing newlines
-            decompressed_block = decompressed_block.rstrip("\n")
-            return decompressed_block
-
-        except BlockFetchError:
-            raise
-        except Exception as e:
-            logger.exception(
-                "async_recording_block_storage.fetch_block_failed",
-                bucket=self.bucket,
-                block_url=block_url,
-                error=e,
-                exc_info=False,
-            )
-            raise BlockFetchError(f"Failed to read and decompress block: {str(e)}")
-
-    async def fetch_compressed_block(self, block_url: str, session_id: str, team_id: int) -> bytes:
-        try:
-            return await self._fetch_compressed_block(block_url)
-        except BlockFetchError:
-            raise
-        except Exception as e:
-            logger.exception(
-                "async_recording_block_storage.fetch_compressed_block_failed",
-                bucket=self.bucket,
-                block_url=block_url,
-                error=e,
-                exc_info=False,
-            )
-            raise BlockFetchError(f"Failed to read compressed block: {str(e)}")
-
-
-@asynccontextmanager
-async def cleartext_block_storage() -> AsyncIterator[ClearTextBlockStorage]:
-    required_settings = [
-        settings.SESSION_RECORDING_V2_S3_ENDPOINT,
-        settings.SESSION_RECORDING_V2_S3_REGION,
-        settings.SESSION_RECORDING_V2_S3_BUCKET,
-    ]
-
-    if not all(required_settings):
-        raise RuntimeError("Missing required settings for object storage client")
-    else:
-        session = aioboto3.Session()
-        async with session.client(  # type: ignore[call-overload]
-            "s3",
-            endpoint_url=settings.SESSION_RECORDING_V2_S3_ENDPOINT,
-            aws_access_key_id=settings.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY,
-            config=Config(
-                signature_version="s3v4",
-                connect_timeout=1,
-                retries={"max_attempts": 1},
-            ),
-            region_name=settings.SESSION_RECORDING_V2_S3_REGION,
-        ) as client:
-            yield ClearTextBlockStorage(
-                client,
-                bucket=settings.SESSION_RECORDING_V2_S3_BUCKET,
-            )
 
 
 class EncryptedBlockStorage:
