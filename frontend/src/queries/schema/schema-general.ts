@@ -4675,9 +4675,10 @@ export enum MarketingAnalyticsBaseColumns {
     ReportedROAS = 'Reported ROAS',
 }
 
-export enum MarketingAnalyticsHelperForColumnNames {
+export enum MarketingAnalyticsConstants {
     Goal = 'Goal',
     CostPer = 'Cost per',
+    ConstantValuePrefix = 'const:',
 }
 
 /** Category for core events (lifecycle stages) */
