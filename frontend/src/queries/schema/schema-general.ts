@@ -1486,7 +1486,7 @@ export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: AnyEntityNode[]
+    series: (AnyEntityNode | GroupNode)[]
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
@@ -4852,6 +4852,108 @@ export const externalDataSources = [
     'Attio',
     'SnapchatAds',
     'Linear',
+    'Intercom',
+    'Amplitude',
+    'Mixpanel',
+    'Jira',
+    'ActiveCampaign',
+    'Marketo',
+    'Adjust',
+    'AppsFlyer',
+    'Freshdesk',
+    'GoogleAnalytics',
+    'Pipedrive',
+    'SendGrid',
+    'Slack',
+    'PagerDuty',
+    'Asana',
+    'Notion',
+    'Airtable',
+    'Greenhouse',
+    'BambooHR',
+    'Lever',
+    'GitLab',
+    'Datadog',
+    'Sentry',
+    'Pendo',
+    'FullStory',
+    'AmazonAds',
+    'PinterestAds',
+    'AppleSearchAds',
+    'QuickBooks',
+    'Xero',
+    'NetSuite',
+    'WooCommerce',
+    'BigCommerce',
+    'PayPal',
+    'Square',
+    'Zoom',
+    'Trello',
+    'Monday',
+    'ClickUp',
+    'Confluence',
+    'Recurly',
+    'SalesLoft',
+    'Outreach',
+    'Gong',
+    'Calendly',
+    'Typeform',
+    'Iterable',
+    'ZohoCRM',
+    'Close',
+    'Oracle',
+    'DynamoDB',
+    'Elasticsearch',
+    'Kafka',
+    'LaunchDarkly',
+    'Braintree',
+    'Recharge',
+    'HelpScout',
+    'Gorgias',
+    'Instagram',
+    'YouTubeAnalytics',
+    'FacebookPages',
+    'TwitterAds',
+    'Workday',
+    'ServiceNow',
+    'Pardot',
+    'Copper',
+    'Front',
+    'ChartMogul',
+    'Zuora',
+    'Paddle',
+    'CircleCI',
+    'CockroachDB',
+    'Firebase',
+    'AzureBlob',
+    'GoogleDrive',
+    'OneDrive',
+    'SharePoint',
+    'Box',
+    'SFTP',
+    'MicrosoftTeams',
+    'Aircall',
+    'Webflow',
+    'Okta',
+    'Auth0',
+    'Productboard',
+    'Smartsheet',
+    'Wrike',
+    'Plaid',
+    'SurveyMonkey',
+    'Eventbrite',
+    'RingCentral',
+    'Twilio',
+    'Freshsales',
+    'Shortcut',
+    'ConvertKit',
+    'Drip',
+    'CampaignMonitor',
+    'MailerLite',
+    'Omnisend',
+    'Brevo',
+    'Postmark',
+    'Granola',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -4863,6 +4965,7 @@ export const VALID_NATIVE_MARKETING_SOURCES = [
     'TikTokAds',
     'RedditAds',
     'BingAds',
+    'SnapchatAds',
 ] as const
 
 export type NativeMarketingSource = (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
@@ -4980,6 +5083,23 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         defaultSources: ['bing', 'microsoft'] as const,
         primarySource: 'bing',
     },
+    SnapchatAds: {
+        sourceType: 'SnapchatAds' as const,
+        nameField: 'name',
+        idField: 'id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_stats_daily',
+        tableKeywords: ['campaigns'] as const,
+        tableExclusions: ['stats_daily'] as const,
+        defaultSources: ['snapchat'] as const,
+        primarySource: 'snapchat',
+        conversionFields: ['conversion_purchases', 'conversion_sign_ups', 'conversion_subscribe'] as const,
+        conversionValueFields: [
+            'conversion_purchases_value',
+            'conversion_sign_ups_value',
+            'conversion_subscribe_value',
+        ] as const,
+    },
 } as const
 
 export type MarketingIntegrationConfig = (typeof MARKETING_INTEGRATION_CONFIGS)[NativeMarketingSource]
@@ -4990,6 +5110,7 @@ export type MetaAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['Meta
 export type TikTokAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['defaultSources'][number]
 export type RedditAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['defaultSources'][number]
 export type BingAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['defaultSources'][number]
+export type SnapchatAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['defaultSources'][number]
 
 export type GoogleAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableKeywords'][number]
 export type LinkedinAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['tableKeywords'][number]
@@ -4997,6 +5118,7 @@ export type MetaAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['MetaA
 export type TikTokAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['tableKeywords'][number]
 export type RedditAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['tableKeywords'][number]
 export type BingAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['tableKeywords'][number]
+export type SnapchatAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['tableKeywords'][number]
 
 export type GoogleAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableExclusions'][number]
 export type LinkedinAdsTableExclusions =
@@ -5005,6 +5127,14 @@ export type MetaAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['Met
 export type TikTokAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['tableExclusions'][number]
 export type RedditAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['tableExclusions'][number]
 export type BingAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['tableExclusions'][number]
+export type SnapchatAdsTableExclusions =
+    (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['tableExclusions'][number]
+
+// Conversion fields for Snapchat Ads - extracted as types so they generate as StrEnum in Python
+export type SnapchatAdsConversionFields =
+    (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['conversionFields'][number]
+export type SnapchatAdsConversionValueFields =
+    (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['conversionValueFields'][number]
 
 // Conversion action types for Meta Ads - extracted as types so they generate as StrEnum in Python
 export type MetaAdsConversionOmniActionTypes =
