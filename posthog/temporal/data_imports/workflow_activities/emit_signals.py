@@ -35,6 +35,8 @@ LLM_CONCURRENCY_LIMIT = 20
 EMIT_CONCURRENCY_LIMIT = 50
 # Maximum number of attempts to summarize a description, if it exceeds the threshold
 SUMMARIZATION_MAX_ATTEMPTS = 3
+# Per-call timeout for LLM requests (seconds)
+LLM_CALL_TIMEOUT_SECONDS = 300
 
 
 @dataclasses.dataclass(frozen=True)
@@ -203,10 +205,13 @@ async def _summarize_description(
     prompt_parts = [types.Part(text=summarization_prompt.format(description=output.description, max_length=threshold))]
     for attempt in range(SUMMARIZATION_MAX_ATTEMPTS):
         try:
-            response = await client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=prompt_parts,
-                config=types.GenerateContentConfig(max_output_tokens=max(threshold // 4, 128)),
+            response = await asyncio.wait_for(
+                client.models.generate_content(
+                    model=GEMINI_MODEL,
+                    contents=prompt_parts,
+                    config=types.GenerateContentConfig(max_output_tokens=max(threshold // 4, 128)),
+                ),
+                timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
             summary = (response.text or "").strip()
             if not summary:
@@ -281,11 +286,14 @@ async def _check_actionability(
     try:
         # One-shotting it, as the task is simple, so adding retry logic would be excessive
         prompt = actionability_prompt.format(description=output.description)
-        response = await client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=[prompt],
-            # Limiting the output in hopes it will force LLM to give a short response
-            config=types.GenerateContentConfig(max_output_tokens=64),
+        response = await asyncio.wait_for(
+            client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=[prompt],
+                # Limiting the output in hopes it will force LLM to give a short response
+                config=types.GenerateContentConfig(max_output_tokens=64),
+            ),
+            timeout=LLM_CALL_TIMEOUT_SECONDS,
         )
         response_text = (response.text or "").strip().upper()
         return "NOT_ACTIONABLE" not in response_text
