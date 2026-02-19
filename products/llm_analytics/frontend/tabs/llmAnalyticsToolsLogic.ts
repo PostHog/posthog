@@ -65,10 +65,10 @@ export const llmAnalyticsToolsLogic = kea<llmAnalyticsToolsLogicType>([
                     columns: [
                         'tool',
                         'total_calls',
-                        'errors',
                         'traces',
                         'users',
                         'sessions',
+                        'errors',
                         'days_seen',
                         'first_seen',
                         'last_seen',

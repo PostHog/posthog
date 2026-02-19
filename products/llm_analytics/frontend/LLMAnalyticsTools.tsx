@@ -81,13 +81,6 @@ export function LLMAnalyticsTools(): JSX.Element {
                             </Tooltip>
                         ),
                     },
-                    errors: {
-                        renderTitle: () => (
-                            <Tooltip title="Number of generations with errors where this tool was called">
-                                {renderSortableColumnTitle('errors', 'Errors')}
-                            </Tooltip>
-                        ),
-                    },
                     traces: {
                         renderTitle: () => (
                             <Tooltip title="Number of unique traces where this tool was called">
@@ -106,6 +99,13 @@ export function LLMAnalyticsTools(): JSX.Element {
                         renderTitle: () => (
                             <Tooltip title="Number of unique sessions where this tool was called">
                                 {renderSortableColumnTitle('sessions', 'Sessions')}
+                            </Tooltip>
+                        ),
+                    },
+                    errors: {
+                        renderTitle: () => (
+                            <Tooltip title="Number of generations with errors where this tool was called">
+                                {renderSortableColumnTitle('errors', 'Errors')}
                             </Tooltip>
                         ),
                     },
