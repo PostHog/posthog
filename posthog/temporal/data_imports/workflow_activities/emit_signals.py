@@ -39,6 +39,8 @@ TEMPORAL_PAYLOAD_MAX_BYTES = 2 * 1024 * 1024
 SUMMARIZATION_MAX_ATTEMPTS = 3
 # Per-call timeout for LLM requests (seconds)
 LLM_CALL_TIMEOUT_SECONDS = 300
+# Thinking budget for LLM calls (summarization & actionability are judgment tasks)
+LLM_THINKING_BUDGET_TOKENS = 1024
 
 
 @dataclasses.dataclass(frozen=True)
@@ -214,7 +216,10 @@ async def _summarize_description(
                 client.models.generate_content(
                     model=GEMINI_MODEL,
                     contents=prompt_parts,
-                    config=types.GenerateContentConfig(max_output_tokens=max(threshold // 4, 256)),
+                    config=types.GenerateContentConfig(
+                        max_output_tokens=max(threshold // 4, 256),
+                        thinking_config=types.ThinkingConfig(thinking_budget=LLM_THINKING_BUDGET_TOKENS),
+                    ),
                 ),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
@@ -295,8 +300,10 @@ async def _check_actionability(
             client.models.generate_content(
                 model=GEMINI_MODEL,
                 contents=[prompt],
-                # Limiting the output in hopes it will force LLM to give a short response
-                config=types.GenerateContentConfig(max_output_tokens=128),
+                config=types.GenerateContentConfig(
+                    max_output_tokens=128,
+                    thinking_config=types.ThinkingConfig(thinking_budget=LLM_THINKING_BUDGET_TOKENS),
+                ),
             ),
             timeout=LLM_CALL_TIMEOUT_SECONDS,
         )
