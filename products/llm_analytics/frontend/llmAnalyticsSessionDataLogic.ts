@@ -55,17 +55,17 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
     props({} as SessionDataLogicProps),
     key((props) => `${props.sessionId}:${props.tabId ?? 'default'}`),
     connect((props: SessionDataLogicProps) => ({
-    values: [
-        llmAnalyticsSessionLogic({ tabId: props.tabId }),
-        ['sessionId'],
-        dataNodeLogic(getDataNodeLogicProps(props)),
-        ['response', 'responseLoading', 'responseError'],
-        maxGlobalLogic,
-        ['dataProcessingAccepted'],
-        teamLogic,
-        ['currentTeamId'],
-    ],
-})),
+        values: [
+            llmAnalyticsSessionLogic({ tabId: props.tabId }),
+            ['sessionId'],
+            dataNodeLogic(getDataNodeLogicProps(props)),
+            ['response', 'responseLoading', 'responseError'],
+            maxGlobalLogic,
+            ['dataProcessingAccepted'],
+            teamLogic,
+            ['currentTeamId'],
+        ],
+    })),
 
     actions({
         toggleTraceExpanded: (traceId: string) => ({ traceId }),

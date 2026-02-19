@@ -12,6 +12,8 @@ import {
     DataTableNode,
     LLMTrace,
     LLMTraceEvent,
+    NodeKind,
+    TraceQuery,
     TraceQueryResponse,
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
@@ -30,20 +32,29 @@ import { formatLLMUsage, getEventType, isLLMEvent, normalizeMessages } from './u
 
 export interface TraceDataLogicProps {
     traceId: string
-    query: DataTableNode
+    query?: DataTableNode | null
     cachedResults?: AnyResponseType | null
     searchQuery: string
     tabId?: string
 }
 
 function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogicProps): DataNodeLogicProps {
+    const fallbackTraceQuery: TraceQuery = {
+        kind: NodeKind.TraceQuery,
+        traceId,
+        // Match trace logic defaults so we still fetch data if query is briefly undefined.
+        dateRange: {
+            date_from: dayjs.utc(new Date(2025, 0, 10)).toISOString(),
+        },
+    }
+
     const insightProps: InsightLogicProps<DataTableNode> = {
         dashboardItemId: `new-Trace.${traceId}`,
         dataNodeCollectionId: traceId,
     }
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeLogicProps: DataNodeLogicProps = {
-        query: query.source,
+        query: query?.source ?? fallbackTraceQuery,
         key: vizKey,
         dataNodeCollectionId: traceId,
         cachedResults: cachedResults || undefined,
