@@ -3004,4 +3004,25 @@ def parser_test_factory(backend: HogQLParserBackend):
 
             self.assertEqual(parsed, expected)
 
+        def test_cte_materialization_hint_is_none_when_omitted(self):
+            parsed = self._select("WITH x AS (SELECT 1) SELECT * FROM x;")
+            assert isinstance(parsed, SelectQuery) and parsed.ctes is not None
+            cte = parsed.ctes.get("x")
+            assert cte is not None
+            assert cte.materialized is None
+
+        def test_cte_materialization_hint_materialized(self):
+            parsed = self._select("WITH x AS MATERIALIZED (SELECT 1) SELECT * FROM x;")
+            assert isinstance(parsed, SelectQuery) and parsed.ctes is not None
+            cte = parsed.ctes.get("x")
+            assert cte is not None
+            assert cte.materialized is True
+
+        def test_cte_materialization_hint_not_materialized(self):
+            parsed = self._select("WITH x AS NOT MATERIALIZED (SELECT 1) SELECT * FROM x;")
+            assert isinstance(parsed, SelectQuery) and parsed.ctes is not None
+            cte = parsed.ctes.get("x")
+            assert cte is not None
+            assert cte.materialized is False
+
     return TestParser
