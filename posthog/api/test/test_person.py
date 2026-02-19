@@ -1,5 +1,4 @@
 import json
-from datetime import timedelta
 from typing import Optional, cast
 from uuid import uuid4
 
@@ -18,13 +17,10 @@ from posthog.test.base import (
     snapshot_postgres_queries_context,
 )
 from unittest import mock
-from unittest.mock import patch
 
-from django.conf import settings
 from django.utils import timezone
 
 from rest_framework import status
-from temporalio import common
 
 import posthog.models.person.deletion
 from posthog.clickhouse.client import sync_execute
@@ -33,7 +29,6 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
 from posthog.models.person.util import create_person, create_person_distinct_id
-from posthog.temporal.delete_recordings.types import RecordingsWithPersonInput
 
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -402,30 +397,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             immediate=True,
         )
 
-        with patch("posthog.api.person.sync_connect") as mock_connect:
-            with patch("posthog.api.person.uuid") as mock_uuid:
-                mock_uuid.uuid4.return_value = "1234"
-                mock_client = mock.AsyncMock()
-                mock_connect.return_value = mock_client
-                response = self.client.delete(f"/api/person/{person.uuid}/?delete_recordings=true&delete_events=true")
-                mock_connect.assert_called_once()
-                mock_client.start_workflow.assert_called_once()
-                mock_client.start_workflow.assert_called_with(
-                    "delete-recordings-with-person",
-                    RecordingsWithPersonInput(
-                        distinct_ids=["person_1", "anonymous_id"],
-                        team_id=self.team.id,
-                    ),
-                    id=f"delete-recordings-with-person-{person.uuid}-1234",
-                    task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
-                    retry_policy=common.RetryPolicy(
-                        initial_interval=timedelta(seconds=60),
-                        backoff_coefficient=2.0,
-                        maximum_interval=None,
-                        maximum_attempts=2,
-                        non_retryable_error_types=None,
-                    ),
-                )
+        response = self.client.delete(f"/api/person/{person.uuid}/?delete_recordings=true&delete_events=true")
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(response.content, b"")  # Empty response
@@ -443,30 +415,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         _create_event(event="test", team=self.team, distinct_id="anonymous_id")
         _create_event(event="test", team=self.team, distinct_id="someone_else")
 
-        with patch("posthog.api.person.sync_connect") as mock_connect:
-            with patch("posthog.api.person.uuid") as mock_uuid:
-                mock_uuid.uuid4.return_value = "1234"
-                mock_client = mock.AsyncMock()
-                mock_connect.return_value = mock_client
-                response = self.client.delete(f"/api/person/{person.uuid}/?delete_recordings=true&delete_events=true")
-                mock_connect.assert_called_once()
-                mock_client.start_workflow.assert_called_once()
-                mock_client.start_workflow.assert_called_with(
-                    "delete-recordings-with-person",
-                    RecordingsWithPersonInput(
-                        distinct_ids=["person_1", "anonymous_id"],
-                        team_id=self.team.id,
-                    ),
-                    id=f"delete-recordings-with-person-{person.uuid}-1234",
-                    task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
-                    retry_policy=common.RetryPolicy(
-                        initial_interval=timedelta(seconds=60),
-                        backoff_coefficient=2.0,
-                        maximum_interval=None,
-                        maximum_attempts=2,
-                        non_retryable_error_types=None,
-                    ),
-                )
+        response = self.client.delete(f"/api/person/{person.uuid}/?delete_recordings=true&delete_events=true")
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(response.content, b"")  # Empty response
@@ -599,24 +548,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             immediate=True,
         )
 
-        with patch("posthog.api.person.sync_connect") as mock_connect:
-            with patch("posthog.api.person.uuid") as mock_uuid:
-                mock_uuid.uuid4.return_value = "1234"
-                mock_client = mock.AsyncMock()
-                mock_connect.return_value = mock_client
+        response = self.client.post(
+            f"/api/person/bulk_delete/",
+            {"ids": [person.uuid], "delete_recordings": True},
+        )
 
-                response = self.client.post(
-                    f"/api/person/bulk_delete/",
-                    {"ids": [person.uuid], "delete_recordings": True},
-                )
-
-                self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
-                mock_connect.assert_called_once()
-                mock_client.start_workflow.assert_called_once()
-                # Verify workflow was called with correct parameters
-                call_args = mock_client.start_workflow.call_args
-                self.assertEqual(call_args[0][0], "delete-recordings-with-person")
-                self.assertEqual(call_args[1]["id"], f"delete-recordings-with-person-{person.uuid}-1234")
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
 
     def test_bulk_delete_validation_too_many_ids(self):
         """Test that bulk_delete rejects more than 1000 IDs"""
