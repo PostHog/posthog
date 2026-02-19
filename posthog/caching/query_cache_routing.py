@@ -1,10 +1,11 @@
-from typing import NamedTuple
+from typing import NamedTuple, Union
 
 from django.conf import settings
-from django.core.cache import cache, caches
+from django.core.cache import BaseCache, cache, caches
 
 import posthoganalytics
 from django_redis import get_redis_connection
+from redis import Redis, RedisCluster
 
 from posthog import redis
 
@@ -15,8 +16,8 @@ BACKEND_DEFAULT = "default"
 
 
 class QueryCacheSelection(NamedTuple):
-    cache_backend: object
-    redis_client: object
+    cache_backend: BaseCache
+    redis_client: Union[Redis, RedisCluster]
     is_cluster: bool
 
 

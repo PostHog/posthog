@@ -213,7 +213,7 @@ class TeamCacheSizeTracker:
                 cache_key = cache_key.decode()
 
             # Check if key still exists in cache (lazy cleanup for TTL-expired keys)
-            if self._cache.get(cache_key) is None:
+            if cache_key not in self._cache:
                 # Already expired via TTL, just clean up tracking
                 removed_size = self._remove_tracking(cache_key)
                 current_size -= removed_size
