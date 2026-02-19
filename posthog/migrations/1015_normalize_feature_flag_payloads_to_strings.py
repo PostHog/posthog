@@ -46,7 +46,7 @@ def normalize_payloads_to_strings(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1002_experiment_exposure_preaggregation_enabled"),
+        ("posthog", "1014_increase_annotation_content_max_length"),
     ]
 
     operations = [
