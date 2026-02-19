@@ -423,11 +423,6 @@ describe('Recording API encryption integration', () => {
         let encryptor: SodiumRecordingEncryptor
         let decryptor: SodiumRecordingDecryptor
 
-        // Mock services that return predictable values
-        const mockTeamService = {
-            getEncryptionEnabledByTeamId: jest.fn().mockResolvedValue(true),
-        }
-
         const mockRetentionService = {
             getSessionRetentionDays: jest.fn().mockResolvedValue(30),
         }
@@ -553,15 +548,7 @@ describe('Recording API encryption integration', () => {
         })
 
         beforeEach(async () => {
-            mockTeamService.getEncryptionEnabledByTeamId.mockReset()
-            mockTeamService.getEncryptionEnabledByTeamId.mockResolvedValue(true)
-
-            keyStore = new DynamoDBKeyStore(
-                dynamoDBClient,
-                kmsClient,
-                mockRetentionService as any,
-                mockTeamService as any
-            )
+            keyStore = new DynamoDBKeyStore(dynamoDBClient, kmsClient, mockRetentionService as any)
             await keyStore.start()
 
             encryptor = new SodiumRecordingEncryptor(keyStore)
@@ -593,22 +580,6 @@ describe('Recording API encryption integration', () => {
                 expect(retrievedKey.sessionState).toBe('ciphertext')
                 expect(retrievedKey.plaintextKey.equals(generatedKey.plaintextKey)).toBe(true)
                 expect(retrievedKey.encryptedKey.equals(generatedKey.encryptedKey)).toBe(true)
-            })
-
-            it('should generate cleartext key when encryption is disabled', async () => {
-                mockTeamService.getEncryptionEnabledByTeamId.mockResolvedValue(false)
-
-                const sessionId = `cleartext-${Date.now()}`
-                const teamId = 2
-
-                const generatedKey = await keyStore.generateKey(sessionId, teamId)
-
-                expect(generatedKey.sessionState).toBe('cleartext')
-                expect(generatedKey.plaintextKey.length).toBe(0)
-                expect(generatedKey.encryptedKey.length).toBe(0)
-
-                const retrievedKey = await keyStore.getKey(sessionId, teamId)
-                expect(retrievedKey.sessionState).toBe('cleartext')
             })
 
             it('should return already_deleted when deleting already deleted key', async () => {

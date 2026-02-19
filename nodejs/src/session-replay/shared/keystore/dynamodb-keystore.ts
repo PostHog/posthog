@@ -1,15 +1,8 @@
-import {
-    ConditionalCheckFailedException,
-    DynamoDBClient,
-    GetItemCommand,
-    PutItemCommand,
-    UpdateItemCommand,
-} from '@aws-sdk/client-dynamodb'
+import { DynamoDBClient, GetItemCommand, PutItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb'
 import { DecryptCommand, GenerateDataKeyCommand, KMSClient } from '@aws-sdk/client-kms'
 import sodium from 'libsodium-wrappers'
 
 import { RetentionService } from '../retention/retention-service'
-import { TeamService } from '../teams/team-service'
 import { DeleteKeyResult, KeyStore, SessionKey } from '../types'
 
 const KEYS_TABLE_NAME = 'session-recording-keys'
@@ -23,8 +16,7 @@ export class DynamoDBKeyStore implements KeyStore {
     constructor(
         private dynamoDBClient: DynamoDBClient,
         private kmsClient: KMSClient,
-        private retentionService: RetentionService,
-        private teamService: TeamService
+        private retentionService: RetentionService
     ) {}
 
     async start(): Promise<void> {
@@ -32,71 +24,44 @@ export class DynamoDBKeyStore implements KeyStore {
     }
 
     async generateKey(sessionId: string, teamId: number): Promise<SessionKey> {
-        const encryptionEnabled = await this.teamService.getEncryptionEnabledByTeamId(teamId)
-
         const sessionRetentionDays = await this.retentionService.getSessionRetentionDays(teamId, sessionId)
         const createdAt = Math.floor(Date.now() / 1000)
         const expiresAt = createdAt + sessionRetentionDays * 24 * 60 * 60
 
-        let sessionKey: SessionKey
+        const { Plaintext, CiphertextBlob } = await this.kmsClient.send(
+            new GenerateDataKeyCommand({
+                KeyId: 'alias/session-replay-master-key',
+                NumberOfBytes: sodium.crypto_secretbox_KEYBYTES,
+                EncryptionContext: {
+                    session_id: sessionId,
+                    team_id: String(teamId),
+                },
+            })
+        )
 
-        if (encryptionEnabled) {
-            const { Plaintext, CiphertextBlob } = await this.kmsClient.send(
-                new GenerateDataKeyCommand({
-                    KeyId: 'alias/session-replay-master-key',
-                    NumberOfBytes: sodium.crypto_secretbox_KEYBYTES,
-                    EncryptionContext: {
-                        session_id: sessionId,
-                        team_id: String(teamId),
-                    },
-                })
-            )
-
-            if (!Plaintext || !CiphertextBlob) {
-                throw new Error('Failed to generate data key from KMS')
-            }
-
-            await this.dynamoDBClient.send(
-                new PutItemCommand({
-                    TableName: KEYS_TABLE_NAME,
-                    Item: {
-                        session_id: { S: sessionId },
-                        team_id: { N: String(teamId) },
-                        encrypted_key: { B: CiphertextBlob },
-                        session_state: { S: 'ciphertext' },
-                        created_at: { N: String(createdAt) },
-                        expires_at: { N: String(expiresAt) },
-                    },
-                })
-            )
-
-            sessionKey = {
-                plaintextKey: Buffer.from(Plaintext),
-                encryptedKey: Buffer.from(CiphertextBlob),
-                sessionState: 'ciphertext',
-            }
-        } else {
-            await this.dynamoDBClient.send(
-                new PutItemCommand({
-                    TableName: KEYS_TABLE_NAME,
-                    Item: {
-                        session_id: { S: sessionId },
-                        team_id: { N: String(teamId) },
-                        session_state: { S: 'cleartext' },
-                        created_at: { N: String(createdAt) },
-                        expires_at: { N: String(expiresAt) },
-                    },
-                })
-            )
-
-            sessionKey = {
-                plaintextKey: Buffer.alloc(0),
-                encryptedKey: Buffer.alloc(0),
-                sessionState: 'cleartext',
-            }
+        if (!Plaintext || !CiphertextBlob) {
+            throw new Error('Failed to generate data key from KMS')
         }
 
-        return sessionKey
+        await this.dynamoDBClient.send(
+            new PutItemCommand({
+                TableName: KEYS_TABLE_NAME,
+                Item: {
+                    session_id: { S: sessionId },
+                    team_id: { N: String(teamId) },
+                    encrypted_key: { B: CiphertextBlob },
+                    session_state: { S: 'ciphertext' },
+                    created_at: { N: String(createdAt) },
+                    expires_at: { N: String(expiresAt) },
+                },
+            })
+        )
+
+        return {
+            plaintextKey: Buffer.from(Plaintext),
+            encryptedKey: Buffer.from(CiphertextBlob),
+            sessionState: 'ciphertext',
+        }
     }
 
     async getKey(sessionId: string, teamId: number): Promise<SessionKey> {
@@ -155,12 +120,15 @@ export class DynamoDBKeyStore implements KeyStore {
                 sessionState: 'deleted',
                 deletedAt,
             }
+        } else if (sessionState === 'cleartext') {
+            // Recording predates encryption rollout
+            return {
+                plaintextKey: Buffer.alloc(0),
+                encryptedKey: Buffer.alloc(0),
+                sessionState: 'cleartext',
+            }
         }
-        return {
-            plaintextKey: Buffer.alloc(0),
-            encryptedKey: Buffer.alloc(0),
-            sessionState: 'cleartext',
-        }
+        throw new Error(`Unknown session state '${sessionState}' for session ${sessionId} team ${teamId}`)
     }
 
     private parseSessionState(item: Record<string, any> | undefined): 'ciphertext' | 'cleartext' | 'deleted' {
@@ -184,7 +152,7 @@ export class DynamoDBKeyStore implements KeyStore {
         const deletedAt = Math.floor(Date.now() / 1000)
 
         if (existingItem.Item) {
-            // Verify the returned item belongs to the requested team (defense in depth)
+            // Verify the returned item belongs to the requested team
             if (existingItem.Item.team_id?.N && parseInt(existingItem.Item.team_id.N, 10) !== teamId) {
                 throw new Error(`Team ID mismatch: requested ${teamId}, got ${existingItem.Item.team_id.N}`)
             }
@@ -216,28 +184,19 @@ export class DynamoDBKeyStore implements KeyStore {
                 })
             )
         } else {
-            // Tombstone for cleartext session
-            // If a key was created inbetween GetItem and this point, simply retry
-            try {
-                await this.dynamoDBClient.send(
-                    new PutItemCommand({
-                        TableName: KEYS_TABLE_NAME,
-                        Item: {
-                            session_id: { S: sessionId },
-                            team_id: { N: String(teamId) },
-                            session_state: { S: 'deleted' },
-                            deleted_at: { N: String(deletedAt) },
-                            expires_at: { N: String(deletedAt + TOMBSTONE_TTL_SECONDS) },
-                        },
-                        ConditionExpression: 'attribute_not_exists(session_id)',
-                    })
-                )
-            } catch (error) {
-                if (error instanceof ConditionalCheckFailedException) {
-                    return this.deleteKey(sessionId, teamId)
-                }
-                throw error
-            }
+            // Tombstone for cleartext session (predates encryption rollout)
+            await this.dynamoDBClient.send(
+                new PutItemCommand({
+                    TableName: KEYS_TABLE_NAME,
+                    Item: {
+                        session_id: { S: sessionId },
+                        team_id: { N: String(teamId) },
+                        session_state: { S: 'deleted' },
+                        deleted_at: { N: String(deletedAt) },
+                        expires_at: { N: String(deletedAt + TOMBSTONE_TTL_SECONDS) },
+                    },
+                })
+            )
         }
 
         return { deleted: true, deletedAt }
