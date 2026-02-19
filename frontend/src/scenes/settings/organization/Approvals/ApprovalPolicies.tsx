@@ -219,17 +219,15 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
     }, [loadAllMembers, loadRoles])
 
     const addRule = (field: string): void => {
-        setRules([...rules, { field, type: 'any_change' }])
+        setRules((prev) => [...prev, { field, type: 'any_change' }])
     }
 
     const updateRule = (index: number, updates: Partial<ConditionRule>): void => {
-        const newRules = [...rules]
-        newRules[index] = { ...newRules[index], ...updates }
-        setRules(newRules)
+        setRules((prev) => prev.map((rule, i) => (i === index ? { ...rule, ...updates } : rule)))
     }
 
     const removeRule = (index: number): void => {
-        setRules(rules.filter((_, i) => i !== index))
+        setRules((prev) => prev.filter((_, i) => i !== index))
     }
 
     const usedFields = new Set(rules.map((r) => r.field))
