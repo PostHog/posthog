@@ -75,7 +75,7 @@ if (not inputs.bypass_signature_check) {
   }
 }
 
-return request.body""",
+produceToWarehouseWebhooks(request.body)""",
     inputs_schema=[
         {
             "type": "string",
