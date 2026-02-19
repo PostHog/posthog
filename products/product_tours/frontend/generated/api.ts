@@ -140,6 +140,63 @@ export const productToursDestroy = async (projectId: string, id: string, options
 }
 
 /**
+ * Discard draft content.
+ */
+export const getProductToursDiscardDraftDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/product_tours/${id}/discard_draft/`
+}
+
+export const productToursDiscardDraftDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getProductToursDiscardDraftDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+/**
+ * Save draft content (server-side merge). No side effects triggered.
+ */
+export const getProductToursDraftPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/product_tours/${id}/draft/`
+}
+
+export const productToursDraftPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedProductTourSerializerCreateUpdateOnlyApi: NonReadonly<PatchedProductTourSerializerCreateUpdateOnlyApi>,
+    options?: RequestInit
+): Promise<ProductTourSerializerCreateUpdateOnlyApi> => {
+    return apiMutator<ProductTourSerializerCreateUpdateOnlyApi>(getProductToursDraftPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedProductTourSerializerCreateUpdateOnlyApi),
+    })
+}
+
+/**
+ * Lightweight polling endpoint for draft change detection.
+ */
+export const getProductToursDraftStatusRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/product_tours/${id}/draft_status/`
+}
+
+export const productToursDraftStatusRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ProductTourApi> => {
+    return apiMutator<ProductTourApi>(getProductToursDraftStatusRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
  * Generate tour step content using AI.
  */
 export const getProductToursGenerateCreateUrl = (projectId: string, id: string) => {
@@ -153,6 +210,30 @@ export const productToursGenerateCreate = async (
     options?: RequestInit
 ): Promise<ProductTourSerializerCreateUpdateOnlyApi> => {
     return apiMutator<ProductTourSerializerCreateUpdateOnlyApi>(getProductToursGenerateCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(productTourSerializerCreateUpdateOnlyApi),
+    })
+}
+
+/**
+ * Commit draft to live tour. Runs full validation and triggers side effects.
+
+Accepts an optional body payload. If provided, merges it into the draft
+before publishing so the caller can save + publish in a single request.
+ */
+export const getProductToursPublishDraftCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/product_tours/${id}/publish_draft/`
+}
+
+export const productToursPublishDraftCreate = async (
+    projectId: string,
+    id: string,
+    productTourSerializerCreateUpdateOnlyApi: NonReadonly<ProductTourSerializerCreateUpdateOnlyApi>,
+    options?: RequestInit
+): Promise<ProductTourSerializerCreateUpdateOnlyApi> => {
+    return apiMutator<ProductTourSerializerCreateUpdateOnlyApi>(getProductToursPublishDraftCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

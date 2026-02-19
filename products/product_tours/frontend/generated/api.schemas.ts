@@ -147,6 +147,8 @@ export interface ProductTourApi {
      */
     readonly targeting_flag_filters: ProductTourApiTargetingFlagFilters
     content?: unknown
+    readonly draft_content: unknown | null
+    readonly has_draft: boolean
     auto_launch?: boolean
     /** @nullable */
     start_date?: string | null
