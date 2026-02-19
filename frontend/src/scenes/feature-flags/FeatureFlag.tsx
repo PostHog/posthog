@@ -1144,7 +1144,7 @@ function FeatureFlagRollout({
                                                 onChange={(newValue) => {
                                                     toggleFeatureFlagActive(newValue)
                                                 }}
-                                                label={featureFlag.active ? 'Enabled' : 'Disabled'}
+                                                label="Enable feature flag"
                                                 loading={featureFlagActiveUpdateLoading}
                                                 disabledReason={
                                                     !featureFlag.can_edit
