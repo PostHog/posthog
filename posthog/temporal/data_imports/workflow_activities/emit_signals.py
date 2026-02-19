@@ -206,6 +206,7 @@ async def _summarize_description(
             response = await client.models.generate_content(
                 model=GEMINI_MODEL,
                 contents=prompt_parts,
+                config=types.GenerateContentConfig(max_output_tokens=max(threshold // 4, 128)),
             )
             summary = (response.text or "").strip()
             if not summary:
@@ -284,7 +285,7 @@ async def _check_actionability(
             model=GEMINI_MODEL,
             contents=[prompt],
             # Limiting the output in hopes it will force LLM to give a short response
-            config=types.GenerateContentConfig(max_output_tokens=128),
+            config=types.GenerateContentConfig(max_output_tokens=64),
         )
         response_text = (response.text or "").strip().upper()
         return "NOT_ACTIONABLE" not in response_text
