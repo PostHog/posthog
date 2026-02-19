@@ -852,7 +852,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
-    def test_cant_create_multivariate_feature_flag_with_variant_rollout_lt_100(self):
+    @parameterized.expand(
+        [
+            ("lt_100", 0),  # 50 + 25 + 0 = 75
+            ("gt_100", 50),  # 50 + 25 + 50 = 125
+        ]
+    )
+    def test_cant_create_multivariate_feature_flag_with_variant_rollout_not_100(self, _name, third_variant_rollout):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
@@ -875,45 +881,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             {
                                 "key": "third-variant",
                                 "name": "Third Variant",
-                                "rollout_percentage": 0,
-                            },
-                        ]
-                    },
-                },
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json().get("type"), "validation_error")
-        self.assertEqual(
-            response.json().get("detail"),
-            "Invalid variant definitions: Variant rollout percentages must sum to 100.",
-        )
-
-    def test_cant_create_multivariate_feature_flag_with_variant_rollout_gt_100(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "Multivariate feature",
-                "key": "multivariate-feature",
-                "filters": {
-                    "groups": [{"properties": [], "rollout_percentage": None}],
-                    "multivariate": {
-                        "variants": [
-                            {
-                                "key": "first-variant",
-                                "name": "First Variant",
-                                "rollout_percentage": 50,
-                            },
-                            {
-                                "key": "second-variant",
-                                "name": "Second Variant",
-                                "rollout_percentage": 25,
-                            },
-                            {
-                                "key": "third-variant",
-                                "name": "Third Variant",
-                                "rollout_percentage": 50,
+                                "rollout_percentage": third_variant_rollout,
                             },
                         ]
                     },
@@ -4250,15 +4218,21 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 {b"165192618": b"6"},
             )
 
-    def test_create_flag_with_invalid_date(self):
+    @parameterized.expand(
+        [
+            ("malformed_relative", "6hed", "is_date_before"),
+            ("malformed_absolute", "1234-02-993284", "is_date_after"),
+        ]
+    )
+    def test_create_flag_with_invalid_date(self, _name, invalid_date, operator):
         resp = self._create_flag_with_properties(
             "date-flag",
             [
                 {
                     "key": "created_for",
                     "type": "person",
-                    "value": "6hed",
-                    "operator": "is_date_before",
+                    "value": invalid_date,
+                    "operator": operator,
                 }
             ],
             expected_status=status.HTTP_400_BAD_REQUEST,
@@ -4268,30 +4242,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "invalid_date",
-                "detail": "Invalid date value: 6hed",
-                "attr": "filters",
-            }.items(),
-            resp.json().items(),
-        )
-
-        resp = self._create_flag_with_properties(
-            "date-flag",
-            [
-                {
-                    "key": "created_for",
-                    "type": "person",
-                    "value": "1234-02-993284",
-                    "operator": "is_date_after",
-                }
-            ],
-            expected_status=status.HTTP_400_BAD_REQUEST,
-        )
-
-        self.assertLessEqual(
-            {
-                "type": "validation_error",
-                "code": "invalid_date",
-                "detail": "Invalid date value: 1234-02-993284",
+                "detail": f"Invalid date value: {invalid_date}",
                 "attr": "filters",
             }.items(),
             resp.json().items(),
@@ -6802,13 +6753,18 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response2.status_code, status.HTTP_304_NOT_MODIFIED)
         self.assertEqual(response2.content, b"")
 
-    def test_local_evaluation_etag_header_parsing_quoted(self):
-        """Test that quoted ETag headers are parsed correctly."""
+    @parameterized.expand(
+        [
+            ("quoted", lambda etag: etag),  # Send as-is with quotes
+            ("unquoted", lambda etag: etag.removeprefix('W/"').removesuffix('"')),  # Strip quotes
+        ]
+    )
+    def test_local_evaluation_etag_header_parsing(self, _name, transform_etag):
         FeatureFlag.objects.filter(team=self.team).delete()
         FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
-            key="test-flag-quoted",
+            key=f"test-flag-{_name}",
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
 
@@ -6830,50 +6786,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # ETag is returned as weak ETag, e.g., 'W/"abc123"'
         self.assertTrue(etag.startswith('W/"') and etag.endswith('"'))
 
-        # Client sends ETag with quotes (standard format) - should match
+        # Client sends ETag (transformed based on test case) - should match
         response2 = self.client.get(
             "/api/feature_flag/local_evaluation",
             headers={
                 "authorization": f"Bearer {personal_api_key}",
-                "If-None-Match": etag,
-            },
-        )
-        self.assertEqual(response2.status_code, status.HTTP_304_NOT_MODIFIED)
-
-    def test_local_evaluation_etag_header_parsing_unquoted(self):
-        """Test that unquoted ETag headers are handled gracefully."""
-        FeatureFlag.objects.filter(team=self.team).delete()
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="test-flag-unquoted",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
-
-        from posthog.models.feature_flag.local_evaluation import clear_flag_caches
-
-        clear_flag_caches(self.team)
-
-        self.client.logout()
-
-        # Get initial ETag
-        response1 = self.client.get(
-            "/api/feature_flag/local_evaluation",
-            headers={"authorization": f"Bearer {personal_api_key}"},
-        )
-        etag = response1.headers["ETag"]
-        # Strip weak ETag prefix and quotes to get raw ETag value (W/"abc123" -> abc123)
-        raw_etag = etag.removeprefix('W/"').removesuffix('"')
-
-        # Client sends ETag without quotes (non-standard but should work)
-        response2 = self.client.get(
-            "/api/feature_flag/local_evaluation",
-            headers={
-                "authorization": f"Bearer {personal_api_key}",
-                "If-None-Match": raw_etag,
+                "If-None-Match": transform_etag(etag),
             },
         )
         self.assertEqual(response2.status_code, status.HTTP_304_NOT_MODIFIED)
@@ -8074,8 +7992,17 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_json["users_affected"], 2)
         self.assertEqual(response_json["total_users"], 3)
 
-    def test_user_blast_radius_with_group_key_regex(self):
-        """Test $group_key with regex operator"""
+    @parameterized.expand(
+        [
+            # (name, value, operator, expected_affected, expected_total)
+            ("regex", "^org-(prod|staging)-\\d+$", "regex", 2, 3),
+            ("not_regex", "^org-(prod|staging)-\\d+$", "not_regex", 1, 3),
+            ("not_icontains", "ORG", "not_icontains", 1, 3),
+        ]
+    )
+    def test_user_blast_radius_with_group_key_operators(
+        self, _name, value, operator, expected_affected, expected_total
+    ):
         GroupTypeMapping.objects.create(
             team=self.team,
             project_id=self.team.project_id,
@@ -8110,8 +8037,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                         {
                             "key": "$group_key",
                             "type": "group",
-                            "value": "^org-(prod|staging)-\\d+$",
-                            "operator": "regex",
+                            "value": value,
+                            "operator": operator,
                             "group_type_index": 0,
                         }
                     ],
@@ -8123,115 +8050,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
-        # Should match 2 org- groups but not workspace- group
-        self.assertEqual(response_json["users_affected"], 2)
-        self.assertEqual(response_json["total_users"], 3)
-
-    def test_user_blast_radius_with_group_key_not_regex(self):
-        """Test $group_key with not_regex operator"""
-        GroupTypeMapping.objects.create(
-            team=self.team,
-            project_id=self.team.project_id,
-            group_type="organization",
-            group_type_index=0,
-        )
-
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=0,
-            group_key="org-prod-001",
-            properties={},
-        )
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=0,
-            group_key="org-staging-002",
-            properties={},
-        )
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=0,
-            group_key="workspace-test-003",
-            properties={},
-        )
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
-            {
-                "condition": {
-                    "properties": [
-                        {
-                            "key": "$group_key",
-                            "type": "group",
-                            "value": "^org-(prod|staging)-\\d+$",
-                            "operator": "not_regex",
-                            "group_type_index": 0,
-                        }
-                    ],
-                    "rollout_percentage": 100,
-                },
-                "group_type_index": 0,
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_json = response.json()
-        # Should match workspace- group but not org- groups
-        self.assertEqual(response_json["users_affected"], 1)
-        self.assertEqual(response_json["total_users"], 3)
-
-    def test_user_blast_radius_with_group_key_not_icontains(self):
-        """Test $group_key with not_icontains operator"""
-        GroupTypeMapping.objects.create(
-            team=self.team,
-            project_id=self.team.project_id,
-            group_type="organization",
-            group_type_index=0,
-        )
-
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=0,
-            group_key="org-prod-001",
-            properties={},
-        )
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=0,
-            group_key="org-staging-002",
-            properties={},
-        )
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=0,
-            group_key="workspace-test-003",
-            properties={},
-        )
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
-            {
-                "condition": {
-                    "properties": [
-                        {
-                            "key": "$group_key",
-                            "type": "group",
-                            "value": "ORG",
-                            "operator": "not_icontains",
-                            "group_type_index": 0,
-                        }
-                    ],
-                    "rollout_percentage": 100,
-                },
-                "group_type_index": 0,
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_json = response.json()
-        # Should match workspace- group but not org- groups (case-insensitive)
-        self.assertEqual(response_json["users_affected"], 1)
-        self.assertEqual(response_json["total_users"], 3)
+        self.assertEqual(response_json["users_affected"], expected_affected)
+        self.assertEqual(response_json["total_users"], expected_total)
 
     def test_user_blast_radius_with_group_key_and_regular_properties(self):
         """Test combining $group_key with regular group properties"""
