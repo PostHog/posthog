@@ -414,9 +414,11 @@ jobs:
 
                   if [ $EXIT_CODE -ne 0 ]; then
                     # Check if we should retry with snapshot update
-                    # Look for either "Screenshot comparison failed" or "snapshot doesn't exist" error messages
-                    # Use case-insensitive match to catch variations like "Snapshot does not exist"
-                    if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ] && grep -qEi "(Screenshot comparison failed|snapshot does(n't| not) exist)" /tmp/playwright-output-attempt-1.log 2>/dev/null; then
+                    # Match Playwright screenshot error patterns across versions:
+                    #   - "Screenshot comparison failed" (older Playwright)
+                    #   - "snapshot doesn't/does not exist" (missing baseline)
+                    #   - "toHaveScreenshot…failed" (Playwright 1.58+, ANSI codes between tokens)
+                    if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ] && grep -qEi "(Screenshot comparison failed|snapshot does(n't| not) exist|toHaveScreenshot.*failed)" /tmp/playwright-output-attempt-1.log 2>/dev/null; then
                       echo "Screenshot-related failure detected - retrying with --update-snapshots"
 
                       # Preserve attempt 1 artifacts

@@ -39,8 +39,10 @@ test.describe('Workflows', () => {
         await expect(page.getByText('Loading', { exact: true })).not.toBeVisible({ timeout: 5000 })
 
         // Take a screenshot of the workflows list page
+        // Mask dynamic regions: left nav (product list changes as features ship) and billing banner
         await expect(page).toHaveScreenshot('workflows-list.png', {
             fullPage: true,
+            mask: [page.locator('.left-nav'), page.locator('.LemonBanner')],
         })
     })
 
@@ -67,8 +69,10 @@ test.describe('Workflows', () => {
         await expect(page.getByText('Loading', { exact: true })).not.toBeVisible({ timeout: 5000 })
 
         // Take a screenshot of the new workflow page
+        // Mask dynamic regions: left nav (product list changes as features ship) and billing banner
         await expect(page).toHaveScreenshot('new-workflow.png', {
             fullPage: true,
+            mask: [page.locator('.left-nav'), page.locator('.LemonBanner')],
         })
     })
 })
