@@ -139,6 +139,7 @@ def get_top_issues_for_team(team: Team) -> list[dict]:
                     AND timestamp >= {PERIOD_START}
                     AND timestamp < {PERIOD_END}
                     GROUP BY issue_id, day
+                    ORDER BY day ASC
                 )
                 GROUP BY issue_id
                 ORDER BY occurrence_count DESC
@@ -191,6 +192,7 @@ def get_new_issues_for_team(team: Team) -> list[dict]:
                     AND timestamp < {PERIOD_END}
                     AND issue_id IN {{issue_ids}}
                     GROUP BY issue_id, day
+                    ORDER BY day ASC
                 )
                 GROUP BY issue_id
                 ORDER BY occurrence_count DESC
