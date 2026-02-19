@@ -72,6 +72,7 @@ class ChatAgentRunner(BaseAgentRunner):
         slack_thread_context: Optional["SlackThreadContext"] = None,
         use_checkpointer: bool = True,
         is_agent_billable: bool = True,
+        is_impersonated: bool = False,
         resume_payload: Optional[dict[str, Any]] = None,
     ):
         super().__init__(
@@ -91,6 +92,7 @@ class ChatAgentRunner(BaseAgentRunner):
             billing_context=billing_context,
             use_checkpointer=use_checkpointer,
             is_agent_billable=is_agent_billable,
+            is_impersonated=is_impersonated,
             stream_processor=ChatAgentStreamProcessor(
                 verbose_nodes=VERBOSE_NODES,
                 streaming_nodes=STREAMING_NODES,

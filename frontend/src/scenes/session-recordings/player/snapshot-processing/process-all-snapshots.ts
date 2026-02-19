@@ -120,13 +120,13 @@ function createMinimalFullSnapshot(windowId: number | undefined, timestamp: numb
     } as unknown as RecordingSnapshot
 }
 
-export function processAllSnapshots(
+export async function processAllSnapshots(
     sources: SessionRecordingSnapshotSource[] | null,
     snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
     processingCache: ProcessingCache,
     viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
     sessionRecordingId: string
-): RecordingSnapshot[] {
+): Promise<RecordingSnapshot[]> {
     if (!sources || !snapshotsBySource || isEmptyObject(snapshotsBySource)) {
         return []
     }
@@ -140,6 +140,9 @@ export function processAllSnapshots(
         previousTimestamp: null,
         seenHashes: new Set<number>(),
     }
+
+    const YIELD_AFTER_MS = 50
+    let lastYield = performance.now()
 
     for (let sourceIdx = 0; sourceIdx < sources.length; sourceIdx++) {
         const source = sources[sourceIdx]
@@ -178,6 +181,10 @@ export function processAllSnapshots(
                 sessionRecordingId,
                 sourceKey
             )
+            if (performance.now() - lastYield > YIELD_AFTER_MS) {
+                await new Promise<void>((r) => setTimeout(r, 0))
+                lastYield = performance.now()
+            }
         }
 
         processingCache.snapshots[sourceKey] = context.sourceResult
@@ -447,11 +454,19 @@ const lengthPrefixedSnappyDecompress = async (uint8Data: Uint8Array, posthogInst
         offset += length
     }
 
-    // Phase 2: Decompress all blocks in parallel
+    // Phase 2: Decompress blocks in batches, yielding between batches to avoid
+    // microtask storms that block the main thread when many blocks resolve at once
     const isParallel = compressedBlocks.length > 1
-    const decompressedBlocks = await Promise.all(
-        compressedBlocks.map((block) => workerManager.decompress(block, { isParallel }))
-    )
+    const DECOMPRESSION_BATCH_SIZE = 10
+    const decompressedBlocks: Uint8Array[] = []
+    for (let i = 0; i < compressedBlocks.length; i += DECOMPRESSION_BATCH_SIZE) {
+        const batch = compressedBlocks.slice(i, i + DECOMPRESSION_BATCH_SIZE)
+        const results = await Promise.all(batch.map((block) => workerManager.decompress(block, { isParallel })))
+        decompressedBlocks.push(...results)
+        if (i + DECOMPRESSION_BATCH_SIZE < compressedBlocks.length) {
+            await new Promise<void>((r) => setTimeout(r, 0))
+        }
+    }
 
     // Phase 3: Decode all blocks to strings
     const textDecoder = new TextDecoder('utf-8')

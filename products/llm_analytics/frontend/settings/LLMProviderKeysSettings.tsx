@@ -88,6 +88,8 @@ function getKeyPlaceholder(provider: LLMProvider): string {
             return 'Enter your Gemini API key'
         case 'openrouter':
             return 'Enter your OpenRouter API key'
+        case 'fireworks':
+            return 'Enter your Fireworks API key'
     }
 }
 
@@ -129,7 +131,7 @@ function KeyValidationStatus({
 }
 
 function AddKeyModal(): JSX.Element {
-    const { newKeyModalOpen, providerKeysLoading, preValidationResult, preValidationResultLoading } =
+    const { newKeyModalOpen, providerKeysLoading, preValidationResult, preValidationResultLoading, evaluationConfig } =
         useValues(llmProviderKeysLogic)
     const { setNewKeyModalOpen, createProviderKey, preValidateKey, clearPreValidation } =
         useActions(llmProviderKeysLogic)
@@ -162,11 +164,12 @@ function AddKeyModal(): JSX.Element {
                         provider,
                         name,
                         api_key: apiKey,
+                        set_as_active: !evaluationConfig?.active_provider_key,
                     },
                 })
             }
         }
-    }, [pendingSubmit, preValidationResult, preValidationResultLoading, createProviderKey, name, apiKey, provider])
+    }, [pendingSubmit, preValidationResult, preValidationResultLoading, createProviderKey, name, apiKey, provider]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const handleClose = (): void => {
         setNewKeyModalOpen(false)
@@ -180,6 +183,7 @@ function AddKeyModal(): JSX.Element {
                     provider,
                     name,
                     api_key: apiKey,
+                    set_as_active: !evaluationConfig?.active_provider_key,
                 },
             })
         } else if (apiKey.length > 0) {
@@ -240,6 +244,7 @@ function AddKeyModal(): JSX.Element {
                             { value: 'anthropic', label: 'Anthropic' },
                             { value: 'gemini', label: 'Google Gemini' },
                             { value: 'openrouter', label: 'OpenRouter' },
+                            { value: 'fireworks', label: 'Fireworks' },
                         ]}
                         className="mt-1"
                         fullWidth
@@ -613,7 +618,7 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                 <h2 className="text-xl font-semibold">API keys</h2>
                                 <p className="text-muted">
                                     Add your API keys to run evaluations with your own account. Supports OpenAI,
-                                    Anthropic, Google Gemini, and OpenRouter.
+                                    Anthropic, Google Gemini, OpenRouter, and Fireworks.
                                 </p>
                             </div>
                             <AccessControlAction
@@ -641,7 +646,7 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                 <p className="text-muted mb-4 text-center">
                                     Add your API key to run evaluations with your own account.
                                     <br />
-                                    Supports OpenAI, Anthropic, Google Gemini, and OpenRouter.
+                                    Supports OpenAI, Anthropic, Google Gemini, OpenRouter, and Fireworks.
                                 </p>
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.LlmAnalytics}

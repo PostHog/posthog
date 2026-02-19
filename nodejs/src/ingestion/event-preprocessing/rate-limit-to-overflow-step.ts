@@ -1,10 +1,10 @@
-import { EventHeaders, IncomingEventWithTeam } from '../../types'
+import { EventHeaders, PipelineEvent } from '../../types'
 import { PipelineResult, ok, redirect } from '../pipelines/results'
 import { OverflowEventBatch, OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 
 export interface RateLimitToOverflowStepInput {
     headers: EventHeaders
-    eventWithTeam: IncomingEventWithTeam
+    event: PipelineEvent
 }
 
 export function createRateLimitToOverflowStep<T extends RateLimitToOverflowStepInput>(
@@ -20,12 +20,12 @@ export function createRateLimitToOverflowStep<T extends RateLimitToOverflowStepI
         // Count events by token:distinct_id and track first timestamp
         // NOTE: headers.token and headers.now are safe to use as they don't change during processing.
         // However, headers.distinct_id is NOT safe because cookieless processing may change the
-        // distinct_id from the sentinel value - use eventWithTeam.event.distinct_id instead.
+        // distinct_id from the sentinel value - use event.distinct_id instead.
         const keyStats = new Map<string, { token: string; distinctId: string; count: number; firstTimestamp: number }>()
 
-        for (const { headers, eventWithTeam } of inputs) {
+        for (const { headers, event } of inputs) {
             const token = headers.token ?? ''
-            const distinctId = eventWithTeam.event.distinct_id ?? ''
+            const distinctId = event.distinct_id ?? ''
             const eventKey = `${token}:${distinctId}`
             const timestamp = headers.now?.getTime() ?? Date.now()
 
@@ -49,9 +49,9 @@ export function createRateLimitToOverflowStep<T extends RateLimitToOverflowStepI
 
         // Build results in original order
         return inputs.map((input) => {
-            const { headers, eventWithTeam } = input
+            const { headers, event } = input
             const token = headers.token ?? ''
-            const distinctId = eventWithTeam.event.distinct_id ?? ''
+            const distinctId = event.distinct_id ?? ''
             const eventKey = `${token}:${distinctId}`
 
             if (keysToRedirect.has(eventKey)) {

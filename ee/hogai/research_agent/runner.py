@@ -53,6 +53,7 @@ class ResearchAgentRunner(BaseAgentRunner):
         billing_context: Optional[MaxBillingContext] = None,
         initial_state: Optional[AssistantState | PartialAssistantState] = None,
         is_agent_billable: bool = True,
+        is_impersonated: bool = False,
         resume_payload: Optional[dict[str, Any]] = None,
     ):
         super().__init__(
@@ -70,6 +71,7 @@ class ResearchAgentRunner(BaseAgentRunner):
             initial_state=initial_state,
             use_checkpointer=True,
             is_agent_billable=is_agent_billable,
+            is_impersonated=is_impersonated,
             stream_processor=ChatAgentStreamProcessor(
                 team=team,
                 user=user,

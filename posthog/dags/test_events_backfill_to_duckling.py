@@ -7,6 +7,7 @@ import duckdb
 from parameterized import parameterized
 
 from posthog.dags.events_backfill_to_duckling import (
+    EARLIEST_BACKFILL_DATE,
     EVENTS_COLUMNS,
     EVENTS_TABLE_DDL,
     EXPECTED_DUCKLAKE_COLUMNS,
@@ -15,11 +16,13 @@ from posthog.dags.events_backfill_to_duckling import (
     PERSONS_COLUMNS,
     PERSONS_TABLE_DDL,
     _connect_duckdb,
+    _get_cluster,
     _is_transaction_conflict,
     _set_table_partitioning,
     _validate_identifier,
     delete_events_partition_data,
     delete_persons_partition_data,
+    duckling_events_full_backfill_sensor,
     get_months_in_range,
     get_s3_url_for_clickhouse,
     is_full_export_partition,
@@ -664,3 +667,95 @@ class TestDeletePersonsRetry:
             ((4,),),
             ((8,),),
         ]
+
+
+class TestFullBackfillSensorEarliestDate:
+    @parameterized.expand(
+        [
+            # (earliest_dt_from_clickhouse, expected_first_month)
+            ("pre-2015 clamped to 2015-01", datetime(2010, 3, 1), "2015-01"),
+            ("exactly 2015-01-01 unchanged", datetime(2015, 1, 1), "2015-01"),
+            ("post-2015 unchanged", datetime(2020, 6, 15), "2020-06"),
+        ]
+    )
+    @patch("posthog.dags.events_backfill_to_duckling.get_earliest_event_date_for_team")
+    @patch("posthog.dags.events_backfill_to_duckling.DuckLakeCatalog")
+    @patch("posthog.dags.events_backfill_to_duckling.timezone")
+    def test_earliest_date_clamped(
+        self, _name, earliest_dt, expected_first_month, mock_tz, mock_catalog_cls, mock_get_earliest
+    ):
+        from dagster import DagsterInstance, SensorResult, build_sensor_context
+
+        mock_tz.now.return_value = datetime(2025, 2, 10, 12, 0, 0)
+        mock_get_earliest.return_value = earliest_dt
+
+        catalog = MagicMock()
+        catalog.team_id = 1
+        mock_catalog_cls.objects.all.return_value.order_by.return_value = [catalog]
+
+        instance = DagsterInstance.ephemeral()
+        context = build_sensor_context(instance=instance)
+        result = duckling_events_full_backfill_sensor(context)
+        assert isinstance(result, SensorResult)
+        assert result.run_requests is not None
+
+        assert len(result.run_requests) > 0
+        first_key = result.run_requests[0].partition_key
+        assert first_key == f"1_{expected_first_month}"
+
+    @patch("posthog.dags.events_backfill_to_duckling.get_earliest_event_date_for_team")
+    @patch("posthog.dags.events_backfill_to_duckling.DuckLakeCatalog")
+    @patch("posthog.dags.events_backfill_to_duckling.timezone")
+    def test_no_events_returns_empty(self, mock_tz, mock_catalog_cls, mock_get_earliest):
+        from dagster import DagsterInstance, SensorResult, build_sensor_context
+
+        mock_tz.now.return_value = datetime(2025, 2, 10, 12, 0, 0)
+        mock_get_earliest.return_value = None
+
+        catalog = MagicMock()
+        catalog.team_id = 1
+        mock_catalog_cls.objects.all.return_value.order_by.return_value = [catalog]
+
+        instance = DagsterInstance.ephemeral()
+        context = build_sensor_context(instance=instance)
+        result = duckling_events_full_backfill_sensor(context)
+        assert isinstance(result, SensorResult)
+        assert result.run_requests is not None
+
+        assert len(result.run_requests) == 0
+
+    def test_earliest_backfill_date_is_2015(self):
+        assert EARLIEST_BACKFILL_DATE == datetime(2015, 1, 1)
+
+
+class TestGetClusterRetry:
+    @patch("tenacity.nap.time.sleep")
+    @patch("posthog.dags.events_backfill_to_duckling.get_cluster")
+    def test_retries_on_timeout_then_succeeds(self, mock_get_cluster, mock_sleep):
+        mock_cluster = MagicMock()
+        mock_get_cluster.side_effect = [TimeoutError("timed out"), TimeoutError("timed out"), mock_cluster]
+
+        result = _get_cluster()
+
+        assert result is mock_cluster
+        assert mock_get_cluster.call_count == 3
+
+    @patch("tenacity.nap.time.sleep")
+    @patch("posthog.dags.events_backfill_to_duckling.get_cluster")
+    def test_raises_non_retryable_exception_immediately(self, mock_get_cluster, mock_sleep):
+        mock_get_cluster.side_effect = ValueError("bad config")
+
+        with pytest.raises(ValueError, match="bad config"):
+            _get_cluster()
+
+        assert mock_get_cluster.call_count == 1
+
+    @patch("tenacity.nap.time.sleep")
+    @patch("posthog.dags.events_backfill_to_duckling.get_cluster")
+    def test_raises_after_max_retries_exhausted(self, mock_get_cluster, mock_sleep):
+        mock_get_cluster.side_effect = TimeoutError("timed out")
+
+        with pytest.raises(TimeoutError):
+            _get_cluster()
+
+        assert mock_get_cluster.call_count == 3

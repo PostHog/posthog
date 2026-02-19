@@ -18,7 +18,7 @@ from posthog.schema import (
     LinkedinAdsTableKeywords,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
-    MarketingAnalyticsHelperForColumnNames,
+    MarketingAnalyticsConstants,
     MarketingAnalyticsItem,
     MarketingIntegrationConfig1,
     MarketingIntegrationConfig2,
@@ -26,6 +26,9 @@ from posthog.schema import (
     MarketingIntegrationConfig4,
     MarketingIntegrationConfig5,
     MarketingIntegrationConfig6,
+    MarketingIntegrationConfig7,
+    MetaAdsConversionFallbackActionTypes,
+    MetaAdsConversionOmniActionTypes,
     MetaAdsDefaultSources,
     MetaAdsTableExclusions,
     MetaAdsTableKeywords,
@@ -33,6 +36,11 @@ from posthog.schema import (
     RedditAdsDefaultSources,
     RedditAdsTableExclusions,
     RedditAdsTableKeywords,
+    SnapchatAdsConversionFields,
+    SnapchatAdsConversionValueFields,
+    SnapchatAdsDefaultSources,
+    SnapchatAdsTableExclusions,
+    SnapchatAdsTableKeywords,
     TikTokAdsDefaultSources,
     TikTokAdsTableExclusions,
     TikTokAdsTableKeywords,
@@ -234,13 +242,14 @@ VALID_NON_NATIVE_MARKETING_SOURCES = ["BigQuery"]
 VALID_SELF_MANAGED_MARKETING_SOURCES = ["aws", "google-cloud", "cloudflare-r2", "azure"]
 
 # Map generated config models to NativeMarketingSource using sourceType field
-_ALL_CONFIG_MODELS = [
+_ALL_CONFIG_MODELS: list[type[BaseModel]] = [
     MarketingIntegrationConfig1,
     MarketingIntegrationConfig2,
     MarketingIntegrationConfig3,
     MarketingIntegrationConfig4,
     MarketingIntegrationConfig5,
     MarketingIntegrationConfig6,
+    MarketingIntegrationConfig7,
 ]
 
 
@@ -276,6 +285,7 @@ _DEFAULT_SOURCES_ENUMS = {
     NativeMarketingSource.TIK_TOK_ADS: TikTokAdsDefaultSources,
     NativeMarketingSource.REDDIT_ADS: RedditAdsDefaultSources,
     NativeMarketingSource.BING_ADS: BingAdsDefaultSources,
+    NativeMarketingSource.SNAPCHAT_ADS: SnapchatAdsDefaultSources,
 }
 
 _TABLE_KEYWORDS_ENUMS = {
@@ -285,6 +295,7 @@ _TABLE_KEYWORDS_ENUMS = {
     NativeMarketingSource.TIK_TOK_ADS: TikTokAdsTableKeywords,
     NativeMarketingSource.REDDIT_ADS: RedditAdsTableKeywords,
     NativeMarketingSource.BING_ADS: BingAdsTableKeywords,
+    NativeMarketingSource.SNAPCHAT_ADS: SnapchatAdsTableKeywords,
 }
 
 _TABLE_EXCLUSIONS_ENUMS = {
@@ -294,6 +305,7 @@ _TABLE_EXCLUSIONS_ENUMS = {
     NativeMarketingSource.TIK_TOK_ADS: TikTokAdsTableExclusions,
     NativeMarketingSource.REDDIT_ADS: RedditAdsTableExclusions,
     NativeMarketingSource.BING_ADS: BingAdsTableExclusions,
+    NativeMarketingSource.SNAPCHAT_ADS: SnapchatAdsTableExclusions,
 }
 
 # Derived constants from generated types
@@ -328,6 +340,16 @@ INTEGRATION_PRIMARY_SOURCE = {
 
 INTEGRATION_DEFAULT_SOURCES = {
     source: _get_enum_values(_DEFAULT_SOURCES_ENUMS[source]) for source in NativeMarketingSource
+}
+
+# Snapchat Ads conversion fields - derived from generated enums
+SNAPCHAT_CONVERSION_FIELDS = [e.value for e in SnapchatAdsConversionFields]
+SNAPCHAT_CONVERSION_VALUE_FIELDS = [e.value for e in SnapchatAdsConversionValueFields]
+
+# Meta Ads conversion action types - derived from generated enums
+META_CONVERSION_ACTION_TYPES = {
+    "omni": [e.value for e in MetaAdsConversionOmniActionTypes],
+    "fallback": [e.value for e in MetaAdsConversionFallbackActionTypes],
 }
 
 # Column kind mapping for WebAnalyticsItemBase
@@ -395,7 +417,7 @@ def to_marketing_analytics_data(
             break
     else:
         # Check if it's a conversion goal or cost per conversion
-        if key.startswith(MarketingAnalyticsHelperForColumnNames.COST_PER):
+        if key.startswith(MarketingAnalyticsConstants.COST_PER):
             kind = "currency"
             is_increase_bad = True  # Cost per conversion - higher is bad
         else:

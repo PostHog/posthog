@@ -1,7 +1,7 @@
 import { Monaco } from '@monaco-editor/react'
 import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
-import { useMemo } from 'react'
+import { memo, useMemo } from 'react'
 
 import { IconBook, IconDownload, IconInfo, IconPlayFilled } from '@posthog/icons'
 import { LemonDivider, Spinner } from '@posthog/lemon-ui'
@@ -19,6 +19,7 @@ import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -27,9 +28,10 @@ import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogi
 import { OutputPane } from './OutputPane'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryPane } from './QueryPane'
+import { QueryVariablesMenu } from './QueryVariablesMenu'
 import { FixErrorButton } from './components/FixErrorButton'
 import { draftsLogic } from './draftsLogic'
-import { multitabEditorLogic } from './multitabEditorLogic'
+import { sqlEditorLogic } from './sqlEditorLogic'
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
@@ -44,6 +46,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
         queryInput,
         editingView,
         editingInsight,
+        insightLoading,
         sourceQuery,
         originalQueryInput,
         suggestedQueryInput,
@@ -51,11 +54,21 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
         currentDraft,
         changesToSave,
         inProgressViewEdits,
-    } = useValues(multitabEditorLogic)
+    } = useValues(sqlEditorLogic)
 
-    const { setQueryInput, runQuery, setError, setMetadata, setMetadataLoading, saveAsView, saveDraft, updateView } =
-        useActions(multitabEditorLogic)
-    const { openHistoryModal } = useActions(multitabEditorLogic)
+    const {
+        setQueryInput,
+        runQuery,
+        setError,
+        setMetadata,
+        setMetadataLoading,
+        saveAsView,
+        saveDraft,
+        updateView,
+        setSuggestedQueryInput,
+        reportAIQueryPromptOpen,
+    } = useActions(sqlEditorLogic)
+    const { openHistoryModal } = useActions(sqlEditorLogic)
 
     const { saveOrUpdateDraft } = useActions(draftsLogic)
     const { response } = useValues(dataNodeLogic)
@@ -85,21 +98,22 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
 
     return (
         <div className="flex grow flex-col overflow-hidden">
-            {(editingView || editingInsight) && (
+            {(editingView || editingInsight || insightLoading) && (
                 <div className="h-5 bg-warning-highlight">
                     <span className="pl-2 text-xs">
-                        {editingView && (
+                        {editingView ? (
                             <>
                                 Editing {isDraft ? 'draft of ' : ''} {isMaterializedView ? 'materialized view' : 'view'}{' '}
                                 "{editingView.name}"
                             </>
-                        )}
-                        {editingInsight && (
+                        ) : editingInsight ? (
                             <>
                                 Editing insight "
                                 <Link to={urls.insightView(editingInsight.short_id)}>{editingInsight.name}</Link>"
                             </>
-                        )}
+                        ) : insightLoading ? (
+                            'Loading insight...'
+                        ) : null}
                     </span>
                 </div>
             )}
@@ -224,7 +238,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                         </LemonButton>
                     </>
                 )}
-                {!editingInsight && !editingView && (
+                {!editingInsight && !editingView && !insightLoading && (
                     <>
                         <AppShortcut
                             name="SQLEditorSaveAsView"
@@ -248,6 +262,9 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                 )}
                 <FixErrorButton type="tertiary" size="xsmall" source="action-bar" />
                 <div className="ml-auto flex items-center gap-1">
+                    <QueryVariablesMenu
+                        disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
+                    />
                     {vimModeFeatureEnabled && (
                         <LemonSwitch
                             checked={editorVimModeEnabled}
@@ -257,7 +274,32 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                             data-attr="sql-editor-vim-toggle"
                         />
                     )}
-                    {isRemovingSidePanelFlag && <SceneTitlePanelButton />}
+                    {isRemovingSidePanelFlag && (
+                        <SceneTitlePanelButton
+                            buttonClassName="size-[26px]"
+                            maxToolProps={{
+                                identifier: 'execute_sql',
+                                context: {
+                                    current_query: queryInput,
+                                },
+                                contextDescription: {
+                                    text: 'Current query',
+                                    icon: iconForType('sql_editor'),
+                                },
+                                callback: (toolOutput: string) => {
+                                    setSuggestedQueryInput(toolOutput, 'max_ai')
+                                },
+                                suggestions: [],
+                                onMaxOpen: () => {
+                                    reportAIQueryPromptOpen()
+                                },
+                                introOverride: {
+                                    headline: 'What data do you want to analyze?',
+                                    description: 'Let me help you quickly write SQL, and tweak it.',
+                                },
+                            }}
+                        />
+                    )}
                 </div>
             </div>
             <QueryPane
@@ -300,10 +342,10 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
 }
 
 function RunButton(): JSX.Element {
-    const { runQuery } = useActions(multitabEditorLogic)
+    const { runQuery } = useActions(sqlEditorLogic)
     const { cancelQuery } = useActions(dataNodeLogic)
     const { responseLoading } = useValues(dataNodeLogic)
-    const { metadata, queryInput, isSourceQueryLastRun } = useValues(multitabEditorLogic)
+    const { metadata, queryInput, isSourceQueryLastRun } = useValues(sqlEditorLogic)
 
     const isUsingIndices = metadata?.isUsingIndices === 'yes'
 
@@ -351,8 +393,8 @@ function RunButton(): JSX.Element {
     )
 }
 
-function InternalQueryWindow({ tabId }: { tabId: string }): JSX.Element | null {
-    const { finishedLoading } = useValues(multitabEditorLogic)
+const InternalQueryWindow = memo(function InternalQueryWindow({ tabId }: { tabId: string }): JSX.Element | null {
+    const { finishedLoading } = useValues(sqlEditorLogic)
 
     // NOTE: hacky way to avoid flicker loading
     if (finishedLoading) {
@@ -360,4 +402,4 @@ function InternalQueryWindow({ tabId }: { tabId: string }): JSX.Element | null {
     }
 
     return <OutputPane tabId={tabId} />
-}
+})

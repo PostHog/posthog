@@ -9,7 +9,9 @@ import { useInView } from 'react-intersection-observer'
 
 import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
@@ -137,6 +139,7 @@ function InsightCardInternal(
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { ref: inViewRef, inView } = useInView()
     const { isVisible: isPageVisible } = usePageVisibility()
 
@@ -145,7 +148,10 @@ function InsightCardInternal(
      *
      * We add an extra check to make sure all insights are visible in Storybook.
      */
-    const isVisible = (inView && isPageVisible) || inStorybook() || inStorybookTestRunner()
+    const isVisible =
+        featureFlags[FEATURE_FLAGS.EXPERIMENTAL_DASHBOARD_ITEM_RENDERING] === true
+            ? (inView && isPageVisible) || inStorybook() || inStorybookTestRunner()
+            : true
 
     const mergedRefs = useMergeRefs([ref, inViewRef])
 
@@ -219,7 +225,12 @@ function InsightCardInternal(
 
     return (
         <div
-            className={clsx('InsightCard border', highlighted && 'InsightCard--highlighted', className)}
+            className={clsx(
+                'InsightCard border',
+                highlighted && 'InsightCard--highlighted',
+                areDetailsShown && 'InsightCard--details-shown',
+                className
+            )}
             data-attr="insight-card"
             {...divProps}
             // eslint-disable-next-line react/forbid-dom-props

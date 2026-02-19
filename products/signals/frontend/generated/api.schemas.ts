@@ -17,11 +17,11 @@
 export type SignalReportStatusEnumApi = (typeof SignalReportStatusEnumApi)[keyof typeof SignalReportStatusEnumApi]
 
 export const SignalReportStatusEnumApi = {
-    potential: 'potential',
-    candidate: 'candidate',
-    in_progress: 'in_progress',
-    ready: 'ready',
-    failed: 'failed',
+    Potential: 'potential',
+    Candidate: 'candidate',
+    InProgress: 'in_progress',
+    Ready: 'ready',
+    Failed: 'failed',
 } as const
 
 export interface SignalReportApi {

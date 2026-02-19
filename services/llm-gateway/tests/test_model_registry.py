@@ -38,7 +38,7 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
-    "codex-5.3": {
+    "gpt-5.3-codex": {
         "litellm_provider": "openai",
         "max_input_tokens": 200000,
         "supports_vision": False,
@@ -255,7 +255,7 @@ class TestIsModelAvailable:
             ("o1", "llm_gateway", True),
             ("o1", "array", False),
             ("claude-opus-4-6", "twig", True),
-            ("codex-5.3", "twig", True),
+            ("gpt-5.3-codex", "twig", True),
             ("gpt-5.2", "array", True),
             ("gpt-5-mini", "twig", True),
             ("claude-opus-4-5", "array", True),

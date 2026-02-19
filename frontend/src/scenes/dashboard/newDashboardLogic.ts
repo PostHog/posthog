@@ -114,6 +114,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
         addDashboard: (form: Partial<NewDashboardForm>) => ({ form }),
         setActiveDashboardTemplate: (template: DashboardTemplateType) => ({ template }),
         clearActiveDashboardTemplate: true,
+        setRedirectAfterCreation: (redirect: boolean) => ({ redirect }),
         createDashboardFromTemplate: (
             template: DashboardTemplateType,
             variables: DashboardTemplateVariableType[],
@@ -163,8 +164,15 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 clearActiveDashboardTemplate: () => null,
             },
         ],
+        redirectAfterCreation: [
+            true,
+            {
+                setRedirectAfterCreation: (_, { redirect }) => redirect,
+                showNewDashboardModal: () => true,
+            },
+        ],
     }),
-    forms(({ actions, props }) => ({
+    forms(({ actions, props, values }) => ({
         newDashboard: {
             defaults: defaultFormValues,
             errors: ({ name }) => ({
@@ -188,7 +196,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     const queryBasedDashboard = getQueryBasedDashboard(result)
                     queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
                     actions.submitNewDashboardSuccessWithResult(result)
-                    if (show) {
+                    if (show && values.redirectAfterCreation) {
                         breakpoint()
                         router.actions.push(urls.dashboard(result.id))
                     }

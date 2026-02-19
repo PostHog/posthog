@@ -285,7 +285,8 @@ class TestCSVExporter(APIBaseTest):
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
 
-            assert exported_asset.filename == "export.xlsx"
+            created_date = exported_asset.created_at.strftime("%Y-%m-%d")
+            assert exported_asset.filename == f"export-{created_date}.xlsx"
             assert exported_asset.content_location is None
 
             wb = load_workbook(filename=BytesIO(exported_asset.content))
@@ -567,6 +568,73 @@ class TestCSVExporter(APIBaseTest):
                     "$pageview,test'123,$pageview,1,60.0,60.0",
                 ],
             )
+
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
+    @patch("posthog.tasks.exports.csv_exporter.process_query_dict")
+    @patch("posthog.tasks.exports.csv_exporter._query_supports_limit")
+    def test_skips_limit_when_query_does_not_support_it(
+        self, mock_supports_limit: MagicMock, mock_process_query: MagicMock, mock_write: MagicMock
+    ) -> None:
+        """Verify that when schema validation shows limit is not supported, we don't add it."""
+        mock_supports_limit.return_value = False
+        mock_process_query.return_value = {
+            "results": [["value1"], ["value2"]],
+            "columns": ["col"],
+            "types": ["String"],
+        }
+        mock_write.side_effect = ObjectStorageError("mock write failed")
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={"source": {"kind": "SomeQuery"}},
+        )
+        exported_asset.save()
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            # Verify only one call made, without limit
+            self.assertEqual(mock_process_query.call_count, 1)
+            query_json = mock_process_query.call_args_list[0].kwargs["query_json"]
+            self.assertNotIn("limit", query_json)
+
+            # Verify content fell back to DB storage
+            content = exported_asset.content
+            lines = (bytes(content) if content else b"").decode("utf-8").strip().split("\r\n")
+            self.assertEqual(lines, ["col", "value1", "value2"])
+
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
+    @patch("posthog.tasks.exports.csv_exporter.process_query_dict")
+    @patch("posthog.tasks.exports.csv_exporter._query_supports_limit")
+    def test_adds_limit_when_query_supports_it(
+        self, mock_supports_limit: MagicMock, mock_process_query: MagicMock, mock_write: MagicMock
+    ) -> None:
+        """Verify that when schema validation shows limit is supported, we add it."""
+        from posthog.tasks.exports.csv_exporter import QUERY_PAGE_SIZE
+
+        mock_supports_limit.return_value = True
+        mock_process_query.return_value = {
+            "results": [["value1"], ["value2"]],
+            "columns": ["col"],
+            "types": ["String"],
+            "hasMore": False,
+        }
+        mock_write.side_effect = ObjectStorageError("mock write failed")
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={"source": {"kind": "SomeQuery"}},
+        )
+        exported_asset.save()
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            self.assertEqual(mock_process_query.call_count, 1)
+            query_json = mock_process_query.call_args_list[0].kwargs["query_json"]
+            self.assertEqual(query_json.get("limit"), QUERY_PAGE_SIZE)
 
     def test_funnel_time_to_convert(self) -> None:
         bins = [

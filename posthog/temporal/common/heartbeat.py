@@ -1,4 +1,6 @@
 import abc
+import time
+import socket
 import typing
 import asyncio
 import dataclasses
@@ -57,8 +59,13 @@ class Heartbeater:
             tracker = get_liveness_tracker()
             while True:
                 await asyncio.sleep(delay)
-                activity.heartbeat(*self.details)
-                tracker.record_heartbeat()
+                try:
+                    extra_payload = {"host": socket.gethostname(), "ts": time.time()}
+                    activity.heartbeat(*self.details, extra_payload)
+                    tracker.record_heartbeat()
+                    await self.logger.adebug("Heartbeat")
+                except Exception as e:
+                    await self.logger.adebug("Heartbeat failed %s", e, exc_info=e)
 
         heartbeat_timeout = activity.info().heartbeat_timeout
 

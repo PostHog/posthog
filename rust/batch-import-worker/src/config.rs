@@ -74,6 +74,10 @@ pub struct Config {
     pub group_memory_cache_capacity: u64,
     #[envconfig(from = "GROUP_MEMORY_CACHE_TTL_SECONDS", default = "3600")]
     pub group_memory_cache_ttl_seconds: u64,
+
+    // Force disable person processing for specific token:distinct_id pairs
+    #[envconfig(from = "FORCE_DISABLE_PERSON_PROCESSING", default = "")]
+    pub force_disable_person_processing: String,
 }
 
 impl Config {

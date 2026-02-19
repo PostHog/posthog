@@ -20,14 +20,14 @@
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
 export const RoleAtOrganizationEnumApi = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
@@ -74,8 +74,8 @@ export type SessionRecordingPlaylistTypeEnumApi =
     (typeof SessionRecordingPlaylistTypeEnumApi)[keyof typeof SessionRecordingPlaylistTypeEnumApi]
 
 export const SessionRecordingPlaylistTypeEnumApi = {
-    collection: 'collection',
-    filters: 'filters',
+    Collection: 'collection',
+    Filters: 'filters',
 } as const
 
 export type SessionRecordingPlaylistApiRecordingsCounts = { [key: string]: { [key: string]: number | boolean | null } }
@@ -156,6 +156,8 @@ export interface MinimalPersonApi {
     properties?: unknown
     readonly created_at: string
     readonly uuid: string
+    /** @nullable */
+    readonly last_seen_at: string | null
 }
 
 export type SessionRecordingApiExternalReferencesItem = { [key: string]: unknown }
@@ -275,30 +277,6 @@ export type SessionRecordingPlaylistsListParams = {
 }
 
 export type SessionRecordingsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type SessionRecordingPlaylistsList2Params = {
-    created_by?: number
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    short_id?: string
-}
-
-export type SessionRecordingsList2Params = {
     /**
      * Number of results to return per page.
      */

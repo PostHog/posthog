@@ -44,6 +44,7 @@ export enum FieldOptionsType {
     DateOperators = 'dateOperators',
     SingleFieldDateOperators = 'singleFieldDateOperators',
     MathOperators = 'mathOperators',
+    CohortMathOperators = 'cohortMathOperators',
     ValueOptions = 'valueOptions',
     EventsAndActionsMathOperators = 'eventsAndActionsMathOperators',
 }

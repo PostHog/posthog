@@ -614,7 +614,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     <div className="text-secondary text-sm mb-2">
                                         Use tags to organize and filter your feature flags. Mark specific tags as{' '}
                                         <strong>evaluation contexts</strong> to control when flags can be evaluated –
-                                        flags will only evaluate when the SDK provides matching environment tags.{' '}
+                                        flags will only evaluate when the SDK provides matching evaluation contexts.{' '}
                                         <Link
                                             to="https://posthog.com/docs/feature-flags/evaluation-environments"
                                             target="_blank"
@@ -835,6 +835,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     (featureFlag.experiment_set?.length || 0) > 0,
                                                 'This feature flag is linked to a survey. Delete the survey to delete this flag':
                                                     (featureFlag.surveys?.length || 0) > 0,
+                                                'This feature flag is used in session replay settings for recording conditions. Remove it from replay settings to delete this flag':
+                                                    featureFlag.is_used_in_replay_settings || false,
                                             }}
                                         >
                                             {featureFlag.deleted ? <IconRewind /> : <IconTrash />}
@@ -1041,6 +1043,7 @@ function FeatureFlagRollout({
         experiment,
         experimentLoading,
         dependentFlags,
+        featureFlagActiveUpdateLoading,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
@@ -1142,6 +1145,7 @@ function FeatureFlagRollout({
                                                     toggleFeatureFlagActive(newValue)
                                                 }}
                                                 label={featureFlag.active ? 'Enabled' : 'Disabled'}
+                                                loading={featureFlagActiveUpdateLoading}
                                                 disabledReason={
                                                     !featureFlag.can_edit
                                                         ? "You only have view access to this feature flag. To make changes, contact the flag's creator."

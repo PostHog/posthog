@@ -69,6 +69,10 @@ export class HogInputsService {
                     team_id: hogFunction.team_id,
                     identifier: emailValue.to.email,
                 })
+                newGlobals.unsubscribe_url_one_click = this.recipientTokensService.generateOneClickUnsubscribeUrl({
+                    team_id: hogFunction.team_id,
+                    identifier: emailValue.to.email,
+                })
             }
         }
 

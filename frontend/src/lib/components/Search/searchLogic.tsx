@@ -5,6 +5,7 @@ import { IconClock, IconDownload } from '@posthog/icons'
 
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
@@ -16,6 +17,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, FileSystemViewLogEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
 import { SETTINGS_MAP } from '~/scenes/settings/SettingsMap'
+import { SettingSectionId } from '~/scenes/settings/types'
 import { ActivityTab, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
 import type { searchLogicType } from './searchLogicType'
@@ -33,6 +35,7 @@ export interface SearchItem {
     groupNoun?: string | null
     itemType?: string | null
     tags?: string[]
+    searchKeywords?: string[]
     record?: Record<string, unknown>
 }
 
@@ -67,8 +70,10 @@ export const searchLogic = kea<searchLogicType>([
     })),
     actions({
         setSearch: (search: string) => ({ search }),
+        toggleIncludeCounts: true,
+        setSearchElapsedMs: (elapsed: number) => ({ elapsed }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         sceneLogViews: [
             [] as FileSystemViewLogEntry[],
             {
@@ -105,10 +110,16 @@ export const searchLogic = kea<searchLogicType>([
                     const trimmed = searchTerm.trim()
 
                     if (trimmed === '') {
+                        actions.setSearchElapsedMs(0)
                         return null
                     }
 
-                    const response = await api.search.list({ q: trimmed })
+                    const start = performance.now()
+                    const response = await api.search.list({
+                        q: trimmed,
+                        include_counts: values.includeCounts,
+                    })
+                    actions.setSearchElapsedMs(performance.now() - start)
                     breakpoint()
 
                     return response
@@ -194,6 +205,18 @@ export const searchLogic = kea<searchLogicType>([
         ],
     })),
     reducers({
+        includeCounts: [
+            false,
+            {
+                toggleIncludeCounts: (state) => !state,
+            },
+        ],
+        searchElapsedMs: [
+            0,
+            {
+                setSearchElapsedMs: (_, { elapsed }) => elapsed,
+            },
+        ],
         search: [
             '',
             {
@@ -231,6 +254,15 @@ export const searchLogic = kea<searchLogicType>([
         ],
     }),
     selectors({
+        showSearchDebug: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean =>
+                !!(featureFlags as Record<string, boolean>)[FEATURE_FLAGS.UX_SEARCH_WITH_COUNT_NONE],
+        ],
+        searchResultCount: [
+            (s) => [s.unifiedSearchResults],
+            (unifiedSearchResults): number => unifiedSearchResults?.results?.length ?? 0,
+        ],
         sceneLogViewsByRef: [
             (s) => [s.sceneLogViews],
             (sceneLogViews): Record<string, string> => {
@@ -295,6 +327,9 @@ export const searchLogic = kea<searchLogicType>([
             (featureFlags, isDev, sceneLogViewsByRef): SearchItem[] => {
                 const allProducts = getTreeItemsProducts()
                 const filteredProducts = allProducts.filter((product) => {
+                    if (!product.href) {
+                        return false
+                    }
                     if (!isDev && product.category === 'Unreleased') {
                         return false
                     }
@@ -370,6 +405,10 @@ export const searchLogic = kea<searchLogicType>([
                     return true
                 })
 
+                const categorySearchKeywords: Record<string, string[]> = {
+                    Pipeline: ['data pipelines', 'data pipeline'],
+                }
+
                 const items = filteredMetadata.map((item) => ({
                     id: `data-management-${item.path}`,
                     name: item.path,
@@ -379,6 +418,7 @@ export const searchLogic = kea<searchLogicType>([
                     href: item.href || '#',
                     itemType: item.iconType || item.type || null,
                     tags: item.tags,
+                    searchKeywords: item.category ? categorySearchKeywords[item.category] : undefined,
                     lastViewedAt: item.sceneKey ? (sceneLogViewsByRef[item.sceneKey] ?? null) : null,
                     record: {
                         type: item.type || item.iconType,
@@ -574,11 +614,21 @@ export const searchLogic = kea<searchLogicType>([
                     return isNegated ? !flagValue : !!flagValue
                 }
 
+                // Skip project-level sections as they are duplicates of environment sections
+                const seenSectionIds = new Set<string>()
+
                 for (const section of SETTINGS_MAP) {
-                    if (section.level === 'environment') {
-                        // temporary until we finish removing environments entirely
+                    // Map environment sections to project level
+                    const effectiveLevel = section.level === 'environment' ? 'project' : section.level
+                    const effectiveSectionId = (
+                        section.level === 'environment' ? section.id.replace('environment-', 'project-') : section.id
+                    ) as SettingSectionId
+
+                    // Skip duplicate project sections (environment sections take priority)
+                    if (seenSectionIds.has(effectiveSectionId)) {
                         continue
                     }
+                    seenSectionIds.add(effectiveSectionId)
 
                     // Filter by feature flag if required
                     if (section.flag) {
@@ -595,7 +645,7 @@ export const searchLogic = kea<searchLogicType>([
                     }
 
                     // Create a search item for each settings section
-                    const levelPrefix = toSentenceCase(section.level)
+                    const levelPrefix = toSentenceCase(effectiveLevel)
 
                     const settings = section.settings
                         .filter((setting) => !!setting.title)
@@ -603,6 +653,7 @@ export const searchLogic = kea<searchLogicType>([
                             toSentenceCase(setting.id.replace(/[-]/g, ' ')),
                             ...(typeof setting.title === 'string' ? [setting.title] : []),
                             ...(typeof setting.description === 'string' ? [setting.description] : []),
+                            ...(setting.keywords ?? []),
                         ])
 
                     // Create the display name for each settings section
@@ -613,20 +664,20 @@ export const searchLogic = kea<searchLogicType>([
 
                     const displayNameSuffix =
                         displayName === 'General' || displayName === 'Danger zone'
-                            ? ` (${toSentenceCase(section.level)})`
+                            ? ` (${toSentenceCase(effectiveLevel)})`
                             : ''
 
                     items.push({
-                        id: `settings-${section.id}`,
+                        id: `settings-${effectiveSectionId}`,
                         name: `${levelPrefix}: ${displayName} (${settings})`,
                         displayName: `${displayName}${displayNameSuffix}`,
                         category: 'settings',
-                        href: section.to || urls.settings(section.id),
+                        href: section.to || urls.settings(effectiveSectionId),
                         itemType: 'settings',
                         record: {
                             type: 'settings',
-                            level: section.level,
-                            sectionId: section.id,
+                            level: effectiveLevel,
+                            sectionId: effectiveSectionId,
                         },
                     })
                 }
@@ -805,13 +856,24 @@ export const searchLogic = kea<searchLogicType>([
                         return items
                     }
                     const searchLower = search.toLowerCase()
-                    const searchChunks = searchLower.split(' ').filter((s) => s)
-                    return items.filter((item) =>
-                        searchChunks.every(
+                    return items.filter((item) => {
+                        const name = item.name.toLowerCase()
+                        const category = item.category.toLowerCase()
+                        if (name.includes(searchLower) || category.includes(searchLower)) {
+                            return true
+                        }
+                        if (item.searchKeywords?.some((kw) => kw.toLowerCase().includes(searchLower))) {
+                            return true
+                        }
+                        // Chunk matching: every word in the query must match somewhere
+                        const searchChunks = searchLower.split(' ').filter((s) => s)
+                        return searchChunks.every(
                             (chunk) =>
-                                item.name.toLowerCase().includes(chunk) || item.category.toLowerCase().includes(chunk)
+                                name.includes(chunk) ||
+                                category.includes(chunk) ||
+                                (item.searchKeywords?.some((kw) => kw.toLowerCase().includes(chunk)) ?? false)
                         )
-                    )
+                    })
                 }
 
                 // Always show recents first - show loading skeleton until first load completes
@@ -985,9 +1047,12 @@ export const searchLogic = kea<searchLogicType>([
         setSearch: async ({ search }, breakpoint) => {
             await breakpoint(150)
 
-            if (search.trim() === '') {
+            // Always load recents on first call (e.g. when defaultSearchValue is non-empty)
+            if (search.trim() === '' || !values.recentsHasLoaded) {
                 actions.loadRecents({ search: '' })
-            } else {
+            }
+
+            if (search.trim() !== '') {
                 actions.loadUnifiedSearchResults({ searchTerm: search })
                 actions.loadPersonSearchResults({ searchTerm: search })
                 actions.loadGroupSearchResults({ searchTerm: search })

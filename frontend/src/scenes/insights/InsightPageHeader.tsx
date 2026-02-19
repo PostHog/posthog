@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { IconCode2, IconInfo, IconPencil, IconPeople, IconShare, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
-import { areAlertsSupportedForInsight, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
+import { areAlertsSupportedForInsight } from 'lib/components/Alerts/insightAlertsLogic'
 import { EditAlertModal } from 'lib/components/Alerts/views/EditAlertModal'
 import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
@@ -30,6 +30,7 @@ import {
     TEMPLATE_LINK_TOOLTIP,
 } from 'lib/components/Sharing/templateLinkMessages'
 import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
+import { DatabaseTablePreview } from 'lib/components/TablePreview/DatabaseTablePreview'
 import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -37,6 +38,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -46,6 +49,7 @@ import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -103,17 +107,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightLoading,
         derivedName,
     } = useValues(insightLogic(insightLogicProps))
-    const { setInsightMetadata, saveAs, saveInsight, duplicateInsight, reloadSavedInsights } = useActions(
-        insightLogic(insightLogicProps)
-    )
-
-    // insightAlertsLogic
-    const { loadAlerts } = useActions(
-        insightAlertsLogic({
-            insightLogicProps,
-            insightId: insight.id as number,
-        })
-    )
+    const { setInsightMetadata, setInsightMetadataLocal, saveAs, saveInsight, duplicateInsight, reloadSavedInsights } =
+        useActions(insightLogic(insightLogicProps))
 
     // insightDataLogic
     const {
@@ -126,11 +121,15 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         hogQLVariables,
         insightQuery,
         insightData,
+        generatedInsightNameLoading,
     } = useValues(insightDataLogic(insightProps))
-    const { toggleQueryEditorPanel, toggleDebugPanel, cancelChanges } = useActions(insightDataLogic(insightProps))
+    const { toggleQueryEditorPanel, toggleDebugPanel, cancelChanges, generateInsightName } = useActions(
+        insightDataLogic(insightProps)
+    )
     const { createStaticCohort } = useActions(exportsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
+    const canAccessAutoname = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_AUTONAME_INSIGHTS_WITH_AI]
 
     // endpointLogic
     const { openCreateFromInsightModal } = useActions(endpointLogic({ tabId: insightProps.tabId || '' }))
@@ -142,6 +141,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { currentProjectId } = useValues(projectLogic)
     const { push } = useActions(router)
     const [tags, setTags] = useState(insight.tags)
+    const { posthogTablesMap, allTables } = useValues(databaseTableListLogic)
 
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const lastBreadcrumb = breadcrumbs[breadcrumbs.length - 1]
@@ -150,7 +150,42 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
     const [endpointModalOpen, setEndpointModalOpen] = useState<boolean>(false)
+    const [tablePreviewModalOpen, setTablePreviewModalOpen] = useState<boolean>(false)
     const [terraformModalOpen, setTerraformModalOpen] = useState<boolean>(false)
+    const [selectedPreviewColumn, setSelectedPreviewColumn] = useState<string | null>('event_person_id')
+    const previewTable = posthogTablesMap.events ?? allTables[0]
+    const previewColumns = useMemo(
+        () => Object.values(previewTable?.fields || {}).filter((column) => column.type !== 'view'),
+        [previewTable?.fields]
+    )
+    const previewColumnOptions = useMemo(
+        () => [
+            { value: null, label: 'No selected column' },
+            ...previewColumns.map((column) => ({
+                value: column.name,
+                label: column.name,
+                labelInMenu: `${column.name} (${column.type})`,
+            })),
+        ],
+        [previewColumns]
+    )
+
+    useEffect(() => {
+        if (
+            previewColumns.length === 0 ||
+            selectedPreviewColumn === null ||
+            previewColumns.some((column) => column.name === selectedPreviewColumn)
+        ) {
+            return
+        }
+
+        const fallbackColumn =
+            previewTable?.name === 'events' && previewColumns.some((column) => column.name === 'event_person_id')
+                ? 'event_person_id'
+                : previewColumns[0].name
+
+        setSelectedPreviewColumn(fallbackColumn)
+    }, [previewColumns, previewTable?.name, selectedPreviewColumn])
 
     const showCohortButton =
         isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query)
@@ -219,7 +254,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             insightShortId={insight.short_id as InsightShortId}
                             insightId={insight.id}
                             onEditSuccess={() => {
-                                loadAlerts()
                                 push(urls.insightAlerts(insight.short_id as InsightShortId))
                             }}
                             insightLogicProps={insightLogicProps}
@@ -241,6 +275,31 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 onClose={() => setTerraformModalOpen(false)}
                 resource={{ type: 'insight', data: { ...insight, query, derived_name: derivedName } }}
             />
+            <LemonModal
+                isOpen={tablePreviewModalOpen}
+                onClose={() => setTablePreviewModalOpen(false)}
+                width={1000}
+                title={previewTable ? `Preview table data: ${previewTable.name}` : 'Preview table data'}
+                description="Showcasing the DatabaseTablePreview component on insights."
+            >
+                <div className="mb-2 w-80">
+                    <LemonSelect
+                        fullWidth
+                        value={selectedPreviewColumn}
+                        onChange={(newValue) => setSelectedPreviewColumn(newValue)}
+                        options={previewColumnOptions}
+                        placeholder="Select highlighted column"
+                    />
+                </div>
+                <DatabaseTablePreview
+                    table={previewTable}
+                    emptyMessage="No database tables available to preview."
+                    limit={15}
+                    whereClause={previewTable?.name === 'events' ? "event != '$identify'" : null}
+                    selectedKey={selectedPreviewColumn}
+                    bordered
+                />
+            </LemonModal>
 
             <ScenePanel>
                 <>
@@ -376,16 +435,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             />
                         ) : null}
 
-                        {featureFlags[FEATURE_FLAGS.MANAGE_INSIGHTS_THROUGH_TERRAFORM] ? (
-                            <ButtonPrimitive
-                                onClick={() => setTerraformModalOpen(true)}
-                                menuItem
-                                data-attr={`${RESOURCE_TYPE}-manage-terraform`}
-                            >
-                                <IconCode2 />
-                                Manage with Terraform
-                            </ButtonPrimitive>
-                        ) : null}
+                        <ButtonPrimitive
+                            onClick={() => setTerraformModalOpen(true)}
+                            menuItem
+                            data-attr={`${RESOURCE_TYPE}-manage-terraform`}
+                        >
+                            <IconCode2 />
+                            Manage with Terraform
+                        </ButtonPrimitive>
 
                         {hasDashboardItemId && featureFlags[FEATURE_FLAGS.ENDPOINTS] ? (
                             <ButtonPrimitive
@@ -399,6 +456,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 Create endpoint
                             </ButtonPrimitive>
                         ) : null}
+                        <ButtonPrimitive
+                            onClick={() => setTablePreviewModalOpen(true)}
+                            menuItem
+                            data-attr={`${RESOURCE_TYPE}-preview-table`}
+                        >
+                            <IconInfo />
+                            Preview table data
+                        </ButtonPrimitive>
 
                         {hogQL &&
                             !isHogQLQuery(query) &&
@@ -545,11 +610,21 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     type: getInsightIconTypeFromQuery(query),
                 }}
                 onNameChange={(name) => {
-                    setInsightMetadata({ name })
+                    if (insightMode === ItemMode.Edit) {
+                        setInsightMetadataLocal({ name })
+                    } else {
+                        setInsightMetadata({ name })
+                    }
                 }}
                 onDescriptionChange={(description) => {
-                    setInsightMetadata({ description })
+                    if (insightMode === ItemMode.Edit) {
+                        setInsightMetadataLocal({ description })
+                    } else {
+                        setInsightMetadata({ description })
+                    }
                 }}
+                onGenerateName={canAccessAutoname && insightQuery ? generateInsightName : undefined}
+                isGeneratingName={canAccessAutoname && generatedInsightNameLoading}
                 canEdit={canEditInsight}
                 isLoading={insightLoading && !insight?.id}
                 forceEdit={insightMode === ItemMode.Edit}

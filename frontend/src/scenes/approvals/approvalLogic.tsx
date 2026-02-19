@@ -5,14 +5,15 @@ import { router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { getApprovalActionLabel } from 'scenes/approvals/utils'
+import { getApprovalActionLabel, getApprovalResourceUrl } from 'scenes/approvals/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
-import { Breadcrumb, ChangeRequest, ChangeRequestState } from '~/types'
+import { AvailableFeature, Breadcrumb, ChangeRequest, ChangeRequestState } from '~/types'
 
 import type { approvalLogicType } from './approvalLogicType'
 
@@ -27,7 +28,7 @@ export const approvalLogic = kea<approvalLogicType>([
     props({} as ApprovalLogicProps),
     key(({ id }) => id),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']],
         actions: [membersLogic, ['loadAllMembers'], rolesLogic, ['loadRoles']],
     })),
     actions({
@@ -69,6 +70,10 @@ export const approvalLogic = kea<approvalLogicType>([
         ],
     }),
     selectors({
+        isApprovalsFeatureEnabled: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.APPROVALS),
+        ],
         breadcrumbs: [
             (s) => [s.changeRequest],
             (changeRequest): Breadcrumb[] => [
@@ -84,55 +89,65 @@ export const approvalLogic = kea<approvalLogicType>([
             ],
         ],
     }),
-    listeners(({ actions, values, props }) => ({
-        approveChangeRequest: async ({ reason }) => {
-            try {
-                const response = await api.create(
-                    `api/environments/${values.currentTeamId}/change_requests/${props.id}/approve/`,
-                    { reason: reason || '' }
-                )
+    listeners(({ actions, values, props }) => {
+        const navigateAfterAction = (fullReload: boolean = false): void => {
+            const cr = values.changeRequest
+            const resourceUrl = cr ? getApprovalResourceUrl(cr.action_key, cr.resource_id) : null
+            const targetUrl = resourceUrl || urls.approvals()
 
-                // Check if it was auto-applied
-                if (response.status === ChangeRequestState.Applied) {
-                    lemonToast.success('Change request approved and applied successfully')
-                    // Navigate back to approvals list after a short delay
-                    setTimeout(() => {
-                        router.actions.push(urls.approvals())
-                    }, 2000)
-                } else if (response.status === ChangeRequestState.Failed) {
-                    lemonToast.error(`Approval succeeded but application failed: ${response.message}`)
-                    actions.loadChangeRequest()
-                } else {
-                    lemonToast.success(response.message || 'Change request approved')
-                    actions.loadChangeRequest()
+            if (fullReload) {
+                window.location.href = targetUrl
+            } else {
+                router.actions.push(targetUrl)
+            }
+        }
+
+        return {
+            approveChangeRequest: async ({ reason }) => {
+                try {
+                    const response = await api.create(
+                        `api/environments/${values.currentTeamId}/change_requests/${props.id}/approve/`,
+                        { reason: reason || '' }
+                    )
+
+                    if (response.status === ChangeRequestState.Applied) {
+                        lemonToast.success('Change request approved and applied successfully')
+                        setTimeout(() => navigateAfterAction(true), 2000)
+                    } else if (response.status === ChangeRequestState.Failed) {
+                        lemonToast.error(`Approval succeeded but application failed: ${response.message}`)
+                        actions.loadChangeRequest()
+                    } else {
+                        lemonToast.success(response.message || 'Change request approved')
+                        actions.loadChangeRequest()
+                    }
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to approve change request')
                 }
-            } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to approve change request')
-            }
-        },
-        rejectChangeRequest: async ({ reason }) => {
-            try {
-                await api.create(`api/environments/${values.currentTeamId}/change_requests/${props.id}/reject/`, {
-                    reason,
-                })
-                lemonToast.success('Change request rejected')
-                router.actions.push(urls.approvals())
-            } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to reject change request')
-            }
-        },
-        cancelChangeRequest: async ({ reason }) => {
-            try {
-                await api.create(`api/environments/${values.currentTeamId}/change_requests/${props.id}/cancel/`, {
-                    reason,
-                })
-                lemonToast.success('Change request canceled')
-                router.actions.push(urls.approvals())
-            } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to cancel change request')
-            }
-        },
-    })),
+            },
+            rejectChangeRequest: async ({ reason }) => {
+                try {
+                    await api.create(`api/environments/${values.currentTeamId}/change_requests/${props.id}/reject/`, {
+                        reason,
+                    })
+                    lemonToast.success('Change request rejected')
+                    navigateAfterAction()
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to reject change request')
+                }
+            },
+            cancelChangeRequest: async ({ reason }) => {
+                try {
+                    await api.create(`api/environments/${values.currentTeamId}/change_requests/${props.id}/cancel/`, {
+                        reason,
+                    })
+                    lemonToast.success('Change request canceled')
+                    navigateAfterAction()
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to cancel change request')
+                }
+            },
+        }
+    }),
     urlToAction(({ actions, props }) => ({
         [urls.approval(props.id ?? ':id')]: () => {
             actions.loadChangeRequest()

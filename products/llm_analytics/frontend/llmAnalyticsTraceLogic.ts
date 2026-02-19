@@ -1,6 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
@@ -327,19 +327,19 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         ],
 
         breadcrumbs: [
-            (s) => [s.traceId],
-            (traceId): Breadcrumb[] => {
+            (s) => [s.traceId, router.selectors.searchParams],
+            (traceId: string, searchParams: Record<string, any>): Breadcrumb[] => {
                 return [
                     {
                         key: 'LLMAnalytics',
                         name: 'LLM analytics',
-                        path: urls.llmAnalyticsDashboard(),
+                        path: combineUrl(urls.llmAnalyticsDashboard(), searchParams).url,
                         iconType: 'llm_analytics',
                     },
                     {
                         key: 'LLMAnalyticsTraces',
                         name: 'Traces',
-                        path: urls.llmAnalyticsTraces(),
+                        path: combineUrl(urls.llmAnalyticsTraces(), searchParams).url,
                         iconType: 'llm_analytics',
                     },
                     {
@@ -474,7 +474,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
             if (!values.traceId) {
                 return undefined
             }
-            const params: Record<string, string> = {}
+            const params: Record<string, unknown> = { ...router.values.searchParams }
             if (values.eventId) {
                 params.event = values.eventId
             }

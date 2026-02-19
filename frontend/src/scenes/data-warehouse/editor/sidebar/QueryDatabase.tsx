@@ -22,8 +22,8 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
-import { multitabEditorLogic } from 'scenes/data-warehouse/editor/multitabEditorLogic'
 import { buildQueryForColumnClick } from 'scenes/data-warehouse/editor/sql-utils'
+import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
@@ -62,9 +62,8 @@ export const QueryDatabase = (): JSX.Element => {
     const { deleteDataWarehouseSavedQuery, runDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
     const { deleteDraft } = useActions(draftsLogic)
-    const { setQueryInput } = useActions(multitabEditorLogic)
-    const { selectedQueryColumns } = useValues(multitabEditorLogic)
-    const builtTabLogic = useMountedLogic(multitabEditorLogic)
+    const { setQueryInput } = useActions(sqlEditorLogic)
+    const builtTabLogic = useMountedLogic(sqlEditorLogic)
     const formatTraversalChain = (chain?: (string | number)[]): string | null => {
         if (!chain || chain.length === 0) {
             return null
@@ -231,7 +230,6 @@ export const QueryDatabase = (): JSX.Element => {
                 const hasMatches = matches && matches.length > 0
                 const isColumn = item.record?.type === 'column'
                 const columnType = isColumn ? item.record?.field?.type : null
-                const columnKey = isColumn && item.record ? `${item.record.table}.${item.record.columnName}` : null
                 const tableKindLabel = !isColumn && item.children?.length ? getTableKindLabel(item) : null
 
                 return (
@@ -256,9 +254,6 @@ export const QueryDatabase = (): JSX.Element => {
                                                 'endpoints',
                                             ].includes(item.record?.type) && 'font-semibold',
                                             isColumn && 'font-mono text-xs',
-                                            columnKey &&
-                                                selectedQueryColumns[columnKey] &&
-                                                'underline underline-offset-2',
                                             'truncate shrink-0'
                                         )}
                                     >
