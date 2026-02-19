@@ -1,8 +1,12 @@
 # posthog-cli
 
-# 0.5.31
+# 0.6.1
 
 - chore: bump `cargo-dist` version
+
+# 0.6.0
+
+- Add experimental dSYM upload for iOS/macOS crash symbolication
 
 # 0.5.30
 
