@@ -45,7 +45,7 @@ import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
 import { llmAnalyticsDashboardLogic } from './tabs/llmAnalyticsDashboardLogic'
 import { getDefaultGenerationsColumns, llmAnalyticsGenerationsLogic } from './tabs/llmAnalyticsGenerationsLogic'
-import { truncateValue } from './utils'
+import { sanitizeTraceUrlSearchParams, truncateValue } from './utils'
 
 export const scene: SceneExport = {
     component: LLMAnalyticsScene,
@@ -222,6 +222,9 @@ function LLMAnalyticsGenerations(): JSX.Element {
 
                             const ids = getRowIds(record)
                             const visualValue = truncateValue(value)
+                            const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, {
+                                removeSearch: true,
+                            })
 
                             return !ids ? (
                                 <strong>{visualValue}</strong>
@@ -231,7 +234,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                         <Link
                                             to={
                                                 combineUrl(urls.llmAnalyticsTrace(ids.traceId), {
-                                                    ...searchParams,
+                                                    ...nonTraceSearchParams,
                                                     event: value,
                                                     back_to: 'generations',
                                                 }).url

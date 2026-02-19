@@ -84,19 +84,21 @@ import {
     getTraceTimestamp,
     isLLMEvent,
     removeMilliseconds,
+    sanitizeTraceUrlSearchParams,
 } from './utils'
 
 function TraceNavigation(): JSX.Element {
     const { viewMode, newerTraceId, newerTimestamp, olderTraceId, olderTimestamp, neighborsLoading } =
         useValues(llmAnalyticsTraceLogic)
     const { searchParams } = useValues(router)
+    const baseSearchParams = sanitizeTraceUrlSearchParams(searchParams)
 
     // Navigate to newer (more recent) or older traces
     const goToNewer = (): void => {
         if (newerTraceId) {
             router.actions.push(
                 combineUrl(urls.llmAnalyticsTrace(newerTraceId), {
-                    ...searchParams,
+                    ...baseSearchParams,
                     timestamp: newerTimestamp ?? undefined,
                     tab: viewMode,
                 }).url
@@ -108,7 +110,7 @@ function TraceNavigation(): JSX.Element {
         if (olderTraceId) {
             router.actions.push(
                 combineUrl(urls.llmAnalyticsTrace(olderTraceId), {
-                    ...searchParams,
+                    ...baseSearchParams,
                     timestamp: olderTimestamp ?? undefined,
                     tab: viewMode,
                 }).url
@@ -157,8 +159,10 @@ export function LLMAnalyticsTraceScene(): JSX.Element {
     const { traceId, query } = useValues(llmAnalyticsTraceLogic)
 
     return (
-        <BindLogic logic={llmAnalyticsTraceDataLogic} props={{ traceId, query, cachedResults: null }}>
-            <TraceSceneWrapper />
+        <BindLogic logic={llmPersonsLazyLoaderLogic} props={{}}>
+            <BindLogic logic={llmAnalyticsTraceDataLogic} props={{ traceId, query, cachedResults: null }}>
+                <TraceSceneWrapper />
+            </BindLogic>
         </BindLogic>
     )
 }
@@ -314,15 +318,9 @@ function TraceMetadata({
     showBillingInfo?: boolean
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { personsCache, isDistinctIdLoading } = useValues(llmPersonsLazyLoaderLogic)
-    const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
+    const { personsCache } = useValues(llmPersonsLazyLoaderLogic)
 
     const cached = personsCache[trace.distinctId]
-    const loading = isDistinctIdLoading(trace.distinctId)
-
-    if (cached === undefined && !loading) {
-        ensurePersonLoaded(trace.distinctId)
-    }
 
     const personData = cached
         ? { distinct_id: cached.distinct_id, properties: cached.properties }
@@ -1013,6 +1011,7 @@ const EventContent = React.memo(
                                                         event.event === '$ai_generation' ? (
                                                             <EventContentGeneration
                                                                 eventId={event.id}
+                                                                traceId={trace.id}
                                                                 rawInput={event.properties.$ai_input}
                                                                 rawOutput={
                                                                     event.properties.$ai_output_choices ??
@@ -1023,6 +1022,7 @@ const EventContent = React.memo(
                                                                 httpStatus={event.properties.$ai_http_status}
                                                                 raisedError={event.properties.$ai_is_error}
                                                                 searchQuery={searchQuery}
+                                                                displayOption={displayOption}
                                                             />
                                                         ) : event.event === '$ai_embedding' ? (
                                                             <EventContentDisplayAsync
