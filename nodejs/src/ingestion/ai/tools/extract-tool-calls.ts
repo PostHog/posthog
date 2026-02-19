@@ -110,6 +110,17 @@ function extractFromPythonRepr(raw: string): string[] {
  * Also accepts a raw string for Python repr format fallback.
  */
 export function extractToolCallNames(outputChoices: unknown, rawString?: string): string[] {
+    // Unwrap {"choices": [...]} wrapper (some SDKs store full API response)
+    if (
+        typeof outputChoices === 'object' &&
+        outputChoices !== null &&
+        !Array.isArray(outputChoices) &&
+        'choices' in outputChoices &&
+        Array.isArray((outputChoices as Record<string, unknown>).choices)
+    ) {
+        outputChoices = (outputChoices as Record<string, unknown>).choices
+    }
+
     if (!Array.isArray(outputChoices)) {
         if (rawString && typeof rawString === 'string') {
             return extractFromPythonRepr(rawString)
