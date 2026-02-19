@@ -48,8 +48,14 @@ test.describe('Dashboards', () => {
         })
 
         await test.step('edit the insight name and save', async () => {
+            // Wait for the insight to fully load before editing — the save button
+            // shows "No changes" once the API response has been applied to the store.
+            // Without this, a late-arriving loadInsightSuccess can overwrite the
+            // local name change and leave the save button permanently disabled.
+            await expect(insight.saveButton).toContainText('No changes')
             await insight.editName(updatedName)
             await expect(insight.topBarName).toContainText(updatedName)
+            await expect(insight.saveButton).toBeEnabled()
             await insight.save()
         })
 
