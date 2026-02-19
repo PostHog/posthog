@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { memo, useMemo } from 'react'
 
-import { IconBook, IconChevronDown, IconDownload, IconPlayFilled } from '@posthog/icons'
+import { IconBook, IconChevronDown, IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider, Spinner } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -26,6 +26,7 @@ import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryPane } from './QueryPane'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
 import { FixErrorButton } from './components/FixErrorButton'
+import { editorSizingLogic } from './editorSizingLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
 interface QueryWindowProps {
@@ -95,6 +96,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
     const actionsRow = (
         <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b py-1">
             <div className="flex items-center gap-2">
+                <ExpandDatabaseTreeButton />
                 <RunButton />
                 <LemonDivider vertical />
                 <QueryVariablesMenu disabledReason={editingView ? 'Variables are not allowed in views.' : undefined} />
@@ -272,6 +274,25 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
 
             <QueryHistoryModal />
         </div>
+    )
+}
+
+function ExpandDatabaseTreeButton(): JSX.Element | null {
+    const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
+    const { toggleDatabaseTreeCollapsed } = useActions(editorSizingLogic)
+
+    if (!isDatabaseTreeCollapsed) {
+        return null
+    }
+
+    return (
+        <LemonButton
+            icon={<IconSidebarClose className="size-4 text-tertiary rotate-0" />}
+            type="secondary"
+            size="small"
+            tooltip="Expand panel"
+            onClick={toggleDatabaseTreeCollapsed}
+        />
     )
 }
 

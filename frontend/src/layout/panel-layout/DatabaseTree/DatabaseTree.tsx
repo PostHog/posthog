@@ -23,11 +23,14 @@ export const DatabaseTree = memo(function DatabaseTree({
         useValues(editorSizingLogic)
     const { toggleDatabaseTreeCollapsed, setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
 
+    if (isDatabaseTreeCollapsed) {
+        return null
+    }
+
     return (
         <div
             className={cn(
                 'relative bg-primary border-r border-primary transition-opacity duration-100 flex flex-col',
-                isDatabaseTreeCollapsed ? 'w-11' : `w-[var(--database-tree-width)]`,
                 databaseTreeWillCollapse && 'opacity-50'
             )}
             // eslint-disable-next-line react/forbid-dom-props
@@ -38,18 +41,16 @@ export const DatabaseTree = memo(function DatabaseTree({
             }
             ref={databaseTreeRef}
         >
-            <div className={cn('flex items-center gap-1 w-full p-2 pr-1', !isDatabaseTreeCollapsed && 'pr-2')}>
+            <div className="flex items-center gap-1 w-full p-2 pr-2">
                 <ButtonPrimitive
                     onClick={toggleDatabaseTreeCollapsed}
-                    tooltip={isDatabaseTreeCollapsed ? 'Expand panel' : 'Collapse panel'}
+                    tooltip="Collapse panel"
                     className="shrink-0 z-50 h-[32px]"
                     iconOnly
                 >
-                    <IconSidebarClose
-                        className={cn('size-4 text-tertiary rotate-180', isDatabaseTreeCollapsed && 'rotate-0')}
-                    />
+                    <IconSidebarClose className="size-4 text-tertiary rotate-180" />
                 </ButtonPrimitive>
-                {!isDatabaseTreeCollapsed && <DatabaseSearchField placeholder="Search warehouse" />}
+                <DatabaseSearchField placeholder="Search warehouse" />
             </div>
             <ScrollableShadows
                 direction="vertical"
@@ -57,15 +58,11 @@ export const DatabaseTree = memo(function DatabaseTree({
                 innerClassName="flex flex-col gap-2"
                 styledScrollbars
             >
-                {!isDatabaseTreeCollapsed && (
-                    <>
-                        <div className="grow w-full">
-                            <QueryDatabase />
-                        </div>
-                        <SyncMoreNotice />
-                        <ViewLinkModal />
-                    </>
-                )}
+                <div className="grow w-full">
+                    <QueryDatabase />
+                </div>
+                <SyncMoreNotice />
+                <ViewLinkModal />
             </ScrollableShadows>
             <Resizer
                 {...databaseTreeResizerProps}
