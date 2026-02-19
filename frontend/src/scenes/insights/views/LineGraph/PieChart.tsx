@@ -215,6 +215,7 @@ export function PieChart({
                                                         )}
                                                         <div className="flex flex-col">
                                                             {hasBreakdown && !formula && datum.breakdown_value}
+                                                            {value}
                                                         </div>
                                                     </div>
                                                 )
