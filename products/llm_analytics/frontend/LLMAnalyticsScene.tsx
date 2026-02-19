@@ -44,6 +44,7 @@ import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
+import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsDashboardLogic } from './tabs/llmAnalyticsDashboardLogic'
 import { llmAnalyticsErrorsLogic } from './tabs/llmAnalyticsErrorsLogic'
@@ -391,14 +392,16 @@ export function LLMAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
 
     return (
         <BindLogic logic={llmAnalyticsSharedLogic} props={{ tabId }}>
-            <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
-                <BindLogic logic={llmAnalyticsDashboardLogic} props={{ tabId }}>
-                    <BindLogic logic={llmAnalyticsGenerationsLogic} props={{ tabId }}>
-                        <BindLogic logic={llmAnalyticsTracesTabLogic} props={{ tabId }}>
-                            <BindLogic logic={llmAnalyticsErrorsLogic} props={{ tabId }}>
-                                <BindLogic logic={llmAnalyticsUsersLogic} props={{ tabId }}>
-                                    <BindLogic logic={llmAnalyticsSessionsViewLogic} props={{ tabId }}>
-                                        <LLMAnalyticsSceneContent />
+            <BindLogic logic={llmPersonsLazyLoaderLogic} props={{}}>
+                <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
+                    <BindLogic logic={llmAnalyticsDashboardLogic} props={{ tabId }}>
+                        <BindLogic logic={llmAnalyticsGenerationsLogic} props={{ tabId }}>
+                            <BindLogic logic={llmAnalyticsTracesTabLogic} props={{ tabId }}>
+                                <BindLogic logic={llmAnalyticsErrorsLogic} props={{ tabId }}>
+                                    <BindLogic logic={llmAnalyticsUsersLogic} props={{ tabId }}>
+                                        <BindLogic logic={llmAnalyticsSessionsViewLogic} props={{ tabId }}>
+                                            <LLMAnalyticsSceneContent />
+                                        </BindLogic>
                                     </BindLogic>
                                 </BindLogic>
                             </BindLogic>
