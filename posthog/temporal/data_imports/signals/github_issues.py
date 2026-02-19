@@ -71,6 +71,7 @@ def github_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterO
 GITHUB_ISSUES_CONFIG = SignalSourceTableConfig(
     emitter=github_issue_emitter,
     partition_field="created_at",
+    partition_field_is_string=True,
     fields=REQUIRED_FIELDS + EXTRA_FIELDS,
     where_clause=f"state NOT IN ({', '.join(repr(s) for s in GITHUB_IGNORED_STATES)})",
     max_records=100,

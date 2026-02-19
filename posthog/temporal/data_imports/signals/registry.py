@@ -34,6 +34,8 @@ class SignalSourceTableConfig(BaseModel):
     where_clause: str | None = None
     # Max records to process per sync
     max_records: int = 1000
+    # Set to True when the source stores dates as strings (e.g. GitHub JSON fields)
+    partition_field_is_string: bool = False
     # How far back to look for new records
     first_sync_lookback_days: int = 7
     # LLM prompt to check if a record is actionable before emitting. If None, all records == actionable.

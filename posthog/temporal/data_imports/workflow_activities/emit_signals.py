@@ -153,8 +153,11 @@ def _query_new_records(
 ) -> list[dict[str, Any]]:
     where_parts: list[str] = []
     placeholders: dict[str, Any] = {}
-    # Wrap in parseDateTimeBestEffort to handle sources that store dates as strings
-    partition_expr = f"parseDateTimeBestEffort({config.partition_field})"
+    partition_expr = (
+        f"parseDateTimeBestEffort({config.partition_field})"
+        if config.partition_field_is_string
+        else config.partition_field
+    )
     # Continuous sync - need to analyze all that happened since the last one (based on the schema schedule)
     if last_synced_at is not None:
         where_parts.append(f"{partition_expr} > {{last_synced_at}}")
