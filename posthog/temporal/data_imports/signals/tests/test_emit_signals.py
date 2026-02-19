@@ -23,7 +23,6 @@ from posthog.temporal.data_imports.workflow_activities.emit_signals import (
     _build_emitter_outputs,
     _check_actionability,
     _emit_signals,
-    _extract_thoughts,
     _filter_actionable,
     _query_new_records,
     _summarize_description,
@@ -97,11 +96,31 @@ class TestQueryNewRecords:
                 )
 
         query_arg = mock_parse.call_args[0][0]
-        assert "parseDateTimeBestEffort(updated_at) > {last_synced_at}" in query_arg
+        assert "updated_at > {last_synced_at}" in query_arg
+        assert "parseDateTimeBestEffort" not in query_arg
         assert mock_parse.call_args.kwargs["placeholders"]["last_synced_at"] == ast.Constant(
             value=datetime(2025, 1, 1, 0, 0, tzinfo=UTC)
         )
         assert records == [{"id": 1, "name": "alice"}]
+
+    def test_continuous_sync_wraps_string_partition_field(self):
+        config = _make_config(partition_field="updated_at", partition_field_is_string=True)
+        mock_result = MagicMock()
+        mock_result.columns = ["id", "name"]
+        mock_result.results = [(1, "alice")]
+
+        with patch(f"{MODULE_PATH}.execute_hogql_query", return_value=mock_result):
+            with patch(f"{MODULE_PATH}.parse_select", return_value="parsed") as mock_parse:
+                _query_new_records(
+                    team=MagicMock(),
+                    table_name="test_table",
+                    last_synced_at="2025-01-01T00:00:00Z",
+                    config=config,
+                    extra={},
+                )
+
+        query_arg = mock_parse.call_args[0][0]
+        assert "parseDateTimeBestEffort(updated_at) > {last_synced_at}" in query_arg
 
     def test_first_sync_uses_lookback_window(self):
         config = _make_config(partition_field="time", first_sync_lookback_days=14)
@@ -120,8 +139,28 @@ class TestQueryNewRecords:
                 )
 
         query_arg = mock_parse.call_args[0][0]
-        assert "parseDateTimeBestEffort(time) > now() - interval 14 day" in query_arg
+        assert "time > now() - interval 14 day" in query_arg
+        assert "parseDateTimeBestEffort" not in query_arg
         assert "placeholders" not in mock_parse.call_args.kwargs
+
+    def test_first_sync_wraps_string_partition_field(self):
+        config = _make_config(partition_field="time", partition_field_is_string=True, first_sync_lookback_days=14)
+        mock_result = MagicMock()
+        mock_result.results = []
+        mock_result.columns = []
+
+        with patch(f"{MODULE_PATH}.execute_hogql_query", return_value=mock_result):
+            with patch(f"{MODULE_PATH}.parse_select", return_value="parsed") as mock_parse:
+                _query_new_records(
+                    team=MagicMock(),
+                    table_name="test_table",
+                    last_synced_at=None,
+                    config=config,
+                    extra={},
+                )
+
+        query_arg = mock_parse.call_args[0][0]
+        assert "parseDateTimeBestEffort(time) > now() - interval 14 day" in query_arg
 
     def test_returns_empty_on_query_error(self):
         config = _make_config()
@@ -153,6 +192,7 @@ class TestBuildEmitterOutputs:
         outputs = _build_emitter_outputs(team_id=1, records=records, emitter=selective_emitter)
 
         assert [o.source_id for o in outputs] == ["1", "3"]
+
 
 class TestCheckActionability:
     @pytest.mark.asyncio
