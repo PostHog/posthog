@@ -114,6 +114,7 @@
         "frontend/src/layout.html",
         "**/fixtures/**",
         "products/*/frontend/generated/*.ts",
+        "frontend/src/products.tsx",
         "frontend/src/generated/**/*.ts",
         "services/mcp/**/generated.ts",
         "services/mcp/worker-configuration.d.ts",
