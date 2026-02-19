@@ -1768,6 +1768,9 @@ class TestGetEffectiveAccessLevelForMember:
             # No overrides at all - everything is None
             ("no_default_no_overrides", "project", None, [], None, False, None, None, None),
             ("resource_no_default_no_overrides", "feature_flag", None, [], None, False, None, None, None),
+            # Only member level exists - effective is member, inherited is None
+            ("only_member_level", "project", None, [], "admin", False, "admin", None, None),
+            ("resource_only_member_level", "feature_flag", None, [], "editor", False, "editor", None, None),
         ]
     )
     def test_effective_access_for_member(
