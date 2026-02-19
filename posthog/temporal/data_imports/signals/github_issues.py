@@ -41,7 +41,9 @@ Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE"""
 
 REQUIRED_FIELDS = ("id", "title", "body")
 
-EXTRA_FIELDS = ("html_url", "number", "labels", "created_at", "updated_at", "comments", "locked", "state")
+EXTRA_FIELDS = ("html_url", "number", "labels", "created_at", "updated_at", "locked", "state")
+# TODO: Add "comments", but they can be pretty heavy, so better to iterate on them later,
+# either when adding weight-defining logic, or when we decide to include them into the description
 
 
 def github_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterOutput | None:
