@@ -14,6 +14,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { cn } from 'lib/utils/css-classes'
+import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -30,9 +31,10 @@ import { sqlEditorLogic } from './sqlEditorLogic'
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
     tabId: string
+    mode?: SQLEditorMode
 }
 
-export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): JSX.Element {
+export function QueryWindow({ onSetMonacoAndEditor, tabId, mode }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
 
     const { queryInput, sourceQuery, originalQueryInput, suggestedQueryInput, editingView } = useValues(sqlEditorLogic)
@@ -58,7 +60,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
             <div
                 className={cn(
                     'flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b border-t py-1',
-                    isDatabaseTreeCollapsed ? '' : 'rounded-tl-lg'
+                    isDatabaseTreeCollapsed || mode !== SQLEditorMode.FullScene ? '' : 'rounded-tl-lg'
                 )}
             >
                 <div className="flex items-center gap-2">
@@ -163,7 +165,7 @@ function ExpandDatabaseTreeButton(): JSX.Element | null {
             icon={<IconSidebarClose className="size-4 text-tertiary rotate-0" />}
             type="secondary"
             size="small"
-            tooltip="Expand panel"
+            tooltip="Expand database schema panel"
             onClick={toggleDatabaseTreeCollapsed}
         />
     )

@@ -75,7 +75,7 @@ export function SQLEditor({ tabId, mode = SQLEditorMode.FullScene, showDatabaseT
                 logicKey: 'database-tree',
                 placement: 'right' as const,
                 persistent: true,
-                marginTop: 8,
+                marginTop: mode === SQLEditorMode.FullScene ? 8 : 0,
             },
         }),
         []
@@ -171,6 +171,7 @@ export function SQLEditor({ tabId, mode = SQLEditorMode.FullScene, showDatabaseT
                                                 ref={ref}
                                             >
                                                 <QueryWindow
+                                                    mode={mode}
                                                     tabId={tabId || ''}
                                                     onSetMonacoAndEditor={(nextMonaco, nextEditor) =>
                                                         setMonacoAndEditor([nextMonaco, nextEditor])
