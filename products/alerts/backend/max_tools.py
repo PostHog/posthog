@@ -188,27 +188,29 @@ class UpsertAlertTool(MaxTool):
             except ValueError as e:
                 return str(e), {"error": "unsupported_insight"}
 
-            threshold_config = {
-                "type": action.threshold_type,
-                "bounds": {"lower": action.lower_threshold, "upper": action.upper_threshold},
-            }
-
             truncated_name = action.name[:255]
-
             unsaved_threshold = Threshold(
-                team=team, insight=insight, name=truncated_name, configuration=threshold_config, created_by=user
+                team=team,
+                insight=insight,
+                name=truncated_name,
+                created_by=user,
+                configuration={
+                    "type": action.threshold_type,
+                    "bounds": {"lower": action.lower_threshold, "upper": action.upper_threshold},
+                },
             )
+
             try:
                 unsaved_threshold.clean()
             except ValidationError as e:
                 return str(e), {"error": "validation_failed on alert threshold"}
 
-            alert, threshold = await self._persist_alert(
+            alert = await self._persist_alert(
                 team=team,
                 user=user,
                 insight=insight,
                 name=truncated_name,
-                unsaved_threshold=unsaved_threshold,
+                threshold_to_persist=unsaved_threshold,
                 condition={"type": action.condition_type},
                 config={"type": "TrendsAlertConfig", "series_index": action.series_index},
                 calculation_interval=action.calculation_interval,
@@ -249,8 +251,8 @@ class UpsertAlertTool(MaxTool):
 
             await self.check_object_access(alert, "editor", resource="alert", action="edit")
 
-            conditions_or_threshold_changed = False
             update_fields: list[str] = []
+            conditions_or_threshold_changed = False
 
             if action.name is not None:
                 alert.name = action.name[:255]
@@ -261,7 +263,7 @@ class UpsertAlertTool(MaxTool):
                 update_fields.append("condition")
                 conditions_or_threshold_changed = True
 
-            if action.calculation_interval is not None and action.calculation_interval != alert.calculation_interval:
+            if action.calculation_interval is not None:
                 alert.calculation_interval = action.calculation_interval
                 update_fields.append("calculation_interval")
 
@@ -284,7 +286,7 @@ class UpsertAlertTool(MaxTool):
             )
             if has_threshold_changes:
                 try:
-                    await self._update_threshold(alert, action)
+                    update_fields.extend(await self._update_threshold(alert, action))
                 except ValidationError as e:
                     return str(e), {"error": "validation_failed"}
                 conditions_or_threshold_changed = True
@@ -293,7 +295,6 @@ class UpsertAlertTool(MaxTool):
                 return "No changes provided. Specify at least one field to update.", {"error": "no_changes"}
 
             update_fields.extend(alert.mark_for_recheck(reset_state=conditions_or_threshold_changed))
-
             await sync_to_async(alert.save)(update_fields=update_fields)
 
             insight = await sync_to_async(lambda: alert.insight)()
@@ -323,7 +324,8 @@ class UpsertAlertTool(MaxTool):
             return None
 
     @staticmethod
-    async def _update_threshold(alert: AlertConfiguration, action: UpdateAlertAction) -> None:
+    async def _update_threshold(alert: AlertConfiguration, action: UpdateAlertAction) -> list[str]:
+        """Returns list of alert field names that were modified (for use with update_fields)."""
         threshold = alert.threshold
 
         def _build_bounds(base: dict) -> dict:
@@ -343,7 +345,7 @@ class UpsertAlertTool(MaxTool):
             await sync_to_async(threshold.clean)()
             await sync_to_async(threshold.save)()
             alert.threshold = threshold
-            return
+            return ["threshold"]
 
         config = dict(threshold.configuration)
         if action.threshold_type is not None:
@@ -352,6 +354,7 @@ class UpsertAlertTool(MaxTool):
         threshold.configuration = config
         await sync_to_async(threshold.clean)()
         await sync_to_async(threshold.save)(update_fields=["configuration"])
+        return []
 
     async def _check_alert_limit(self) -> str | None:
         """Return an error message if the team has reached its alert limit, else None."""
@@ -429,20 +432,20 @@ class UpsertAlertTool(MaxTool):
         user: User,
         insight: Insight,
         name: str,
-        unsaved_threshold: Threshold,
+        threshold_to_persist: Threshold,
         condition: dict,
         config: dict,
         calculation_interval: AlertCalculationInterval,
         enabled: bool,
         skip_weekend: bool,
-    ) -> tuple[AlertConfiguration, Threshold]:
-        unsaved_threshold.save()
+    ) -> AlertConfiguration:
+        threshold_to_persist.save()
 
         alert = AlertConfiguration.objects.create(
             team=team,
             insight=insight,
             name=name,
-            threshold=unsaved_threshold,
+            threshold=threshold_to_persist,
             condition=condition,
             config=config,
             calculation_interval=calculation_interval,
@@ -457,4 +460,4 @@ class UpsertAlertTool(MaxTool):
             created_by=user,
         )
 
-        return alert, unsaved_threshold
+        return alert
