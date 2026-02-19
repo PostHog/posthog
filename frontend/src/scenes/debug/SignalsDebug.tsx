@@ -1,8 +1,11 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import * as d3 from 'd3'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import api from 'lib/api'
+import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
@@ -71,24 +74,42 @@ interface GraphEdge {
 
 const NODE_W = 152
 const NODE_H = 40
-const REPULSION = 6000
-const SPRING_K = 0.04
-const SPRING_LENGTH = 180
-const DAMPING = 0.85
-const CENTER_GRAVITY = 0.008
-const MAX_ITERATIONS = 400
-const MIN_SEPARATION = 60
 
-// ── Force-directed layout ──────────────────────────────────────────────────────
+// ── Tunable simulation config ──────────────────────────────────────────────────
 
-function computeLayout(signals: SignalNode[]): { positions: Map<string, LayoutPosition>; edges: GraphEdge[] } {
-    if (signals.length === 0) {
-        return { positions: new Map(), edges: [] }
-    }
+interface SimConfig {
+    repulsion: number
+    springK: number
+    springLength: number
+    damping: number
+    centerGravity: number
+    collideRadius: number
+}
 
+const DEFAULT_CONFIG: SimConfig = {
+    repulsion: 500,
+    springK: 0.08,
+    springLength: 200,
+    damping: 0.1,
+    centerGravity: 0.035,
+    collideRadius: 85,
+}
+
+// ── Force simulation types ─────────────────────────────────────────────────────
+
+interface SimNode extends d3.SimulationNodeDatum {
+    id: string
+}
+
+interface SimEdge extends d3.SimulationLinkDatum<SimNode> {
+    match_query: string
+    reason: string
+}
+
+// ── Live force simulation hook (d3-force powered) ──────────────────────────────
+
+function buildEdges(signals: SignalNode[]): GraphEdge[] {
     const signalIds = new Set(signals.map((s) => s.signal_id))
-
-    // Build edges from match_metadata
     const edges: GraphEdge[] = []
     for (const signal of signals) {
         const mm = signal.match_metadata
@@ -101,102 +122,296 @@ function computeLayout(signals: SignalNode[]): { positions: Map<string, LayoutPo
             })
         }
     }
+    return edges
+}
 
-    // Initialize positions in a circle
-    const nodes = signals.map((s, i) => ({
-        id: s.signal_id,
-        x: Math.cos((2 * Math.PI * i) / signals.length) * 200 + 500,
-        y: Math.sin((2 * Math.PI * i) / signals.length) * 200 + 400,
-        vx: 0,
-        vy: 0,
-    }))
+function useD3ForceSimulation(
+    signals: SignalNode[],
+    config: SimConfig
+): {
+    positions: Map<string, LayoutPosition>
+    edges: GraphEdge[]
+    containerRef: (node: HTMLDivElement | null) => void
+    onNodeDragStart: (signalId: string, e: React.MouseEvent) => void
+    draggedNodeId: string | null
+    didDragRef: React.RefObject<boolean>
+    transform: d3.ZoomTransform
+    viewportCenter: { x: number; y: number }
+    resetView: () => void
+} {
+    const simulationRef = useRef<d3.Simulation<SimNode, SimEdge> | null>(null)
+    const nodesRef = useRef<SimNode[]>([])
+    const nodeMapRef = useRef<Map<string, SimNode>>(new Map())
+    const edgesRef = useRef<GraphEdge[]>([])
+    const containerElRef = useRef<HTMLDivElement | null>(null)
+    const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null)
+    const containerRef = useCallback((node: HTMLDivElement | null) => {
+        containerElRef.current = node
+        setContainerEl(node)
+    }, [])
 
-    const nodeMap = new Map(nodes.map((n) => [n.id, n]))
+    const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null)
+    const didDragRef = useRef(false)
+    const [tick, setTick] = useState(0)
+    const transformRef = useRef<d3.ZoomTransform>(d3.zoomIdentity)
+    const [transform, setTransform] = useState<d3.ZoomTransform>(d3.zoomIdentity)
+    const zoomRef = useRef<d3.ZoomBehavior<HTMLDivElement, unknown> | null>(null)
+    const configRef = useRef<SimConfig>(config)
+    configRef.current = config
 
-    for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
-        // Repulsion between all pairs
-        for (let i = 0; i < nodes.length; i++) {
-            for (let j = i + 1; j < nodes.length; j++) {
-                const a = nodes[i]
-                const b = nodes[j]
-                const dx = b.x - a.x
-                const dy = b.y - a.y
-                const dist = Math.max(Math.sqrt(dx * dx + dy * dy), MIN_SEPARATION)
-                const force = REPULSION / (dist * dist)
-                const fx = (dx / dist) * force
-                const fy = (dy / dist) * force
-                a.vx -= fx
-                a.vy -= fy
-                b.vx += fx
-                b.vy += fy
+    // Snapshot positions from simulation nodes for React consumption
+    const positions = useMemo(() => {
+        void tick // depend on tick
+        const map = new Map<string, LayoutPosition>()
+        for (const node of nodesRef.current) {
+            map.set(node.id, { x: node.x ?? 0, y: node.y ?? 0 })
+        }
+        return map
+    }, [tick])
+
+    const edges = useMemo(() => {
+        void tick
+        return edgesRef.current
+    }, [tick])
+
+    // Create simulation once
+    useEffect(() => {
+        const sim = d3
+            .forceSimulation<SimNode, SimEdge>()
+            .force('charge', d3.forceManyBody<SimNode>().strength(-config.repulsion))
+            .force(
+                'link',
+                d3
+                    .forceLink<SimNode, SimEdge>()
+                    .id((d) => d.id)
+                    .distance(config.springLength)
+                    .strength(config.springK)
+            )
+            // Gentle pull toward canvas origin (0,0)
+            .force('x', d3.forceX<SimNode>(0).strength(config.centerGravity))
+            .force('y', d3.forceY<SimNode>(0).strength(config.centerGravity))
+            .force('collide', d3.forceCollide<SimNode>(config.collideRadius))
+            .velocityDecay(config.damping)
+            .on('tick', () => {
+                setTick((t) => t + 1)
+            })
+
+        sim.stop() // don't run until we have data
+        simulationRef.current = sim
+
+        return () => {
+            sim.stop()
+            simulationRef.current = null
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+
+    // Update forces live when config changes
+    useEffect(() => {
+        const sim = simulationRef.current
+        if (!sim) {
+            return
+        }
+
+        ;(sim.force('charge') as d3.ForceManyBody<SimNode>).strength(-config.repulsion)
+
+        const linkForce = sim.force('link') as d3.ForceLink<SimNode, SimEdge>
+        linkForce.distance(config.springLength).strength(config.springK)
+        ;(sim.force('x') as d3.ForceX<SimNode>).strength(config.centerGravity)
+        ;(sim.force('y') as d3.ForceY<SimNode>).strength(config.centerGravity)
+        ;(sim.force('collide') as d3.ForceCollide<SimNode>).radius(config.collideRadius)
+
+        sim.velocityDecay(config.damping)
+
+        // Reheat so the changes take effect
+        sim.alpha(0.5).restart()
+    }, [config])
+
+    // Setup d3-zoom on the container — infinite canvas, click-drag to pan
+    // Runs when containerEl becomes available (i.e. when SignalGraph mounts)
+    useEffect(() => {
+        if (!containerEl) {
+            return
+        }
+
+        const zoom = d3
+            .zoom<HTMLDivElement, unknown>()
+            .scaleExtent([0.05, 6])
+            // No translateExtent — infinite canvas
+            .filter((event: Event) => {
+                // Don't initiate zoom/pan when clicking/dragging on a node
+                if ((event.target as HTMLElement).closest('[data-signal-node]')) {
+                    // Allow wheel events on nodes (for zooming while cursor is over a node)
+                    return event.type === 'wheel'
+                }
+                return true
+            })
+            .on('zoom', (event: d3.D3ZoomEvent<HTMLDivElement, unknown>) => {
+                transformRef.current = event.transform
+                setTransform(event.transform)
+            })
+
+        zoomRef.current = zoom
+        d3.select(containerEl).call(zoom)
+
+        // Center the origin (0,0) in the middle of the viewport
+        const rect = containerEl.getBoundingClientRect()
+        const initialTransform = d3.zoomIdentity.translate(rect.width / 2, rect.height / 2)
+        d3.select(containerEl).call(zoom.transform, initialTransform)
+
+        return () => {
+            d3.select(containerEl).on('.zoom', null)
+            zoomRef.current = null
+        }
+    }, [containerEl])
+
+    // Initialize / re-initialize when signals change
+    useEffect(() => {
+        const sim = simulationRef.current
+        if (!sim) {
+            return
+        }
+
+        if (signals.length === 0) {
+            nodesRef.current = []
+            nodeMapRef.current = new Map()
+            edgesRef.current = []
+            sim.nodes([])
+            ;(sim.force('link') as d3.ForceLink<SimNode, SimEdge>).links([])
+            sim.stop()
+            setTick((t) => t + 1)
+            return
+        }
+
+        const oldMap = nodeMapRef.current
+        const newNodes: SimNode[] = signals.map((s, i) => {
+            const existing = oldMap.get(s.signal_id)
+            if (existing) {
+                // Preserve position, clear velocity for a smooth re-settle
+                return { ...existing, vx: 0, vy: 0 }
             }
-        }
-
-        // Spring attraction along edges
-        for (const edge of edges) {
-            const a = nodeMap.get(edge.source)
-            const b = nodeMap.get(edge.target)
-            if (!a || !b) {
-                continue
+            // Arrange new nodes in a circle around origin
+            return {
+                id: s.signal_id,
+                x: Math.cos((2 * Math.PI * i) / signals.length) * 200,
+                y: Math.sin((2 * Math.PI * i) / signals.length) * 200,
+                vx: 0,
+                vy: 0,
             }
-            const dx = b.x - a.x
-            const dy = b.y - a.y
-            const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1)
-            const displacement = dist - SPRING_LENGTH
-            const force = SPRING_K * displacement
-            const fx = (dx / dist) * force
-            const fy = (dy / dist) * force
-            a.vx += fx
-            a.vy += fy
-            b.vx -= fx
-            b.vy -= fy
-        }
-
-        // Center gravity
-        const cx = nodes.reduce((sum, n) => sum + n.x, 0) / nodes.length
-        const cy = nodes.reduce((sum, n) => sum + n.y, 0) / nodes.length
-        for (const node of nodes) {
-            node.vx += (cx - node.x) * CENTER_GRAVITY
-            node.vy += (cy - node.y) * CENTER_GRAVITY
-        }
-
-        // Damping + update positions
-        let totalEnergy = 0
-        for (const node of nodes) {
-            node.vx *= DAMPING
-            node.vy *= DAMPING
-            node.x += node.vx
-            node.y += node.vy
-            totalEnergy += node.vx * node.vx + node.vy * node.vy
-        }
-
-        if (totalEnergy < 0.1) {
-            break
-        }
-    }
-
-    // Normalize: find bounding box, add padding, shift so min is at padding
-    const PADDING = 100
-    let minX = Infinity,
-        minY = Infinity,
-        maxX = -Infinity,
-        maxY = -Infinity
-    for (const node of nodes) {
-        minX = Math.min(minX, node.x)
-        minY = Math.min(minY, node.y)
-        maxX = Math.max(maxX, node.x)
-        maxY = Math.max(maxY, node.y)
-    }
-
-    const positions = new Map<string, LayoutPosition>()
-    for (const node of nodes) {
-        positions.set(node.id, {
-            x: node.x - minX + PADDING,
-            y: node.y - minY + PADDING,
         })
-    }
 
-    return { positions, edges }
+        const graphEdges = buildEdges(signals)
+        const simEdges: SimEdge[] = graphEdges.map((e) => ({
+            source: e.source,
+            target: e.target,
+            match_query: e.match_query,
+            reason: e.reason,
+        }))
+
+        nodesRef.current = newNodes
+        nodeMapRef.current = new Map(newNodes.map((n) => [n.id, n]))
+        edgesRef.current = graphEdges
+
+        sim.nodes(newNodes)
+        ;(sim.force('link') as d3.ForceLink<SimNode, SimEdge>).links(simEdges)
+        sim.alpha(1).restart()
+    }, [signals])
+
+    // Drag handler — uses d3-force fx/fy pinning
+    const onNodeDragStart = useCallback(
+        (signalId: string, e: React.MouseEvent) => {
+            e.preventDefault()
+            e.stopPropagation()
+
+            const sim = simulationRef.current
+            const container = containerElRef.current
+            if (!sim || !container) {
+                return
+            }
+
+            const node = nodeMapRef.current.get(signalId)
+            if (!node) {
+                return
+            }
+
+            const rect = container.getBoundingClientRect()
+            const t = transformRef.current
+
+            // Convert screen coords to graph space (accounting for zoom transform)
+            const graphX = (e.clientX - rect.left - t.x) / t.k
+            const graphY = (e.clientY - rect.top - t.y) / t.k
+
+            const offsetX = graphX - (node.x ?? 0)
+            const offsetY = graphY - (node.y ?? 0)
+
+            // Pin node and reheat simulation
+            node.fx = node.x
+            node.fy = node.y
+            sim.alphaTarget(0.3).restart()
+
+            didDragRef.current = false
+            setDraggedNodeId(signalId)
+
+            const onMove = (ev: MouseEvent): void => {
+                const r = container.getBoundingClientRect()
+                const ct = transformRef.current
+                const gx = (ev.clientX - r.left - ct.x) / ct.k
+                const gy = (ev.clientY - r.top - ct.y) / ct.k
+                node.fx = gx - offsetX
+                node.fy = gy - offsetY
+                didDragRef.current = true
+            }
+
+            const onUp = (): void => {
+                // Unpin node and let it settle
+                node.fx = null
+                node.fy = null
+                sim.alphaTarget(0)
+                setDraggedNodeId(null)
+                document.removeEventListener('mousemove', onMove)
+                document.removeEventListener('mouseup', onUp)
+            }
+
+            document.addEventListener('mousemove', onMove)
+            document.addEventListener('mouseup', onUp)
+        },
+        [] // no deps needed — everything is via refs
+    )
+
+    const resetView = useCallback(() => {
+        const container = containerElRef.current
+        const zoom = zoomRef.current
+        if (!container || !zoom) {
+            return
+        }
+        const rect = container.getBoundingClientRect()
+        const resetTransform = d3.zoomIdentity.translate(rect.width / 2, rect.height / 2)
+        d3.select(container).transition().duration(300).call(zoom.transform, resetTransform)
+    }, [])
+
+    const viewportCenter = useMemo(() => {
+        const el = containerElRef.current
+        if (!el) {
+            return { x: 0, y: 0 }
+        }
+        const rect = el.getBoundingClientRect()
+        return {
+            x: Math.round((rect.width / 2 - transform.x) / transform.k),
+            y: Math.round((rect.height / 2 - transform.y) / transform.k),
+        }
+    }, [transform])
+
+    return {
+        positions,
+        edges,
+        containerRef,
+        onNodeDragStart,
+        draggedNodeId,
+        didDragRef,
+        transform,
+        viewportCenter,
+        resetView,
+    }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -505,6 +720,77 @@ function EdgeTooltip({ edge, x, y }: { edge: GraphEdge; x: number; y: number }):
     )
 }
 
+// ── Simulation tuning controls ─────────────────────────────────────────────────
+
+function SimulationControls({
+    config,
+    onChange,
+}: {
+    config: SimConfig
+    onChange: (config: SimConfig) => void
+}): JSX.Element {
+    const [collapsed, setCollapsed] = useState(true)
+
+    const sliders: { key: keyof SimConfig; label: string; min: number; max: number; step: number }[] = [
+        { key: 'repulsion', label: 'Repulsion', min: 0, max: 1000, step: 10 },
+        { key: 'springK', label: 'Spring strength', min: 0, max: 0.16, step: 0.005 },
+        { key: 'springLength', label: 'Spring length', min: 0, max: 400, step: 5 },
+        { key: 'centerGravity', label: 'Center pull', min: 0, max: 0.07, step: 0.001 },
+        { key: 'damping', label: 'Damping', min: 0, max: 1, step: 0.01 },
+        { key: 'collideRadius', label: 'Collide radius', min: 0, max: 170, step: 5 },
+    ]
+
+    return (
+        <div
+            className="absolute bottom-3 right-3 z-20 rounded-md bg-surface-primary text-[13px] select-none"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                border: '1px solid var(--border)',
+                boxShadow: 'var(--shadow-elevation-3000)',
+                width: collapsed ? 'auto' : 260,
+            }}
+        >
+            <div
+                className="flex items-center justify-between px-3 py-1.5 cursor-pointer gap-2"
+                onClick={() => setCollapsed((c) => !c)}
+            >
+                <span className="font-semibold text-xs text-muted uppercase tracking-wide">Physics</span>
+                <span className="text-muted text-xs">{collapsed ? '▲' : '▼'}</span>
+            </div>
+            {!collapsed && (
+                <div className="px-3 pb-3 space-y-3 border-t pt-2">
+                    {sliders.map(({ key, label, min, max, step }) => (
+                        <div key={key}>
+                            <div className="flex justify-between text-xs mb-1">
+                                <span className="text-muted">{label}</span>
+                                <span className="font-mono tabular-nums">
+                                    {config[key] % 1 === 0 ? config[key] : config[key].toFixed(step < 0.01 ? 3 : 2)}
+                                </span>
+                            </div>
+                            <LemonSlider
+                                min={min}
+                                max={max}
+                                step={step}
+                                value={config[key]}
+                                onChange={(v) => onChange({ ...config, [key]: v })}
+                            />
+                        </div>
+                    ))}
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        fullWidth
+                        center
+                        onClick={() => onChange({ ...DEFAULT_CONFIG })}
+                    >
+                        Reset defaults
+                    </LemonButton>
+                </div>
+            )}
+        </div>
+    )
+}
+
 // ── Graph canvas ───────────────────────────────────────────────────────────────
 
 function SignalGraph({
@@ -516,6 +802,11 @@ function SignalGraph({
     hoveredEdge,
     onHoverEdge,
     onMouseMove,
+    containerRef,
+    onNodeDragStart,
+    draggedNodeId,
+    didDragRef,
+    transform,
 }: {
     signals: SignalNode[]
     positions: Map<string, LayoutPosition>
@@ -525,158 +816,191 @@ function SignalGraph({
     hoveredEdge: GraphEdge | null
     onHoverEdge: (edge: GraphEdge | null) => void
     onMouseMove: (e: React.MouseEvent) => void
+    containerRef: (node: HTMLDivElement | null) => void
+    onNodeDragStart: (signalId: string, e: React.MouseEvent) => void
+    draggedNodeId: string | null
+    didDragRef: React.RefObject<boolean>
+    transform: d3.ZoomTransform
 }): JSX.Element {
     const rootIds = useMemo(() => {
         const childIds = new Set(edges.map((e) => e.target))
         return new Set(signals.filter((s) => !childIds.has(s.signal_id)).map((s) => s.signal_id))
     }, [signals, edges])
 
-    // Compute SVG viewport size
-    const { svgWidth, svgHeight } = useMemo(() => {
-        let maxX = 0,
-            maxY = 0
-        for (const pos of positions.values()) {
-            maxX = Math.max(maxX, pos.x + NODE_W)
-            maxY = Math.max(maxY, pos.y + NODE_H)
-        }
-        return { svgWidth: maxX + 100, svgHeight: maxY + 100 }
-    }, [positions])
-
     const halfW = NODE_W / 2
     const halfH = NODE_H / 2
 
     return (
-        <div className="relative w-full h-full overflow-auto z-0" onMouseMove={onMouseMove}>
-            {/* SVG layer for edges */}
-            <svg
-                className="absolute top-0 left-0 pointer-events-none"
-                width={svgWidth}
-                height={svgHeight}
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{ zIndex: 3 }}
-            >
-                <defs>
-                    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-                        <path d="M0,0 L8,3 L0,6" className="fill-muted" />
-                    </marker>
-                    <marker id="arrowhead-selected" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-                        <path d="M0,0 L8,3 L0,6" fill="var(--warning)" />
-                    </marker>
-                </defs>
-                {edges.map((edge) => {
-                    const sp = positions.get(edge.source)
-                    const tp = positions.get(edge.target)
-                    if (!sp || !tp) {
-                        return null
-                    }
-                    // Arrow points from child (target) back to parent (source)
-                    const tCx = tp.x + halfW
-                    const tCy = tp.y + halfH
-                    const sCx = sp.x + halfW
-                    const sCy = sp.y + halfH
-                    const start = rectEdgePoint(tCx, tCy, halfW + 4, halfH + 4, sCx, sCy)
-                    const end = rectEdgePoint(sCx, sCy, halfW + 4, halfH + 4, tCx, tCy)
-                    const isHovered = hoveredEdge === edge
-                    const isSelectedEdge =
-                        selectedSignalId !== null &&
-                        (edge.source === selectedSignalId || edge.target === selectedSignalId)
-                    const isHighlighted = isHovered || isSelectedEdge
-                    const key = `${edge.source}-${edge.target}`
-                    return (
-                        <g key={key}>
-                            <line
-                                x1={start.x}
-                                y1={start.y}
-                                x2={end.x}
-                                y2={end.y}
-                                stroke={isHighlighted ? 'var(--warning)' : 'var(--border)'}
-                                strokeWidth={isHighlighted ? 2 : 1.5}
-                                markerEnd={isHighlighted ? 'url(#arrowhead-selected)' : 'url(#arrowhead)'}
-                                opacity={isHighlighted ? 1 : 0.6}
-                            />
-                            {/* Invisible wider hit area for hover */}
-                            <line
-                                x1={start.x}
-                                y1={start.y}
-                                x2={end.x}
-                                y2={end.y}
-                                stroke="transparent"
-                                strokeWidth={14}
-                                className="pointer-events-auto cursor-pointer"
-                                onMouseEnter={() => onHoverEdge(edge)}
-                                onMouseLeave={() => onHoverEdge(null)}
-                            />
-                        </g>
-                    )
-                })}
-            </svg>
-            {/* HTML layer for nodes — pointer-events-none on wrapper so edges underneath remain hoverable */}
+        <div
+            ref={containerRef}
+            className="relative w-full h-full overflow-hidden z-0"
+            onMouseMove={onMouseMove}
+            onClick={() => onSelectSignal(null)}
+        >
+            {/* Zoom-transformed wrapper — infinite canvas via overflow:visible */}
             <div
-                className="absolute top-0 left-0"
-                style={{ width: svgWidth, height: svgHeight, zIndex: 2, pointerEvents: 'none' }}
+                style={{
+                    transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.k})`,
+                    transformOrigin: '0 0',
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: 1,
+                    height: 1,
+                    overflow: 'visible',
+                }}
             >
-                {signals.map((signal) => {
-                    const pos = positions.get(signal.signal_id)
-                    if (!pos) {
-                        return null
-                    }
-                    const isSelected = signal.signal_id === selectedSignalId
-                    const isRoot = rootIds.has(signal.signal_id)
-                    const productColor = sourceProductColor(signal.source_product)
-                    return (
-                        <div
-                            key={signal.signal_id}
-                            className={`absolute cursor-pointer select-none rounded transition-shadow ${
-                                isSelected ? 'shadow-md' : 'hover:shadow-sm'
-                            }`}
-                            // Re-enable pointer events on individual nodes
-                            // eslint-disable-next-line react/forbid-dom-props
-                            data-signal-node
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                left: pos.x,
-                                top: pos.y,
-                                width: NODE_W,
-                                height: NODE_H,
-                                border: isSelected ? '2px solid var(--warning)' : '1px solid var(--border)',
-                                borderLeftWidth: 3,
-                                borderLeftColor: productColor,
-                                backgroundColor: 'var(--color-bg-surface-primary)',
-                                boxShadow: isSelected ? 'var(--shadow-elevation-3000)' : 'var(--shadow-elevation-3000)',
-                                pointerEvents: 'auto',
-                            }}
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                onSelectSignal(isSelected ? null : signal.signal_id)
-                            }}
-                            title={signal.content.slice(0, 200)}
+                {/* SVG layer for edges — overflow:visible so lines render at any coordinate */}
+                <svg
+                    className="absolute top-0 left-0 pointer-events-none"
+                    width={1}
+                    height={1}
+                    overflow="visible"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ zIndex: 3 }}
+                >
+                    <defs>
+                        <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                            <path d="M0,0 L8,3 L0,6" className="fill-muted" />
+                        </marker>
+                        <marker
+                            id="arrowhead-selected"
+                            markerWidth="8"
+                            markerHeight="6"
+                            refX="7"
+                            refY="3"
+                            orient="auto"
                         >
-                            <div className="flex items-center h-full px-2.5 gap-2 overflow-hidden">
-                                {isRoot && (
-                                    <span
-                                        className="shrink-0 w-2 h-2 rounded-full border"
-                                        // eslint-disable-next-line react/forbid-dom-props
-                                        style={{ backgroundColor: productColor, borderColor: productColor }}
-                                    />
-                                )}
-                                <div className="truncate leading-snug">
-                                    <div className="font-medium text-[13px] truncate">{signal.source_type}</div>
-                                    <div className="text-muted truncate text-xs">
-                                        {signal.source_product}
-                                        {signal.weight !== undefined ? ` · w${signal.weight}` : ''}
+                            <path d="M0,0 L8,3 L0,6" fill="var(--warning)" />
+                        </marker>
+                    </defs>
+                    {edges.map((edge) => {
+                        const sp = positions.get(edge.source)
+                        const tp = positions.get(edge.target)
+                        if (!sp || !tp) {
+                            return null
+                        }
+                        // Arrow points from child (target) back to parent (source)
+                        const tCx = tp.x + halfW
+                        const tCy = tp.y + halfH
+                        const sCx = sp.x + halfW
+                        const sCy = sp.y + halfH
+                        const start = rectEdgePoint(tCx, tCy, halfW + 4, halfH + 4, sCx, sCy)
+                        const end = rectEdgePoint(sCx, sCy, halfW + 4, halfH + 4, tCx, tCy)
+                        const isHovered = hoveredEdge === edge
+                        const isSelectedEdge =
+                            selectedSignalId !== null &&
+                            (edge.source === selectedSignalId || edge.target === selectedSignalId)
+                        const isHighlighted = isHovered || isSelectedEdge
+                        const key = `${edge.source}-${edge.target}`
+                        return (
+                            <g key={key}>
+                                <line
+                                    x1={start.x}
+                                    y1={start.y}
+                                    x2={end.x}
+                                    y2={end.y}
+                                    stroke={isHighlighted ? 'var(--warning)' : 'var(--border)'}
+                                    strokeWidth={isHighlighted ? 2 : 1.5}
+                                    markerEnd={isHighlighted ? 'url(#arrowhead-selected)' : 'url(#arrowhead)'}
+                                    opacity={isHighlighted ? 1 : 0.6}
+                                />
+                                {/* Invisible wider hit area for hover */}
+                                <line
+                                    x1={start.x}
+                                    y1={start.y}
+                                    x2={end.x}
+                                    y2={end.y}
+                                    stroke="transparent"
+                                    strokeWidth={14}
+                                    className="pointer-events-auto cursor-pointer"
+                                    onMouseEnter={() => onHoverEdge(edge)}
+                                    onMouseLeave={() => onHoverEdge(null)}
+                                />
+                            </g>
+                        )
+                    })}
+                </svg>
+                {/* HTML layer for nodes — overflow:visible for infinite canvas */}
+                <div
+                    className="absolute top-0 left-0"
+                    style={{ width: 1, height: 1, overflow: 'visible', zIndex: 2, pointerEvents: 'none' }}
+                >
+                    {signals.map((signal) => {
+                        const pos = positions.get(signal.signal_id)
+                        if (!pos) {
+                            return null
+                        }
+                        const isSelected = signal.signal_id === selectedSignalId
+                        const isDragged = signal.signal_id === draggedNodeId
+                        const isRoot = rootIds.has(signal.signal_id)
+                        const productColor = sourceProductColor(signal.source_product)
+                        return (
+                            <div
+                                key={signal.signal_id}
+                                className={`absolute select-none rounded transition-shadow ${
+                                    isDragged
+                                        ? 'cursor-grabbing shadow-lg'
+                                        : isSelected
+                                          ? 'cursor-grab shadow-md'
+                                          : 'cursor-grab hover:shadow-sm'
+                                }`}
+                                // eslint-disable-next-line react/forbid-dom-props
+                                data-signal-node
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    left: pos.x,
+                                    top: pos.y,
+                                    width: NODE_W,
+                                    height: NODE_H,
+                                    borderTop: isSelected ? '2px solid var(--warning)' : '1px solid var(--border)',
+                                    borderRight: isSelected ? '2px solid var(--warning)' : '1px solid var(--border)',
+                                    borderBottom: isSelected ? '2px solid var(--warning)' : '1px solid var(--border)',
+                                    borderLeft: `3px solid ${productColor}`,
+                                    backgroundColor: 'var(--color-bg-surface-primary)',
+                                    boxShadow: isSelected
+                                        ? 'var(--shadow-elevation-3000)'
+                                        : 'var(--shadow-elevation-3000)',
+                                    pointerEvents: 'auto',
+                                }}
+                                onMouseDown={(e) => {
+                                    // Left button only
+                                    if (e.button !== 0) {
+                                        return
+                                    }
+                                    onNodeDragStart(signal.signal_id, e)
+                                }}
+                                onClick={(e) => {
+                                    // Only fire select if this wasn't a drag
+                                    if (didDragRef.current) {
+                                        return
+                                    }
+                                    e.stopPropagation()
+                                    onSelectSignal(isSelected ? null : signal.signal_id)
+                                }}
+                                title={signal.content.slice(0, 200)}
+                            >
+                                <div className="flex items-center h-full px-2.5 gap-2 overflow-hidden">
+                                    {isRoot && (
+                                        <span
+                                            className="shrink-0 w-2 h-2 rounded-full border"
+                                            // eslint-disable-next-line react/forbid-dom-props
+                                            style={{ backgroundColor: productColor, borderColor: productColor }}
+                                        />
+                                    )}
+                                    <div className="truncate leading-snug">
+                                        <div className="font-medium text-[13px] truncate">{signal.source_type}</div>
+                                        <div className="text-muted truncate text-xs">
+                                            {signal.source_product}
+                                            {signal.weight !== undefined ? ` · w${signal.weight}` : ''}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                    )
-                })}
+                        )
+                    })}
+                </div>
             </div>
-            {/* Click on empty space deselects */}
-            <div
-                className="absolute top-0 left-0"
-                style={{ width: svgWidth, height: svgHeight, zIndex: 0, pointerEvents: 'auto' }}
-                onClick={() => onSelectSignal(null)}
-            />
         </div>
     )
 }
@@ -692,8 +1016,19 @@ export function SignalsDebug(): JSX.Element {
     const [selectedSignalId, setSelectedSignalId] = useState<string | null>(null)
     const [hoveredEdge, setHoveredEdge] = useState<GraphEdge | null>(null)
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
+    const [simConfig, setSimConfig] = useLocalStorage<SimConfig>('signals-debug-physics', { ...DEFAULT_CONFIG })
 
-    const { positions, edges } = useMemo(() => computeLayout(signals), [signals])
+    const {
+        positions,
+        edges,
+        containerRef,
+        onNodeDragStart,
+        draggedNodeId,
+        didDragRef,
+        transform,
+        viewportCenter,
+        resetView,
+    } = useD3ForceSimulation(signals, simConfig)
 
     const rootIds = useMemo(() => {
         const childIds = new Set(edges.map((e) => e.target))
@@ -805,6 +1140,11 @@ export function SignalsDebug(): JSX.Element {
                         hoveredEdge={hoveredEdge}
                         onHoverEdge={setHoveredEdge}
                         onMouseMove={handleMouseMove}
+                        containerRef={containerRef}
+                        onNodeDragStart={onNodeDragStart}
+                        draggedNodeId={draggedNodeId}
+                        didDragRef={didDragRef}
+                        transform={transform}
                     />
                 )}
                 {/* Detail panel */}
@@ -817,6 +1157,28 @@ export function SignalsDebug(): JSX.Element {
                 )}
                 {/* Edge hover tooltip */}
                 {hoveredEdge && <EdgeTooltip edge={hoveredEdge} x={mousePos.x} y={mousePos.y} />}
+                {/* Zoom level & viewport center indicator */}
+                {loaded && signals.length > 0 && (
+                    <div
+                        className="absolute bottom-3 left-3 z-20 flex items-center gap-1.5 rounded-md bg-surface-primary text-xs text-muted font-mono tabular-nums select-none"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{
+                            border: '1px solid var(--border)',
+                            padding: '4px 8px',
+                        }}
+                    >
+                        <span>{Math.round(transform.k * 100)}%</span>
+                        <span className="opacity-40">·</span>
+                        <span>
+                            {viewportCenter.x}, {viewportCenter.y}
+                        </span>
+                        <LemonButton size="xsmall" type="tertiary" onClick={resetView} className="ml-1">
+                            Reset
+                        </LemonButton>
+                    </div>
+                )}
+                {/* Physics tuning panel */}
+                {loaded && signals.length > 0 && <SimulationControls config={simConfig} onChange={setSimConfig} />}
             </div>
         </SceneContent>
     )
