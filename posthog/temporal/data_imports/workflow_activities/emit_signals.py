@@ -355,6 +355,10 @@ async def _filter_actionable(
             actionable.append(output)
         else:
             filtered_count += 1
+            activity.logger.info(
+                "Filtered non-actionable signal",
+                extra={**extra, "signal_source_type": output.source_type, "signal_source_id": output.source_id},
+            )
     if filtered_count > 0:
         activity.logger.info(
             f"Filtered {filtered_count} non-actionable records out of {len(outputs)}",
@@ -398,14 +402,18 @@ async def _emit_signals(
                         msg = "Signal payload exceeds Temporal limit even without extra metadata"
                         activity.logger.error(
                             msg,
-                            extra={**extra, "source_type": output.source_type, "source_id": output.source_id},
+                            extra={
+                                **extra,
+                                "signal_source_type": output.source_type,
+                                "signal_source_id": output.source_id,
+                            },
                         )
                         # Avoid emitting signal if know that it will break the workflow anyway
                         raise ValueError(msg)
                     # Logging error, as it should not happen, but allowing to pass, to not lose the signal completely
                     activity.logger.error(
                         f"Signal extra metadata too large ({payload_bytes} bytes), emitting without extra",
-                        extra={**extra, "source_type": output.source_type, "source_id": output.source_id},
+                        extra={**extra, "signal_source_type": output.source_type, "signal_source_id": output.source_id},
                     )
                     output = without_extra
                 await emit_signal(
