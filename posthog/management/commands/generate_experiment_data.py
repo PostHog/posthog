@@ -438,6 +438,12 @@ class Command(BaseCommand):
             default=0.7,
             help="Ratio of users to get detailed person properties (0.0 to 1.0, default: 0.7)",
         )
+        parser.add_argument(
+            "--multiple-pct",
+            type=float,
+            default=0,
+            help="Percentage of users (0-100) that get an additional exposure with a different variant, simulating the $multiple scenario",
+        )
 
     def handle(self, *args, **options):
         # Make sure this runs in development environment only
@@ -486,6 +492,9 @@ class Command(BaseCommand):
         create_person_profiles = options.get("create_person_profiles", False)
         person_properties_ratio = options.get("person_properties_ratio", 0.7)
         persons_created = 0
+
+        multiple_pct = options.get("multiple_pct", 0) / 100
+        multiple_count = 0
 
         for _ in range(experiment_config.number_of_users):
             variant = random.choices(
@@ -540,22 +549,22 @@ class Command(BaseCommand):
                 },
             )
 
-            # # TEMPORARY: 2% of users get an additional exposure with a different variant
-            # if random.random() < 0.02:
-            #     other_variants = [v for v in variants if v != variant]
-            #     if other_variants:
-            #         other_variant = random.choice(other_variants)
-            #         posthoganalytics.capture(
-            #             distinct_id=distinct_id,
-            #             event="$feature_flag_called",
-            #             timestamp=random_timestamp + timedelta(minutes=1),
-            #             properties={
-            #                 feature_flag_property: other_variant,
-            #                 "$feature_flag_response": other_variant,
-            #                 "$feature_flag": experiment_id,
-            #                 "$session_id": session_id,
-            #             },
-            #         )
+            if multiple_pct > 0 and random.random() < multiple_pct:
+                other_variants = [v for v in variants if v != variant]
+                if other_variants:
+                    other_variant = random.choice(other_variants)
+                    posthoganalytics.capture(
+                        distinct_id=distinct_id,
+                        event="$feature_flag_called",
+                        timestamp=random_timestamp + timedelta(minutes=1),
+                        properties={
+                            feature_flag_property: other_variant,
+                            "$feature_flag_response": other_variant,
+                            "$feature_flag": experiment_id,
+                            "$session_id": session_id,
+                        },
+                    )
+                    multiple_count += 1
 
             should_stop = False
             minutes_after_exposure = 0
@@ -627,6 +636,10 @@ class Command(BaseCommand):
         if create_person_profiles:
             logging.info(
                 f"Created {persons_created} person profiles ({persons_created / experiment_config.number_of_users:.1%} of users)"
+            )
+        if multiple_count > 0:
+            logging.info(
+                f"Generated {multiple_count} multiple-variant exposures ({multiple_count / experiment_config.number_of_users:.1%} of users)"
             )
 
     def _generate_person_properties(self, is_identified: bool) -> dict[str, Any]:
