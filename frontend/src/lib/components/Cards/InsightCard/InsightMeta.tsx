@@ -20,6 +20,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
@@ -178,9 +179,7 @@ export function InsightMeta({
                 ribbonColor={ribbonColor}
                 showEditingControls={false}
                 showDetailsControls={false}
-                setAreDetailsShown={setAreDetailsShown}
                 areDetailsShown={areDetailsShown}
-                detailsTooltip="Show insight details, such as creator, last edit, and applied filters."
                 topHeading={null}
                 content={
                     <InsightMetaContent
@@ -211,9 +210,7 @@ export function InsightMeta({
             ribbonColor={ribbonColor}
             showEditingControls={showEditingControls}
             showDetailsControls={showDetailsControls}
-            setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
-            detailsTooltip="Show insight details, such as creator, last edit, and applied filters."
             topHeading={
                 <TopHeading
                     query={insight.query}
@@ -438,6 +435,20 @@ export function InsightMeta({
                         <>
                             <LemonDivider />
                             {moreButtons}
+                        </>
+                    )}
+
+                    {/* Details toggle */}
+                    {showDetailsControls && setAreDetailsShown && (
+                        <>
+                            <LemonDivider />
+                            <LemonButton
+                                onClick={() => setAreDetailsShown((state) => !state)}
+                                fullWidth
+                                icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
+                            >
+                                {!areDetailsShown ? 'Show' : 'Hide'} details
+                            </LemonButton>
                         </>
                     )}
                 </>

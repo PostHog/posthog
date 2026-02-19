@@ -7,10 +7,8 @@ import { Transition } from 'react-transition-group'
 import { IconPieChart } from '@posthog/icons'
 
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
 import { InsightColor } from '~/types'
@@ -22,7 +20,6 @@ export interface Resizeable {
 
 export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className'> {
     areDetailsShown?: boolean
-    setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
     ribbonColor?: InsightColor | null
     /** Whether the editing controls should be enabled or not. */
     showEditingControls?: boolean
@@ -34,8 +31,6 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     moreButtons?: JSX.Element
     /** Tooltip for the editing controls dropdown. */
     moreTooltip?: string
-    /** Tooltip for the details button. */
-    detailsTooltip?: string
     topHeading?: JSX.Element | null
     samplingFactor?: number | null
     /** Additional controls to show in the top controls area */
@@ -52,8 +47,6 @@ export function CardMeta({
     moreTooltip,
     topHeading,
     areDetailsShown,
-    setAreDetailsShown,
-    detailsTooltip,
     className,
     samplingFactor,
     extraControls,
@@ -68,7 +61,7 @@ export function CardMeta({
 
     // Estimate space needed for controls with labels
     // These are approximate widths based on current button styles
-    const buttonsWithLabels = (showDetailsControls ? 1 : 0) + (extraControls ? 1 : 0)
+    const buttonsWithLabels = extraControls ? 1 : 0
     const neededWidth = buttonsWithLabels * 140 // 140px per button
 
     // Show labels if card is wide enough AND there's room for labeled buttons
@@ -108,19 +101,7 @@ export function CardMeta({
                                     ...extraControls.props,
                                     showLabel: showControlsLabels,
                                 })}
-                            {showDetailsControls && setAreDetailsShown && (
-                                <Tooltip title={detailsTooltip}>
-                                    <LemonButton
-                                        icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
-                                        onClick={() => setAreDetailsShown((state) => !state)}
-                                        size="small"
-                                        active={areDetailsShown}
-                                    >
-                                        {showControlsLabels && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
-                                    </LemonButton>
-                                </Tooltip>
-                            )}
-                            {showEditingControls &&
+                            {(showEditingControls || showDetailsControls) &&
                                 (moreTooltip ? (
                                     <Tooltip title={moreTooltip}>
                                         <More overlay={moreButtons} />

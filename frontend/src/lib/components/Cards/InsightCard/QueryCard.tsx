@@ -51,7 +51,7 @@ export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(functi
 ): JSX.Element {
     const { theme } = useValues(themeLogic)
 
-    const [areDetailsShown, setAreDetailsShown] = useState(false)
+    const [areDetailsShown] = useState(false)
 
     return (
         <div
@@ -65,7 +65,6 @@ export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(functi
             <ErrorBoundary exceptionProps={{ feature: 'insight' }}>
                 <CardMeta
                     ribbonColor={ribbonColor}
-                    setAreDetailsShown={setAreDetailsShown}
                     areDetailsShown={areDetailsShown}
                     topHeading={<TopHeading query={query} />}
                     content={<InsightMetaContent title={title} description={description} />}
