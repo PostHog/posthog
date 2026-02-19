@@ -357,7 +357,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 {
                     "type": "validation_error",
                     "code": "illegal_type_of_argument",
-                    "detail": "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: While processing toTimeZone(timestamp, 'UTC') + 'string'.",
+                    "detail": "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: While processing plus(toTimeZone(timestamp, 'UTC'), 'string').",
                     "attr": None,
                 },
             )

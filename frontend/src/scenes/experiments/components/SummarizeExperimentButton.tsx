@@ -87,7 +87,7 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
     return maxToolResult
 }
 
-export function SummarizeExperimentButton(): JSX.Element | null {
+export function SummarizeExperimentButton({ disabledReason }: { disabledReason?: string }): JSX.Element | null {
     const { openMax } = useExperimentSummaryMaxTool()
     const { experiment } = useValues(experimentLogic)
     const { reportExperimentAiSummaryRequested } = useActions(experimentLogic)
@@ -104,6 +104,7 @@ export function SummarizeExperimentButton(): JSX.Element | null {
             }}
             type="secondary"
             icon={<IconAI />}
+            disabledReason={disabledReason}
         >
             Summarize
         </LemonButton>

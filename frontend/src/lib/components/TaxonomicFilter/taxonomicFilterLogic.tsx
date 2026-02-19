@@ -297,10 +297,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         activeTab: [
             (state: any): TaxonomicFilterGroupType => {
                 const groupTypes = selectors.taxonomicGroupTypes(state)
+                const propsGroupType = selectors.groupType(state)
+                // If there's an existing filter type (e.g., SQL expression being edited),
+                // use that instead of defaulting to SuggestedFilters
+                if (propsGroupType && groupTypes.includes(propsGroupType)) {
+                    return propsGroupType
+                }
                 if (groupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)) {
                     return TaxonomicFilterGroupType.SuggestedFilters
                 }
-                return selectors.groupType(state) || groupTypes[0]
+                return groupTypes[0]
             },
             {
                 setActiveTab: (_, { activeTab }) => activeTab,
@@ -860,16 +866,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => `Pageview URL`,
                     },
                     {
-                        name: 'Pageview events',
-                        searchPlaceholder: 'pageview events',
-                        type: TaxonomicFilterGroupType.PageviewEvents,
-                        endpoint: `api/environments/${teamId}/events/values/?key=$current_url`,
-                        searchAlias: 'value',
-                        getName: (option: SimpleOption) => option.name,
-                        getValue: (option: SimpleOption) => option.name,
-                        getPopoverHeader: () => `Pageview event`,
-                    },
-                    {
                         name: 'Screens',
                         searchPlaceholder: 'screens',
                         type: TaxonomicFilterGroupType.Screens,
@@ -878,36 +874,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => `Screen`,
-                    },
-                    {
-                        name: 'Screen events',
-                        searchPlaceholder: 'screen events',
-                        type: TaxonomicFilterGroupType.ScreenEvents,
-                        endpoint: `api/environments/${teamId}/events/values/?key=$screen_name`,
-                        searchAlias: 'value',
-                        getName: (option: SimpleOption) => option.name,
-                        getValue: (option: SimpleOption) => option.name,
-                        getPopoverHeader: () => `Screen event`,
-                    },
-                    {
-                        name: 'Email addresses',
-                        searchPlaceholder: 'email addresses',
-                        type: TaxonomicFilterGroupType.EmailAddresses,
-                        endpoint: `api/environments/${teamId}/persons/values/?key=email`,
-                        searchAlias: 'value',
-                        getName: (option: SimpleOption) => option.name,
-                        getValue: (option: SimpleOption) => option.name,
-                        getPopoverHeader: () => `Email address`,
-                    },
-                    {
-                        name: 'Autocapture events',
-                        searchPlaceholder: 'autocapture events',
-                        type: TaxonomicFilterGroupType.AutocaptureEvents,
-                        endpoint: `api/environments/${teamId}/events/values/?key=$el_text`,
-                        searchAlias: 'value',
-                        getName: (option: SimpleOption) => option.name,
-                        getValue: (option: SimpleOption) => option.name,
-                        getPopoverHeader: () => `Autocapture event`,
                     },
                     {
                         name: 'Custom Events',
@@ -1382,7 +1348,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 actions.tabRight()
             }
 
-            if (groupType !== TaxonomicFilterGroupType.SuggestedFilters) {
+            if (
+                values.activeTab === TaxonomicFilterGroupType.SuggestedFilters &&
+                groupType !== TaxonomicFilterGroupType.SuggestedFilters
+            ) {
                 const subLogic = values.infiniteListLogics[groupType]
                 if (subLogic?.isMounted()) {
                     const matches = subLogic.values.topMatchesForQuery
