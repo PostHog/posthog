@@ -684,6 +684,11 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         return content_changed
 
 
+class DraftStatusResponseSerializer(serializers.Serializer):
+    updated_at = serializers.DateTimeField()
+    has_draft = serializers.BooleanField()
+
+
 class GenerateRequestSerializer(serializers.Serializer):
     title = serializers.CharField(required=False, default="", allow_blank=True)
     goal = serializers.CharField(required=False, default="", allow_blank=True)
@@ -854,6 +859,10 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
         instance.draft_content = draft
         instance.save(update_fields=["draft_content", "updated_at"])
 
+    @extend_schema(
+        request=ProductTourSerializerCreateUpdateOnly,
+        responses={200: ProductTourSerializer},
+    )
     @action(detail=True, methods=["PATCH"], url_path="draft")
     def draft(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Save draft content (server-side merge). No side effects triggered."""
@@ -866,6 +875,10 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(
+        request=ProductTourSerializerCreateUpdateOnly,
+        responses={200: ProductTourSerializer},
+    )
     @action(detail=True, methods=["POST"], url_path="publish_draft")
     def publish_draft(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Commit draft to live tour. Runs full validation and triggers side effects.
@@ -898,6 +911,7 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(responses={200: ProductTourSerializer})
     @action(detail=True, methods=["DELETE"], url_path="discard_draft")
     def discard_draft(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Discard draft content."""
@@ -911,6 +925,7 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(responses={200: DraftStatusResponseSerializer})
     @action(detail=True, methods=["GET"], url_path="draft_status")
     def draft_status(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Lightweight polling endpoint for draft change detection."""

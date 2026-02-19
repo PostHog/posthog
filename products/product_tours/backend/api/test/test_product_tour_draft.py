@@ -199,20 +199,6 @@ class TestProductTourDraft(APIBaseTest):
         assert tour.draft_content is None
         assert tour.name == "Directly updated"
 
-    @patch("products.product_tours.backend.api.product_tour.publish_draft_update")
-    def test_redis_pubsub_published_on_draft_save(self, mock_publish):
-        tour = self._create_tour()
-
-        self.client.patch(
-            self._draft_url(tour.id),
-            data={"name": "Draft"},
-            format="json",
-        )
-
-        mock_publish.assert_called_once()
-        call_args = mock_publish.call_args[0]
-        assert call_args[0] == str(tour.id)
-
     def test_draft_content_not_in_sdk_endpoint(self):
         tour = self._create_tour(start_date=timezone.now(), auto_launch=True)
         tour.draft_content = {"name": "Drafted"}

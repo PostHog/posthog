@@ -147,6 +147,8 @@ export interface ProductTourApi {
      */
     readonly targeting_flag_filters: ProductTourApiTargetingFlagFilters
     content?: unknown
+    readonly draft_content: unknown | null
+    readonly has_draft: boolean
     auto_launch?: boolean
     /** @nullable */
     start_date?: string | null
@@ -237,6 +239,11 @@ export interface PatchedProductTourSerializerCreateUpdateOnlyApi {
 * `app` - app
 * `toolbar` - toolbar */
     creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi
+}
+
+export interface DraftStatusResponseApi {
+    updated_at: string
+    has_draft: boolean
 }
 
 export type GenerateRequestApiStepsItem = { [key: string]: unknown }
