@@ -2,7 +2,7 @@ import { DataWarehouseNode, MarketingAnalyticsConstants, NodeKind } from '~/quer
 import { HogQLMathType } from '~/types'
 
 import { ExternalTable } from './marketingAnalyticsLogic'
-import { validColumnsForTiles } from './utils'
+import { safeFloat, sumSafeFloat, validColumnsForTiles } from './utils'
 
 /** Mirrors backend _is_simple_column_name: only allows alphanumeric, underscores, and dots */
 function isSimpleColumnName(value: string): boolean {
@@ -67,7 +67,7 @@ export const externalAdsCostTile = (
         if (!costColumn || !conversionValueColumn) {
             return null
         }
-        mathHogql = `SUM(ifNull(toFloat(${conversionValueColumn}), 0)) / nullIf(SUM(toFloat(${costColumn})), 0)`
+        mathHogql = `${sumSafeFloat(conversionValueColumn)} / nullIf(SUM(toFloat(${costColumn})), 0)`
     } else {
         const rawColumn = table.source_map[tileColumnSelection]
         const column = rawColumn ? sanitizeColumnName(rawColumn) : null
@@ -77,7 +77,7 @@ export const externalAdsCostTile = (
         const currencyExpr = buildCurrencyExpr(table.source_map.currency, baseCurrency)
         const dateExpr = buildDateExpr(table)
         const safeCurrency = sanitizeCurrencyCode(baseCurrency) ?? 'USD'
-        mathHogql = `SUM(convertCurrency(${currencyExpr}, '${safeCurrency}', ifNull(toFloat(${column}), 0), _toDate(${dateExpr})))`
+        mathHogql = `SUM(convertCurrency(${currencyExpr}, '${safeCurrency}', ${safeFloat(column)}, _toDate(${dateExpr})))`
     }
 
     const dateField = sanitizeColumnName(table.source_map.date)
