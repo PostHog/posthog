@@ -131,7 +131,7 @@ async def safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOutput:
             team_id=input.team_id,
             report_id=input.report_id,
             type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
-            text_content=json.dumps(
+            content=json.dumps(
                 {
                     "choice": result.choice,
                     "explanation": result.explanation,

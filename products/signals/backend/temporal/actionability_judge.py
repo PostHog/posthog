@@ -142,7 +142,7 @@ async def actionability_judge_activity(input: ActionabilityJudgeInput) -> Action
             team_id=input.team_id,
             report_id=input.report_id,
             type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
-            text_content=json.dumps(
+            content=json.dumps(
                 {
                     "choice": result.choice.value,
                     "explanation": result.explanation,

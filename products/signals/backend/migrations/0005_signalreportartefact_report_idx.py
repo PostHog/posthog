@@ -6,7 +6,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("signals", "0005_alter_text_content_type"),
+        ("signals", "0004_alter_content_type"),
     ]
 
     operations = [

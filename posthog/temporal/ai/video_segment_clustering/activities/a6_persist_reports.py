@@ -124,12 +124,12 @@ async def persist_reports_activity(inputs: PersistReportsActivityInputs) -> Pers
                     artefact
                     async for artefact in SignalReportArtefact.objects.filter(
                         report_id=match.report_id, type=SignalReportArtefact.ArtefactType.VIDEO_SEGMENT
-                    ).only("text_content")
+                    ).only("content")
                 ]
                 existing_refs: set[str] = set()
                 for artefact in existing_artefacts:
                     try:
-                        content = json.loads(artefact.text_content)
+                        content = json.loads(artefact.content)
                         existing_refs.add(
                             f"{content.get('session_id')}:{content.get('start_time')}:{content.get('end_time')}"
                         )
@@ -141,7 +141,7 @@ async def persist_reports_activity(inputs: PersistReportsActivityInputs) -> Pers
                 existing_distinct_ids: set[str] = set()
                 for artefact in existing_artefacts:
                     try:
-                        content = json.loads(artefact.text_content)
+                        content = json.loads(artefact.content)
                         if content.get("distinct_id"):
                             existing_distinct_ids.add(content["distinct_id"])
                     except (json.JSONDecodeError, ValueError):
@@ -214,7 +214,7 @@ async def persist_reports_activity(inputs: PersistReportsActivityInputs) -> Pers
                     team=team,
                     report_id=report_id,
                     type=SignalReportArtefact.ArtefactType.VIDEO_SEGMENT,
-                    text_content=artefact_text_content,
+                    content=artefact_text_content,
                 )
             )
 

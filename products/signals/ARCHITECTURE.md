@@ -109,12 +109,12 @@ potential → candidate → in_progress → ready
 
 Binary artefacts attached to reports. Used for video segments and judge results.
 
-| Field          | Type              | Description                                |
-| -------------- | ----------------- | ------------------------------------------ |
-| `team`         | FK → Team         | Owning team                                |
-| `report`       | FK → SignalReport | Parent report (`related_name="artefacts"`) |
-| `type`         | CharField         | Artefact type (see `ArtefactType` enum)    |
-| `text_content` | TextField         | JSON content stored as text                |
+| Field     | Type              | Description                                |
+| --------- | ----------------- | ------------------------------------------ |
+| `team`    | FK → Team         | Owning team                                |
+| `report`  | FK → SignalReport | Parent report (`related_name="artefacts"`) |
+| `type`    | CharField         | Artefact type (see `ArtefactType` enum)    |
+| `content` | TextField         | JSON content stored as text                |
 
 **Artefact types** (`SignalReportArtefact.ArtefactType` enum):
 
@@ -333,9 +333,8 @@ products/signals/
 │   │   ├── 0001_initial.py
 │   │   ├── 0002_signalreport_clustering_fields.py
 │   │   ├── 0003_alter_signalreport_status_and_more.py
-│   │   ├── 0004_rename_content_to_text_content.py
-│   │   ├── 0005_alter_text_content_type.py
-│   │   └── 0006_signalreportartefact_report_idx.py
+│   │   ├── 0004_alter_content_type.py
+│   │   └── 0005_signalreportartefact_report_idx.py
 │   └── temporal/
 │       ├── __init__.py             # Registers all workflows and activities (WORKFLOWS + ACTIVITIES lists)
 │       ├── grouping.py             # EmitSignalWorkflow + grouping activities

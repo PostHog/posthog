@@ -35,6 +35,6 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
 
     def get_content(self, obj: SignalReportArtefact) -> dict:
         try:
-            return json.loads(obj.text_content)
+            return json.loads(obj.content)
         except (json.JSONDecodeError, ValueError):
             return {}

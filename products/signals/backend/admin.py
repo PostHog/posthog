@@ -14,7 +14,7 @@ class SignalReportArtefactInline(admin.TabularInline):
 
     @admin.display(description="Content preview")
     def content_preview(self, obj: SignalReportArtefact) -> str:
-        return (obj.text_content[:200] + "...") if len(obj.text_content) > 200 else obj.text_content
+        return (obj.content[:200] + "...") if len(obj.content) > 200 else obj.content
 
 
 class SignalReportAdmin(admin.ModelAdmin):
