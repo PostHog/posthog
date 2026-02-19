@@ -1,12 +1,32 @@
+import os
+import json
 from typing import cast
 
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, get_index_from_explain
 
-from posthog.schema import LogPropertyFilter, LogPropertyFilterType, PropertyOperator
+from posthog.schema import (
+    DateRange,
+    FilterLogicalOperator,
+    LogPropertyFilter,
+    LogPropertyFilterType,
+    LogsQuery,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    PropertyOperator,
+)
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.filters import HogQLFilters
+from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.property import _LowercaseIndexRewriter, get_lowercase_index_hint
+from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.visitor import clear_locations
+
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
+
+from products.logs.backend.logs_query_runner import LogsQueryRunner
 
 
 class TestGetLowercaseIndexHint(BaseTest):
@@ -165,3 +185,93 @@ class TestGetLowercaseIndexHint(BaseTest):
         needles = search_call.args[1]
         assert isinstance(needles, ast.Array)
         assert [cast(ast.Constant, e).value for e in needles.exprs] == ["err"]
+
+
+class TestGetLowercaseIndexHintClickhouse(ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = True
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        schema_path = os.path.join(
+            os.path.dirname(__file__), "../../../products/logs/backend/test/test_logs_schema.sql"
+        )
+        with open(schema_path) as f:
+            schema_sql = f.read()
+        for sql in schema_sql.split(";"):
+            if not sql.strip():
+                continue
+            sync_execute(sql)
+        # Insert a single row so EXPLAIN has data to plan against
+        logs_path = os.path.join(os.path.dirname(__file__), "../../../products/logs/backend/test/test_logs.jsonnd")
+        with open(logs_path) as f:
+            log_item = json.loads(f.readline())
+            log_item["team_id"] = cls.team.id
+            sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{json.dumps(log_item)}")
+
+    def test_index_hint_uses_ngram_index(self):
+        """The index hint on a message ICONTAINS filter should cause ClickHouse to use the idx_body_ngram3 index."""
+        query = LogsQuery(
+            kind="LogsQuery",
+            dateRange=DateRange(date_from="2025-12-16T09:00:00Z", date_to="2025-12-16T10:00:00Z"),
+            serviceNames=[],
+            severityLevels=[],
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            LogPropertyFilter(
+                                key="message",
+                                value="test",
+                                operator=PropertyOperator.ICONTAINS,
+                                type=LogPropertyFilterType.LOG,
+                            ),
+                        ],
+                    )
+                ],
+            ),
+        )
+        runner = LogsQueryRunner(query=query, team=self.team)
+        executor = HogQLQueryExecutor(
+            query_type="LogsQuery",
+            query=runner.to_query(),
+            modifiers=runner.modifiers,
+            team=runner.team,
+            workload=Workload.LOGS,
+            timings=runner.timings,
+            limit_context=runner.limit_context,
+            filters=HogQLFilters(dateRange=runner.query.dateRange),
+            settings=runner.settings,
+        )
+        clickhouse_sql, _ = executor.generate_clickhouse_sql()
+        index_info = get_index_from_explain(clickhouse_sql, "idx_body_ngram3")
+        assert index_info is not None, (
+            f"Expected idx_body_ngram3 to be used in EXPLAIN output for query:\n{clickhouse_sql}"
+        )
+
+    def test_index_hint_prints_without_ifnull(self):
+        """The printed ClickHouse SQL inside indexHint must not contain ifNull — it defeats index usage."""
+        hint_node = get_lowercase_index_hint(
+            LogPropertyFilter(
+                key="message",
+                operator=PropertyOperator.ICONTAINS,
+                value="test",
+                type=LogPropertyFilterType.LOG,
+            ),
+            team=self.team,
+        )
+        select = ast.SelectQuery(
+            select=[hint_node],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["logs"])),
+        )
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        prepared = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select, context=context, dialect="clickhouse"),
+        )
+        sql = print_prepared_ast(prepared.select[0], context=context, dialect="clickhouse", stack=[prepared])
+        assert "ifNull" not in sql, f"indexHint should not contain ifNull, got: {sql}"
+        assert "indexHint" in sql
+        assert "lower" in sql
