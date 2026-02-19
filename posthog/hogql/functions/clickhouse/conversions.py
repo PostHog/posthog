@@ -88,7 +88,9 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toBool": HogQLFunctionMeta("toBool", 1, 1),
     "toJSONString": HogQLFunctionMeta("toJSONString", 1, 1),
     "parseDateTime": HogQLFunctionMeta("parseDateTimeOrNull", 2, 3, tz_aware=True, use_or_null_variant=True),
-    "parseDateTimeBestEffort": HogQLFunctionMeta("parseDateTime64BestEffortOrNull", 1, 2, tz_aware=True, use_or_null_variant=True),
+    "parseDateTimeBestEffort": HogQLFunctionMeta(
+    "parseDateTime64BestEffortOrNull", 1, 2, tz_aware=True, use_or_null_variant=True
+),
     "toTypeName": HogQLFunctionMeta("toTypeName", 1, 1),
     "cityHash64": HogQLFunctionMeta("cityHash64", 1, 1),
     "UUIDv7ToDateTime": HogQLFunctionMeta("UUIDv7ToDateTime", 1, 1, tz_aware=True),

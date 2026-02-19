@@ -642,7 +642,7 @@ class HogQLPrinter(Visitor[str]):
                             is_or_null_variant = False
                             if isinstance(arg, ast.Call):
                                 meta = find_hogql_function(arg.name)
-                                if meta and getattr(meta, 'use_or_null_variant', False):
+                                if meta and getattr(meta, "use_or_null_variant", False):
                                     is_or_null_variant = True
 
                             if is_or_null_variant:
