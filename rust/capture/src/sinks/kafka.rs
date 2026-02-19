@@ -308,7 +308,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         let (event, metadata) = (event.event, event.metadata);
 
         let payload = serde_json::to_string(&event).map_err(|e| {
-            error!("failed to serialize event: {e}");
+            error!("failed to serialize event: {e:#}");
             CaptureError::NonRetryableSinkError
         })?;
 
@@ -492,7 +492,7 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
                     }
                     Err(err) => {
                         set.abort_all();
-                        error!("join error while waiting on Kafka ACK: {err:?}");
+                        error!("join error while waiting on Kafka ACK: {err:#}");
                         return Err(CaptureError::RetryableSinkError);
                     }
                 }

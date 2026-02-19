@@ -111,6 +111,7 @@ describe('session-replay-pipeline', () => {
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
                 promiseScheduler,
             })
 
@@ -138,6 +139,7 @@ describe('session-replay-pipeline', () => {
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
                 promiseScheduler,
             })
 
@@ -160,6 +162,7 @@ describe('session-replay-pipeline', () => {
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
                 promiseScheduler,
             })
 
@@ -184,6 +187,44 @@ describe('session-replay-pipeline', () => {
             expect(result[1].parsedMessage.session_id).toBe('session-3')
         })
 
+        it('sends messages that fail to parse to the DLQ topic', async () => {
+            const pipeline = createSessionReplayPipeline({
+                kafkaProducer: mockKafkaProducer as unknown as KafkaProducerWrapper,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowEnabled: true,
+                overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
+                promiseScheduler,
+            })
+
+            // Create a message with invalid payload
+            const invalidMessage: Message = {
+                partition: 0,
+                offset: 2,
+                topic: 'test-topic',
+                value: Buffer.from('invalid json'),
+                key: Buffer.from('test-key'),
+                timestamp: Date.now(),
+                headers: [],
+                size: 12,
+            }
+
+            const messages = [invalidMessage]
+
+            await runSessionReplayPipeline(pipeline, messages)
+
+            // Wait for side effects to complete
+            await promiseScheduler.waitForAll()
+
+            // Verify the message was sent to the DLQ topic
+            expect(mockKafkaProducer.produce).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    topic: 'dlq-topic',
+                    value: invalidMessage.value,
+                })
+            )
+        })
+
         it('redirects overflow messages and filters them out', async () => {
             mockCreateApplyEventRestrictionsStep.mockReturnValue(
                 (input: { message: Message; headers: Record<string, string> }) => {
@@ -199,6 +240,7 @@ describe('session-replay-pipeline', () => {
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
                 promiseScheduler,
             })
 
@@ -231,6 +273,7 @@ describe('session-replay-pipeline', () => {
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
                 promiseScheduler,
             })
 
@@ -255,6 +298,7 @@ describe('session-replay-pipeline', () => {
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
                 promiseScheduler,
             })
 
@@ -296,6 +340,7 @@ describe('session-replay-pipeline', () => {
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
                 promiseScheduler,
             })
 
@@ -319,6 +364,7 @@ describe('session-replay-pipeline', () => {
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
                 promiseScheduler,
             })
 
@@ -352,6 +398,7 @@ describe('session-replay-pipeline', () => {
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
                 promiseScheduler,
             })
 

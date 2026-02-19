@@ -1,3 +1,4 @@
+import uuid as uuid_module
 from uuid import UUID
 
 import pytest
@@ -29,8 +30,21 @@ def _make_cursor(fetchone_values: list | None = None) -> MagicMock:
 
 
 class TestLookupDistinctId:
-    def test_returns_row_when_found(self):
+    def test_returns_row_when_found_tuple(self):
         cursor = _make_cursor(fetchone_values=[(PDI_ID, PDI_VERSION, PERSON_PK, UUID(PERSON_UUID))])
+
+        result = _lookup_distinct_id(cursor, TEAM_ID, "$posthog_cookieless")
+
+        assert result is not None
+        assert result["pdi_id"] == PDI_ID
+        assert result["version"] == PDI_VERSION
+        assert result["person_pk"] == PERSON_PK
+        assert result["person_uuid"] == PERSON_UUID
+
+    def test_returns_row_when_found_dict(self):
+        cursor = _make_cursor(
+            fetchone_values=[{"id": PDI_ID, "version": PDI_VERSION, "person_id": PERSON_PK, "uuid": UUID(PERSON_UUID)}]
+        )
 
         result = _lookup_distinct_id(cursor, TEAM_ID, "$posthog_cookieless")
 
@@ -49,8 +63,15 @@ class TestLookupDistinctId:
 
 
 class TestCountOtherDistinctIds:
-    def test_returns_count(self):
+    def test_returns_count_tuple(self):
         cursor = _make_cursor(fetchone_values=[(5,)])
+
+        count = _count_other_distinct_ids(cursor, TEAM_ID, PERSON_PK, PDI_ID)
+
+        assert count == 5
+
+    def test_returns_count_dict(self):
+        cursor = _make_cursor(fetchone_values=[{"count": 5}])
 
         count = _count_other_distinct_ids(cursor, TEAM_ID, PERSON_PK, PDI_ID)
 
@@ -65,16 +86,24 @@ class TestCountOtherDistinctIds:
 
 
 class TestDeleteDistinctIdRow:
-    def test_locks_and_deletes(self):
+    def test_locks_and_deletes_tuple(self):
         cursor = _make_cursor(fetchone_values=[(PDI_VERSION,)])
 
         version = _delete_distinct_id_row(cursor, PDI_ID)
 
         assert version == PDI_VERSION
         assert cursor.execute.call_count == 2
-        # First call: SELECT FOR UPDATE
         assert "FOR UPDATE" in cursor.execute.call_args_list[0].args[0]
-        # Second call: DELETE
+        assert "DELETE" in cursor.execute.call_args_list[1].args[0]
+
+    def test_locks_and_deletes_dict(self):
+        cursor = _make_cursor(fetchone_values=[{"version": PDI_VERSION}])
+
+        version = _delete_distinct_id_row(cursor, PDI_ID)
+
+        assert version == PDI_VERSION
+        assert cursor.execute.call_count == 2
+        assert "FOR UPDATE" in cursor.execute.call_args_list[0].args[0]
         assert "DELETE" in cursor.execute.call_args_list[1].args[0]
 
     def test_raises_if_row_disappears(self):
@@ -272,5 +301,160 @@ class TestDetachDistinctIdJob:
 
         assert not result.success
         conn.commit.assert_not_called()
+        producer.produce.assert_not_called()
+        mock_sync_execute.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+class TestDetachDistinctIdIntegration:
+    """Integration tests using a real Django Postgres connection.
+
+    Exercises the full Dagster job against real DB rows so cursor return types
+    (tuple vs dict) are tested against production-like conditions.
+    Kafka and ClickHouse (sync_execute) remain mocked.
+    """
+
+    @pytest.fixture
+    def organization(self):
+        from posthog.models import Organization
+
+        return Organization.objects.create(name="Detach Test Org")
+
+    @pytest.fixture
+    def team(self, organization):
+        from posthog.models import Team
+
+        return Team.objects.create(organization=organization, name="Detach Test Team")
+
+    @pytest.fixture
+    def person_with_two_distinct_ids(self, team):
+        from posthog.models.person import Person, PersonDistinctId
+
+        person = Person.objects.create(team_id=team.id, version=1)
+        pdi_keep = PersonDistinctId.objects.create(team=team, person=person, distinct_id="keep_this", version=0)
+        pdi_detach = PersonDistinctId.objects.create(
+            team=team, person=person, distinct_id="$posthog_cookieless", version=3
+        )
+        return person, pdi_keep, pdi_detach
+
+    @staticmethod
+    def _run_config(team_id: int, person_uuid: str, *, dry_run: bool, distinct_id: str = "$posthog_cookieless") -> dict:
+        return {
+            "ops": {
+                "detach_distinct_id_op": {
+                    "config": {
+                        "team_id": team_id,
+                        "distinct_id": distinct_id,
+                        "expected_person_id": person_uuid,
+                        "dry_run": dry_run,
+                    }
+                }
+            }
+        }
+
+    @staticmethod
+    def _get_persons_conn():
+        from django.db import connections
+
+        from posthog.person_db_router import PERSONS_DB_FOR_WRITE
+
+        return connections[PERSONS_DB_FOR_WRITE]
+
+    @patch("posthog.dags.detach_distinct_id.sync_execute")
+    def test_dry_run_does_not_delete(self, mock_sync_execute, team, person_with_two_distinct_ids):
+        from posthog.models.person import PersonDistinctId
+
+        person, _pdi_keep, pdi_detach = person_with_two_distinct_ids
+        producer = MagicMock()
+
+        result = detach_distinct_id_job.execute_in_process(
+            run_config=self._run_config(team.id, str(person.uuid), dry_run=True),
+            resources={"persons_database": self._get_persons_conn(), "kafka_producer": producer},
+        )
+
+        assert result.success
+        assert PersonDistinctId.objects.filter(id=pdi_detach.id).exists()
+        producer.produce.assert_not_called()
+        mock_sync_execute.assert_not_called()
+
+    @patch("posthog.dags.detach_distinct_id.sync_execute")
+    def test_live_run_deletes_and_publishes(self, mock_sync_execute, team, person_with_two_distinct_ids):
+        from posthog.models.person import PersonDistinctId
+
+        person, pdi_keep, pdi_detach = person_with_two_distinct_ids
+        producer = MagicMock()
+
+        result = detach_distinct_id_job.execute_in_process(
+            run_config=self._run_config(team.id, str(person.uuid), dry_run=False),
+            resources={"persons_database": self._get_persons_conn(), "kafka_producer": producer},
+        )
+
+        assert result.success
+
+        # PDI row deleted
+        assert not PersonDistinctId.objects.filter(id=pdi_detach.id).exists()
+        # Other PDI untouched
+        assert PersonDistinctId.objects.filter(id=pdi_keep.id).exists()
+
+        # Kafka deletion published
+        producer.produce.assert_called_once()
+        kafka_data = producer.produce.call_args.kwargs["data"]
+        assert kafka_data["distinct_id"] == "$posthog_cookieless"
+        assert kafka_data["person_id"] == str(person.uuid)
+        assert kafka_data["team_id"] == team.id
+        assert kafka_data["is_deleted"] == 1
+        assert kafka_data["version"] == pdi_detach.version + 100
+
+        # ClickHouse override inserted
+        mock_sync_execute.assert_called_once()
+        override_rows = mock_sync_execute.call_args.args[1]
+        assert override_rows[0][0] == team.id
+        assert override_rows[0][1] == "$posthog_cookieless"
+
+    @patch("posthog.dags.detach_distinct_id.sync_execute")
+    def test_fails_on_person_id_mismatch(self, mock_sync_execute, team, person_with_two_distinct_ids):
+        person, _, _ = person_with_two_distinct_ids
+        wrong_uuid = str(uuid_module.uuid4())
+        producer = MagicMock()
+
+        result = detach_distinct_id_job.execute_in_process(
+            run_config=self._run_config(team.id, wrong_uuid, dry_run=False),
+            resources={"persons_database": self._get_persons_conn(), "kafka_producer": producer},
+            raise_on_error=False,
+        )
+
+        assert not result.success
+        producer.produce.assert_not_called()
+        mock_sync_execute.assert_not_called()
+
+    @patch("posthog.dags.detach_distinct_id.sync_execute")
+    def test_fails_when_only_distinct_id(self, mock_sync_execute, team):
+        from posthog.models.person import Person, PersonDistinctId
+
+        person = Person.objects.create(team_id=team.id, version=1)
+        PersonDistinctId.objects.create(team=team, person=person, distinct_id="$posthog_cookieless", version=3)
+        producer = MagicMock()
+
+        result = detach_distinct_id_job.execute_in_process(
+            run_config=self._run_config(team.id, str(person.uuid), dry_run=False),
+            resources={"persons_database": self._get_persons_conn(), "kafka_producer": producer},
+            raise_on_error=False,
+        )
+
+        assert not result.success
+        producer.produce.assert_not_called()
+        mock_sync_execute.assert_not_called()
+
+    @patch("posthog.dags.detach_distinct_id.sync_execute")
+    def test_fails_when_distinct_id_not_found(self, mock_sync_execute, team):
+        producer = MagicMock()
+
+        result = detach_distinct_id_job.execute_in_process(
+            run_config=self._run_config(team.id, str(uuid_module.uuid4()), dry_run=False, distinct_id="nonexistent"),
+            resources={"persons_database": self._get_persons_conn(), "kafka_producer": producer},
+            raise_on_error=False,
+        )
+
+        assert not result.success
         producer.produce.assert_not_called()
         mock_sync_execute.assert_not_called()

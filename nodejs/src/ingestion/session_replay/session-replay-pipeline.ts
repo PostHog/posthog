@@ -25,6 +25,7 @@ export interface SessionReplayPipelineConfig {
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     overflowEnabled: boolean
     overflowTopic: string
+    dlqTopic: string
     promiseScheduler: PromiseScheduler
     topTracker?: TopTracker
 }
@@ -47,13 +48,14 @@ export function createSessionReplayPipeline(
         eventIngestionRestrictionManager,
         overflowEnabled,
         overflowTopic,
+        dlqTopic,
         promiseScheduler,
         topTracker,
     } = config
 
     const pipelineConfig: PipelineConfig = {
         kafkaProducer,
-        dlqTopic: '', // Session recordings don't use DLQ for restrictions
+        dlqTopic,
         promiseScheduler,
     }
 

@@ -13,7 +13,6 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AccessControlLevel, AccessControlResourceType, ActivityScope, SidePanelTab } from '~/types'
 
-import { llmAnalyticsTraceLogic } from '../llmAnalyticsTraceLogic'
 import { TranslatePopover } from './TranslatePopover'
 import { messageActionsMenuLogic } from './messageActionsMenuLogic'
 
@@ -23,15 +22,15 @@ const MAX_QUOTE_LENGTH = 500
 
 export interface MessageActionsMenuProps {
     content: string
+    traceId?: string | null
 }
 
-export const MessageActionsMenu = ({ content }: MessageActionsMenuProps): JSX.Element | null => {
-    const { traceId } = useValues(llmAnalyticsTraceLogic)
+export const MessageActionsMenu = ({ content, traceId }: MessageActionsMenuProps): JSX.Element | null => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const commentsLogicProps = {
         scope: ActivityScope.LLM_TRACE,
-        item_id: traceId,
+        item_id: traceId || '',
     }
     const commentsLogicInstance = commentsLogic(commentsLogicProps)
     const { maybeLoadComments } = useActions(commentsLogicInstance)
@@ -72,7 +71,7 @@ export const MessageActionsMenu = ({ content }: MessageActionsMenuProps): JSX.El
     }
 
     const isEarlyAdopter = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-    const showDiscussions = isEarlyAdopter || !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS]
+    const showDiscussions = !!traceId && (isEarlyAdopter || !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS])
     const showTranslation = isEarlyAdopter || !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRANSLATION]
 
     const accessControlDisabledReason = getAccessControlDisabledReason(

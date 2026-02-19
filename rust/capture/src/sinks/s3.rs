@@ -251,7 +251,7 @@ impl Inner {
                 Ok(())
             }
             Err(err) => {
-                error!("Failed to write to S3: {err}");
+                error!("Failed to write to S3: {err:#}");
                 counter!("capture_s3_write_errors_total").increment(1);
                 Err(CaptureError::RetryableSinkError)
             }
