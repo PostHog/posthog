@@ -3,6 +3,7 @@ import logging
 from typing import cast
 
 from django.conf import settings
+from django.db import IntegrityError
 from django.db.models import Count
 
 from asgiref.sync import async_to_sync
@@ -75,7 +76,12 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = SignalSourceConfig.objects.all().order_by("-updated_at")
 
     def perform_create(self, serializer):
-        serializer.save(team_id=self.team_id, created_by=self.request.user)
+        try:
+            serializer.save(team_id=self.team_id, created_by=self.request.user)
+        except IntegrityError:
+            raise serializers.ValidationError(
+                {"source_type": "A configuration for this source type already exists for this team."}
+            )
 
     def perform_update(self, serializer):
         serializer.save()

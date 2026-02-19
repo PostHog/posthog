@@ -142,7 +142,7 @@ def _fetch_recent_session_ids(team: Team, lookback_hours: int) -> list[str]:
             filter_test_accounts=True,
             date_from=f"-{lookback_hours}h",
             limit=MAX_SESSIONS_TO_PRIME_EMBEDDINGS,
-            having_predicates=_BASELINE_HAVING_PREDICATES,  # type: ignore[arg-type]
+            having_predicates=_BASELINE_HAVING_PREDICATES,
         )
 
     with tags_context(product=Product.SESSION_SUMMARY):
