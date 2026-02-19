@@ -1201,7 +1201,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
                 if (view) {
                     return [
-                        first,
                         {
                             key: view.id,
                             name: view.name,
