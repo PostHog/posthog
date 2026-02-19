@@ -173,6 +173,7 @@ def fetch_analytics(
     entity_ids: list[str],
     start_date: str,
     end_date: str,
+    currency: str | None = None,
 ) -> list[dict[str, Any]]:
     path = ANALYTICS_ENDPOINT_PATHS[endpoint_name].format(ad_account_id=ad_account_id)
     url = f"{BASE_URL}{path}"
@@ -196,7 +197,10 @@ def fetch_analytics(
 
             if isinstance(data, list):
                 for row in data:
-                    all_rows.append(_normalize_row(row))
+                    normalized = _normalize_row(row)
+                    if currency:
+                        normalized["currency"] = currency
+                    all_rows.append(normalized)
             else:
                 logger.error(
                     "pinterest_ads_unexpected_analytics_response",
@@ -205,6 +209,25 @@ def fetch_analytics(
                 )
 
     return all_rows
+
+
+def fetch_account_currency(session: requests.Session, ad_account_id: str) -> str | None:
+    """Fetch the currency configured on the Pinterest ad account.
+
+    Pinterest analytics don't include currency per row,
+    so we fetch it from the ad account endpoint once per sync.
+    """
+    url = f"{BASE_URL}/ad_accounts/{ad_account_id}"
+    try:
+        response = session.get(url, timeout=10)
+        if response.status_code == 200:
+            currency = response.json().get("currency")
+            if currency:
+                logger.info("pinterest_ads_account_currency", ad_account_id=ad_account_id, currency=currency)
+                return str(currency)
+    except Exception as e:
+        logger.warning("pinterest_ads_currency_fetch_failed", ad_account_id=ad_account_id, error=str(e))
+    return None
 
 
 def validate_ad_account(access_token: str, ad_account_id: str) -> tuple[bool, Optional[str]]:

@@ -6,6 +6,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceRespo
 from posthog.temporal.data_imports.sources.pinterest_ads.settings import PINTEREST_ADS_CONFIG, EndpointType
 from posthog.temporal.data_imports.sources.pinterest_ads.utils import (
     build_session,
+    fetch_account_currency,
     fetch_analytics,
     fetch_entities,
     fetch_entity_ids,
@@ -71,6 +72,7 @@ def _fetch_analytics_items(
         return []
 
     start_date, end_date = get_date_range(should_use_incremental_field, db_incremental_field_last_value)
+    currency = fetch_account_currency(session, ad_account_id)
 
     logger.info(
         "pinterest_ads_fetching_analytics",
@@ -78,6 +80,7 @@ def _fetch_analytics_items(
         entity_count=len(entity_ids),
         start_date=start_date,
         end_date=end_date,
+        currency=currency,
     )
 
-    return fetch_analytics(session, ad_account_id, endpoint, entity_ids, start_date, end_date)
+    return fetch_analytics(session, ad_account_id, endpoint, entity_ids, start_date, end_date, currency=currency)

@@ -9,6 +9,7 @@ from posthog.temporal.data_imports.sources.pinterest_ads.utils import (
     _chunk_list,
     _normalize_row,
     build_session,
+    fetch_account_currency,
     fetch_analytics,
     fetch_entities,
     fetch_entity_ids,
@@ -170,6 +171,44 @@ class TestFetchEntityIds:
         assert ids == []
 
 
+class TestFetchAccountCurrency:
+    def test_returns_currency(self):
+        mock_session = mock.MagicMock()
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"id": "acc123", "currency": "EUR"}
+        mock_session.get.return_value = mock_response
+
+        result = fetch_account_currency(mock_session, "acc123")
+        assert result == "EUR"
+
+    def test_returns_none_on_missing_currency(self):
+        mock_session = mock.MagicMock()
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"id": "acc123"}
+        mock_session.get.return_value = mock_response
+
+        result = fetch_account_currency(mock_session, "acc123")
+        assert result is None
+
+    def test_returns_none_on_error(self):
+        mock_session = mock.MagicMock()
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 403
+        mock_session.get.return_value = mock_response
+
+        result = fetch_account_currency(mock_session, "acc123")
+        assert result is None
+
+    def test_returns_none_on_exception(self):
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = Exception("network error")
+
+        result = fetch_account_currency(mock_session, "acc123")
+        assert result is None
+
+
 class TestFetchAnalytics:
     @mock.patch("posthog.temporal.data_imports.sources.pinterest_ads.utils._make_request")
     def test_basic_fetch(self, mock_request):
@@ -182,6 +221,29 @@ class TestFetchAnalytics:
         assert len(result) == 1
         assert result[0]["campaign_id"] == "1"
         assert result[0]["spend_in_dollar"] == 5.0
+
+    @mock.patch("posthog.temporal.data_imports.sources.pinterest_ads.utils._make_request")
+    def test_adds_currency_to_rows(self, mock_request):
+        mock_request.return_value = [
+            {"CAMPAIGN_ID": "1", "DATE": "2024-01-01", "SPEND_IN_DOLLAR": 5.0},
+        ]
+        session = mock.MagicMock()
+
+        result = fetch_analytics(
+            session, "acc123", "campaign_analytics", ["1"], "2024-01-01", "2024-01-31", currency="EUR"
+        )
+        assert len(result) == 1
+        assert result[0]["currency"] == "EUR"
+
+    @mock.patch("posthog.temporal.data_imports.sources.pinterest_ads.utils._make_request")
+    def test_no_currency_field_when_none(self, mock_request):
+        mock_request.return_value = [
+            {"CAMPAIGN_ID": "1", "DATE": "2024-01-01", "SPEND_IN_DOLLAR": 5.0},
+        ]
+        session = mock.MagicMock()
+
+        result = fetch_analytics(session, "acc123", "campaign_analytics", ["1"], "2024-01-01", "2024-01-31")
+        assert "currency" not in result[0]
 
     @mock.patch("posthog.temporal.data_imports.sources.pinterest_ads.utils._make_request")
     def test_empty_entity_ids(self, mock_request):
