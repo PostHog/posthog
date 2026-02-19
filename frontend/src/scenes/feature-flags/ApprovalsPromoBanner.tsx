@@ -36,7 +36,7 @@ export function ApprovalsPromoBanner(): JSX.Element | null {
 
     return (
         <LemonBanner type="info" hideIcon>
-            <div className="flex flex-row gap-8 px-8 items-center justify-evenly">
+            <div className="flex flex-row gap-8 px-8 py-3 items-center justify-evenly">
                 <div>
                     <h3 className="mb-1 text-lg font-semibold">Stop yolo-shipping flag changes</h3>
                     <p className="mb-3">
