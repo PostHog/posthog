@@ -8,6 +8,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
+import { sanitizeTraceUrlSearchParams } from '../../utils'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationRun } from '../types'
 import { EvaluationSummaryControls, EvaluationSummaryPanel } from './EvaluationSummaryPanel'
@@ -15,6 +16,7 @@ import { EvaluationSummaryControls, EvaluationSummaryPanel } from './EvaluationS
 export function EvaluationRunsTable(): JSX.Element {
     const { filteredEvaluationRuns, evaluationRunsLoading, runsLookup } = useValues(llmEvaluationLogic)
     const { searchParams } = useValues(router)
+    const traceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
 
     const columns: LemonTableColumns<EvaluationRun> = [
@@ -32,7 +34,7 @@ export function EvaluationRunsTable(): JSX.Element {
                     <Link
                         to={
                             combineUrl(urls.llmAnalyticsTrace(run.trace_id), {
-                                ...searchParams,
+                                ...traceSearchParams,
                                 event: run.generation_id,
                             }).url
                         }
