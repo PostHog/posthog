@@ -11,6 +11,7 @@ from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
+from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_usage
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
@@ -47,8 +48,11 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         "get_sandbox_for_repository",
         **ctx.to_log_context(),
     ):
-        snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(ctx.github_integration_id, [ctx.repository])
-        used_snapshot = snapshot is not None
+        with StepTimer("snapshot_lookup") as snapshot_lookup_timer:
+            snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(ctx.github_integration_id, [ctx.repository])
+            used_snapshot = snapshot is not None
+            snapshot_lookup_timer.set_used_snapshot(used_snapshot)
+        increment_snapshot_usage(used_snapshot)
 
         if used_snapshot:
             emit_agent_log(ctx.run_id, "info", f"Found existing environment for {ctx.repository}")
@@ -97,11 +101,13 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             metadata={"task_id": ctx.task_id},
         )
 
-        sandbox = Sandbox.create(config)
+        with StepTimer("sandbox_creation", used_snapshot=used_snapshot):
+            sandbox = Sandbox.create(config)
 
         if not used_snapshot:
             emit_agent_log(ctx.run_id, "info", f"Cloning {ctx.repository} into sandbox")
-            clone_result = sandbox.clone_repository(ctx.repository, github_token=github_token)
+            with StepTimer("repository_clone", used_snapshot=used_snapshot):
+                clone_result = sandbox.clone_repository(ctx.repository, github_token=github_token)
             if clone_result.exit_code != 0:
                 sandbox.destroy()
                 raise RuntimeError(f"Failed to clone repository {ctx.repository}: {clone_result.stderr}")
