@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconPencil } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -125,9 +125,9 @@ function EndpointHogQLQuery({
     return (
         <div className="flex gap-4">
             <div className="flex-1 flex flex-col gap-2">
-                <div className="h-[38rem] border rounded overflow-hidden">
+                <ResizableSQLEditorContainer>
                     <SQLEditor tabId={sqlEditorTabId} mode={SQLEditorMode.Embedded} showDatabaseTree={false} />
-                </div>
+                </ResizableSQLEditorContainer>
             </div>
             {Object.keys(variables).length > 0 && (
                 <div className="w-80 flex-shrink-0">
@@ -161,6 +161,49 @@ function EndpointHogQLQuery({
                     </div>
                 </div>
             )}
+        </div>
+    )
+}
+
+const DEFAULT_EDITOR_HEIGHT = 608
+const MIN_EDITOR_HEIGHT = 384
+
+function ResizableSQLEditorContainer({ children }: { children: ReactNode }): JSX.Element {
+    const [height, setHeight] = useState(DEFAULT_EDITOR_HEIGHT)
+    const containerRef = useRef<HTMLDivElement | null>(null)
+
+    const startResizing = (event: ReactMouseEvent, startHeight: number): void => {
+        event.preventDefault()
+        const startY = event.clientY
+
+        const onMouseMove = (moveEvent: MouseEvent): void => {
+            setHeight(Math.max(MIN_EDITOR_HEIGHT, startHeight + (moveEvent.clientY - startY)))
+        }
+
+        const onMouseUp = (): void => {
+            window.removeEventListener('mousemove', onMouseMove)
+            window.removeEventListener('mouseup', onMouseUp)
+        }
+
+        window.addEventListener('mousemove', onMouseMove)
+        window.addEventListener('mouseup', onMouseUp)
+    }
+
+    return (
+        <div ref={containerRef} className="relative border rounded overflow-hidden" style={{ height }}>
+            {children}
+            <div
+                className="absolute bottom-0 left-0 h-2 w-full cursor-s-resize"
+                onMouseDown={(event) => {
+                    startResizing(event, containerRef.current?.clientHeight ?? height)
+                }}
+            />
+            <div
+                className="absolute bottom-0 right-0 z-10 h-5 w-5 cursor-se-resize"
+                onMouseDown={(event) => {
+                    startResizing(event, containerRef.current?.clientHeight ?? height)
+                }}
+            />
         </div>
     )
 }
