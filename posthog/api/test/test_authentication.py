@@ -1623,7 +1623,7 @@ class TestTimeSensitivePermissions(APIBaseTest):
             assert res.status_code == 403
             assert res.json() == {
                 "type": "authentication_error",
-                "code": "permission_denied",
+                "code": "sensitive_action_required_reauth",
                 "detail": "This action requires you to be recently authenticated.",
                 "attr": None,
             }
@@ -1646,7 +1646,7 @@ class TestTimeSensitivePermissions(APIBaseTest):
             assert res.status_code == 403
             assert res.json() == {
                 "type": "authentication_error",
-                "code": "permission_denied",
+                "code": "sensitive_action_required_reauth",
                 "detail": "This action requires you to be recently authenticated.",
                 "attr": None,
             }
