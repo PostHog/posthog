@@ -55,7 +55,11 @@ export function ClusterCard({
                 isOutlierCluster ? 'bg-surface-primary border-dashed border-warning-dark' : 'bg-surface-primary'
             }`}
             // eslint-disable-next-line react/forbid-dom-props
-            style={{ borderLeftWidth: 3, borderLeftColor: clusterColor, borderLeftStyle: 'solid' }}
+            style={{
+                borderLeftWidth: 3,
+                borderLeftColor: clusterColor,
+                borderLeftStyle: isOutlierCluster ? 'dashed' : 'solid',
+            }}
         >
             {/* Card Header */}
             <div
