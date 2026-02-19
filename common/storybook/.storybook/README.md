@@ -26,3 +26,20 @@ in another
 pnpm exec playwright install
 pnpm --filter=@posthog/storybook test:visual:debug
 ```
+
+## canvas rendering in snapshots
+
+Canvas rendering is disabled by default in visual regression tests because Chart.js snapshots have historically been flaky.
+
+If you need canvas output for a specific story, enable it via story parameters:
+
+```ts
+MyStory.parameters = {
+  testOptions: {
+    enableCanvasRendering: true,
+    waitForSelector: '[data-attr=trend-line-graph] > canvas',
+  },
+}
+```
+
+When `enableCanvasRendering` is on and `waitForSelector` includes a `canvas` selector, the test runner waits for the chart canvas to report it has rendered before taking a snapshot.
