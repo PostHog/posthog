@@ -798,7 +798,7 @@ export const ResetButton = (): JSX.Element => {
 
     const onClickReset = (): void => {
         LemonDialog.open({
-            title: 'Reset this experiment?',
+            title: 'Reset measurements?',
             content: (
                 <>
                     <div className="text-sm text-secondary max-w-md">
@@ -810,6 +810,7 @@ export const ResetButton = (): JSX.Element => {
                             All events collected thus far will still exist, but won't be applied to the experiment
                             unless you manually change the start date after launching the experiment again.
                         </p>
+                        <p>The feature flag remains untouched, so variants stay visible to users.</p>
                     </div>
                     {experiment.archived && (
                         <div className="text-sm text-secondary">Resetting will also unarchive the experiment.</div>
@@ -832,7 +833,7 @@ export const ResetButton = (): JSX.Element => {
 
     return (
         <ButtonPrimitive variant="danger" menuItem onClick={onClickReset} data-attr="reset-experiment">
-            <IconRefresh /> Reset experiment
+            <IconRefresh /> Reset measurements
         </ButtonPrimitive>
     )
 }
