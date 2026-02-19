@@ -1,5 +1,13 @@
 /* oxlint-disable no-restricted-imports */
-import { ChartType, DefaultDataPoint, Chart as RawChart, Tooltip, registerables } from 'chart.js'
+import {
+    type ChartConfiguration,
+    type ChartItem,
+    ChartType,
+    DefaultDataPoint,
+    Chart as RawChart,
+    Tooltip,
+    registerables,
+} from 'chart.js'
 import CrosshairPlugin from 'chartjs-plugin-crosshair'
 import ZoomPlugin from 'chartjs-plugin-zoom'
 
@@ -10,6 +18,8 @@ declare global {
         __STORYBOOK_TEST_RUNNER_RENDER_CANVAS__?: boolean
     }
 }
+
+const STORYBOOK_CANVAS_RENDER_EVENT = 'storybook-test-runner:canvas-rendering-enabled'
 
 if (registerables) {
     // required for storybook to work, not found in esbuild
@@ -29,12 +39,38 @@ export class Chart<
     TData = DefaultDataPoint<TType>,
     TLabel = unknown,
 > extends RawChart<TType, TData, TLabel> {
+    private readonly onStorybookCanvasRenderingEnabled = (): void => {
+        if (window.__STORYBOOK_TEST_RUNNER_RENDER_CANVAS__) {
+            this.update('none')
+        }
+    }
+
+    constructor(item: ChartItem, config: ChartConfiguration<TType, TData, TLabel>) {
+        super(item, config)
+
+        if (inStorybookTestRunner()) {
+            window.addEventListener(STORYBOOK_CANVAS_RENDER_EVENT, this.onStorybookCanvasRenderingEnabled)
+        }
+    }
+
+    destroy(): void {
+        if (inStorybookTestRunner()) {
+            window.removeEventListener(STORYBOOK_CANVAS_RENDER_EVENT, this.onStorybookCanvasRenderingEnabled)
+        }
+
+        super.destroy()
+    }
+
     draw(): void {
         if (inStorybookTestRunner() && !window.__STORYBOOK_TEST_RUNNER_RENDER_CANVAS__) {
             // Disable Chart.js rendering in Storybook snapshots, as they've proven to be very flaky
             return
         }
         super.draw()
+
+        if (inStorybookTestRunner()) {
+            this.canvas?.setAttribute('data-storybook-canvas-rendered', 'true')
+        }
     }
 }
 
