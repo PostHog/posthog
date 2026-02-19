@@ -2981,4 +2981,12 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_with_clause_column_name_list(self):
+            node = self._select("WITH cte (a, b) AS (SELECT 1, 2) SELECT * FROM cte")
+            assert isinstance(node, ast.SelectQuery)
+            assert node.ctes is not None and node.ctes.get("cte") is not None
+            cte = node.ctes["cte"]
+            assert cte.name == "cte"
+            assert cte.columns == ["a", "b"]
+
     return TestParser

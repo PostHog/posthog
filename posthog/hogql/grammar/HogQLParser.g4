@@ -244,10 +244,12 @@ hogqlxTagAttribute
 
 withExprList: withExpr (COMMA withExpr)* COMMA?;
 withExpr
-    : identifier AS LPAREN selectSetStmt RPAREN    # WithExprSubquery
+    : identifier withExprColumnNameList? AS LPAREN selectSetStmt RPAREN    # WithExprSubquery
     // NOTE: asterisk and subquery goes before |columnExpr| so that we can mark them as multi-column expressions.
     | columnExpr AS identifier                       # WithExprColumn
     ;
+
+withExprColumnNameList: LPAREN identifier (COMMA identifier)* RPAREN;
 
 
 // This is slightly different in HogQL compared to ClickHouse SQL

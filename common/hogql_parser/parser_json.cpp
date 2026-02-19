@@ -1782,6 +1782,13 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     json["name"] = visitAsString(ctx->identifier());
     json["expr"] = visitAsJSON(ctx->selectSetStmt());
     json["cte_type"] = "subquery";
+    json["columns"] = Json::Null();
+    if (const auto& columnNameList = ctx->withExprColumnNameList()) {
+      json["columns"] = Json::array();
+      for (const auto& ident : columnNameList->identifier()) {
+        json["columns"].pushBack(visitAsString(ident));
+      }
+    }
     return json;
   }
 
