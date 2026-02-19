@@ -1,3 +1,5 @@
+import { useEffect } from 'react'
+
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
@@ -166,15 +168,17 @@ function PersonColumnCellWithRedirect({ person }: { person: PersonData | null | 
 }
 
 function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JSX.Element {
-    const { personsCache, isDistinctIdLoading } = useValues(llmPersonsLazyLoaderLogic)
+    const { personsCache, isDistinctIdLoading, currentTeamId } = useValues(llmPersonsLazyLoaderLogic)
     const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
 
     const cached = personsCache[distinctId]
     const loading = isDistinctIdLoading(distinctId)
 
-    if (cached === undefined && !loading) {
-        ensurePersonLoaded(distinctId)
-    }
+    useEffect(() => {
+        if (currentTeamId && cached === undefined) {
+            ensurePersonLoaded(distinctId)
+        }
+    }, [currentTeamId, cached, distinctId, ensurePersonLoaded])
 
     if (loading || cached === undefined) {
         return <AIDataLoading variant="inline" />

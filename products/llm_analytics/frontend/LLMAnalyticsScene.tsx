@@ -43,6 +43,7 @@ import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
+import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsDashboardLogic } from './tabs/llmAnalyticsDashboardLogic'
 import { getDefaultGenerationsColumns, llmAnalyticsGenerationsLogic } from './tabs/llmAnalyticsGenerationsLogic'
@@ -363,6 +364,34 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
 }
 
 export function LLMAnalyticsScene(): JSX.Element {
+    const sharedLogic = llmAnalyticsSharedLogic()
+    const dataCollectionLogic = dataNodeCollectionLogic({ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID })
+    useAttachedLogic(dataCollectionLogic, sharedLogic)
+
+    return (
+        <BindLogic logic={llmAnalyticsSharedLogic} props={{}}>
+            <BindLogic logic={llmPersonsLazyLoaderLogic} props={{}}>
+                <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
+                    <BindLogic logic={llmAnalyticsDashboardLogic} props={{}}>
+                        <BindLogic logic={llmAnalyticsGenerationsLogic} props={{}}>
+                            <BindLogic logic={llmAnalyticsTracesTabLogic} props={{}}>
+                                <BindLogic logic={llmAnalyticsErrorsLogic} props={{}}>
+                                    <BindLogic logic={llmAnalyticsUsersLogic} props={{}}>
+                                        <BindLogic logic={llmAnalyticsSessionsViewLogic} props={{}}>
+                                            <LLMAnalyticsSceneContent />
+                                        </BindLogic>
+                                    </BindLogic>
+                                </BindLogic>
+                            </BindLogic>
+                        </BindLogic>
+                    </BindLogic>
+                </BindLogic>
+            </BindLogic>
+        </BindLogic>
+    )
+}
+
+function LLMAnalyticsSceneContent(): JSX.Element {
     const { activeTab } = useValues(llmAnalyticsSharedLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)

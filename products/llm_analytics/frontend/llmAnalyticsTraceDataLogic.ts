@@ -20,7 +20,6 @@ import { InsightLogicProps } from '~/types'
 
 import type { llmAnalyticsTraceDataLogicType } from './llmAnalyticsTraceDataLogicType'
 import { llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
-import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import {
     SearchOccurrence,
     eventMatchesSearch,
@@ -414,17 +413,13 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             })
         },
     })),
-    subscriptions(({ actions, props }) => ({
+    subscriptions(({ props }) => ({
         trace: (trace: LLMTrace | undefined) => {
             if (trace?.createdAt && props.traceId) {
                 llmAnalyticsTraceLogic.actions.loadNeighbors(props.traceId, trace.createdAt)
             }
 
-            if (trace?.distinctId) {
-                llmPersonsLazyLoaderLogic.actions.ensurePersonLoaded(trace.distinctId)
-            }
-
-            actions.reportSingleTraceLoadIfReady()
+            llmAnalyticsTraceDataLogic(props).actions.reportSingleTraceLoadIfReady()
         },
     })),
 ])
