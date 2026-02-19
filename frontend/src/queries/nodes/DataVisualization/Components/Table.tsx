@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 import React from 'react'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumn, Sorting, Tooltip } from '@posthog/lemon-ui'
 
 import { execHog } from 'lib/hog'
 import { lightenDarkenColor } from 'lib/utils'
@@ -62,8 +62,22 @@ export const Table = (props: TableProps): JSX.Element => {
         pinnedColumns,
         isColumnPinned,
         isPinningEnabled,
+        columnSort,
     } = useValues(dataVisualizationLogic)
-    const { toggleColumnPin } = useActions(dataVisualizationLogic)
+    const { toggleColumnPin, setColumnSort } = useActions(dataVisualizationLogic)
+
+    // Convert columnSort to LemonTable's Sorting format
+    const sorting: Sorting | null = columnSort
+        ? { columnKey: columnSort.column, order: columnSort.direction === 'ASC' ? 1 : -1 }
+        : null
+
+    const handleSort = (newSorting: Sorting | null): void => {
+        if (newSorting === null) {
+            setColumnSort(null)
+        } else {
+            setColumnSort(newSorting.columnKey, newSorting.order === 1 ? 'ASC' : 'DESC')
+        }
+    }
 
     const tableColumns: LemonTableColumn<TableDataCell<any>[], any>[] = tabularColumns.map(
         ({ column, settings }, index) => {
@@ -98,29 +112,7 @@ export const Table = (props: TableProps): JSX.Element => {
                         )}
                     </div>
                 ),
-                sorter: (a: TableDataCell<any>[], b: TableDataCell<any>[]): number => {
-                    const aValue = a[index]?.value
-                    const bValue = b[index]?.value
-
-                    // Handle null values - nulls go to the end
-                    if (aValue === null && bValue === null) {
-                        return 0
-                    }
-                    if (aValue === null) {
-                        return 1
-                    }
-                    if (bValue === null) {
-                        return -1
-                    }
-
-                    // Compare based on type
-                    if (typeof aValue === 'number' && typeof bValue === 'number') {
-                        return aValue - bValue
-                    }
-
-                    // String comparison
-                    return String(aValue).localeCompare(String(bValue))
-                },
+                sorter: true, // Use server-side sorting via ORDER BY
                 render: (_, data, recordIndex: number, rowCount: number) => {
                     return (
                         <div className="truncate">
@@ -201,8 +193,10 @@ export const Table = (props: TableProps): JSX.Element => {
             loading={responseLoading}
             pagination={{ pageSize: DEFAULT_PAGE_SIZE }}
             maxHeaderWidth="15rem"
-            noSortingCancellation
+            noSortingCancellation={false}
             useURLForSorting={false}
+            sorting={sorting}
+            onSort={handleSort}
             emptyState={
                 responseError ? (
                     <InsightErrorState

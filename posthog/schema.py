@@ -6696,6 +6696,14 @@ class SurveyQuestionSchema(BaseModel):
     upperBoundLabel: str | None = None
 
 
+class TableSettingsOrderBy(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: str
+    direction: Literal["ASC", "DESC"]
+
+
 class TableSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6703,6 +6711,7 @@ class TableSettings(BaseModel):
     columns: list[ChartAxis] | None = None
     conditionalFormatting: list[ConditionalFormattingRule] | None = None
     pinnedColumns: list[str] | None = None
+    orderBy: TableSettingsOrderBy | None = None
 
 
 class TaskExecutionItem(BaseModel):
