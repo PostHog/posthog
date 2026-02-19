@@ -37,25 +37,16 @@ class TestUpsertAlertTool(BaseTest):
             }
         return UpsertAlertTool(team=self.team, user=self.user, config=config)
 
-    async def _create_trends_insight(self, name: str = "Test Insight", team: Team | None = None) -> Insight:
+    async def _create_insight(
+        self, name: str = "Test Insight", team: Team | None = None, query_kind: str = "TrendsQuery"
+    ) -> Insight:
         return await sync_to_async(Insight.objects.create)(
             team=team or self.team,
             name=name,
             created_by=self.user,
             query={
                 "kind": "InsightVizNode",
-                "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
-            },
-        )
-
-    async def _create_funnel_insight(self) -> Insight:
-        return await sync_to_async(Insight.objects.create)(
-            team=self.team,
-            name="Test Funnel",
-            created_by=self.user,
-            query={
-                "kind": "InsightVizNode",
-                "source": {"kind": "FunnelsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "source": {"kind": query_kind, "series": [{"kind": "EventsNode", "event": "$pageview"}]},
             },
         )
 
@@ -107,7 +98,7 @@ class TestUpsertAlertTool(BaseTest):
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_create_alert_success(self):
-        insight = await self._create_trends_insight()
+        insight = await self._create_insight()
         tool = self._setup_tool()
 
         content, artifact = await tool._arun_impl(
@@ -123,6 +114,8 @@ class TestUpsertAlertTool(BaseTest):
         assert artifact["alert_name"] == "Daily signups below 100"
         assert artifact["insight_id"] == insight.id
         assert artifact["insight_auto_saved"] is False
+        assert insight.short_id in artifact["alert_url"]
+        assert artifact["alert_url"].startswith("/insights/")
 
         alert = await sync_to_async(AlertConfiguration.objects.get)(id=artifact["alert_id"])
         assert alert.name == "Daily signups below 100"
@@ -134,58 +127,94 @@ class TestUpsertAlertTool(BaseTest):
         assert threshold.configuration["bounds"]["lower"] == 100.0
         assert threshold.configuration["type"] == InsightThresholdType.ABSOLUTE
 
+        subscription = await sync_to_async(AlertSubscription.objects.get)(alert_configuration=alert)
+        assert subscription.user_id == self.user.id
+
+    @parameterized.expand(
+        [
+            (
+                "both_bounds",
+                {"lower_threshold": 50.0, "upper_threshold": 200.0},
+                lambda alert, threshold: (
+                    threshold.configuration["bounds"]["lower"] == 50.0
+                    and threshold.configuration["bounds"]["upper"] == 200.0
+                ),
+            ),
+            (
+                "percentage_threshold",
+                {
+                    "condition_type": AlertConditionType.RELATIVE_INCREASE,
+                    "upper_threshold": 0.5,
+                    "threshold_type": InsightThresholdType.PERCENTAGE,
+                },
+                lambda alert, threshold: (
+                    threshold.configuration["type"] == InsightThresholdType.PERCENTAGE
+                    and threshold.configuration["bounds"]["upper"] == 0.5
+                    and alert.condition == {"type": AlertConditionType.RELATIVE_INCREASE}
+                ),
+            ),
+            (
+                "weekly_interval",
+                {"lower_threshold": 100.0, "calculation_interval": AlertCalculationInterval.WEEKLY},
+                lambda alert, threshold: alert.calculation_interval == AlertCalculationInterval.WEEKLY,
+            ),
+            (
+                "series_index",
+                {"lower_threshold": 10.0, "series_index": 1},
+                lambda alert, threshold: alert.config is not None and alert.config["series_index"] == 1,
+            ),
+            (
+                "disabled",
+                {"lower_threshold": 100.0, "enabled": False},
+                lambda alert, threshold: alert.enabled is False,
+            ),
+            (
+                "skip_weekend",
+                {"lower_threshold": 100.0, "skip_weekend": True},
+                lambda alert, threshold: alert.skip_weekend is True,
+            ),
+            (
+                "negative_threshold",
+                {"lower_threshold": -50.0},
+                lambda alert, threshold: threshold.configuration["bounds"]["lower"] == -50.0,
+            ),
+            (
+                "zero_threshold",
+                {"lower_threshold": 0.0},
+                lambda alert, threshold: threshold.configuration["bounds"]["lower"] == 0.0,
+            ),
+            (
+                "long_name_truncated",
+                {"lower_threshold": 100.0, "name": "A" * 500},
+                lambda alert, threshold: len(alert.name) == 255,
+            ),
+        ]
+    )
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_create_alert_with_both_bounds(self):
-        insight = await self._create_trends_insight()
+    async def test_create_alert_with_option(self, _name, extra_kwargs, check):
+        insight = await self._create_insight()
         tool = self._setup_tool()
 
-        content, artifact = await tool._arun_impl(
-            action=CreateAlertAction(
-                name="Value in range",
-                condition_type=AlertConditionType.ABSOLUTE_VALUE,
-                insight_id=insight.id,
-                lower_threshold=50.0,
-                upper_threshold=200.0,
-            )
-        )
+        action_kwargs = {
+            "name": f"Alert {_name}",
+            "condition_type": AlertConditionType.ABSOLUTE_VALUE,
+            "insight_id": insight.id,
+            **extra_kwargs,
+        }
+
+        content, artifact = await tool._arun_impl(action=CreateAlertAction(**action_kwargs))
 
         assert "created successfully" in content
-
         alert = await sync_to_async(AlertConfiguration.objects.get)(id=artifact["alert_id"])
         threshold = await sync_to_async(lambda: alert.threshold)()
         assert threshold is not None
-        assert threshold.configuration["bounds"]["lower"] == 50.0
-        assert threshold.configuration["bounds"]["upper"] == 200.0
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_create_alert_percentage_threshold(self):
-        insight = await self._create_trends_insight()
-        tool = self._setup_tool()
-
-        content, artifact = await tool._arun_impl(
-            action=CreateAlertAction(
-                name="50% increase alert",
-                condition_type=AlertConditionType.RELATIVE_INCREASE,
-                insight_id=insight.id,
-                upper_threshold=0.5,
-                threshold_type=InsightThresholdType.PERCENTAGE,
-            )
-        )
-
-        assert "created successfully" in content
-
-        alert = await sync_to_async(AlertConfiguration.objects.get)(id=artifact["alert_id"])
-        threshold = await sync_to_async(lambda: alert.threshold)()
-        assert threshold is not None
-        assert threshold.configuration["type"] == InsightThresholdType.PERCENTAGE
-        assert threshold.configuration["bounds"]["upper"] == 0.5
+        assert check(alert, threshold), f"Check failed for {_name}"
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_create_alert_from_context(self):
-        insight = await self._create_trends_insight()
+        insight = await self._create_insight()
         tool = self._setup_tool(context={"insight_id": insight.id})
 
         content, artifact = await tool._arun_impl(
@@ -201,154 +230,8 @@ class TestUpsertAlertTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_create_alert_subscribes_current_user(self):
-        insight = await self._create_trends_insight()
-        tool = self._setup_tool()
-
-        content, artifact = await tool._arun_impl(
-            action=CreateAlertAction(
-                name="Subscription test",
-                condition_type=AlertConditionType.ABSOLUTE_VALUE,
-                insight_id=insight.id,
-                lower_threshold=100.0,
-            )
-        )
-
-        assert "created successfully" in content
-        alert = await sync_to_async(AlertConfiguration.objects.get)(id=artifact["alert_id"])
-        subscription = await sync_to_async(AlertSubscription.objects.get)(alert_configuration=alert)
-        assert subscription.user_id == self.user.id
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_create_alert_with_custom_interval(self):
-        insight = await self._create_trends_insight()
-        tool = self._setup_tool()
-
-        content, artifact = await tool._arun_impl(
-            action=CreateAlertAction(
-                name="Weekly alert",
-                condition_type=AlertConditionType.RELATIVE_DECREASE,
-                insight_id=insight.id,
-                lower_threshold=0.2,
-                threshold_type=InsightThresholdType.PERCENTAGE,
-                calculation_interval=AlertCalculationInterval.WEEKLY,
-            )
-        )
-
-        assert "created successfully" in content
-
-        alert = await sync_to_async(AlertConfiguration.objects.get)(id=artifact["alert_id"])
-        assert alert.calculation_interval == AlertCalculationInterval.WEEKLY
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_create_alert_with_series_index(self):
-        insight = await self._create_trends_insight()
-        tool = self._setup_tool()
-
-        content, artifact = await tool._arun_impl(
-            action=CreateAlertAction(
-                name="Second series alert",
-                condition_type=AlertConditionType.ABSOLUTE_VALUE,
-                insight_id=insight.id,
-                lower_threshold=10.0,
-                series_index=1,
-            )
-        )
-
-        assert "created successfully" in content
-
-        alert = await sync_to_async(AlertConfiguration.objects.get)(id=artifact["alert_id"])
-        assert alert.config is not None
-        assert alert.config["series_index"] == 1
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_create_disabled_alert(self):
-        insight = await self._create_trends_insight()
-        tool = self._setup_tool()
-
-        content, artifact = await tool._arun_impl(
-            action=CreateAlertAction(
-                name="Draft alert",
-                condition_type=AlertConditionType.ABSOLUTE_VALUE,
-                insight_id=insight.id,
-                lower_threshold=100.0,
-                enabled=False,
-            )
-        )
-
-        assert "created successfully" in content
-        assert "disabled" in content
-
-        alert = await sync_to_async(AlertConfiguration.objects.get)(id=artifact["alert_id"])
-        assert alert.enabled is False
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_create_alert_with_skip_weekend(self):
-        insight = await self._create_trends_insight()
-        tool = self._setup_tool()
-
-        content, artifact = await tool._arun_impl(
-            action=CreateAlertAction(
-                name="Weekday only alert",
-                condition_type=AlertConditionType.ABSOLUTE_VALUE,
-                insight_id=insight.id,
-                lower_threshold=100.0,
-                skip_weekend=True,
-            )
-        )
-
-        assert "created successfully" in content
-
-        alert = await sync_to_async(AlertConfiguration.objects.get)(id=artifact["alert_id"])
-        assert alert.skip_weekend is True
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_create_alert_condition_type_persisted(self):
-        insight = await self._create_trends_insight()
-        tool = self._setup_tool()
-
-        content, artifact = await tool._arun_impl(
-            action=CreateAlertAction(
-                name="Relative increase alert",
-                condition_type=AlertConditionType.RELATIVE_INCREASE,
-                insight_id=insight.id,
-                upper_threshold=0.3,
-                threshold_type=InsightThresholdType.PERCENTAGE,
-            )
-        )
-
-        assert "created successfully" in content
-        alert = await sync_to_async(AlertConfiguration.objects.get)(id=artifact["alert_id"])
-        assert alert.condition == {"type": AlertConditionType.RELATIVE_INCREASE}
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_create_alert_returns_view_url(self):
-        insight = await self._create_trends_insight()
-        tool = self._setup_tool()
-
-        content, artifact = await tool._arun_impl(
-            action=CreateAlertAction(
-                name="URL test",
-                condition_type=AlertConditionType.ABSOLUTE_VALUE,
-                insight_id=insight.id,
-                lower_threshold=100.0,
-            )
-        )
-
-        assert "created successfully" in content
-        assert insight.short_id in artifact["alert_url"]
-        assert artifact["alert_url"].startswith("/insights/")
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
     async def test_create_multiple_alerts_for_same_insight(self):
-        insight = await self._create_trends_insight()
+        insight = await self._create_insight()
         tool = self._setup_tool()
 
         content1, artifact1 = await tool._arun_impl(
@@ -385,7 +268,7 @@ class TestUpsertAlertTool(BaseTest):
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_resolve_insight_by(self, _name, get_id):
-        insight = await self._create_trends_insight()
+        insight = await self._create_insight()
         tool = self._setup_tool()
 
         content, artifact = await tool._arun_impl(
@@ -403,7 +286,7 @@ class TestUpsertAlertTool(BaseTest):
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_rejects_non_trends_insight(self):
-        insight = await self._create_funnel_insight()
+        insight = await self._create_insight(query_kind="FunnelsQuery")
         tool = self._setup_tool()
 
         content, artifact = await tool._arun_impl(
@@ -446,7 +329,7 @@ class TestUpsertAlertTool(BaseTest):
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_rejects_no_thresholds(self):
-        insight = await self._create_trends_insight()
+        insight = await self._create_insight()
         tool = self._setup_tool()
 
         content, artifact = await tool._arun_impl(
@@ -463,7 +346,7 @@ class TestUpsertAlertTool(BaseTest):
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_rejects_when_alert_limit_reached(self):
-        insight = await self._create_trends_insight()
+        insight = await self._create_insight()
         await self._create_alert(insight)
         tool = self._setup_tool()
 
@@ -480,210 +363,127 @@ class TestUpsertAlertTool(BaseTest):
         assert "limited to 1 alerts" in content.lower()
         assert artifact["error"] == "plan_limit_reached"
 
+    @parameterized.expand(
+        [
+            ("via_explicit_id", False),
+            ("via_context", True),
+        ]
+    )
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_rejects_insight_from_other_team(self):
+    async def test_rejects_insight_from_other_team(self, _name, use_context):
         other_org = await sync_to_async(Organization.objects.create)(name="Other Org")
         other_team = await sync_to_async(Team.objects.create)(organization=other_org, name="Other Team")
-        other_insight = await self._create_trends_insight(name="Other Team Insight", team=other_team)
+        other_insight = await self._create_insight(name="Other Team Insight", team=other_team)
 
-        tool = self._setup_tool()
-
-        content, artifact = await tool._arun_impl(
-            action=CreateAlertAction(
+        if use_context:
+            tool = self._setup_tool(context={"insight_id": other_insight.id})
+            action = CreateAlertAction(
+                name="Cross-team alert",
+                condition_type=AlertConditionType.ABSOLUTE_VALUE,
+                lower_threshold=100.0,
+            )
+        else:
+            tool = self._setup_tool()
+            action = CreateAlertAction(
                 name="Cross-team alert",
                 condition_type=AlertConditionType.ABSOLUTE_VALUE,
                 insight_id=other_insight.id,
                 lower_threshold=100.0,
             )
-        )
+
+        content, artifact = await tool._arun_impl(action=action)
 
         assert "not found" in content.lower()
         assert artifact["error"] == "insight_not_found"
         count = await sync_to_async(AlertConfiguration.objects.filter(team=self.team).count)()
         assert count == 0
 
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_rejects_insight_from_other_team_via_context(self):
-        other_org = await sync_to_async(Organization.objects.create)(name="Other Org")
-        other_team = await sync_to_async(Team.objects.create)(organization=other_org, name="Other Team")
-        other_insight = await self._create_trends_insight(name="Other Team Insight", team=other_team)
-
-        tool = self._setup_tool(context={"insight_id": other_insight.id})
-
-        content, artifact = await tool._arun_impl(
-            action=CreateAlertAction(
-                name="Cross-team context alert",
-                condition_type=AlertConditionType.ABSOLUTE_VALUE,
-                lower_threshold=100.0,
-            )
-        )
-
-        assert "not found" in content.lower()
-        assert artifact["error"] == "insight_not_found"
-        count = await sync_to_async(AlertConfiguration.objects.filter(team=self.team).count)()
-        assert count == 0
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_truncates_long_name(self):
-        insight = await self._create_trends_insight()
-        tool = self._setup_tool()
-        long_name = "A" * 500
-
-        content, artifact = await tool._arun_impl(
-            action=CreateAlertAction(
-                name=long_name,
-                condition_type=AlertConditionType.ABSOLUTE_VALUE,
-                insight_id=insight.id,
-                lower_threshold=100.0,
-            )
-        )
-
-        assert "created successfully" in content
-        alert = await sync_to_async(AlertConfiguration.objects.get)(id=artifact["alert_id"])
-        assert len(alert.name) == 255
-
     @parameterized.expand(
         [
-            ("negative", -50.0),
-            ("zero", 0.0),
-        ]
-    )
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_threshold_edge_value(self, _name, value):
-        insight = await self._create_trends_insight()
-        tool = self._setup_tool()
-
-        content, artifact = await tool._arun_impl(
-            action=CreateAlertAction(
-                name=f"Threshold {_name}",
-                condition_type=AlertConditionType.ABSOLUTE_VALUE,
-                insight_id=insight.id,
-                lower_threshold=value,
-            )
-        )
-
-        assert "created successfully" in content
-        alert = await sync_to_async(AlertConfiguration.objects.get)(id=artifact["alert_id"])
-        threshold = await sync_to_async(lambda: alert.threshold)()
-        assert threshold is not None
-        assert threshold.configuration["bounds"]["lower"] == value
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_update_alert_threshold(self):
-        insight = await self._create_trends_insight()
-        alert = await self._create_alert(insight, lower_threshold=100.0)
-        tool = self._setup_tool()
-
-        content, artifact = await tool._arun_impl(
-            action=UpdateAlertAction(alert_id=str(alert.id), upper_threshold=200.0)
-        )
-
-        assert "updated successfully" in content
-        await sync_to_async(alert.refresh_from_db)()
-        threshold = await sync_to_async(lambda: alert.threshold)()
-        assert threshold is not None
-        assert threshold.configuration["bounds"]["upper"] == 200.0
-        assert threshold.configuration["bounds"]["lower"] == 100.0
-
-    @parameterized.expand(
-        [
-            ("name", {"name": "Old Name"}, {"name": "New Name"}, "name", "New Name"),
-            ("enabled", {"enabled": True}, {"enabled": False}, "enabled", False),
+            # Field updates
+            (
+                "name",
+                {"name": "Old Name"},
+                {"name": "New Name"},
+                lambda a, t: a.name == "New Name",
+            ),
+            (
+                "enabled",
+                {"enabled": True},
+                {"enabled": False},
+                lambda a, t: a.enabled is False,
+            ),
             (
                 "condition_type",
                 {"condition_type": AlertConditionType.ABSOLUTE_VALUE},
                 {"condition_type": AlertConditionType.RELATIVE_INCREASE},
-                "condition",
-                {"type": AlertConditionType.RELATIVE_INCREASE},
+                lambda a, t: a.condition == {"type": AlertConditionType.RELATIVE_INCREASE},
             ),
             (
                 "calculation_interval",
                 {"calculation_interval": AlertCalculationInterval.DAILY},
                 {"calculation_interval": AlertCalculationInterval.WEEKLY},
-                "calculation_interval",
-                AlertCalculationInterval.WEEKLY,
+                lambda a, t: a.calculation_interval == AlertCalculationInterval.WEEKLY,
+            ),
+            # Threshold updates
+            (
+                "add_upper_bound",
+                {"lower_threshold": 100.0},
+                {"upper_threshold": 200.0},
+                lambda a, t: (
+                    t.configuration["bounds"]["lower"] == 100.0 and t.configuration["bounds"]["upper"] == 200.0
+                ),
+            ),
+            (
+                "change_threshold_type",
+                {"lower_threshold": 100.0, "threshold_type": InsightThresholdType.ABSOLUTE},
+                {"threshold_type": InsightThresholdType.PERCENTAGE, "lower_threshold": 0.5},
+                lambda a, t: (
+                    t.configuration["type"] == InsightThresholdType.PERCENTAGE
+                    and t.configuration["bounds"]["lower"] == 0.5
+                ),
+            ),
+            # Recheck side effects
+            (
+                "threshold_change_resets_state",
+                {"lower_threshold": 100.0},
+                {"upper_threshold": 200.0},
+                lambda a, t: a.state == AlertState.NOT_FIRING and a.next_check_at is None,
+            ),
+            (
+                "condition_change_resets_state",
+                {"condition_type": AlertConditionType.ABSOLUTE_VALUE},
+                {"condition_type": AlertConditionType.RELATIVE_INCREASE},
+                lambda a, t: a.state == AlertState.NOT_FIRING and a.next_check_at is None,
+            ),
+            (
+                "interval_change_clears_next_check_only",
+                {"calculation_interval": AlertCalculationInterval.DAILY},
+                {"calculation_interval": AlertCalculationInterval.WEEKLY},
+                lambda a, t: a.state == AlertState.FIRING and a.next_check_at is None,
             ),
         ]
     )
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_update_single_field(self, _name, create_kwargs, update_kwargs, field, expected):
-        insight = await self._create_trends_insight()
+    async def test_update_alert(self, _name, create_kwargs, update_kwargs, check):
+        insight = await self._create_insight()
         alert = await self._create_alert(insight, **create_kwargs)
-        tool = self._setup_tool()
+        await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(state=AlertState.FIRING)
 
+        tool = self._setup_tool()
         content, artifact = await tool._arun_impl(action=UpdateAlertAction(alert_id=str(alert.id), **update_kwargs))
 
         assert "updated successfully" in content
         await sync_to_async(alert.refresh_from_db)()
-        assert getattr(alert, field) == expected
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_update_alert_resets_state_on_threshold_change(self):
-        insight = await self._create_trends_insight()
-        alert = await self._create_alert(insight, lower_threshold=100.0)
-        await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(state=AlertState.FIRING)
-
-        tool = self._setup_tool()
-
-        content, artifact = await tool._arun_impl(
-            action=UpdateAlertAction(alert_id=str(alert.id), upper_threshold=200.0)
-        )
-
-        assert "updated successfully" in content
-        await sync_to_async(alert.refresh_from_db)()
-        assert alert.state == AlertState.NOT_FIRING
-        assert alert.next_check_at is None
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_update_alert_resets_state_on_condition_change(self):
-        insight = await self._create_trends_insight()
-        alert = await self._create_alert(insight, condition_type=AlertConditionType.ABSOLUTE_VALUE)
-        await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(state=AlertState.FIRING)
-
-        tool = self._setup_tool()
-
-        content, artifact = await tool._arun_impl(
-            action=UpdateAlertAction(
-                alert_id=str(alert.id),
-                condition_type=AlertConditionType.RELATIVE_INCREASE,
-            )
-        )
-
-        assert "updated successfully" in content
-        await sync_to_async(alert.refresh_from_db)()
-        assert alert.state == AlertState.NOT_FIRING
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_update_alert_resets_next_check_on_interval_change(self):
-        insight = await self._create_trends_insight()
-        alert = await self._create_alert(insight, calculation_interval=AlertCalculationInterval.DAILY)
-
-        tool = self._setup_tool()
-
-        content, artifact = await tool._arun_impl(
-            action=UpdateAlertAction(
-                alert_id=str(alert.id),
-                calculation_interval=AlertCalculationInterval.WEEKLY,
-            )
-        )
-
-        assert "updated successfully" in content
-        await sync_to_async(alert.refresh_from_db)()
-        assert alert.next_check_at is None
+        threshold = await sync_to_async(lambda: alert.threshold)()
+        assert check(alert, threshold), f"Check failed for {_name}"
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_update_alert_no_changes(self):
-        insight = await self._create_trends_insight()
+        insight = await self._create_insight()
         alert = await self._create_alert(insight)
         tool = self._setup_tool()
 
@@ -707,7 +507,7 @@ class TestUpsertAlertTool(BaseTest):
     async def test_update_alert_cross_team_isolation(self):
         other_org = await sync_to_async(Organization.objects.create)(name="Other Org")
         other_team = await sync_to_async(Team.objects.create)(organization=other_org, name="Other Team")
-        other_insight = await self._create_trends_insight(name="Other Insight", team=other_team)
+        other_insight = await self._create_insight(name="Other Insight", team=other_team)
 
         def _create_other_alert():
             threshold = Threshold.objects.create(
@@ -742,7 +542,7 @@ class TestUpsertAlertTool(BaseTest):
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_update_alert_partial_update_preserves_other_fields(self):
-        insight = await self._create_trends_insight()
+        insight = await self._create_insight()
         alert = await self._create_alert(
             insight,
             name="Original",
@@ -768,34 +568,8 @@ class TestUpsertAlertTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_update_alert_threshold_type(self):
-        insight = await self._create_trends_insight()
-        alert = await self._create_alert(
-            insight,
-            lower_threshold=100.0,
-            threshold_type=InsightThresholdType.ABSOLUTE,
-        )
-        tool = self._setup_tool()
-
-        content, artifact = await tool._arun_impl(
-            action=UpdateAlertAction(
-                alert_id=str(alert.id),
-                threshold_type=InsightThresholdType.PERCENTAGE,
-                lower_threshold=0.5,
-            )
-        )
-
-        assert "updated successfully" in content
-        await sync_to_async(alert.refresh_from_db)()
-        threshold = await sync_to_async(lambda: alert.threshold)()
-        assert threshold is not None
-        assert threshold.configuration["type"] == InsightThresholdType.PERCENTAGE
-        assert threshold.configuration["bounds"]["lower"] == 0.5
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
     async def test_update_alert_rejects_lower_greater_than_upper(self):
-        insight = await self._create_trends_insight()
+        insight = await self._create_insight()
         alert = await self._create_alert(insight, lower_threshold=50.0, upper_threshold=200.0)
         tool = self._setup_tool()
 
