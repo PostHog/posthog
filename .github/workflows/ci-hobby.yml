@@ -33,6 +33,7 @@ jobs:
         name: Determine need to run hobby checks
         outputs:
             should_run: ${{ steps.filter.outputs.hobby == 'true' || steps.check-label.outputs.has_label == 'true' }}
+            installer_changed: ${{ steps.filter.outputs.installer }}
             label_removed: ${{ steps.check-label.outputs.label_removed }}
         steps:
             - uses: actions/checkout@v6
@@ -46,9 +47,12 @@ jobs:
                         - docker-compose.base.yml
                         - docker-compose.hobby.yml
                         - 'bin/*'
+                        - 'bin/hobby-installer/**'
                         - 'docker/*'
                         - uv.lock
                         - .github/workflows/ci-hobby.yml
+                      installer:
+                        - 'bin/hobby-installer/**'
 
             - name: Check for preview label
               id: check-label
@@ -309,6 +313,7 @@ jobs:
                   BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
                   DIGITALOCEAN_SSH_PRIVATE_KEY: ${{ secrets.DO_DEPLOY_SSH_PRIVATE_KEY }}
+                  INSTALLER_CHANGED: ${{ needs.changes.outputs.installer_changed || 'false' }}
             - name: Update comment - Instance created
               if: env.PREVIEW_MODE == 'true' && env.HOBBY_COMMENT_ID
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b

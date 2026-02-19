@@ -19,7 +19,6 @@ jobs:
         runs-on: ubuntu-latest
         if: >-
             github.event.pull_request.head.repo.full_name == github.repository
-            && contains(fromJSON('["MEMBER","OWNER"]'), github.event.pull_request.author_association)
             && (
               (
                 github.event.action == 'labeled'

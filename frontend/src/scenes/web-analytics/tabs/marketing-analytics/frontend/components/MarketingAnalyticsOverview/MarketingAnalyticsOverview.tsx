@@ -2,6 +2,7 @@ import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { OverviewGrid, OverviewItem } from '~/queries/nodes/OverviewGrid/OverviewGrid'
@@ -40,7 +41,7 @@ export function MarketingAnalyticsOverview(props: {
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
-    const { response, responseLoading } = useValues(logic)
+    const { response, responseLoading, responseError } = useValues(logic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     useAttachedLogic(logic, props.attachTo)
 
@@ -65,6 +66,10 @@ export function MarketingAnalyticsOverview(props: {
     // Calculate number of skeletons based on expected metrics
     const conversionGoalMetrics = conversion_goals.length * 2 // Each conversion goal adds 2 metrics: goal + cost per conversion
     const numSkeletons = BASE_METRICS_COUNT + conversionGoalMetrics
+
+    if (responseError && !responseLoading) {
+        return <InsightErrorState title={responseError} />
+    }
 
     return (
         <>

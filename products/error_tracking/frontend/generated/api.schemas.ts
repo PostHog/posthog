@@ -99,37 +99,9 @@ export interface PatchedErrorTrackingAutoCaptureControlsApi {
     url_blocklist?: (unknown | null)[] | null
 }
 
-/**
- * * `slack` - Slack
- * `salesforce` - Salesforce
- * `hubspot` - Hubspot
- * `google-pubsub` - Google Pubsub
- * `google-cloud-storage` - Google Cloud Storage
- * `google-ads` - Google Ads
- * `google-sheets` - Google Sheets
- * `snapchat` - Snapchat
- * `linkedin-ads` - Linkedin Ads
- * `reddit-ads` - Reddit Ads
- * `tiktok-ads` - Tiktok Ads
- * `bing-ads` - Bing Ads
- * `intercom` - Intercom
- * `email` - Email
- * `linear` - Linear
- * `github` - Github
- * `gitlab` - Gitlab
- * `meta-ads` - Meta Ads
- * `twilio` - Twilio
- * `clickup` - Clickup
- * `vercel` - Vercel
- * `databricks` - Databricks
- * `azure-blob` - Azure Blob
- * `firebase` - Firebase
- * `jira` - Jira
- * `pinterest-ads` - Pinterest Ads
- */
-export type KindE61EnumApi = (typeof KindE61EnumApi)[keyof typeof KindE61EnumApi]
+export type IntegrationKindApi = (typeof IntegrationKindApi)[keyof typeof IntegrationKindApi]
 
-export const KindE61EnumApi = {
+export const IntegrationKindApi = {
     slack: 'slack',
     salesforce: 'salesforce',
     hubspot: 'hubspot',
@@ -137,40 +109,36 @@ export const KindE61EnumApi = {
     'google-cloud-storage': 'google-cloud-storage',
     'google-ads': 'google-ads',
     'google-sheets': 'google-sheets',
-    snapchat: 'snapchat',
     'linkedin-ads': 'linkedin-ads',
-    'reddit-ads': 'reddit-ads',
-    'tiktok-ads': 'tiktok-ads',
-    'bing-ads': 'bing-ads',
+    snapchat: 'snapchat',
     intercom: 'intercom',
     email: 'email',
+    twilio: 'twilio',
     linear: 'linear',
     github: 'github',
     gitlab: 'gitlab',
     'meta-ads': 'meta-ads',
-    twilio: 'twilio',
     clickup: 'clickup',
-    vercel: 'vercel',
+    'reddit-ads': 'reddit-ads',
     databricks: 'databricks',
+    'tiktok-ads': 'tiktok-ads',
+    'bing-ads': 'bing-ads',
+    vercel: 'vercel',
     'azure-blob': 'azure-blob',
     firebase: 'firebase',
     jira: 'jira',
-    'pinterest-ads': 'pinterest-ads',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
-    readonly id: number
-    readonly kind: KindE61EnumApi
-    readonly display_name: string
+    display_name: string
+    id: number
+    kind: IntegrationKindApi
 }
 
 export interface ErrorTrackingExternalReferenceApi {
-    readonly id: string
-    readonly integration: ErrorTrackingExternalReferenceIntegrationApi
-    integration_id: number
-    config: unknown
-    issue: string
-    readonly external_url: string
+    external_url: string
+    id: string
+    integration: ErrorTrackingExternalReferenceIntegrationApi
 }
 
 export interface PaginatedErrorTrackingExternalReferenceListApi {
