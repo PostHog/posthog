@@ -6,7 +6,7 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { InboxSetupContext } from 'scenes/inbox/InboxSetup'
+import { InboxSetupContext } from 'scenes/inbox/SessionAnalysisSetup'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'

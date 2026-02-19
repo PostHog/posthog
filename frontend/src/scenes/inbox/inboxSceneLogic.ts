@@ -35,6 +35,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         closeSessionAnalysisSetup: true,
         toggleSessionAnalysis: true,
         saveSessionAnalysisFilters: (filters: RecordingUniversalFilters) => ({ filters }),
+        clearSessionAnalysisFilters: true,
     }),
 
     loaders(({ values }) => ({
@@ -57,7 +58,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             },
         ],
         sourceConfigs: [
-            [] as SignalSourceConfig[],
+            null as SignalSourceConfig[] | null,
             {
                 loadSourceConfigs: async () => {
                     const response = await api.signalSourceConfigs.list()
@@ -104,7 +105,10 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             },
         ],
         sourceConfigs: {
-            toggleSessionAnalysis: (state: SignalSourceConfig[]) => {
+            toggleSessionAnalysis: (state: SignalSourceConfig[] | null) => {
+                if (!state) {
+                    return state
+                }
                 const existing = state.find((c) => c.source_type === SignalSourceType.SESSION_ANALYSIS)
                 if (existing) {
                     return state.map((c) =>
@@ -154,16 +158,22 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         ],
         sessionAnalysisConfig: [
             (s) => [s.sourceConfigs],
-            (sourceConfigs: SignalSourceConfig[]): SignalSourceConfig | null =>
-                sourceConfigs.find((c) => c.source_type === SignalSourceType.SESSION_ANALYSIS) ?? null,
+            (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
+                sourceConfigs?.find((c) => c.source_type === SignalSourceType.SESSION_ANALYSIS) ?? null,
         ],
-        hasSessionAnalysisSource: [
-            (s) => [s.sessionAnalysisConfig],
-            (config: SignalSourceConfig | null): boolean => !!config?.enabled,
+        hasNoSources: [
+            (s) => [s.sourceConfigs, s.enabledSourcesCount],
+            (sourceConfigs: SignalSourceConfig[] | null, enabledSourcesCount: number): boolean =>
+                sourceConfigs !== null && enabledSourcesCount === 0,
+        ],
+        shouldShowEnablingCtaOnMobile: [
+            (s) => [s.hasNoSources, s.filteredReports, s.reportsLoading],
+            (hasNoSources, filteredReports, reportsLoading): boolean =>
+                hasNoSources && !reportsLoading && filteredReports.length === 0,
         ],
         enabledSourcesCount: [
             (s) => [s.sourceConfigs],
-            (sourceConfigs: SignalSourceConfig[]): number => sourceConfigs.filter((c) => c.enabled).length,
+            (sourceConfigs: SignalSourceConfig[] | null): number => sourceConfigs?.filter((c) => c.enabled).length ?? 0,
         ],
     }),
 
@@ -230,6 +240,19 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 actions.closeSessionAnalysisSetup()
             } catch (error: any) {
                 const errorMessage = error?.detail || error?.message || 'Failed to save filters'
+                lemonToast.error(errorMessage)
+            }
+        },
+        clearSessionAnalysisFilters: async () => {
+            try {
+                const existing = values.sessionAnalysisConfig
+                if (existing && existing.id !== 'optimistic') {
+                    await api.signalSourceConfigs.update(existing.id, { config: {}, enabled: true })
+                }
+                lemonToast.success('Session analysis filters cleared')
+                actions.loadSourceConfigs()
+            } catch (error: any) {
+                const errorMessage = error?.detail || error?.message || 'Failed to clear filters'
                 lemonToast.error(errorMessage)
             }
         },

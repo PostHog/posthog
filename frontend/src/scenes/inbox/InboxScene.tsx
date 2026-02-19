@@ -27,7 +27,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { SourcesModal } from './InboxSetup'
+import { SourcesModal } from './SourcesModal'
 import { inboxSceneLogic } from './inboxSceneLogic'
 import { SignalReport, SignalReportArtefact } from './types'
 
@@ -113,12 +113,19 @@ function ReportListSkeleton({ active = true }: { active?: boolean }): JSX.Elemen
 }
 
 function ReportListPane(): JSX.Element {
-    const { filteredReports, reportsLoading, searchQuery, reports, selectedReportId, hasSessionAnalysisSource } =
-        useValues(inboxSceneLogic)
+    const {
+        filteredReports,
+        reportsLoading,
+        searchQuery,
+        reports,
+        selectedReportId,
+        hasNoSources,
+        shouldShowEnablingCtaOnMobile,
+    } = useValues(inboxSceneLogic)
     const { setSearchQuery, openSourcesModal } = useActions(inboxSceneLogic)
     const scrollRef = useRef<HTMLDivElement>(null)
     const [isScrollable, setIsScrollable] = useState(false)
-    filteredReports.length = 0
+
     useEffect(() => {
         const el = scrollRef.current
         if (!el) {
@@ -136,8 +143,12 @@ function ReportListPane(): JSX.Element {
             ref={scrollRef}
             className={clsx(
                 `flex-shrink-0 h-full p-3 overflow-y-auto w-full`,
-                `@3xl/main-content-container:w-120 @3xl/main-content-container:max-w-[50%] @3xl/main-content-container:border-r border-primary`,
-                selectedReportId != null && 'hidden @3xl/main-content-container:block'
+                `@3xl/main-content-container:max-w-[50%] @3xl/main-content-container:border-r border-primary`,
+                // On mobile, hide the list when a report is selected, or when the user hasn't set up Inbox yet
+                selectedReportId != null ||
+                    (shouldShowEnablingCtaOnMobile && 'hidden @3xl/main-content-container:block'),
+                // List narrower when no reports, to focus attention on the main CTA area; wider with reports for readability
+                reports.length ? '@3xl/main-content-container:w-120' : '@3xl/main-content-container:w-80'
             )}
         >
             <LemonInput
@@ -157,7 +168,7 @@ function ReportListPane(): JSX.Element {
                           : null
                 }
             />
-            {!hasSessionAnalysisSource && filteredReports.length > 0 && (
+            {hasNoSources && filteredReports.length > 0 && (
                 <LemonBanner
                     type="info"
                     action={{ children: 'Set up sources now', onClick: openSourcesModal, icon: <IconGear /> }}
@@ -179,20 +190,9 @@ function ReportListPane(): JSX.Element {
                         <ReportListSkeleton active={false} />
                         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-primary to-transparent" />
                         <div className="absolute inset-0 flex flex-col items-center justify-center">
-                            <p className="text-sm text-secondary font-medium m-0">
+                            <p className="text-sm text-secondary font-medium m-0 cursor-default">
                                 {searchQuery ? 'No reports match your search.' : 'No reports yet.'}
                             </p>
-                            {!hasSessionAnalysisSource && (
-                                <LemonButton
-                                    type="secondary"
-                                    icon={<IconNotification />}
-                                    onClick={openSourcesModal}
-                                    size="small"
-                                    className="mt-2"
-                                >
-                                    Enable your first source
-                                </LemonButton>
-                            )}
                         </div>
                     </div>
                 ) : (
@@ -202,7 +202,7 @@ function ReportListPane(): JSX.Element {
                         ))}
                         {isScrollable && filteredReports.length > 0 && (
                             <Tooltip title="You've reached the end, friend." delayMs={0} placement="right">
-                                <PopUpBinocularsHog className="-mb-3 mt-1 w-24 self-center h-auto object-bottom" />
+                                <PopUpBinocularsHog className="-mb-3.5 mt-1 w-24 self-center h-auto object-bottom" />
                             </Tooltip>
                         )}
                     </>
@@ -240,7 +240,8 @@ function ArtefactCard({ artefact }: { artefact: SignalReportArtefact }): JSX.Ele
 }
 
 function ReportDetailPane(): JSX.Element {
-    const { selectedReport, hasSessionAnalysisSource, artefacts, artefactsLoading } = useValues(inboxSceneLogic)
+    const { selectedReport, hasNoSources, shouldShowEnablingCtaOnMobile, artefacts, artefactsLoading } =
+        useValues(inboxSceneLogic)
     const { openSourcesModal } = useActions(inboxSceneLogic)
 
     const baseClasses = 'flex-1 min-w-0 h-full self-start bg-surface-primary overflow-y-auto flex flex-col'
@@ -248,7 +249,12 @@ function ReportDetailPane(): JSX.Element {
     if (!selectedReport) {
         return (
             <div
-                className={`${baseClasses} items-center justify-center p-8 cursor-default hidden @3xl/main-content-container:flex`}
+                className={clsx(
+                    baseClasses,
+                    `items-center justify-center p-8 cursor-default`,
+                    // If user has no sources and no reports, always show the CTA area on mobile
+                    !shouldShowEnablingCtaOnMobile && 'hidden @3xl/main-content-container:flex'
+                )}
             >
                 <GraphsHog className="w-36 mb-6" />
                 <h3 className="text-xl font-bold mb-4 text-center">
@@ -271,9 +277,9 @@ function ReportDetailPane(): JSX.Element {
                         sources on the way: issue trackers, support platforms, and more.
                     </div>
                 </div>
-                {!hasSessionAnalysisSource && (
+                {hasNoSources && (
                     <LemonButton type="primary" onClick={openSourcesModal} icon={<IconNotification />} className="mt-4">
-                        Enable your first source now
+                        Enable Inbox now
                     </LemonButton>
                 )}
             </div>
@@ -388,7 +394,7 @@ export function InboxScene(): JSX.Element {
                 }
             />
 
-            <div className="flex items-start -mx-4 h-[calc(100vh-6.375rem)]">
+            <div className="flex items-start -mx-4 h-[calc(100vh-6.375rem+1px)]">
                 <ReportListPane />
                 <ReportDetailPane />
             </div>
