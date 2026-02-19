@@ -4419,6 +4419,27 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             expected_status=status.HTTP_201_CREATED,
         )
         self.assertEqual(non_string_payload.status_code, status.HTTP_201_CREATED)
+        # Object payloads should be normalized to JSON strings
+        stored_payload = non_string_payload.json()["filters"]["payloads"]["true"]
+        self.assertIsInstance(stored_payload, str)
+        self.assertEqual(json.loads(stored_payload), {"key": "value"})
+
+        # Other valid JSON types (number, boolean, null, array) should be accepted
+        number_payload = self._create_flag_with_properties(
+            "number-payload-flag",
+            [{"key": "key", "value": "value", "type": "person"}],
+            payloads={"true": 42},
+            expected_status=status.HTTP_201_CREATED,
+        )
+        self.assertEqual(number_payload.status_code, status.HTTP_201_CREATED)
+
+        boolean_payload = self._create_flag_with_properties(
+            "boolean-payload-flag",
+            [{"key": "key", "value": "value", "type": "person"}],
+            payloads={"true": True},
+            expected_status=status.HTTP_201_CREATED,
+        )
+        self.assertEqual(boolean_payload.status_code, status.HTTP_201_CREATED)
 
     def test_creating_feature_flag_with_behavioral_cohort(self):
         cohort_valid_for_ff = Cohort.objects.create(
