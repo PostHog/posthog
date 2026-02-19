@@ -52,13 +52,13 @@ function buildReadableStream(chunks: string[]): ReadableStream<Uint8Array> {
     })
 }
 
-export function mockStream(chunks: string[] = [': ping\n\n']): jest.SpyInstance {
+export function mockStream(chunks: string[] = [': ping\n\n']): jest.Spied {
     return jest.spyOn(api.conversations, 'stream').mockResolvedValue({
         body: buildReadableStream(chunks),
     } as Response)
 }
 
-export function mockStreamWithEvents(events: Array<{ event: string; data: unknown }>): jest.SpyInstance {
+export function mockStreamWithEvents(events: Array<{ event: string; data: unknown }>): jest.Spied {
     const chunks = events.map((entry) => `event: ${entry.event}\ndata: ${JSON.stringify(entry.data)}\n\n`)
     return mockStream(chunks)
 }
