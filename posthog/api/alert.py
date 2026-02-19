@@ -16,16 +16,9 @@ from posthog.api.documentation import extend_schema_field
 from posthog.api.insight import InsightBasicSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import AvailableFeature
 from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
-from posthog.models.alert import (
-    AlertCheck,
-    AlertConfiguration,
-    AlertSubscription,
-    Threshold,
-    are_alerts_supported_for_insight,
-)
+from posthog.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.utils import relative_date_parse
 
@@ -246,17 +239,12 @@ class AlertSerializer(serializers.ModelSerializer):
                     user=user, alert_configuration=instance, defaults={"created_by": self.context["request"].user}
                 )
 
-        if conditions_or_threshold_changed:
-            # If anything changed we set to NOT_FIRING, so it's firing and notifying with the new settings
-            instance.state = AlertState.NOT_FIRING
-
         calculation_interval_changed = (
             "calculation_interval" in validated_data
             and validated_data["calculation_interval"] != instance.calculation_interval
         )
         if conditions_or_threshold_changed or calculation_interval_changed:
-            # calculate alert right now, don't wait until preset time
-            self.next_check_at = None
+            instance.mark_for_recheck(reset_state=conditions_or_threshold_changed)
 
         return super().update(instance, validated_data)
 
@@ -267,7 +255,7 @@ class AlertSerializer(serializers.ModelSerializer):
         return value
 
     def validate_insight(self, value):
-        if value and not are_alerts_supported_for_insight(value):
+        if value and not value.are_alerts_supported:
             raise ValidationError("Alerts are not supported for this insight.")
         return value
 
@@ -285,26 +273,10 @@ class AlertSerializer(serializers.ModelSerializer):
         if self.context["request"].method != "POST":
             return attrs
 
-        user_org = self.context["request"].user.organization
-
-        alerts_feature = user_org.get_available_feature(AvailableFeature.ALERTS)
-        existing_alerts_count = AlertConfiguration.objects.filter(team_id=self.context["team_id"]).count()
-
-        if alerts_feature:
-            allowed_alerts_count = alerts_feature.get("limit")
-            # If allowed_alerts_count is None then the user is allowed unlimited alerts
-            if allowed_alerts_count is not None:
-                # Check current count against allowed limit
-                if existing_alerts_count >= allowed_alerts_count:
-                    raise ValidationError(
-                        {"alert": [f"Your team has reached the limit of {allowed_alerts_count} alerts on your plan."]}
-                    )
-        else:
-            # If the org doesn't have alerts feature, limit to that on free tier
-            if existing_alerts_count >= AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER:
-                raise ValidationError(
-                    {"alert": [f"Your plan is limited to {AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER} alerts"]}
-                )
+        if msg := AlertConfiguration.check_alert_limit(
+            self.context["team_id"], self.context["request"].user.organization
+        ):
+            raise ValidationError({"alert": [msg]})
 
         return attrs
 

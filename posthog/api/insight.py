@@ -76,7 +76,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.alert import AlertConfiguration, are_alerts_supported_for_insight
+from posthog.models.alert import AlertConfiguration
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
@@ -533,7 +533,7 @@ class InsightSerializer(InsightBasicSerializer):
                 self._update_insight_dashboards(dashboards, instance)
 
         updated_insight = super().update(instance, validated_data)
-        if not are_alerts_supported_for_insight(updated_insight):
+        if not updated_insight.are_alerts_supported:
             instance.alertconfiguration_set.all().delete()
 
         self._log_insight_update(before_update, dashboards_before_change, updated_insight, current_url, session_id)
@@ -705,7 +705,7 @@ class InsightSerializer(InsightBasicSerializer):
         return self.insight_result(insight).resolved_date_range
 
     def get_alerts(self, insight: Insight):
-        if not are_alerts_supported_for_insight(insight):
+        if not insight.are_alerts_supported:
             return []
 
         # Use prefetched alerts data
