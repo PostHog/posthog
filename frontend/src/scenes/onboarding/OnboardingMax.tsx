@@ -188,7 +188,7 @@ export function OnboardingMax(): JSX.Element {
         <BindLogic logic={maxLogic} props={{ tabId: ONBOARDING_TAB_ID }}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
                 <AIConsentPopoverWrapper>
-                    <div className="flex flex-col min-h-[calc(100vh-var(--scene-layout-header-height))]">
+                    <div className="flex flex-col items-center min-h-[calc(100vh-var(--scene-layout-header-height))]">
                         <ThreadAutoScroller>
                             {!threadVisible && (
                                 <div className="p-3 pt-4 max-w-180 w-full self-center">
@@ -204,7 +204,7 @@ export function OnboardingMax(): JSX.Element {
                                     onContinue={handleContinueToSetup}
                                 />
                             )}
-                            <div className="grow" />
+                            {!threadVisible && <div className="grow" />}
                             <SidebarQuestionInput isSticky />
                         </ThreadAutoScroller>
                     </div>
@@ -223,7 +223,7 @@ function OnboardingWelcome(): JSX.Element {
     }, [setAgentMode])
 
     return (
-        <MessageTemplate type="ai">
+        <MessageTemplate type="ai" className="items-stretch">
             <div className="flex flex-col gap-2">
                 <p className="mb-0">
                     What are you looking to do? Tell me about your project and I'll recommend the right tools.
