@@ -2047,6 +2047,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The name given to this LLM trace, generation, or span.",
             "examples": ["summarize_text"],
         },
+        "$ai_tools_called": {
+            "label": "AI Tools Called (LLM)",
+            "description": "The names of tools called by the LLM in this generation.",
+            "examples": ['["get_weather", "search_docs"]'],
+        },
+        "$ai_tool_call_count": {
+            "label": "AI Tool Call Count (LLM)",
+            "description": "The number of tool calls made by the LLM in this generation.",
+            "examples": ["2"],
+        },
         "$csp_document_url": {
             "label": "Document URL",
             "description": "The URL of the document where the violation occurred.",

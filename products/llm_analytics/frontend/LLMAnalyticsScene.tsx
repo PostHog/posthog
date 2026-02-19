@@ -42,6 +42,7 @@ import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
 import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
 import { LLMAnalyticsSetupPrompt } from './LLMAnalyticsSetupPrompt'
+import { LLMAnalyticsTools } from './LLMAnalyticsTools'
 import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
@@ -514,6 +515,20 @@ function LLMAnalyticsSceneContent(): JSX.Element {
         link: combineUrl(urls.llmAnalyticsErrors(), searchParams).url,
         'data-attr': 'errors-tab',
     })
+
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]) {
+        tabs.push({
+            key: 'tools',
+            label: 'Tools',
+            content: (
+                <LLMAnalyticsSetupPrompt>
+                    <LLMAnalyticsTools />
+                </LLMAnalyticsSetupPrompt>
+            ),
+            link: combineUrl(urls.llmAnalyticsTools(), searchParams).url,
+            'data-attr': 'tools-tab',
+        })
+    }
 
     // TODO: Once we remove FF, should add to the shortcuts list at the top of the component
     if (
