@@ -19,6 +19,7 @@ import products.signals.backend.views as signals
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
 import products.revenue_analytics.backend.api as revenue_analytics
+import products.browser_lab_testing.backend.api as browser_lab_testing
 import products.early_access_features.backend.api as early_access_feature
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
@@ -269,6 +270,20 @@ project_features_router = projects_router.register(
 # Tasks endpoints
 project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
 project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"])
+
+# Browser lab testing endpoints
+project_browser_lab_tests_router = projects_router.register(
+    r"browser_lab_tests",
+    browser_lab_testing.BrowserLabTestViewSet,
+    "project_browser_lab_tests",
+    ["team_id"],
+)
+project_browser_lab_tests_router.register(
+    r"runs",
+    browser_lab_testing.BrowserLabTestRunViewSet,
+    "project_browser_lab_test_runs",
+    ["team_id", "browser_lab_test_id"],
+)
 
 # Signal reports endpoints
 projects_router.register(r"signal_reports", signals.SignalReportViewSet, "project_signal_reports", ["team_id"])

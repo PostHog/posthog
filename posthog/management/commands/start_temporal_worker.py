@@ -130,6 +130,10 @@ from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
+from products.browser_lab_testing.backend.temporal import (
+    ACTIVITIES as BROWSER_LAB_TESTING_ACTIVITIES,
+    WORKFLOWS as BROWSER_LAB_TESTING_WORKFLOWS,
+)
 from products.tasks.backend.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
@@ -259,6 +263,11 @@ _task_queue_specs = [
         settings.EVENT_SCREENSHOTS_TASK_QUEUE,
         EVENT_SCREENSHOTS_WORKFLOWS,
         EVENT_SCREENSHOTS_ACTIVITIES,
+    ),
+    (
+        settings.BROWSER_LAB_TESTING_TASK_QUEUE,
+        BROWSER_LAB_TESTING_WORKFLOWS,
+        BROWSER_LAB_TESTING_ACTIVITIES,
     ),
 ]
 
