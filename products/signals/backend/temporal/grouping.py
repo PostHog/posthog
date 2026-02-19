@@ -361,27 +361,27 @@ async def run_signal_semantic_search_activity(input: RunSignalSemanticSearchInpu
         raise
 
 
-class LLMMatchFound(BaseModel):
+class MatchFound(BaseModel):
     match_type: Literal["existing"]
     signal_id: str
 
 
-class LLMNewGroup(BaseModel):
+class NewGroup(BaseModel):
     match_type: Literal["new"]
     title: str
     summary: str
 
 
-LLMMatchResponse = LLMMatchFound | LLMNewGroup
+MatchResponse = MatchFound | NewGroup
 
 
-def _parse_match_response(data: dict) -> LLMMatchResponse:
-    """Parse and validate LLM match response using discriminated union."""
+def _parse_match_response(data: dict) -> MatchResponse:
+    """Parse and validate match response using discriminated union."""
     match_type = data.get("match_type")
     if match_type == "existing":
-        return LLMMatchFound.model_validate(data)
+        return MatchFound.model_validate(data)
     elif match_type == "new":
-        return LLMNewGroup.model_validate(data)
+        return NewGroup.model_validate(data)
     else:
         raise ValueError(f"Invalid match_type: {match_type}")
 
@@ -442,7 +442,7 @@ SEARCH RESULTS:
     return prompt
 
 
-async def match_signal_with_llm(
+async def match_signal_to_report(
     description: str,
     source_product: str,
     source_type: str,
@@ -450,7 +450,7 @@ async def match_signal_with_llm(
     query_results: list[list[SignalCandidate]],
 ) -> MatchResult:
     """
-    Use LLM to determine if a new signal matches any existing report.
+    Determine if a new signal matches an existing report or needs a new one.
 
     Returns:
         ExistingReportMatch if a match is found, NewReportMatch otherwise
@@ -466,7 +466,7 @@ async def match_signal_with_llm(
         data = json.loads(text)
         result = _parse_match_response(data)
 
-        if isinstance(result, LLMMatchFound):
+        if isinstance(result, MatchFound):
             matched = candidates_by_id.get(result.signal_id)
             if matched is None:
                 raise ValueError(f"signal_id {result.signal_id} not found in candidates")
@@ -483,7 +483,7 @@ async def match_signal_with_llm(
 
 
 @dataclass
-class LLMMatchSignalInput:
+class MatchSignalToReportInput:
     description: str
     source_product: str
     source_type: str
@@ -492,10 +492,10 @@ class LLMMatchSignalInput:
 
 
 @temporalio.activity.defn
-async def llm_match_signal_activity(input: LLMMatchSignalInput) -> MatchResult:
-    """Use LLM to determine if new signal matches an existing report or needs a new one."""
+async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> MatchResult:
+    """Determine if a new signal matches an existing report or needs a new one."""
     try:
-        result = await match_signal_with_llm(
+        result = await match_signal_to_report(
             description=input.description,
             source_product=input.source_product,
             source_type=input.source_type,
@@ -504,7 +504,7 @@ async def llm_match_signal_activity(input: LLMMatchSignalInput) -> MatchResult:
         )
         total_candidates = sum(len(r) for r in input.query_results)
         logger.debug(
-            f"LLM match result: matched={isinstance(result, ExistingReportMatch)}",
+            f"Match result: matched={isinstance(result, ExistingReportMatch)}",
             query_count=len(input.queries),
             total_candidates=total_candidates,
         )
@@ -678,8 +678,8 @@ async def _process_one_signal(inputs: EmitSignalInputs) -> str:
     )
 
     match_result = await workflow.execute_activity(
-        llm_match_signal_activity,
-        LLMMatchSignalInput(
+        match_signal_to_report_activity,
+        MatchSignalToReportInput(
             description=inputs.description,
             source_product=inputs.source_product,
             source_type=inputs.source_type,

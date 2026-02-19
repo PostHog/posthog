@@ -75,7 +75,7 @@ class TestAITemporalModuleIntegrity:
             "fetch_signals_for_report_activity",
             "generate_search_queries_activity",
             "get_embedding_activity",
-            "llm_match_signal_activity",
+            "match_signal_to_report_activity",
             "mark_report_failed_activity",
             "mark_report_in_progress_activity",
             "mark_report_pending_input_activity",
