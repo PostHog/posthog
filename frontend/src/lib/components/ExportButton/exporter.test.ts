@@ -9,33 +9,21 @@ jest.mock('lib/api', () => ({
 }))
 
 describe('downloadExportedAsset', () => {
-    let appendChildSpy: jest.SpyInstance
-    let removeChildSpy: jest.SpyInstance
-    let clickSpy: jest.Mock
-
-    beforeEach(() => {
-        clickSpy = jest.fn()
-        appendChildSpy = jest.spyOn(document.body, 'appendChild').mockImplementation((node) => node)
-        removeChildSpy = jest.spyOn(document.body, 'removeChild').mockImplementation((node) => node)
-        jest.spyOn(document, 'createElement').mockReturnValue({
-            style: {},
-            click: clickSpy,
-        } as unknown as HTMLAnchorElement)
-    })
-
     afterEach(() => {
         jest.restoreAllMocks()
     })
 
     it('uses anchor navigation instead of fetch to avoid buffering large files in memory', () => {
-        const asset = { id: 123 } as ExportedAssetType
+        const fakeAnchor = { style: {}, click: jest.fn() } as unknown as HTMLAnchorElement
+        jest.spyOn(document, 'createElement').mockReturnValue(fakeAnchor)
+        const appendSpy = jest.spyOn(document.body, 'appendChild').mockImplementation((node) => node)
+        const removeSpy = jest.spyOn(document.body, 'removeChild').mockImplementation((node) => node)
 
-        downloadExportedAsset(asset)
+        downloadExportedAsset({ id: 123 } as ExportedAssetType)
 
-        const anchor = document.createElement('a') as unknown as Record<string, unknown>
-        expect(anchor['href']).toBe('/api/environments/1/exports/123/content?download=true')
-        expect(appendChildSpy).toHaveBeenCalled()
-        expect(clickSpy).toHaveBeenCalled()
-        expect(removeChildSpy).toHaveBeenCalled()
+        expect((fakeAnchor as any).href).toBe('/api/environments/1/exports/123/content?download=true')
+        expect(appendSpy).toHaveBeenCalledWith(fakeAnchor)
+        expect((fakeAnchor as any).click).toHaveBeenCalled()
+        expect(removeSpy).toHaveBeenCalledWith(fakeAnchor)
     })
 })
