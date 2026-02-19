@@ -39,7 +39,7 @@ export function SQLEditor({ tabId, mode = SQLEditorMode.FullScene, showDatabaseT
     const sidebarRef = useRef(null)
     const databaseTreeRef = useRef(null)
 
-    const shouldShowDatabaseTree = showDatabaseTree ?? mode === SQLEditorMode.FullScene
+    const shouldShowDatabaseTree = showDatabaseTree ?? true
 
     const editorSizingLogicProps = useMemo(
         () => ({
