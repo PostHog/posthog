@@ -198,14 +198,16 @@ export const endpointLogic = kea<endpointLogicType>([
                 actions.setEndpointName('')
                 actions.setEndpointDescription('')
                 actions.loadEndpoints()
+                
+                // Close the scene panel (info & actions panel) if endpoint was created from insight
+                if (response.derived_from_insight) {
+                    actions.setScenePanelOpen(false)
+                }
+                
                 lemonToast.success(<>Endpoint created</>, {
                     button: {
                         label: 'View',
                         action: () => {
-                            // Close the scene panel (info & actions panel) if endpoint was created from insight
-                            if (response.derived_from_insight) {
-                                actions.setScenePanelOpen(false)
-                            }
                             router.actions.push(urls.endpoint(response.name))
                         },
                     },
