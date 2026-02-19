@@ -34,7 +34,6 @@ function buildProductManifests() {
     hash.update(fse.readFileSync(buildScript))
     for (const f of allSourceFiles) {
         hash.update(fse.readFileSync(f))
-        hash.update(fse.readFileSync(f))
     }
     const digest = hash.digest('hex')
 
