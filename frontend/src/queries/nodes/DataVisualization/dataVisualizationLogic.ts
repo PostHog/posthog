@@ -32,6 +32,7 @@ import {
     DataVisualizationNode,
     HeatmapSettings,
     HogQLVariable,
+    TableSettingsOrderBy,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, DashboardType } from '~/types'
@@ -278,6 +279,23 @@ const getAutoVisualizationType = (columns: Column[], response: AnyResponseType |
     return resolveNonTimeSeriesVisualizationType(columns)
 }
 
+const applyOrderByToQuery = (query: string, orderBy: TableSettingsOrderBy | null): string => {
+    if (!orderBy) {
+        // Remove any existing ORDER BY clause
+        return query.replace(/\s+ORDER\s+BY\s+[^)]+$/i, '').trim()
+    }
+
+    // Remove existing ORDER BY clause (simple case - at end of query)
+    // This regex matches ORDER BY followed by column expressions until end of query
+    // but not ORDER BY inside subqueries (which would be followed by closing paren)
+    const queryWithoutOrderBy = query.replace(/\s+ORDER\s+BY\s+(?![^(]*\))[^)]+$/i, '').trim()
+
+    // Quote the column name to handle special characters and reserved words
+    const quotedColumn = `\`${orderBy.column.replace(/`/g, '``')}\``
+
+    return `${queryWithoutOrderBy} ORDER BY ${quotedColumn} ${orderBy.direction} NULLS LAST`
+}
+
 const getHeatmapAutoSettings = (columns: Column[], heatmapSettings: HeatmapSettings): Partial<HeatmapSettings> => {
     const stringColumns = columns.filter((column) => column.type.name === 'STRING')
     const numericalColumns = columns.filter((column) => column.type.isNumerical)
@@ -403,6 +421,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         }),
         setConditionalFormattingRulesPanelActiveKeys: (keys: string[]) => ({ keys }),
         toggleColumnPin: (columnName: string) => ({ columnName }),
+        setColumnSort: (columnName: string | null, direction?: 'ASC' | 'DESC') => ({ columnName, direction }),
         _setQuery: (node: DataVisualizationNode) => ({ node }),
     })),
     reducers(({ props }) => ({
@@ -701,6 +720,29 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         return state.filter((k: string) => k !== columnName)
                     }
                     return [...state, columnName]
+                },
+            },
+        ],
+        columnSort: [
+            (props.query.tableSettings?.orderBy ?? null) as TableSettingsOrderBy | null,
+            {
+                _setQuery: (state, { node }) => {
+                    return node.tableSettings?.orderBy ?? state
+                },
+                setColumnSort: (state, { columnName, direction }) => {
+                    if (columnName === null) {
+                        return null
+                    }
+                    // If clicking the same column, toggle direction or clear
+                    if (state?.column === columnName) {
+                        if (state.direction === 'ASC') {
+                            return { column: columnName, direction: 'DESC' }
+                        }
+                        // If already DESC, clear the sort
+                        return null
+                    }
+                    // New column, default to ASC or use provided direction
+                    return { column: columnName, direction: direction ?? 'ASC' }
                 },
             },
         ],
@@ -1068,6 +1110,20 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 },
             }))
         },
+        columnSortChanged: () => {
+            const orderBy = values.columnSort
+            actions.setQuery((query) => ({
+                ...query,
+                source: {
+                    ...query.source,
+                    query: applyOrderByToQuery(query.source.query, orderBy),
+                },
+                tableSettings: {
+                    ...query.tableSettings,
+                    orderBy: orderBy ?? undefined,
+                },
+            }))
+        },
     })),
     listeners(({ props, values, actions, sharedListeners }) => ({
         updateChartSettings: ({ settings }) => {
@@ -1116,6 +1172,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         deleteYSeries: [sharedListeners.axesChanged],
         updateConditionalFormattingRule: [sharedListeners.conditionalFormattingRules],
         toggleColumnPin: [sharedListeners.pinnedColumnsChanged],
+        setColumnSort: [sharedListeners.columnSortChanged],
     })),
     subscriptions(({ actions, values }) => ({
         columns: (value: Column[], oldValue: Column[]) => {
