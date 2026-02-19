@@ -18,7 +18,6 @@ import { clamp } from 'lib/utils'
 
 import { AnyPropertyFilter, FeatureFlagGroupType, MultivariateFlagVariant, PropertyFilterType } from '~/types'
 
-import { type ModifiedField } from './FeatureFlagTemplates'
 import {
     FeatureFlagReleaseConditionsLogicProps,
     featureFlagReleaseConditionsLogic,
@@ -27,8 +26,6 @@ import {
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
     readOnly?: boolean
     variants?: MultivariateFlagVariant[]
-    highlightedFields?: ModifiedField[]
-    onClearHighlight?: (field: ModifiedField) => void
 }
 
 function summarizeProperties(properties: AnyPropertyFilter[], aggregationTargetName: string): string {
@@ -173,8 +170,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
     onChange,
     readOnly,
     variants,
-    highlightedFields = [],
-    onClearHighlight,
 }: FeatureFlagReleaseConditionsCollapsibleProps): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -272,9 +267,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 <LemonLabel>Release conditions</LemonLabel>
             </div>
             <p className="text-xs text-muted mb-2">
-                Specify users for flag release. Condition sets are evaluated top to bottom - the first matching set is
-                used. A condition matches when all property filters pass AND the target falls within the rollout
-                percentage.
+                Target users or groups for this flag. Conditions are evaluated top to bottom – the first match wins. A
+                condition matches when all property filters pass AND the target falls within the rollout percentage.
             </p>
 
             {/* Match by selector */}
@@ -343,191 +337,212 @@ export function FeatureFlagReleaseConditionsCollapsible({
             )}
 
             <div ref={collapseRef}>
-                <LemonCollapse
-                    multiple
-                    activeKeys={openConditions}
-                    onChange={handleOpenConditionsChange}
-                    panels={filterGroups.map((group, index) => ({
-                        key: `condition-${group.sort_key ?? index}`,
-                        header: (
-                            <ConditionHeader
-                                group={group}
-                                index={index}
-                                totalGroups={filterGroups.length}
-                                affectedUserCount={group.sort_key ? affectedUsers[group.sort_key] : undefined}
-                                totalUsers={totalUsers}
-                                aggregationTargetName={aggregationTargetName}
-                                onMoveUp={() => moveConditionSetUp(index)}
-                                onMoveDown={() => moveConditionSetDown(index)}
-                                onDuplicate={() => duplicateConditionSet(index)}
-                                onRemove={() => removeConditionSet(index)}
-                            />
-                        ),
-                        className: index > 0 ? 'mt-1' : '',
-                        content: (
-                            <div className="flex flex-col gap-3 pt-2">
-                                <div className="max-w-md">
-                                    <EditableField
-                                        multiline
-                                        name="description"
-                                        value={group.description || ''}
-                                        placeholder="Description (optional)"
-                                        onSave={(value) =>
-                                            updateConditionSet(index, undefined, undefined, undefined, value)
-                                        }
-                                        saveOnBlur={true}
-                                        maxLength={600}
-                                        data-attr={`condition-set-${index}-description`}
-                                        compactButtons
-                                    />
-                                </div>
-
-                                <div>
-                                    <LemonLabel className="mb-1">Match filters</LemonLabel>
-                                    <div
-                                        className={
-                                            index === 0 && highlightedFields.includes('conditions')
-                                                ? 'template-highlight-glow rounded p-1 -m-1'
-                                                : ''
-                                        }
-                                    >
-                                        <PropertyFilters
-                                            orFiltering={true}
-                                            pageKey={`feature-flag-workflow-${id}-${index}`}
-                                            propertyFilters={group?.properties}
-                                            logicalRowDivider
-                                            addText="Add filter"
-                                            onChange={(properties) => {
-                                                onClearHighlight?.('conditions')
-                                                updateConditionSet(index, undefined, properties)
-                                            }}
-                                            taxonomicGroupTypes={taxonomicGroupTypes}
-                                            taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
-                                            hasRowOperator={false}
-                                        />
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <LemonLabel className="mb-1">Rollout percentage</LemonLabel>
-                                    <div
-                                        className={`flex items-center gap-3 ${index === 0 && highlightedFields.includes('rollout') ? 'template-highlight-glow rounded p-1 -m-1' : ''}`}
-                                    >
-                                        <div className="flex-1">
-                                            <LemonSlider
-                                                value={group.rollout_percentage ?? 100}
-                                                onChange={(value) => {
-                                                    onClearHighlight?.('rollout')
-                                                    updateConditionSet(index, value)
-                                                }}
-                                                min={0}
-                                                max={100}
-                                                step={1}
-                                            />
-                                        </div>
-                                        <LemonInput
-                                            type="number"
-                                            min={0}
-                                            max={100}
-                                            value={group.rollout_percentage ?? 100}
-                                            onChange={(value) => {
-                                                onClearHighlight?.('rollout')
-                                                const numValue = value ? parseInt(value.toString()) : 0
-                                                updateConditionSet(index, Math.min(100, Math.max(0, numValue)))
-                                            }}
-                                            suffix={<span>%</span>}
-                                            className="w-20"
-                                        />
-                                    </div>
-                                    {group.sort_key && affectedUsers[group.sort_key] !== undefined ? (
-                                        <div className="text-xs text-muted mt-2">
-                                            {(() => {
-                                                const affectedUserCount = group.sort_key
-                                                    ? affectedUsers[group.sort_key]
-                                                    : undefined
-                                                const rolloutPct = Number.isNaN(group.rollout_percentage)
-                                                    ? 0
-                                                    : (group.rollout_percentage ?? 100)
-
-                                                if (
-                                                    affectedUserCount === undefined ||
-                                                    affectedUserCount < 0 ||
-                                                    totalUsers === null
-                                                ) {
-                                                    return null
-                                                }
-
-                                                const usersReceivingFlag = Math.floor(
-                                                    (affectedUserCount * clamp(rolloutPct, 0, 100)) / 100
-                                                )
-
-                                                if (rolloutPct === 100) {
-                                                    return (
-                                                        <>
-                                                            <b>{humanFriendlyNumber(affectedUserCount)}</b> of{' '}
-                                                            {humanFriendlyNumber(totalUsers)} {aggregationTargetName}{' '}
-                                                            match these conditions
-                                                        </>
-                                                    )
-                                                }
-                                                return (
-                                                    <>
-                                                        Will match ~<b>{humanFriendlyNumber(usersReceivingFlag)}</b> of{' '}
-                                                        {humanFriendlyNumber(totalUsers)} {aggregationTargetName} (
-                                                        {humanFriendlyNumber(affectedUserCount)} matching × {rolloutPct}
-                                                        %)
-                                                    </>
-                                                )
-                                            })()}
-                                        </div>
-                                    ) : (
-                                        <div className="text-xs text-muted mt-2 flex items-center gap-1">
-                                            <Spinner className="text-sm" /> Calculating affected {aggregationTargetName}
-                                            …
-                                        </div>
-                                    )}
-                                </div>
-
-                                {variants && variants.length > 0 && (
-                                    <div className="flex items-center gap-2 flex-wrap text-sm text-muted">
-                                        <span className="flex items-center gap-1">
-                                            <span className="font-medium text-default">Optional override</span>
-                                            <Tooltip
-                                                title={
-                                                    <>
-                                                        Force all matching {aggregationTargetName} to receive a specific
-                                                        variant.{' '}
-                                                        <Link
-                                                            to="https://posthog.com/docs/feature-flags/testing#method-1-assign-a-user-a-specific-flag-value"
-                                                            target="_blank"
-                                                        >
-                                                            Learn more
-                                                        </Link>
-                                                    </>
-                                                }
-                                            >
-                                                <IconInfo className="text-base" />
-                                            </Tooltip>
-                                        </span>
-                                        <span>Set variant for all {aggregationTargetName} in this set to</span>
-                                        <LemonSelect
-                                            placeholder="Select variant"
-                                            allowClear={true}
-                                            value={group.variant ?? null}
-                                            onChange={(value) => updateConditionSet(index, undefined, undefined, value)}
-                                            options={variants.map((variant) => ({
-                                                label: variant.key,
-                                                value: variant.key,
-                                            }))}
-                                            size="small"
-                                            data-attr="feature-flags-variant-override-select"
-                                        />
-                                    </div>
-                                )}
+                {filterGroups.map((group, index) => (
+                    <div key={group.sort_key ?? index}>
+                        {index > 0 && (
+                            <div className="text-xs font-medium text-muted uppercase tracking-wide text-center w-full py-2">
+                                or
                             </div>
-                        ),
-                    }))}
-                />
+                        )}
+                        <LemonCollapse
+                            multiple
+                            activeKeys={openConditions}
+                            onChange={handleOpenConditionsChange}
+                            panels={[
+                                {
+                                    key: `condition-${group.sort_key ?? index}`,
+                                    header: {
+                                        children: (
+                                            <ConditionHeader
+                                                group={group}
+                                                index={index}
+                                                totalGroups={filterGroups.length}
+                                                affectedUserCount={
+                                                    group.sort_key ? affectedUsers[group.sort_key] : undefined
+                                                }
+                                                totalUsers={totalUsers}
+                                                aggregationTargetName={aggregationTargetName}
+                                                onMoveUp={() => moveConditionSetUp(index)}
+                                                onMoveDown={() => moveConditionSetDown(index)}
+                                                onDuplicate={() => duplicateConditionSet(index)}
+                                                onRemove={() => removeConditionSet(index)}
+                                            />
+                                        ),
+                                        className: 'bg-bg-light',
+                                    },
+                                    className: 'bg-bg-light',
+                                    content: (
+                                        <div className="flex flex-col gap-3 pt-2">
+                                            <div className="max-w-md">
+                                                <EditableField
+                                                    multiline
+                                                    name="description"
+                                                    value={group.description || ''}
+                                                    placeholder="Description (optional)"
+                                                    onSave={(value) =>
+                                                        updateConditionSet(
+                                                            index,
+                                                            undefined,
+                                                            undefined,
+                                                            undefined,
+                                                            value
+                                                        )
+                                                    }
+                                                    saveOnBlur={true}
+                                                    maxLength={600}
+                                                    data-attr={`condition-set-${index}-description`}
+                                                    compactButtons
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <LemonLabel className="mb-1">Match filters</LemonLabel>
+                                                <PropertyFilters
+                                                    orFiltering={true}
+                                                    pageKey={`feature-flag-workflow-${id}-${group.sort_key ?? index}`}
+                                                    propertyFilters={group?.properties}
+                                                    logicalRowDivider
+                                                    addText="Add filter"
+                                                    onChange={(properties) => {
+                                                        updateConditionSet(index, undefined, properties)
+                                                    }}
+                                                    taxonomicGroupTypes={taxonomicGroupTypes}
+                                                    taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
+                                                    hasRowOperator={false}
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <LemonLabel className="mb-1">Rollout percentage</LemonLabel>
+                                                <div className="flex items-center gap-3">
+                                                    <div className="flex-1">
+                                                        <LemonSlider
+                                                            value={group.rollout_percentage ?? 100}
+                                                            onChange={(value) => {
+                                                                updateConditionSet(index, value)
+                                                            }}
+                                                            min={0}
+                                                            max={100}
+                                                            step={1}
+                                                        />
+                                                    </div>
+                                                    <LemonInput
+                                                        type="number"
+                                                        min={0}
+                                                        max={100}
+                                                        value={group.rollout_percentage ?? 100}
+                                                        onChange={(value) => {
+                                                            const numValue = value ? parseInt(value.toString()) : 0
+                                                            updateConditionSet(
+                                                                index,
+                                                                Math.min(100, Math.max(0, numValue))
+                                                            )
+                                                        }}
+                                                        suffix={<span>%</span>}
+                                                        className="w-20"
+                                                    />
+                                                </div>
+                                                {group.sort_key && affectedUsers[group.sort_key] !== undefined ? (
+                                                    <div className="text-xs text-muted mt-2">
+                                                        {(() => {
+                                                            const affectedUserCount = group.sort_key
+                                                                ? affectedUsers[group.sort_key]
+                                                                : undefined
+                                                            const rolloutPct = Number.isNaN(group.rollout_percentage)
+                                                                ? 0
+                                                                : (group.rollout_percentage ?? 100)
+
+                                                            if (
+                                                                affectedUserCount === undefined ||
+                                                                affectedUserCount < 0 ||
+                                                                totalUsers === null
+                                                            ) {
+                                                                return null
+                                                            }
+
+                                                            const usersReceivingFlag = Math.floor(
+                                                                (affectedUserCount * clamp(rolloutPct, 0, 100)) / 100
+                                                            )
+
+                                                            if (rolloutPct === 100) {
+                                                                return (
+                                                                    <>
+                                                                        <b>{humanFriendlyNumber(affectedUserCount)}</b>{' '}
+                                                                        of {humanFriendlyNumber(totalUsers)}{' '}
+                                                                        {aggregationTargetName} match these conditions
+                                                                    </>
+                                                                )
+                                                            }
+                                                            return (
+                                                                <>
+                                                                    Will match ~
+                                                                    <b>{humanFriendlyNumber(usersReceivingFlag)}</b> of{' '}
+                                                                    {humanFriendlyNumber(totalUsers)}{' '}
+                                                                    {aggregationTargetName} (
+                                                                    {humanFriendlyNumber(affectedUserCount)} matching ×{' '}
+                                                                    {rolloutPct}
+                                                                    %)
+                                                                </>
+                                                            )
+                                                        })()}
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-xs text-muted mt-2 flex items-center gap-1">
+                                                        <Spinner className="text-sm" /> Calculating affected{' '}
+                                                        {aggregationTargetName}…
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {variants && variants.length > 0 && (
+                                                <div className="flex items-center gap-2 flex-wrap text-sm text-muted">
+                                                    <span className="flex items-center gap-1">
+                                                        <span className="font-medium text-default">
+                                                            Optional override
+                                                        </span>
+                                                        <Tooltip
+                                                            title={
+                                                                <>
+                                                                    Force all matching {aggregationTargetName} to
+                                                                    receive a specific variant.{' '}
+                                                                    <Link
+                                                                        to="https://posthog.com/docs/feature-flags/testing#method-1-assign-a-user-a-specific-flag-value"
+                                                                        target="_blank"
+                                                                    >
+                                                                        Learn more
+                                                                    </Link>
+                                                                </>
+                                                            }
+                                                        >
+                                                            <IconInfo className="text-base" />
+                                                        </Tooltip>
+                                                    </span>
+                                                    <span>
+                                                        Set variant for all {aggregationTargetName} in this set to
+                                                    </span>
+                                                    <LemonSelect
+                                                        placeholder="Select variant"
+                                                        allowClear={true}
+                                                        value={group.variant ?? null}
+                                                        onChange={(value) =>
+                                                            updateConditionSet(index, undefined, undefined, value)
+                                                        }
+                                                        options={variants.map((variant) => ({
+                                                            label: variant.key,
+                                                            value: variant.key,
+                                                        }))}
+                                                        size="small"
+                                                        data-attr="feature-flags-variant-override-select"
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    ),
+                                },
+                            ]}
+                        />
+                    </div>
+                ))}
             </div>
 
             <LemonButton type="secondary" icon={<IconPlus />} onClick={handleAddConditionSet} className="mt-1">
