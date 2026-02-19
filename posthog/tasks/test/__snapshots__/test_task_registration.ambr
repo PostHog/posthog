@@ -31,6 +31,8 @@
     'posthog.tasks.email.send_email_mfa_link',
     'posthog.tasks.email.send_email_verification',
     'posthog.tasks.email.send_error_tracking_issue_assigned',
+    'posthog.tasks.email.send_error_tracking_weekly_digest',
+    'posthog.tasks.email.send_error_tracking_weekly_digest_for_team',
     'posthog.tasks.email.send_fatal_plugin_error',
     'posthog.tasks.email.send_hog_function_disabled',
     'posthog.tasks.email.send_hog_functions_daily_digest',
