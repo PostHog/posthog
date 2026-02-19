@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconGithub, IconLinear } from '@posthog/icons'
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, Spinner } from '@posthog/lemon-ui'
 
 import { RecordingsUniversalFiltersDisplay } from 'lib/components/Cards/InsightCard/RecordingsUniversalFiltersDisplay'
 import { IconSlack } from 'lib/lemon-ui/icons'
@@ -13,6 +13,7 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import iconZendesk from 'public/services/zendesk.svg'
 
 import { inboxSceneLogic } from './inboxSceneLogic'
+import { ClusteringStatus } from './types'
 
 type SourceProps =
     | {
@@ -32,6 +33,7 @@ type SourceProps =
           configButtonLabel: string
           onConfigClick: () => void
           onClearClick?: () => void
+          statusSection?: React.ReactNode
       }
 
 function NotifyMeButton({ source }: { source: string }): JSX.Element {
@@ -70,22 +72,25 @@ function Source(props: SourceProps): JSX.Element {
                 </div>
                 <p className="text-xs text-secondary mt-0.25 mb-0">{props.description}</p>
                 {!isComingSoon && props.checked && (
-                    <div className="mt-2 border rounded">
-                        <div className="flex items-center justify-between px-2 pt-2">
-                            <span className="text-xs font-semibold text-secondary">Filters</span>
-                            <div className="flex items-center gap-1">
-                                {props.onClearClick && (
-                                    <LemonButton type="tertiary" size="xsmall" onClick={props.onClearClick}>
-                                        Clear
+                    <>
+                        {props.statusSection}
+                        <div className="mt-2 border rounded">
+                            <div className="flex items-center justify-between px-2 pt-2">
+                                <span className="text-xs font-semibold text-secondary">Filters</span>
+                                <div className="flex items-center gap-1">
+                                    {props.onClearClick && (
+                                        <LemonButton type="tertiary" size="xsmall" onClick={props.onClearClick}>
+                                            Clear
+                                        </LemonButton>
+                                    )}
+                                    <LemonButton type="secondary" size="xsmall" onClick={props.onConfigClick}>
+                                        {props.configButtonLabel}
                                     </LemonButton>
-                                )}
-                                <LemonButton type="secondary" size="xsmall" onClick={props.onConfigClick}>
-                                    {props.configButtonLabel}
-                                </LemonButton>
+                                </div>
                             </div>
+                            {props.configSection}
                         </div>
-                        {props.configSection}
-                    </div>
+                    </>
                 )}
             </div>
         </div>
@@ -94,6 +99,18 @@ function Source(props: SourceProps): JSX.Element {
 
 function isNonEmptyFilters(obj: unknown): boolean {
     return obj != null && typeof obj === 'object' && Object.keys(obj as Record<string, unknown>).length > 0
+}
+
+function ClusteringStatusIndicator({ status }: { status: ClusteringStatus | null }): JSX.Element | null {
+    if (status === ClusteringStatus.RUNNING) {
+        return (
+            <div className="mt-2 flex items-center gap-2 px-2 py-1.5 rounded bg-accent-light text-xs text-accent">
+                <Spinner className="size-3.5" />
+                <span>Session analysis run in progress...</span>
+            </div>
+        )
+    }
+    return null
 }
 
 export function SourcesList(): JSX.Element {
@@ -119,6 +136,7 @@ export function SourcesList(): JSX.Element {
                 configButtonLabel={recordingFilters ? 'Edit' : 'Configure'}
                 onConfigClick={openSessionAnalysisSetup}
                 onClearClick={hasNonEmptyFilters ? clearSessionAnalysisFilters : undefined}
+                statusSection={<ClusteringStatusIndicator status={sessionAnalysisConfig?.clustering_status ?? null} />}
                 configSection={
                     recordingFilters ? (
                         <RecordingsUniversalFiltersDisplay filters={recordingFilters} />

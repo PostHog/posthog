@@ -8,6 +8,11 @@ class SignalSourceConfig(UUIDModel):
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS = "session_analysis", "Session analysis"
 
+    class ClusteringStatus(models.TextChoices):
+        RUNNING = "running"
+        COMPLETED = "completed"
+        FAILED = "failed"
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_type = models.CharField(max_length=100, choices=SourceType.choices)
     enabled = models.BooleanField(default=True)
@@ -15,6 +20,14 @@ class SignalSourceConfig(UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+
+    clustering_status = models.CharField(
+        max_length=20,
+        choices=ClusteringStatus.choices,
+        null=True,
+        blank=True,
+    )
+    clustering_triggered_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "source_type"], name="unique_team_source_type")]

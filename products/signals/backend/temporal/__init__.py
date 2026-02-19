@@ -19,12 +19,22 @@ from products.signals.backend.temporal.summary import (
     mark_report_pending_input_activity,
     mark_report_ready_activity,
     reset_report_to_potential_activity,
+    run_signal_semantic_search_activity,
+    summarize_signals_activity,
+    update_clustering_status_activity,
+)
+from products.signals.backend.temporal.workflow import (
+    EmitSignalWorkflow,
+    InitialClusteringTriggerWorkflow,
+    SignalResearchWorkflow,
 )
 
 WORKFLOWS = [
     TeamSignalGroupingWorkflow,
     EmitSignalWorkflow,  # kept for in-flight workflows during migration
     SignalReportSummaryWorkflow,
+    SignalResearchWorkflow,
+    InitialClusteringTriggerWorkflow,
 ]
 
 ACTIVITIES = [
@@ -43,4 +53,5 @@ ACTIVITIES = [
     run_signal_semantic_search_activity,
     safety_judge_activity,
     summarize_signals_activity,
+    update_clustering_status_activity,
 ]
