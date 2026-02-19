@@ -77,14 +77,3 @@ export type PluginConfigsLogsListParams = {
      */
     offset?: number
 }
-
-export type PluginConfigsLogsList2Params = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}

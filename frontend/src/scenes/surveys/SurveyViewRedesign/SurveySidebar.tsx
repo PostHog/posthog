@@ -1,29 +1,32 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 import { getNextSurveyStep } from 'posthog-js/dist/surveys-preview'
-import { ReactNode, useEffect, useState } from 'react'
+import { ReactNode } from 'react'
 
 import { IconDownload, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonSelect, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonSelect, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { pluralize } from 'lib/utils'
 import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
+import { CopySurveyLink } from 'scenes/surveys/CopySurveyLink'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
+import { SurveyConditionsList } from 'scenes/surveys/components/SurveyConditions'
 import { SURVEY_TYPE_LABEL_MAP } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import {
+    getSurveyCollectionLimitSummary,
+    getSurveyDisplayConditionsSummary,
+    newSurveyNotificationUrl,
+} from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
 import {
     ExporterFormat,
     HogFunctionType,
-    PropertyFilterType,
-    PropertyOperator,
     Survey,
-    SurveyEventName,
-    SurveyEventProperties,
     SurveyQuestionBranchingType,
+    SurveySchedule as SurveyScheduleEnum,
     SurveyType,
 } from '~/types'
 
@@ -49,14 +52,34 @@ function PanelSection({ title, description, children }: PanelSectionProps): JSX.
     )
 }
 
+function formatSurveySchedule(survey: Survey): string {
+    if (survey.schedule === SurveyScheduleEnum.Recurring && survey.iteration_count && survey.iteration_frequency_days) {
+        return `Show up to ${survey.iteration_count} ${pluralize(
+            survey.iteration_count,
+            'time',
+            'times',
+            false
+        )} total, once every ${pluralize(survey.iteration_frequency_days, 'day')}`
+    }
+
+    if (survey.schedule === SurveyScheduleEnum.Always) {
+        return 'Always'
+    }
+
+    return 'Once'
+}
+
 // ============================================================================
 // Panel Components
 // ============================================================================
 
 export function SurveyDetailsPanel(): JSX.Element {
-    const { survey, selectedPageIndex } = useValues(surveyLogic)
+    const { survey, selectedPageIndex, hasTargetingSet } = useValues(surveyLogic)
     const { setSelectedPageIndex } = useActions(surveyLogic)
     const isNonApiSurvey = survey.type !== SurveyType.API
+    const statusLabel = !survey.start_date ? 'Draft' : survey.end_date ? 'Complete' : 'Running'
+    const conditionsSummary = hasTargetingSet ? getSurveyDisplayConditionsSummary(survey as Survey) : []
+    const collectionLimitSummary = getSurveyCollectionLimitSummary(survey)
 
     return (
         <div className="flex flex-col gap-6">
@@ -104,15 +127,23 @@ export function SurveyDetailsPanel(): JSX.Element {
             )}
 
             {/* Survey info */}
-            <PanelSection title="Details">
+            <PanelSection title="At a glance">
                 <div className="flex flex-col gap-1.5 text-sm">
+                    <div className="flex justify-between">
+                        <span className="text-muted">Status</span>
+                        <span>{statusLabel}</span>
+                    </div>
                     <div className="flex justify-between">
                         <span className="text-muted">Type</span>
                         <span>{SURVEY_TYPE_LABEL_MAP[survey.type]}</span>
                     </div>
                     <div className="flex justify-between">
-                        <span className="text-muted">Questions</span>
-                        <span>{survey.questions.length}</span>
+                        <span className="text-muted">Schedule</span>
+                        <span>{formatSurveySchedule(survey as Survey)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                        <span className="text-muted">Audience</span>
+                        <span>{hasTargetingSet ? 'Targeted' : 'All users'}</span>
                     </div>
                     {survey.start_date && (
                         <div className="flex justify-between">
@@ -126,36 +157,39 @@ export function SurveyDetailsPanel(): JSX.Element {
                             <TZLabel time={survey.end_date} />
                         </div>
                     )}
-                    {survey.responses_limit && (
+                    {collectionLimitSummary && (
                         <div className="flex justify-between">
-                            <span className="text-muted">Response limit</span>
-                            <span>{survey.responses_limit}</span>
+                            <span className="text-muted">{collectionLimitSummary.label}</span>
+                            <span>{collectionLimitSummary.value}</span>
+                        </div>
+                    )}
+                    {survey.type === SurveyType.ExternalSurvey && (
+                        <div className="flex flex-col gap-2 pt-1">
+                            <span className="text-muted text-xs">Share link</span>
+                            <CopySurveyLink
+                                surveyId={survey.id}
+                                enableIframeEmbedding={survey.enable_iframe_embedding ?? false}
+                            />
+                        </div>
+                    )}
+                    {survey.type === SurveyType.API && (
+                        <div className="flex justify-between">
+                            <span className="text-muted">API docs</span>
+                            <Link to="https://posthog.com/docs/surveys/implementing-custom-surveys" target="_blank">
+                                View docs
+                            </Link>
                         </div>
                     )}
                 </div>
             </PanelSection>
+
+            {conditionsSummary.length > 0 && (
+                <PanelSection title="Display conditions">
+                    <SurveyConditionsList conditions={conditionsSummary} />
+                </PanelSection>
+            )}
         </div>
     )
-}
-
-function newNotificationUrl(surveyId: string): string {
-    const filters = {
-        events: [
-            {
-                id: SurveyEventName.SENT,
-                type: 'events',
-                properties: [
-                    {
-                        key: SurveyEventProperties.SURVEY_ID,
-                        type: PropertyFilterType.Event,
-                        value: surveyId,
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
-            },
-        ],
-    }
-    return combineUrl(urls.hogFunctionNew('template-webhook'), {}, { configuration: { filters } }).url
 }
 
 function getNotificationDescription(fn: HogFunctionType): string | null {
@@ -163,7 +197,6 @@ function getNotificationDescription(fn: HogFunctionType): string | null {
     if (!inputs) {
         return null
     }
-    // Try common destination fields for a useful summary
     if (inputs.url?.value) {
         try {
             return new URL(String(inputs.url.value)).hostname
@@ -181,50 +214,10 @@ function getNotificationDescription(fn: HogFunctionType): string | null {
 }
 
 export function SurveyNotificationsPanel(): JSX.Element {
-    const { survey } = useValues(surveyLogic)
-    const [hogFunctions, setHogFunctions] = useState<HogFunctionType[]>([])
-    const [loading, setLoading] = useState(true)
+    const { survey, surveyNotifications, surveyNotificationsLoading } = useValues(surveyLogic)
+    const { toggleSurveyNotificationEnabled } = useActions(surveyLogic)
 
-    const loadFunctions = (): void => {
-        setLoading(true)
-        void api.hogFunctions
-            .list({
-                filter_groups: [
-                    {
-                        events: [
-                            {
-                                id: SurveyEventName.SENT,
-                                type: 'events',
-                                properties: [
-                                    {
-                                        key: SurveyEventProperties.SURVEY_ID,
-                                        type: PropertyFilterType.Event,
-                                        value: survey.id,
-                                        operator: PropertyOperator.Exact,
-                                    },
-                                ],
-                            },
-                        ],
-                    },
-                ],
-                types: ['destination'],
-                full: true,
-            })
-            .then((res) => setHogFunctions(res.results))
-            .finally(() => setLoading(false))
-    }
-
-    useEffect(() => {
-        loadFunctions()
-    }, [survey.id])
-
-    const toggleEnabled = (fn: HogFunctionType): void => {
-        const newEnabled = !fn.enabled
-        setHogFunctions((prev) => prev.map((f) => (f.id === fn.id ? { ...f, enabled: newEnabled } : f)))
-        void api.hogFunctions.update(fn.id, { enabled: newEnabled })
-    }
-
-    if (loading) {
+    if (surveyNotificationsLoading) {
         return (
             <div className="flex flex-col gap-2">
                 <LemonSkeleton className="h-12" />
@@ -235,9 +228,9 @@ export function SurveyNotificationsPanel(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-3">
-            {hogFunctions.length > 0 ? (
+            {surveyNotifications.length > 0 ? (
                 <div className="flex flex-col gap-1.5">
-                    {hogFunctions.map((fn) => {
+                    {surveyNotifications.map((fn) => {
                         const description = getNotificationDescription(fn)
                         return (
                             <div key={fn.id} className="flex items-center gap-2 rounded border p-2">
@@ -254,7 +247,11 @@ export function SurveyNotificationsPanel(): JSX.Element {
                                     </LemonButton>
                                     {description && <div className="text-xs text-muted truncate">{description}</div>}
                                 </div>
-                                <LemonSwitch checked={fn.enabled} onChange={() => toggleEnabled(fn)} size="small" />
+                                <LemonSwitch
+                                    checked={fn.enabled}
+                                    onChange={() => toggleSurveyNotificationEnabled(fn.id, !fn.enabled)}
+                                    size="small"
+                                />
                             </div>
                         )
                     })}
@@ -262,7 +259,13 @@ export function SurveyNotificationsPanel(): JSX.Element {
             ) : (
                 <p className="text-xs text-muted m-0">No notifications configured yet.</p>
             )}
-            <LemonButton type="secondary" size="small" icon={<IconPlus />} to={newNotificationUrl(survey.id)} fullWidth>
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconPlus />}
+                to={newSurveyNotificationUrl(survey.id)}
+                fullWidth
+            >
                 New notification
             </LemonButton>
         </div>
