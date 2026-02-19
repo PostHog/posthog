@@ -51,7 +51,7 @@ export function personActivityDescriber(logItem: ActivityLogItem, asNotification
                             </>
                         }
                         listParts={logItem.detail.merge.source.flatMap((di, idx) => (
-                            <span key={idx} className="highlighted-activity">
+                            <span key={di.id || di.uuid || idx} className="highlighted-activity">
                                 <PersonDisplay person={di} />
                             </span>
                         ))}
