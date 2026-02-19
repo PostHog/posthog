@@ -775,8 +775,8 @@ importers:
         specifier: ^2.2.0
         version: 2.2.0(chart.js@4.5.1)
       chartjs-plugin-stacked100:
-        specifier: ^1.7.0
-        version: 1.7.0(chart.js@4.5.1)
+        specifier: github:PostHog/chartjs-plugin-stacked100#built-1.7.1
+        version: https://codeload.github.com/PostHog/chartjs-plugin-stacked100/tar.gz/625b3bfcad93940da89d38a7402f1cb0eb7c8b13(chart.js@4.5.1)
       chartjs-plugin-trendline:
         specifier: ^3.2.0
         version: 3.2.0
@@ -11914,8 +11914,9 @@ packages:
     peerDependencies:
       chart.js: '>=3.0.0'
 
-  chartjs-plugin-stacked100@1.7.0:
-    resolution: {integrity: sha512-5X9kofKrZ4Ve8ya9Zbk1ORsMTm2YX10PwbtCry2ht3nOqbb4wl3rYKd9oC82NpQZHqdXXXKPdUIldTCr0NmQrg==}
+  chartjs-plugin-stacked100@https://codeload.github.com/PostHog/chartjs-plugin-stacked100/tar.gz/625b3bfcad93940da89d38a7402f1cb0eb7c8b13:
+    resolution: {tarball: https://codeload.github.com/PostHog/chartjs-plugin-stacked100/tar.gz/625b3bfcad93940da89d38a7402f1cb0eb7c8b13}
+    version: 1.7.1
     peerDependencies:
       chart.js: '>=3.8.0'
 
@@ -33409,7 +33410,7 @@ snapshots:
     dependencies:
       chart.js: 4.5.1
 
-  chartjs-plugin-stacked100@1.7.0(chart.js@4.5.1):
+  chartjs-plugin-stacked100@https://codeload.github.com/PostHog/chartjs-plugin-stacked100/tar.gz/625b3bfcad93940da89d38a7402f1cb0eb7c8b13(chart.js@4.5.1):
     dependencies:
       chart.js: 4.5.1
 

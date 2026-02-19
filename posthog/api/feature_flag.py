@@ -735,6 +735,13 @@ class FeatureFlagSerializer(
 
             for property in condition.get("properties", []):
                 prop = Property(**property)
+
+                if prop.operator is not None and prop.operator not in PropertyOperator.__members__.values():
+                    raise serializers.ValidationError(
+                        detail=f"Invalid operator: {prop.operator}",
+                        code="invalid_operator",
+                    )
+
                 if isinstance(prop.value, list):
                     upper_limit = MAX_PROPERTY_VALUES
                     if settings.TEST:
