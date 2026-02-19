@@ -2,6 +2,7 @@ import dataclasses
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import QuerySet
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver

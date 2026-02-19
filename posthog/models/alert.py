@@ -141,7 +141,6 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     def mark_for_recheck(self, *, reset_state: bool = False) -> list[str]:
         """Mark this alert for rechecking, optionally resetting state to NOT_FIRING.
-
         Returns list of field names that were modified (for use with update_fields).
         """
         updated: list[str] = []
