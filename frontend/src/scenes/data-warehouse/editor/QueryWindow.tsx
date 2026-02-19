@@ -12,7 +12,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { Link } from 'lib/lemon-ui/Link'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
@@ -20,9 +19,12 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSection'
+import { SceneTitlePanelButton, SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
+import { Breadcrumb } from '~/types'
+
+import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { OutputPane } from './OutputPane'
@@ -73,6 +75,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
 
     const { saveOrUpdateDraft } = useActions(draftsLogic)
     const { response } = useValues(dataNodeLogic)
+    const { endpoint, isUpdateMode, selectedEndpointName } = useValues(endpointLogic({ tabId }))
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
@@ -97,26 +100,61 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
 
     const isMaterializedView = editingView?.is_materialized === true
 
+    const titleSectionProps = useMemo(() => {
+        if (editingInsight) {
+            const forceBackTo: Breadcrumb = {
+                key: editingInsight.short_id,
+                name: 'Back to insight',
+                path: urls.insightView(editingInsight.short_id),
+                iconType: 'insight/hog',
+            }
+
+            return {
+                forceBackTo,
+                name: editingInsight.name || editingInsight.derived_name || 'Untitled',
+                resourceType: { type: 'insight/hog' },
+            }
+        }
+
+        if (insightLoading) {
+            return {
+                name: 'Loading insight...',
+                resourceType: { type: 'insight/hog' },
+            }
+        }
+
+        if (editingView) {
+            return {
+                name: editingView.name,
+                resourceType: { type: editingView.is_materialized ? 'matview' : 'view' },
+            }
+        }
+
+        if (isUpdateMode && selectedEndpointName) {
+            const forceBackTo: Breadcrumb = {
+                key: selectedEndpointName,
+                name: 'Back to endpoint',
+                path: urls.endpoint(selectedEndpointName),
+                iconType: 'endpoints',
+            }
+
+            return {
+                forceBackTo,
+                name: endpoint?.name || selectedEndpointName,
+                resourceType: { type: 'endpoint' },
+            }
+        }
+
+        return {
+            name: 'New SQL query',
+            resourceType: { type: 'sql_editor' },
+        }
+    }, [editingInsight, insightLoading, editingView, isUpdateMode, selectedEndpointName, endpoint?.name])
+
     return (
         <div className="flex grow flex-col overflow-hidden">
-            {!isEmbeddedMode && (editingView || editingInsight || insightLoading) && (
-                <div className="h-5 bg-warning-highlight">
-                    <span className="pl-2 text-xs">
-                        {!isEmbeddedMode && editingView ? (
-                            <>
-                                Editing {isDraft ? 'draft of ' : ''} {isMaterializedView ? 'materialized view' : 'view'}{' '}
-                                "{editingView.name}"
-                            </>
-                        ) : !isEmbeddedMode && editingInsight ? (
-                            <>
-                                Editing insight "
-                                <Link to={urls.insightView(editingInsight.short_id)}>{editingInsight.name}</Link>"
-                            </>
-                        ) : insightLoading ? (
-                            'Loading insight...'
-                        ) : null}
-                    </span>
-                </div>
+            {!isEmbeddedMode && (
+                <SceneTitleSection className="p-1 pl-3 pr-2" noBorder noPadding {...titleSectionProps} />
             )}
 
             <QueryPane

@@ -195,6 +195,10 @@ type SceneMainTitleProps = {
      * */
     noBorder?: boolean
     /**
+     * If true, removes the vertical padding from the title section
+     * */
+    noPadding?: boolean
+    /**
      * If true, the actions from PageHeader will be shown
      * @default false
      */
@@ -238,6 +242,7 @@ export function SceneTitleSection({
     renameDebounceMs,
     saveOnBlur = false,
     noBorder = false,
+    noPadding = false,
     actions,
     forceBackTo,
     className,
@@ -300,7 +305,8 @@ export function SceneTitleSection({
 
             <div
                 className={cn(
-                    'bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 -mx-4 px-4 -mt-4 duration-300',
+                    'bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 duration-300',
+                    noPadding ? '' : '-mx-4 px-4 -mt-4',
                     noBorder ? '' : 'border-b border-transparent transition-border',
                     isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent',
                     isRemovingSidePanelFlag && 'pl-4 pr-2',
@@ -308,7 +314,10 @@ export function SceneTitleSection({
                 )}
             >
                 <div
-                    className="scene-title-section flex-1 flex flex-col @2xl/main-content:flex-row gap-1 lg:gap-3 group/colorful-product-icons colorful-product-icons-true lg:items-start group py-2"
+                    className={cn(
+                        'scene-title-section flex-1 flex flex-col @2xl/main-content:flex-row gap-1 lg:gap-3 group/colorful-product-icons colorful-product-icons-true lg:items-start group',
+                        noPadding ? 'py-0.5' : 'py-2'
+                    )}
                     data-editable={canEdit}
                 >
                     <div
