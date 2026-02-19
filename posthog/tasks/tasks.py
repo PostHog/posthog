@@ -5,6 +5,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import connection
+from psycopg2 import sql
 from django.utils import timezone
 
 import requests
@@ -218,8 +219,7 @@ def pg_row_count() -> None:
         with connection.cursor() as cursor:
             for table in POSTGRES_TABLES:
                 try:
-                    # Table names from POSTGRES_TABLES constant - trusted source
-                    cursor.execute(f'SELECT count(*) FROM "{table}";')
+                    cursor.execute(sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(table)))
                     row = cursor.fetchone()
                     if row:
                         row_count_gauge.labels(table_name=table).set(row[0])
