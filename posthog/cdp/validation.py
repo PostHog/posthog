@@ -17,6 +17,19 @@ from posthog.models.hog_functions.hog_function import TYPES_WITH_JAVASCRIPT_SOUR
 logger = logging.getLogger(__name__)
 
 
+CORE_SUPPORTED_FUNCTIONS = {"fetch", "postHogCapture"}
+
+PRODUCT_ASYNC_FUNCTIONS: set[str] = set()
+
+
+def register_supported_function(name: str) -> None:
+    PRODUCT_ASYNC_FUNCTIONS.add(name)
+
+
+register_supported_function("postHogGetTicket")
+register_supported_function("postHogUpdateTicket")
+
+
 class InputCollector(TraversingVisitor):
     inputs: set[str]
 
@@ -441,7 +454,7 @@ def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> lis
         supported_functions = set()
 
         if hog_type == "destination":
-            supported_functions = {"fetch", "postHogCapture", "postHogUpdateTicket", "postHogGetTicket"}
+            supported_functions = CORE_SUPPORTED_FUNCTIONS | PRODUCT_ASYNC_FUNCTIONS
 
         return create_bytecode(program, supported_functions=supported_functions, in_repl=in_repl).bytecode
     except serializers.ValidationError:

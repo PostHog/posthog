@@ -238,6 +238,7 @@ class ManageMemoriesTool(MaxTool):
         @database_sync_to_async
         def update():
             try:
+                # nosemgrep: idor-lookup-without-user-and-team (team-scoped shared memory, not per-user)
                 memory = AgentMemory.objects.get(id=memory_id, team=self._team)
             except AgentMemory.DoesNotExist:
                 return None
@@ -266,6 +267,7 @@ class ManageMemoriesTool(MaxTool):
         @database_sync_to_async
         def delete():
             try:
+                # nosemgrep: idor-lookup-without-user-and-team (team-scoped shared memory, not per-user)
                 memory = AgentMemory.objects.get(id=memory_id, team=self._team)
             except AgentMemory.DoesNotExist:
                 return None

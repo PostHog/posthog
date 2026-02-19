@@ -518,6 +518,7 @@ class HogFunctionViewSet(
         instance_id = serializer.instance.id
 
         try:
+            # nosemgrep: idor-lookup-without-team (ID from already team-scoped instance)
             before_update = HogFunction.objects.get(pk=instance_id)
         except HogFunction.DoesNotExist:
             before_update = None

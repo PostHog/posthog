@@ -114,7 +114,7 @@ def notify_slack_on_failure(context: dagster.RunFailureSensorContext, slack: dag
     environment = (
         f"{settings.CLOUD_DEPLOYMENT} :flag-{settings.CLOUD_DEPLOYMENT}:" if settings.CLOUD_DEPLOYMENT else "unknown"
     )
-    blocks = [
+    blocks: list[dict[str, object]] = [
         {
             "type": "section",
             "text": {

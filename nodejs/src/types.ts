@@ -279,6 +279,7 @@ export type IngestionConsumerConfig = {
 
     // Pipeline step config
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
+    EVENT_SCHEMA_ENFORCEMENT_ENABLED: boolean
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
     TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: number
@@ -375,6 +376,14 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: number
     /** TTL in milliseconds for the in-memory session filter cache */
     SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: number
+    /** Rate (0.0–1.0) at which to verify encrypt→decrypt round-trip integrity during ingestion */
+    SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: number
+
+    // Kafka consumer config (overrides hardcoded defaults when set)
+    INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: string
+    INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: string
+    INGESTION_SESSION_REPLAY_CONSUMER_OVERFLOW_TOPIC: string
+    INGESTION_SESSION_REPLAY_CONSUMER_DLQ_TOPIC: string
 }
 
 export interface PluginsServerConfig
@@ -486,6 +495,12 @@ export interface PluginsServerConfig
     // posthog
     POSTHOG_API_KEY: string
     POSTHOG_HOST_URL: string
+
+    // Super properties for internal analytics (matching Python posthoganalytics.super_properties)
+    OTEL_SERVICE_NAME: string | null
+    OTEL_SERVICE_ENVIRONMENT: string | null
+    // Internal API authentication
+    INTERNAL_API_SECRET: string
 
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -658,6 +673,13 @@ export interface RawOrganization {
 
 // NOTE: We don't need to list all options here - only the ones we use
 export type OrganizationAvailableFeature = 'group_analytics' | 'data_pipelines' | 'zapier'
+
+/** Event schema with enforcement enabled. Only includes required properties since optional properties are not validated. */
+export interface EventSchemaEnforcement {
+    event_name: string
+    /** Map from property name to accepted types (multiple types when property groups disagree) */
+    required_properties: Map<string, string[]>
+}
 
 /** Usable Team model. */
 export interface LogsSettings {
@@ -912,6 +934,7 @@ export interface ClickHousePerson {
     is_deleted: number
     timestamp: string
     version: number
+    last_seen_at: string | null
 }
 
 export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4
@@ -1236,7 +1259,6 @@ export enum OrganizationMembershipLevel {
 
 export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
     team_id?: number | null
-    token?: string
 }
 
 export interface EventHeaders {

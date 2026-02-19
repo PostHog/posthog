@@ -2,7 +2,17 @@ from django.conf import settings
 
 from rest_framework.request import Request
 
+from posthog.models.insight_variable import InsightVariable
+
 from products.endpoints.backend.models import Endpoint, EndpointVersion
+
+INSIGHT_VARIABLE_TYPE_TO_OPENAPI: dict[str, dict] = {
+    InsightVariable.Type.STRING: {"type": "string"},
+    InsightVariable.Type.NUMBER: {"type": "number"},
+    InsightVariable.Type.BOOLEAN: {"type": "boolean"},
+    InsightVariable.Type.LIST: {"type": "array", "items": {"type": "string"}},
+    InsightVariable.Type.DATE: {"type": "string", "format": "date"},
+}
 
 
 def generate_openapi_spec(
@@ -87,12 +97,12 @@ def generate_openapi_spec(
                     "description": "Personal API Key from PostHog. Get one at /settings/user-api-keys",
                 }
             },
-            "schemas": _build_component_schemas(endpoint, target_version),
+            "schemas": _build_component_schemas(endpoint, target_version, team_id),
         },
     }
 
 
-def _build_component_schemas(endpoint: Endpoint, version: EndpointVersion) -> dict:
+def _build_component_schemas(endpoint: Endpoint, version: EndpointVersion, team_id: int) -> dict:
     """Build the components/schemas section with reusable schema definitions."""
     query = version.query
     is_materialized = bool(version and version.is_materialized and version.saved_query)
@@ -110,17 +120,28 @@ def _build_component_schemas(endpoint: Endpoint, version: EndpointVersion) -> di
                 },
                 "refresh": {
                     "type": "string",
-                    "enum": ["blocking", "force_blocking"],
-                    "default": "blocking",
+                    "enum": ["cache", "force", "direct"],
+                    "default": "cache",
                     "description": (
-                        "Whether results should be calculated sync or async. "
-                        "'blocking' returns when done unless fresh cache exists. "
-                        "'force_blocking' always calculates fresh."
+                        "How to handle caching. "
+                        "'cache' returns cached results if fresh enough. "
+                        "'force' always recalculates. "
+                        "'direct' bypasses materialization (materialized endpoints only)."
                     ),
                 },
                 "version": {
                     "type": "integer",
                     "description": f"Specific endpoint version to execute (1-{endpoint.current_version}). Defaults to latest.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of results to return (SQL-based endpoints only).",
+                    "minimum": 1,
+                },
+                "debug": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Whether to include debug information (such as the executed SQL) in the response.",
                 },
             },
         },
@@ -195,7 +216,7 @@ def _build_component_schemas(endpoint: Endpoint, version: EndpointVersion) -> di
     }
 
     # Add variables schema based on query type and materialization state
-    variables_schema = _build_variables_schema(query, is_materialized)
+    variables_schema = _build_variables_schema(query, is_materialized, team_id)
     if variables_schema:
         schemas["EndpointRunRequest"]["properties"]["variables"] = {
             "$ref": "#/components/schemas/Variables",
@@ -220,23 +241,38 @@ def _get_single_breakdown_property(breakdown_filter: dict) -> str | None:
 BREAKDOWN_SUPPORTED_QUERY_TYPES = {"TrendsQuery", "FunnelsQuery", "RetentionQuery"}
 
 
-def _build_variables_schema(query: dict, is_materialized: bool) -> dict | None:
+def _build_variables_schema(query: dict, is_materialized: bool, team_id: int) -> dict | None:
     """Build schema for variables based on query type and materialization state."""
     query_kind = query.get("kind")
     properties: dict = {}
 
     if query_kind == "HogQLQuery":
-        # HogQL: variables from query definition
+        # HogQL: variables from query definition, with types from InsightVariable model
         variables = query.get("variables", {})
-        for var_id, var_data in variables.items():
-            code_name = var_data.get("code_name", var_id)
-            default_value = var_data.get("value")
-            properties[code_name] = {
-                "type": "string",
-                "description": f"Variable: {code_name}",
+        if variables:
+            variable_ids = list(variables.keys())
+            variable_types = {
+                str(uid): vtype
+                for uid, vtype in InsightVariable.objects.filter(team_id=team_id, id__in=variable_ids).values_list(
+                    "id", "type"
+                )
             }
-            if default_value is not None:
-                properties[code_name]["example"] = default_value
+
+            for var_id, var_data in variables.items():
+                code_name = var_data.get("code_name", var_id)
+                default_value = var_data.get("value")
+                var_type = variable_types.get(var_id)
+                type_schema = (
+                    INSIGHT_VARIABLE_TYPE_TO_OPENAPI.get(var_type, {"type": "string"})
+                    if var_type
+                    else {"type": "string"}
+                )
+                properties[code_name] = {
+                    **type_schema,
+                    "description": f"Variable: {code_name}",
+                }
+                if default_value is not None:
+                    properties[code_name]["example"] = default_value
     else:
         # Insight queries - only include breakdown for supported query types
         if query_kind in BREAKDOWN_SUPPORTED_QUERY_TYPES:

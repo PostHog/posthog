@@ -105,6 +105,7 @@ class MultitenantSAMLAuth(SAMLAuth):
             organization_domain = (
                 organization_domain_or_id
                 if isinstance(organization_domain_or_id, OrganizationDomain)
+                # nosemgrep: idor-lookup-without-org (pre-auth SAML flow, lookup by UUID on verified domains)
                 else OrganizationDomain.objects.verified_domains().get(id=organization_domain_or_id)
             )
         except (OrganizationDomain.DoesNotExist, DjangoValidationError):
@@ -246,6 +247,7 @@ class MultitenantSAMLAuth(SAMLAuth):
             raise AuthFailed(self, "Authentication request is invalid. Missing IdP identifier.")
 
         try:
+            # nosemgrep: idor-lookup-without-org (pre-auth SAML validation, UUID from IdP round-trip)
             organization_domain = OrganizationDomain.objects.verified_domains().get(id=idp_name)
         except (OrganizationDomain.DoesNotExist, DjangoValidationError):
             saml_logger.warning(

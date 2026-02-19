@@ -702,8 +702,11 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
 
     return (
         <div className="relative">
-            {/* NOTE: This is a bit of a placement hack - ideally we would be able to add it to the Query */}
-            <div className="absolute top-0 right-0 z-10">
+            {/* 
+            NOTE: This is a bit of a placement hack - ideally we would be able to add it to the Query
+            UPDATE: Absolute postion was overlapping with filters, so we put a bit on top. Still need to find a better solution.       
+             */}
+            <div className="flex justify-end mb-2">
                 <LemonButton
                     key="view-opt-in-session-recordings"
                     to={urls.replay(ReplayTabs.Home, recordingsFilters)}
