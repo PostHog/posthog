@@ -1049,6 +1049,7 @@ class TestResolver(BaseTest):
         resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
 
         # The resolved CTE's inner select should have the column names from the list
+        assert resolved.ctes is not None
         cte = resolved.ctes["stats"]
         assert isinstance(cte.expr, ast.SelectQuery)
         assert isinstance(cte.expr.type, ast.SelectQueryType)
@@ -1060,6 +1061,7 @@ class TestResolver(BaseTest):
         )
         resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
 
+        assert resolved.ctes is not None
         cte = resolved.ctes["stats"]
         assert isinstance(cte.expr, ast.SelectQuery)
         assert isinstance(cte.expr.type, ast.SelectQueryType)
