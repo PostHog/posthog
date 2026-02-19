@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Callable
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -41,7 +41,7 @@ class SignalSourceTableConfig(BaseModel):
     # LLM prompt to summarize descriptions that exceed the threshold. If None, no summarization is performed.
     summarization_prompt: str | None = None
     # How large the description can be before emitting
-    description_summarization_threshold_chars: int | None = None
+    description_summarization_threshold_chars: int | None = Field(default=None, gt=0)
 
     @model_validator(mode="after")
     def _validate_prompt_placeholders(self) -> "SignalSourceTableConfig":

@@ -104,7 +104,7 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
             emitter=config.emitter,
         )
         # Summarize long descriptions before actionability check
-        if config.summarization_prompt and config.description_summarization_threshold_chars:
+        if config.summarization_prompt is not None and config.description_summarization_threshold_chars is not None:
             outputs = await _summarize_long_descriptions(
                 outputs=outputs,
                 summarization_prompt=config.summarization_prompt,

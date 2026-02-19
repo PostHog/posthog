@@ -104,6 +104,17 @@ class TestSignalSourceTableConfigValidation:
         with pytest.raises(ValidationError, match="must both be set or both be None"):
             SignalSourceTableConfig(**{**_BASE_FIELDS, "description_summarization_threshold_chars": 2000})
 
+    @pytest.mark.parametrize("value", [0, -1, -100])
+    def test_rejects_non_positive_threshold(self, value):
+        with pytest.raises(ValidationError, match="greater than 0"):
+            SignalSourceTableConfig(
+                **{
+                    **_BASE_FIELDS,
+                    "summarization_prompt": "Summarize: {description}",
+                    "description_summarization_threshold_chars": value,
+                }
+            )
+
     def test_accepts_both_summarization_fields_set(self):
         config = SignalSourceTableConfig(
             **{
