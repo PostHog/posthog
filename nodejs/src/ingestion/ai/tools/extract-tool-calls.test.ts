@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { extractToolCallNames } from './extract-tool-calls'
-import { processAiToolCallExtraction } from './index'
+import { MAX_TOOLS_PER_EVENT, extractToolCallNames, sanitizeToolName } from './extract-tool-calls'
+import { MAX_OUTPUT_CHOICES_LENGTH, processAiToolCallExtraction } from './index'
 
 describe('extractToolCallNames', () => {
     describe('OpenAI format (message.tool_calls)', () => {
@@ -266,6 +266,65 @@ describe('extractToolCallNames', () => {
             expect(extractToolCallNames(choices)).toEqual([])
         })
     })
+
+    describe('tool name sanitization', () => {
+        it.each([
+            ['trims whitespace', '  get_weather  ', 'get_weather'],
+            ['replaces commas with underscores', 'tool,name,here', 'tool_name_here'],
+            ['truncates to MAX_TOOL_NAME_LENGTH', 'a'.repeat(250), 'a'.repeat(200)],
+            ['handles combined sanitization', '  tool,with,commas  ', 'tool_with_commas'],
+        ])('%s', (_desc, input, expected) => {
+            const choices = [
+                {
+                    message: {
+                        tool_calls: [{ type: 'function', function: { name: input } }],
+                    },
+                },
+            ]
+            expect(extractToolCallNames(choices)).toEqual([expected])
+        })
+
+        it('skips blank tool names', () => {
+            const choices = [
+                {
+                    message: {
+                        tool_calls: [
+                            { type: 'function', function: { name: '   ' } },
+                            { type: 'function', function: { name: 'valid_tool' } },
+                        ],
+                    },
+                },
+            ]
+            expect(extractToolCallNames(choices)).toEqual(['valid_tool'])
+        })
+    })
+
+    describe('max tools cap', () => {
+        it(`caps at ${MAX_TOOLS_PER_EVENT} tools per event`, () => {
+            const toolCalls = Array.from({ length: 150 }, (_, i) => ({
+                type: 'function',
+                function: { name: `tool_${i}` },
+            }))
+            const choices = [{ message: { tool_calls: toolCalls } }]
+            const result = extractToolCallNames(choices)
+            expect(result).toHaveLength(MAX_TOOLS_PER_EVENT)
+            expect(result[0]).toBe('tool_0')
+            expect(result[MAX_TOOLS_PER_EVENT - 1]).toBe(`tool_${MAX_TOOLS_PER_EVENT - 1}`)
+        })
+    })
+})
+
+describe('sanitizeToolName', () => {
+    it.each([
+        ['normal name', 'get_weather', 'get_weather'],
+        ['trims whitespace', '  search  ', 'search'],
+        ['replaces commas', 'a,b,c', 'a_b_c'],
+        ['truncates long names', 'x'.repeat(300), 'x'.repeat(200)],
+        ['returns null for empty', '', null],
+        ['returns null for blank', '   ', null],
+    ])('%s', (_desc, input, expected) => {
+        expect(sanitizeToolName(input)).toBe(expected)
+    })
 })
 
 describe('processAiToolCallExtraction', () => {
@@ -491,5 +550,65 @@ describe('processAiToolCallExtraction', () => {
 
         expect(result.properties!['$ai_tools_called']).toBeUndefined()
         expect(result.properties!['$ai_tool_call_count']).toBeUndefined()
+    })
+
+    describe('fast pre-checks for string values', () => {
+        it('skips parsing when no tool-call indicators found', () => {
+            const event = createEvent('$ai_generation', {
+                $ai_output_choices: JSON.stringify([{ message: { content: 'Hello, how can I help?' } }]).replace(
+                    /tool_call|tool_use|function_call|"function"/g,
+                    'xxxxx'
+                ),
+            })
+
+            const result = processAiToolCallExtraction(event)
+
+            expect(result.properties!['$ai_tools_called']).toBeUndefined()
+        })
+
+        it('skips parsing when string exceeds size limit', () => {
+            const hugeString = 'x'.repeat(MAX_OUTPUT_CHOICES_LENGTH + 1)
+            const event = createEvent('$ai_generation', {
+                $ai_output_choices: hugeString,
+            })
+
+            const result = processAiToolCallExtraction(event)
+
+            expect(result.properties!['$ai_tools_called']).toBeUndefined()
+        })
+
+        it.each([
+            ['tool_calls keyword', 'tool_call'],
+            ['tool_use keyword', 'tool_use'],
+            ['function_call keyword', 'function_call'],
+            ['"function" keyword', '"function"'],
+        ])('proceeds with parsing when %s is present', (_desc, indicator) => {
+            // Build a string that contains the indicator but isn't valid tool data
+            const event = createEvent('$ai_generation', {
+                $ai_output_choices: `[{"message": {"content": "mentioned ${indicator} in text"}}]`,
+            })
+
+            const result = processAiToolCallExtraction(event)
+
+            // Should attempt parsing (no tool calls found, but parsing was attempted)
+            expect(result.properties!['$ai_tools_called']).toBeUndefined()
+        })
+
+        it('does not apply pre-checks to non-string (already parsed) values', () => {
+            // Object values bypass string pre-checks entirely
+            const event = createEvent('$ai_generation', {
+                $ai_output_choices: [
+                    {
+                        message: {
+                            tool_calls: [{ type: 'function', function: { name: 'get_weather' } }],
+                        },
+                    },
+                ],
+            })
+
+            const result = processAiToolCallExtraction(event)
+
+            expect(result.properties!['$ai_tools_called']).toBe('get_weather')
+        })
     })
 })
