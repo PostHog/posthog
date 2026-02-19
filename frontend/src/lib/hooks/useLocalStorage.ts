@@ -43,12 +43,13 @@ export function useLocalStorage<T>(key: string, defaultValue: T): [T, (value: T 
 
     const setValue = useCallback(
         (value: T | ((prev: T) => T)) => {
-            const valueToStore = value instanceof Function ? value(storedValue) : value
-            setStoredValue(valueToStore)
-            setStoredValueInStorage(key, valueToStore)
-            getStoredValue(key, defaultValue)
+            setStoredValue((prev) => {
+                const valueToStore = value instanceof Function ? value(prev) : value
+                setStoredValueInStorage(key, valueToStore)
+                return valueToStore
+            })
         },
-        [key, storedValue, defaultValue]
+        [key]
     )
 
     return [storedValue, setValue]
