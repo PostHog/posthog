@@ -7,10 +7,10 @@
 SELECT
     arrayJoin(splitByChar(',', assumeNotNull(properties.$ai_tools_called))) as tool,
     count() as total_calls,
-    countIf(properties.$ai_is_error = 'true') as errors,
     countDistinctIf(properties.$ai_trace_id, properties.$ai_trace_id != '') as traces,
     uniq(distinct_id) as users,
     countDistinctIf(properties.$ai_session_id, properties.$ai_session_id != '') as sessions,
+    countIf(properties.$ai_is_error = 'true') as errors,
     uniq(toDate(timestamp)) as days_seen,
     min(timestamp) as first_seen,
     max(timestamp) as last_seen
