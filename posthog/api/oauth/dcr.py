@@ -156,8 +156,8 @@ class DynamicClientRegistrationView(APIView):
             if plaintext_secret:
                 create_kwargs["client_secret"] = plaintext_secret
             app = OAuthApplication.objects.create(
-                **create_kwargs
-            )  # nosemgrep: no-request-param-orm-filter (create_kwargs is built from validated serializer fields, not raw request params)
+                **create_kwargs  # nosemgrep: no-request-param-orm-filter (create_kwargs is built from validated serializer fields, not raw request params)
+            )
         except ValidationError as e:
             # Only expose redirect_uri validation errors to clients
             # Other validation errors (like missing RSA key) are internal and should not be leaked
