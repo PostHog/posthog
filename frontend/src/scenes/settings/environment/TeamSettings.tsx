@@ -166,12 +166,7 @@ export function TeamVariables(): JSX.Element {
                     thing="project token"
                     actions={
                         isTeamTokenResetAvailable ? (
-                            <LemonButton
-                                icon={<IconRefresh />}
-                                noPadding
-                                onClick={openDialog}
-                                tooltip="Reset token"
-                            />
+                            <LemonButton icon={<IconRefresh />} noPadding onClick={openDialog} tooltip="Reset token" />
                         ) : undefined
                     }
                 >
