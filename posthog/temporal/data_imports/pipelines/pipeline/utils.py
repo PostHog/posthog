@@ -64,6 +64,21 @@ class TemporaryFileSizeExceedsLimitException(Exception):
     pass
 
 
+def cast_to_large_string_types(table: pa.Table) -> pa.Table:
+    """Cast string/binary columns to large_string/large_binary to avoid Arrow 32-bit offset overflow.
+
+    Standard Arrow string/binary arrays use 32-bit offsets, limiting total data per array to ~2 GB.
+    During merge operations, Arrow may concatenate arrays that exceed this limit, causing
+    "offset overflow" errors. Large types use 64-bit offsets, removing this limitation.
+    """
+    for i, field in enumerate(table.schema):
+        if pa.types.is_string(field.type):
+            table = table.set_column(i, field.with_type(pa.large_string()), table.column(i).cast(pa.large_string()))
+        elif pa.types.is_binary(field.type):
+            table = table.set_column(i, field.with_type(pa.large_binary()), table.column(i).cast(pa.large_binary()))
+    return table
+
+
 def normalize_column_name(column_name: str) -> str:
     return NamingConvention().normalize_identifier(column_name)
 

@@ -16,7 +16,11 @@ from structlog.types import FilteringBoundLogger
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from posthog.temporal.data_imports.pipelines.pipeline.utils import conditional_lru_cache_async, normalize_column_name
+from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    cast_to_large_string_types,
+    conditional_lru_cache_async,
+    normalize_column_name,
+)
 
 from products.data_warehouse.backend.models import ExternalDataJob
 from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exists
@@ -160,6 +164,10 @@ class DeltaTableHelper:
                 raise Exception("Primary key required for incremental syncs")
 
             await self._logger.adebug(f"write_to_deltalake: merging...")
+
+            # Cast to large string/binary types to avoid Arrow 32-bit offset overflow
+            # during merge concatenation (standard types are limited to ~2 GB per array)
+            data = cast_to_large_string_types(data)
 
             # Normalize keys and check the keys actually exist in the dataset
             py_table_column_names = data.column_names
