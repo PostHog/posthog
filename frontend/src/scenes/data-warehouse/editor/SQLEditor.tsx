@@ -282,6 +282,10 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                             label: 'Save as new view...',
                                                             onClick: () => saveAsView(),
                                                         },
+                                                        {
+                                                            label: 'Save as endpoint...',
+                                                            onClick: () => saveAsEndpoint(),
+                                                        },
                                                     ]}
                                                 />
                                             ),
@@ -312,6 +316,10 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                     {
                                                         label: 'Save as new view...',
                                                         onClick: () => saveAsView(),
+                                                    },
+                                                    {
+                                                        label: 'Save as endpoint...',
+                                                        onClick: () => saveAsEndpoint(),
                                                     },
                                                 ]}
                                             />

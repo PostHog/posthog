@@ -7,7 +7,7 @@ import isEqual from 'lodash.isequal'
 import { Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
 
-import { LemonDialog, LemonInput, LemonSelect, lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -194,7 +194,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             materializeAfterSave,
         }),
         saveAsInsight: true,
-        saveAsInsightSubmit: (name: string, display: ChartDisplayType) => ({ name, display }),
+        saveAsInsightSubmit: (name: string) => ({ name }),
         saveAsEndpoint: true,
         saveAsEndpointSubmit: (name: string, description?: string) => ({ name, description }),
         updateInsight: true,
@@ -804,23 +804,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 title: 'Save as new insight',
                 initialValues: {
                     name: '',
-                    display: defaultDisplay,
                 },
                 content: (
                     <>
                         <LemonField name="name">
                             <LemonInput data-attr="insight-name" placeholder="Please enter the new name" autoFocus />
-                        </LemonField>
-                        <LemonField name="display" className="mt-2">
-                            <LemonSelect
-                                options={[
-                                    { label: 'Line chart', value: ChartDisplayType.ActionsLineGraph },
-                                    { label: 'Bar chart', value: ChartDisplayType.ActionsBar },
-                                    { label: 'Table', value: ChartDisplayType.ActionsTable },
-                                    { label: 'Area chart', value: ChartDisplayType.ActionsAreaGraph },
-                                    { label: 'World map', value: ChartDisplayType.WorldMap },
-                                ]}
-                            />
                         </LemonField>
                         <div className="mt-3">
                             <div className="text-muted text-xs mb-1">Preview</div>
@@ -839,10 +827,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 errors: {
                     name: (name) => (!name ? 'You must enter a name' : undefined),
                 },
-                onSubmit: async ({ name, display }) => actions.saveAsInsightSubmit(name, display),
+                onSubmit: async ({ name }) => actions.saveAsInsightSubmit(name),
             })
         },
-        saveAsInsightSubmit: async ({ name, display }) => {
+        saveAsInsightSubmit: async ({ name }) => {
+            const display =
+                values.outputActiveTab === OutputTab.Results
+                    ? ChartDisplayType.ActionsTable
+                    : values.sourceQuery.display || ChartDisplayType.ActionsLineGraph
+
             const insight = await insightsApi.create({
                 name,
                 query: { ...values.sourceQuery, display },
@@ -894,7 +887,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         },
         saveAsEndpointSubmit: async ({ name, description }) => {
             try {
-                await api.endpoint.create({
+                const endpoint = await api.endpoint.create({
                     name,
                     description: description || undefined,
                     query: {
@@ -903,6 +896,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     },
                 })
                 lemonToast.success('Endpoint created')
+                router.actions.push(urls.endpoint(endpoint.name))
             } catch {
                 lemonToast.error('Failed to create endpoint')
             }
