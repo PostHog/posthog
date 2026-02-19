@@ -37,34 +37,34 @@ DEFAULT_LIMIT = 100
 
 FACEBOOK_SOURCE_MAP = {
     "campaign": "campaign1",
-    "source": "source1",
+    "source": "const:Facebook Ads",
     "cost": "spend1",
     "date": "date1",
     "impressions": "impressions1",
     "clicks": "clicks1",
-    "currency": "USD",
+    "currency": "const:USD",
     "reported_conversion": "conversions1",
 }
 
 TIKTOK_SOURCE_MAP = {
     "campaign": "campaign2",
-    "source": "source2",
+    "source": "const:TikTok Ads",
     "cost": "spend2",
     "date": "date2",
     "impressions": "impressions2",
     "clicks": "clicks2",
-    "currency": "USD",
+    "currency": "const:USD",
     "reported_conversion": None,
 }
 
 LINKEDIN_SOURCE_MAP = {
     "campaign": "campaign3",
-    "source": "source3",
+    "source": "const:LinkedIn Ads",
     "cost": "spend3",
     "date": "date3",
     "impressions": "impressions3",
     "clicks": "clicks3",
-    "currency": "USD",
+    "currency": "const:USD",
     "reported_conversion": None,
 }
 

@@ -175,7 +175,7 @@ intents:
 
     web_analytics:
         description: 'Web analytics, traffic analysis, and heatmaps'
-        capabilities: [event_ingestion, replay_storage, property_definitions]
+        capabilities: [event_ingestion, replay_storage, property_definitions, livestream]
 
     surveys:
         description: 'User surveys and feedback collection'

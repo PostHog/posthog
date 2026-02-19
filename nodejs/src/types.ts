@@ -279,6 +279,7 @@ export type IngestionConsumerConfig = {
 
     // Pipeline step config
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
+    EVENT_SCHEMA_ENFORCEMENT_ENABLED: boolean
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
     TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: number
@@ -672,6 +673,13 @@ export interface RawOrganization {
 
 // NOTE: We don't need to list all options here - only the ones we use
 export type OrganizationAvailableFeature = 'group_analytics' | 'data_pipelines' | 'zapier'
+
+/** Event schema with enforcement enabled. Only includes required properties since optional properties are not validated. */
+export interface EventSchemaEnforcement {
+    event_name: string
+    /** Map from property name to accepted types (multiple types when property groups disagree) */
+    required_properties: Map<string, string[]>
+}
 
 /** Usable Team model. */
 export interface LogsSettings {
@@ -1251,7 +1259,6 @@ export enum OrganizationMembershipLevel {
 
 export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
     team_id?: number | null
-    token?: string
 }
 
 export interface EventHeaders {

@@ -22,7 +22,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
 import { TraceSummary, llmAnalyticsSessionDataLogic } from './llmAnalyticsSessionDataLogic'
 import { llmAnalyticsSessionLogic } from './llmAnalyticsSessionLogic'
-import { formatLLMCost, getTraceTimestamp } from './utils'
+import { formatLLMCost, getTraceTimestamp, sanitizeTraceUrlSearchParams } from './utils'
 
 const LLMASessionFeedbackDisplay = lazy(() =>
     import('./LLMASessionFeedbackDisplay').then((m) => ({ default: m.LLMASessionFeedbackDisplay }))
@@ -46,6 +46,7 @@ export function LLMAnalyticsSessionScene(): JSX.Element {
 function SessionSceneWrapper(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
+    const traceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     const showFeedback = !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS]
 
     const {
@@ -161,9 +162,10 @@ function SessionSceneWrapper(): JSX.Element {
                     <div className="bg-surface-primary border rounded p-4">
                         <h3 className="font-semibold text-sm mb-3">Traces in this session</h3>
                         <div className="space-y-2">
-                            {traces.map((trace) => {
+                            {traces.map((trace, index) => {
                                 const isTraceExpanded = expandedTraceIds.has(trace.id)
                                 const summary: TraceSummary | undefined = traceSummaries[trace.id]
+                                const turnNumber = index + 1
 
                                 return (
                                     <div key={trace.id} className="border rounded">
@@ -180,6 +182,9 @@ function SessionSceneWrapper(): JSX.Element {
                                             </div>
                                             <div className="flex-1">
                                                 <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                                    <span className="text-xs font-semibold text-muted">
+                                                        #{turnNumber}
+                                                    </span>
                                                     <strong className="font-mono text-xs">
                                                         {trace.id.slice(0, 8)}...
                                                     </strong>
@@ -206,7 +211,7 @@ function SessionSceneWrapper(): JSX.Element {
                                                     <Link
                                                         to={
                                                             combineUrl(urls.llmAnalyticsTrace(trace.id), {
-                                                                ...searchParams,
+                                                                ...traceSearchParams,
                                                                 timestamp: getTraceTimestamp(trace.createdAt),
                                                             }).url
                                                         }
@@ -233,7 +238,7 @@ function SessionSceneWrapper(): JSX.Element {
                                                             <Link
                                                                 to={
                                                                     combineUrl(urls.llmAnalyticsTrace(trace.id), {
-                                                                        ...searchParams,
+                                                                        ...traceSearchParams,
                                                                         timestamp: getTraceTimestamp(trace.createdAt),
                                                                         tab: 'summary',
                                                                     }).url

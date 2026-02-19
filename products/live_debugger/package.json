@@ -1,5 +1,8 @@
 {
     "name": "@posthog/products-live-debugger",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@posthog/lemon-ui": "*",
