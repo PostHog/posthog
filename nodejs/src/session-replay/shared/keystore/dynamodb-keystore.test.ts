@@ -312,11 +312,13 @@ describe('DynamoDBKeyStore', () => {
 
             const putCall = mockDynamoDBClient.send.mock.calls[1][0] as any
             expect(putCall.input.Item.session_state).toEqual({ S: 'deleted' })
+            expect(putCall.input.Item.expires_at).toBeDefined()
             expect(putCall.input.ConditionExpression).toBe('attribute_not_exists(session_id)')
-            expect(result).toEqual({
-                deleted: true,
-                deletedAt: Math.floor(new Date('2024-01-15T12:00:00Z').getTime() / 1000),
-            })
+
+            const deletedAt = Math.floor(new Date('2024-01-15T12:00:00Z').getTime() / 1000)
+            const expiresAt = parseInt(putCall.input.Item.expires_at.N, 10)
+            expect(expiresAt).toBe(deletedAt + 30 * 24 * 60 * 60)
+            expect(result).toEqual({ deleted: true, deletedAt })
         })
 
         it('should retry when concurrent generateKey creates a key between GetItem and PutItem', async () => {

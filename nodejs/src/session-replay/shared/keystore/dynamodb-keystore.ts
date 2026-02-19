@@ -13,6 +13,7 @@ import { TeamService } from '../teams/team-service'
 import { DeleteKeyResult, KeyStore, SessionKey } from '../types'
 
 const KEYS_TABLE_NAME = 'session-recording-keys'
+const TOMBSTONE_TTL_SECONDS = 30 * 24 * 60 * 60 // 30 days
 
 /**
  * Keystore backed by DynamoDB and KMS.
@@ -226,6 +227,7 @@ export class DynamoDBKeyStore implements KeyStore {
                             team_id: { N: String(teamId) },
                             session_state: { S: 'deleted' },
                             deleted_at: { N: String(deletedAt) },
+                            expires_at: { N: String(deletedAt + TOMBSTONE_TTL_SECONDS) },
                         },
                         ConditionExpression: 'attribute_not_exists(session_id)',
                     })
