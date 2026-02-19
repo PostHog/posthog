@@ -4,6 +4,18 @@ import { parseJSON } from '../../../utils/json-parse'
 import { aiToolCallExtractionCounter } from '../metrics'
 import { extractToolCallNames } from './extract-tool-calls'
 
+const TOOL_CALL_INDICATORS = ['tool_call', 'tool_use', 'function_call', '"function"']
+export const MAX_OUTPUT_CHOICES_LENGTH = 500_000
+
+function stringMayContainToolCalls(s: string): boolean {
+    for (const indicator of TOOL_CALL_INDICATORS) {
+        if (s.includes(indicator)) {
+            return true
+        }
+    }
+    return false
+}
+
 /**
  * Extract tool call information from AI generation events.
  *
@@ -37,6 +49,19 @@ export function processAiToolCallExtraction<T extends PluginEvent>(event: T): T 
 
         // Keep raw string for Python repr fallback
         const rawString = typeof outputChoices === 'string' ? outputChoices : undefined
+
+        // Fast pre-checks for string values before expensive JSON parsing
+        if (typeof outputChoices === 'string') {
+            if (outputChoices.length > MAX_OUTPUT_CHOICES_LENGTH) {
+                aiToolCallExtractionCounter.labels({ status: 'skipped_too_large' }).inc()
+                return event
+            }
+
+            if (!stringMayContainToolCalls(outputChoices)) {
+                aiToolCallExtractionCounter.labels({ status: 'skipped_no_indicators' }).inc()
+                return event
+            }
+        }
 
         // Parse if string
         let parsed: unknown = outputChoices

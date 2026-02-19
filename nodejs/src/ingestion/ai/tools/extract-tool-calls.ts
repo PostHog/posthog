@@ -10,6 +10,9 @@
  * - Python repr (OpenAI Agents SDK): `ResponseFunctionToolCall(name='...')`
  */
 
+export const MAX_TOOL_NAME_LENGTH = 200
+export const MAX_TOOLS_PER_EVENT = 100
+
 interface ToolCallItem {
     type?: string
     name?: string
@@ -30,36 +33,57 @@ interface OutputItem {
     }
 }
 
-function extractFromToolCalls(toolCalls: unknown[]): string[] {
-    const names: string[] = []
+export function sanitizeToolName(name: string): string | null {
+    let sanitized = name.trim()
+    if (sanitized.length === 0) {
+        return null
+    }
+    sanitized = sanitized.replace(/,/g, '_')
+    if (sanitized.length > MAX_TOOL_NAME_LENGTH) {
+        sanitized = sanitized.slice(0, MAX_TOOL_NAME_LENGTH)
+    }
+    return sanitized
+}
+
+function pushSanitized(names: string[], raw: string): void {
+    const sanitized = sanitizeToolName(raw)
+    if (sanitized !== null) {
+        names.push(sanitized)
+    }
+}
+
+function extractFromToolCalls(toolCalls: unknown[], names: string[], cap: number): void {
     for (const call of toolCalls) {
+        if (names.length >= cap) {
+            return
+        }
         if (typeof call === 'object' && call !== null) {
             const tc = call as ToolCallItem
             if (tc.function?.name && typeof tc.function.name === 'string') {
-                names.push(tc.function.name)
+                pushSanitized(names, tc.function.name)
             }
         }
     }
-    return names
 }
 
-function extractFromContentBlocks(content: unknown[]): string[] {
-    const names: string[] = []
+function extractFromContentBlocks(content: unknown[], names: string[], cap: number): void {
     for (const block of content) {
+        if (names.length >= cap) {
+            return
+        }
         if (typeof block !== 'object' || block === null) {
             continue
         }
         const cb = block as ToolCallItem
         // Anthropic: {type: "tool_use", name: "..."}
         if (cb.type === 'tool_use' && cb.name && typeof cb.name === 'string') {
-            names.push(cb.name)
+            pushSanitized(names, cb.name)
         }
         // Normalized OpenAI: {type: "function", function: {name: "..."}}
-        if (cb.type === 'function' && cb.function?.name && typeof cb.function.name === 'string') {
-            names.push(cb.function.name)
+        else if (cb.type === 'function' && cb.function?.name && typeof cb.function.name === 'string') {
+            pushSanitized(names, cb.function.name)
         }
     }
-    return names
 }
 
 // Matches ResponseFunctionToolCall(... name='tool_name' ...) from OpenAI Agents SDK Python repr
@@ -69,7 +93,10 @@ function extractFromPythonRepr(raw: string): string[] {
     const names: string[] = []
     let match
     while ((match = PYTHON_REPR_TOOL_CALL_PATTERN.exec(raw)) !== null) {
-        names.push(match[1])
+        if (names.length >= MAX_TOOLS_PER_EVENT) {
+            break
+        }
+        pushSanitized(names, match[1])
     }
     // Reset lastIndex for stateful regex
     PYTHON_REPR_TOOL_CALL_PATTERN.lastIndex = 0
@@ -93,6 +120,10 @@ export function extractToolCallNames(outputChoices: unknown, rawString?: string)
     const names: string[] = []
 
     for (const choice of outputChoices) {
+        if (names.length >= MAX_TOOLS_PER_EVENT) {
+            break
+        }
+
         if (typeof choice !== 'object' || choice === null) {
             continue
         }
@@ -101,28 +132,28 @@ export function extractToolCallNames(outputChoices: unknown, rawString?: string)
 
         // OpenAI Responses API: flat item with {type: "function_call", name: "..."}
         if (c.type === 'function_call' && c.name && typeof c.name === 'string') {
-            names.push(c.name)
+            pushSanitized(names, c.name)
             continue
         }
 
-        // Standard OpenAI: {message: {tool_calls: [...]}}
+        // Standard OpenAI / Anthropic: {message: {tool_calls: [...], content: [...]}}
         if (c.message && typeof c.message === 'object') {
             if ('tool_calls' in c.message && Array.isArray(c.message.tool_calls)) {
-                names.push(...extractFromToolCalls(c.message.tool_calls))
+                extractFromToolCalls(c.message.tool_calls, names, MAX_TOOLS_PER_EVENT)
             }
             if ('content' in c.message && Array.isArray(c.message.content)) {
-                names.push(...extractFromContentBlocks(c.message.content))
+                extractFromContentBlocks(c.message.content, names, MAX_TOOLS_PER_EVENT)
             }
-        }
+        } else {
+            // Unwrapped: {tool_calls: [...], role: "assistant"} (no message wrapper)
+            if ('tool_calls' in c && Array.isArray(c.tool_calls)) {
+                extractFromToolCalls(c.tool_calls, names, MAX_TOOLS_PER_EVENT)
+            }
 
-        // Unwrapped: {tool_calls: [...], role: "assistant"} (no message wrapper)
-        if ('tool_calls' in c && Array.isArray(c.tool_calls)) {
-            names.push(...extractFromToolCalls(c.tool_calls))
-        }
-
-        // Normalized: {content: [...], role: "assistant"} (no message wrapper)
-        if ('content' in c && Array.isArray(c.content)) {
-            names.push(...extractFromContentBlocks(c.content))
+            // Normalized: {content: [...], role: "assistant"} (no message wrapper)
+            if ('content' in c && Array.isArray(c.content)) {
+                extractFromContentBlocks(c.content, names, MAX_TOOLS_PER_EVENT)
+            }
         }
     }
 
