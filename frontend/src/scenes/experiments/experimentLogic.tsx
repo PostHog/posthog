@@ -458,7 +458,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'openSecondarySharedMetricModal',
                 'closePauseExperimentModal',
                 'closeResumeExperimentModal',
-                'closeShipVariantModal',
+                'closeFinishExperimentModal',
                 'openReleaseConditionsModal',
             ],
         ],
@@ -1381,9 +1381,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
         },
-        shipVariantSuccess: () => {
+        finishExperimentSuccess: () => {
             lemonToast.success('Experiment ended. The selected variant has been rolled out to all users.')
-            actions.closeShipVariantModal()
+            actions.closeFinishExperimentModal()
             if (!values.isExperimentStopped) {
                 actions.endExperiment()
             }
@@ -1395,9 +1395,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 ;[0, 400, 800].forEach((delay) => setTimeout(trigger, delay))
             }
         },
-        shipVariantFailure: ({ error }) => {
+        finishExperimentFailure: ({ error }) => {
             lemonToast.error(error)
-            actions.closeShipVariantModal()
+            actions.closeFinishExperimentModal()
         },
         updateExperimentVariantImages: async ({ variantPreviewMediaIds }) => {
             try {
@@ -1946,7 +1946,7 @@ export const experimentLogic = kea<experimentLogicType>([
         featureFlag: [
             null as FeatureFlagType | null,
             {
-                shipVariant: async ({ selectedVariantKey }) => {
+                finishExperiment: async ({ selectedVariantKey }) => {
                     if (!values.experiment.feature_flag) {
                         throw new Error('Experiment does not have a feature flag linked')
                     }

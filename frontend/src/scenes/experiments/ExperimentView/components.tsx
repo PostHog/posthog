@@ -297,7 +297,7 @@ export function PageHeaderCustom(): JSX.Element {
         updateExperiment,
         setHogfettiTrigger,
     } = useActions(experimentLogic)
-    const { openShipVariantModal, openPauseExperimentModal, openResumeExperimentModal } = useActions(modalsLogic)
+    const { openFinishExperimentModal, openPauseExperimentModal, openResumeExperimentModal } = useActions(modalsLogic)
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
     const [surveyModalOpen, setSurveyModalOpen] = useState(false)
     const { newTab } = useActions(sceneLogic)
@@ -309,7 +309,7 @@ export function PageHeaderCustom(): JSX.Element {
 
     const exposureCohortId = experiment?.exposure_cohort
 
-    const shouldShowShipVariantButton =
+    const shouldShowFinishExperimentButton =
         !isExperimentDraft &&
         !isSingleVariantShipped &&
         hasMinimumExposureForResults &&
@@ -387,19 +387,19 @@ export function PageHeaderCustom(): JSX.Element {
                                 )}
                             </div>
                         )}
-                        {shouldShowShipVariantButton && (
+                        {shouldShowFinishExperimentButton && (
                             <>
                                 <Tooltip title="Conclude this experiment and decide which variant to keep">
                                     <LemonButton
                                         type="primary"
                                         icon={<IconFlask />}
-                                        onClick={() => openShipVariantModal()}
+                                        onClick={() => openFinishExperimentModal()}
                                         size="small"
                                     >
                                         <b>End experiment</b>
                                     </LemonButton>
                                 </Tooltip>
-                                <ShipVariantModal />
+                                <FinishExperimentModal />
                             </>
                         )}
                         {experiment && (
@@ -688,11 +688,11 @@ export function ResumeExperimentModal(): JSX.Element {
     )
 }
 
-export function ShipVariantModal(): JSX.Element {
+export function FinishExperimentModal(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
-    const { shipVariant, restoreUnmodifiedExperiment } = useActions(experimentLogic)
-    const { closeShipVariantModal } = useActions(modalsLogic)
-    const { isShipVariantModalOpen } = useValues(modalsLogic)
+    const { finishExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
+    const { closeFinishExperimentModal } = useActions(modalsLogic)
+    const { isFinishExperimentModalOpen } = useValues(modalsLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
@@ -716,10 +716,10 @@ export function ShipVariantModal(): JSX.Element {
     return (
         <>
             <LemonModal
-                isOpen={isShipVariantModalOpen}
+                isOpen={isFinishExperimentModalOpen}
                 onClose={() => {
                     restoreUnmodifiedExperiment()
-                    closeShipVariantModal()
+                    closeFinishExperimentModal()
                 }}
                 width={600}
                 title="End experiment"
@@ -729,14 +729,14 @@ export function ShipVariantModal(): JSX.Element {
                             type="secondary"
                             onClick={() => {
                                 restoreUnmodifiedExperiment()
-                                closeShipVariantModal()
+                                closeFinishExperimentModal()
                             }}
                         >
                             Cancel
                         </LemonButton>
                         <LemonButton
                             onClick={() => {
-                                shipVariant({ selectedVariantKey })
+                                finishExperiment({ selectedVariantKey })
                             }}
                             type="primary"
                             disabledReason={!experiment.conclusion && 'Select a conclusion'}
