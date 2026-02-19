@@ -1412,7 +1412,10 @@ def send_error_tracking_weekly_digest_for_team(
         return
 
     allowed_emails = settings.ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS
-    if allowed_emails and "*" not in allowed_emails:
+    if not allowed_emails:
+        logger.info(f"No allowed emails configured, skipping team {team_id}")
+        return
+    if "*" not in allowed_emails:
         memberships_to_email = [m for m in memberships_to_email if m.user.email in allowed_emails]
         if not memberships_to_email:
             return
