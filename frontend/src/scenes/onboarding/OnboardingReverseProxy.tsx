@@ -10,6 +10,7 @@ import { DomainConnectBanner } from 'lib/components/DomainConnect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { apiHostOrigin } from 'lib/utils/apiHost'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProxyRecord, proxyLogic } from 'scenes/settings/environment/proxyLogic'
 
 import { OnboardingStepKey } from '~/types'
@@ -54,6 +55,10 @@ export const OnboardingReverseProxy: OnboardingStepComponentType = () => {
 OnboardingReverseProxy.stepKey = OnboardingStepKey.REVERSE_PROXY
 
 function AddDomainForm({ proxyRecordsLoading }: { proxyRecordsLoading: boolean }): JSX.Element {
+    const { createRecord } = useValues(proxyLogic)
+    const { reportOnboardingReverseProxyDomainEntered, reportOnboardingReverseProxyDocsClicked } =
+        useActions(eventUsageLogic)
+
     return (
         <div className="mt-4 space-y-4">
             <p>
@@ -61,7 +66,12 @@ function AddDomainForm({ proxyRecordsLoading }: { proxyRecordsLoading: boolean }
                 prevent this. We offer a free reverse proxy included with your PostHog account. If you have plans to
                 send events to PostHog from the web, we <strong>strongly recommend</strong> you setup a proxy.
                 <br />
-                <Link to="https://posthog.com/docs/advanced/proxy" target="_blank">
+                <Link
+                    to="https://posthog.com/docs/advanced/proxy"
+                    target="_blank"
+                    onClick={() => reportOnboardingReverseProxyDocsClicked()}
+                    data-attr="onboarding-proxy-docs-link"
+                >
                     You can also set up your own
                 </Link>
                 .
@@ -77,7 +87,13 @@ function AddDomainForm({ proxyRecordsLoading }: { proxyRecordsLoading: boolean }
                 </p>
                 <CloudflareDisclosure />
                 <div className="flex justify-end">
-                    <LemonButton htmlType="submit" type="primary" data-attr="domain-save" loading={proxyRecordsLoading}>
+                    <LemonButton
+                        htmlType="submit"
+                        type="primary"
+                        data-attr="domain-save"
+                        loading={proxyRecordsLoading}
+                        onClick={() => reportOnboardingReverseProxyDomainEntered(createRecord.domain)}
+                    >
                         Add domain
                     </LemonButton>
                 </div>
