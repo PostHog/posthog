@@ -102,12 +102,15 @@ export function LLMAnalyticsTools(): JSX.Element {
                             </Tooltip>
                         ),
                     },
-                    errors: {
+                    solo_pct: {
                         renderTitle: () => (
-                            <Tooltip title="Number of generations with errors where this tool was called">
-                                {renderSortableColumnTitle('errors', 'Errors')}
+                            <Tooltip title="Percentage of calls where this was the only tool called">
+                                {renderSortableColumnTitle('solo_pct', 'Solo %')}
                             </Tooltip>
                         ),
+                        render: function RenderSoloPct(x) {
+                            return <span>{x.value}%</span>
+                        },
                     },
                     days_seen: {
                         renderTitle: () => (

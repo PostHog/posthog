@@ -10,8 +10,8 @@ SELECT
     countDistinctIf(properties.$ai_trace_id, properties.$ai_trace_id != '') as traces,
     uniq(distinct_id) as users,
     countDistinctIf(properties.$ai_session_id, properties.$ai_session_id != '') as sessions,
-    countIf(properties.$ai_is_error = 'true') as errors,
     uniq(toDate(timestamp)) as days_seen,
+    round(countIf(properties.$ai_tool_call_count = 1) * 100 / count()) as solo_pct,
     min(timestamp) as first_seen,
     max(timestamp) as last_seen
 FROM events
