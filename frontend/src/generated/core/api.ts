@@ -32,6 +32,7 @@ import type {
     InvitesListParams,
     List2Params,
     MembersListParams,
+    OauthApplicationsListParams,
     OrganizationDomainApi,
     OrganizationInviteApi,
     OrganizationMemberApi,
@@ -46,6 +47,7 @@ import type {
     PaginatedOrganizationDomainListApi,
     PaginatedOrganizationInviteListApi,
     PaginatedOrganizationMemberListApi,
+    PaginatedOrganizationOAuthApplicationListApi,
     PaginatedProjectBackwardCompatBasicListApi,
     PaginatedRoleListApi,
     PaginatedScheduledChangeListApi,
@@ -403,6 +405,39 @@ export const membersScopedApiKeysRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+/**
+ * ViewSet for listing OAuth applications at the organization level (read-only).
+ */
+export const getOauthApplicationsListUrl = (organizationId: string, params?: OauthApplicationsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/oauth_applications/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/oauth_applications/`
+}
+
+export const oauthApplicationsList = async (
+    organizationId: string,
+    params?: OauthApplicationsListParams,
+    options?: RequestInit
+): Promise<PaginatedOrganizationOAuthApplicationListApi> => {
+    return apiMutator<PaginatedOrganizationOAuthApplicationListApi>(
+        getOauthApplicationsListUrl(organizationId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 /**

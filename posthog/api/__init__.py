@@ -143,7 +143,7 @@ from .data_management import DataManagementViewSet
 from .external_web_analytics import http as external_web_analytics
 from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
 from .llm_prompt import LLMPromptViewSet
-from .oauth import OAuthApplicationPublicMetadataViewSet
+from .oauth import OAuthApplicationPublicMetadataViewSet, OrganizationOAuthApplicationViewSet
 from .session import SessionViewSet
 from .web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
@@ -557,6 +557,12 @@ organizations_router.register(
     r"integrations",
     organization_integration.OrganizationIntegrationViewSet,
     "organization_integrations",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"oauth_applications",
+    OrganizationOAuthApplicationViewSet,
+    "organization_oauth_applications",
     ["organization_id"],
 )
 organizations_router.register(
