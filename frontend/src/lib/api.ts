@@ -3651,7 +3651,7 @@ const api = {
         ): Promise<ErrorTrackingSpikeDetectionConfig> {
             return await new ApiRequest()
                 .errorTrackingSpikeDetectionConfig()
-                .addPathComponent('update_config')
+                .withAction('update_config')
                 .update({ data })
         },
     },
