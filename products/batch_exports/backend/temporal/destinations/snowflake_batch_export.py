@@ -791,9 +791,9 @@ class SnowflakeClient:
 
         Raises:
             SnowflakeTableNotFoundError: If the table we are trying to get doesn't exist.
-            SnowflakeIncompatibleSchemaError: If the table does exist, but it doesn't
-                contain all fields present in the provided table (we do allow additional
-                fields that are not present in provided table).
+            SnowflakeIncompatibleSchemaError: If the table does exist, but it is a
+                mutable table and one or more fields from the primary key are missing
+                from the table.
         """
         try:
             result = await self.execute_async_query(f"""
@@ -807,14 +807,19 @@ class SnowflakeClient:
             else:
                 raise
 
+        if table.is_mutable():
+            missing_primary_key_fields = set(table.primary_key) - {
+                field_metadata.name.lower() for field_metadata in metadata
+            }
+            if missing_primary_key_fields:
+                raise SnowflakeIncompatibleSchemaError(
+                    "Missing one or more fields from the table's primary key, "
+                    f"which are required for mutable models: {', '.join(f"'{name}'" for name in missing_primary_key_fields)}. "
+                    "Please review your table's schema and model configuration. "
+                    "Has the model been updated without updating the target table?"
+                )
+
         record_batch_field_names = {field.name.lower() for field in table.fields}
-        missing_field_names = record_batch_field_names - {field_metadata.name.lower() for field_metadata in metadata}
-
-        if missing_field_names:
-            raise SnowflakeIncompatibleSchemaError(
-                f"Missing required fields: {', '.join(f"'{name}'" for name in missing_field_names)}"
-            )
-
         fields = (
             SnowflakeDestinationField(
                 field_metadata.name,

@@ -185,19 +185,23 @@ async def test_get_table_does_not_fail_with_additional_fields(snowflake_client, 
     assert test_table.fields == get_result.fields
 
 
-async def test_get_table_raises_incompatible_schema_on_missing_fields(snowflake_client, database, schema, test_table):
-    """Test attempting to get a table with an incompatible schema fails"""
+async def test_get_table_raises_incompatible_schema_on_missing_primary_key_fields(
+    snowflake_client, database, schema, test_table
+):
+    """Test attempting to get a table with missing primary_key fields fails"""
     table = SnowflakeTable(
         name=test_table.name,
         fields=(
             *test_table.fields,
-            SnowflakeField("missing_one", SnowflakeType("INTEGER", False), pa.int64(), True),
-            SnowflakeField("missing_two", SnowflakeType("INTEGER", False), pa.int64(), True),
+            SnowflakeField("missing_key_one", SnowflakeType("INTEGER", False), pa.int64(), True),
+            SnowflakeField("missing_key_two", SnowflakeType("INTEGER", False), pa.int64(), True),
         ),
         parents=test_table.parents,
+        primary_key=("missing_key_one", "missing_key_two"),
+        version_key=("id"),
     )
 
     with pytest.raises(SnowflakeIncompatibleSchemaError) as excinfo:
         await snowflake_client.get_table(table)
 
-    assert "Missing required fields: 'missing_one', 'missing_two'" in str(excinfo.value)
+    assert "'missing_key_one', 'missing_key_two'" in str(excinfo.value)
