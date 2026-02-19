@@ -35,8 +35,6 @@
         "schema:build:json": "ts-node ./bin/build-schema-json.mjs && oxfmt ./src/queries/schema.json && ts-node ./bin/build-validators.mjs && oxfmt ./src/queries/validators.js",
         "test": "SHARD_IDX=${SHARD_INDEX:-1}; SHARD_TOTAL=${SHARD_COUNT:-1}; echo $SHARD_IDX/$SHARD_TOTAL; pnpm build:products && jest --testPathPattern='(frontend/|products/|common/)' --forceExit --shard=$SHARD_IDX/$SHARD_TOTAL",
         "jest": "pnpm build:products && jest",
-        "format:oxfmt": "oxfmt \"../{products,frontend/src,docs}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
-        "format:check": "oxfmt --check \"../{products,frontend/src,docs}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "typescript:check": "tsc --noEmit && echo \"No errors reported by tsc.\"",
         "lint": "cd .. && oxlint --quiet",
         "format": "cd .. && oxlint --fix --fix-suggestions --fix-dangerously --quiet && oxfmt \"./{products,frontend/src,docs}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
