@@ -181,7 +181,7 @@ class CHQueryErrorUnknownIdentifier(InternalCHQueryError):
     pass
 
 
-class CHQueryErrorTooManyBytes(InternalCHQueryError):
+class CHQueryErrorTooManyBytes(ExposedCHQueryError):
     pass
 
 

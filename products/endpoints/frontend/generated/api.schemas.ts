@@ -54,6 +54,8 @@ export const PropertyOperatorApi = {
     semver_tilde: 'semver_tilde',
     semver_caret: 'semver_caret',
     semver_wildcard: 'semver_wildcard',
+    icontains_multi: 'icontains_multi',
+    not_icontains_multi: 'not_icontains_multi',
 } as const
 
 /**
@@ -2361,7 +2363,7 @@ export interface FunnelsQueryApi {
      */
     samplingFactor?: number | null
     /** Events and actions to include */
-    series: (EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi)[]
+    series: (GroupNodeApi | EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi)[]
     /** Tags that will be added to the Query log comment */
     tags?: QueryLogTagsApi | null
     /**

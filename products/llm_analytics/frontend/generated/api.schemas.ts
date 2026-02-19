@@ -1,3 +1,5 @@
+
+
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -139,7 +141,7 @@ export interface PaginatedEvaluationListApi {
     results: EvaluationApi[]
 }
 
-export type ClusteringRunRequestApiTraceFiltersItem = { [key: string]: unknown }
+export type ClusteringRunRequestApiEventFiltersItem = { [key: string]: unknown }
 
 /**
  * * `none` - none
@@ -265,7 +267,7 @@ export interface ClusteringRunRequestApi {
 * `tsne` - tsne */
     visualization_method?: VisualizationMethodEnumApi
     /** Property filters to scope which traces are included in clustering (PostHog standard format) */
-    trace_filters?: ClusteringRunRequestApiTraceFiltersItem[]
+    event_filters?: ClusteringRunRequestApiEventFiltersItem[]
 }
 
 /**

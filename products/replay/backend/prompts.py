@@ -291,6 +291,7 @@ FILTER_EXAMPLES_PROMPT = """
 **Person**: `$geoip_country_code` (US/UK/FR), `$geoip_city_name`, custom fields
 **Event**: `$current_url`, `$event_type` ($rageclick/$pageview), `$pathname`
 **Recording**: `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`
+  Always use `"type": "recording"` for these. They are NOT events — `$keypress`, `$click`, `$console_error` do not exist as event names.
 
 # Special Patterns
 **Frustrated users (rageclicks)**:
