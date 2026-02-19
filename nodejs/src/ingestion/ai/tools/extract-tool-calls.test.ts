@@ -96,6 +96,80 @@ describe('extractToolCallNames', () => {
         })
     })
 
+    describe('Vercel AI SDK / OTel format (content with type=tool-call)', () => {
+        it.each([
+            [
+                'single tool-call content block',
+                [
+                    {
+                        content: [
+                            { type: 'tool-call', id: 'call_abc', function: { name: 'get_weather', arguments: '{}' } },
+                        ],
+                        role: 'assistant',
+                    },
+                ],
+                ['get_weather'],
+            ],
+            [
+                'multiple tool-call content blocks',
+                [
+                    {
+                        content: [
+                            {
+                                type: 'tool-call',
+                                id: 'call_1',
+                                function: { name: 'get_weather', arguments: '{}' },
+                            },
+                            {
+                                type: 'tool-call',
+                                id: 'call_2',
+                                function: { name: 'search_docs', arguments: '{}' },
+                            },
+                        ],
+                        role: 'assistant',
+                    },
+                ],
+                ['get_weather', 'search_docs'],
+            ],
+            [
+                'mixed text and tool-call content blocks',
+                [
+                    {
+                        content: [
+                            { type: 'text', text: 'Let me check.' },
+                            {
+                                type: 'tool-call',
+                                id: 'call_1',
+                                function: { name: 'get_weather', arguments: '{"city":"NYC"}' },
+                            },
+                        ],
+                        role: 'assistant',
+                    },
+                ],
+                ['get_weather'],
+            ],
+            [
+                'tool-call inside message wrapper',
+                [
+                    {
+                        message: {
+                            content: [
+                                {
+                                    type: 'tool-call',
+                                    id: 'call_abc',
+                                    function: { name: 'get_weather', arguments: '{}' },
+                                },
+                            ],
+                        },
+                    },
+                ],
+                ['get_weather'],
+            ],
+        ])('%s', (_description, input, expected) => {
+            expect(extractToolCallNames(input)).toEqual(expected)
+        })
+    })
+
     describe('OpenAI Responses API (flat function_call items)', () => {
         it.each([
             [
@@ -467,6 +541,56 @@ describe('processAiToolCallExtraction', () => {
         expect(result.properties!['$ai_tool_call_count']).toBe(1)
     })
 
+    it('extracts Vercel AI SDK tool-call format', () => {
+        const event = createEvent('$ai_generation', {
+            $ai_output_choices: [
+                {
+                    content: [
+                        { type: 'text', text: 'Let me check.' },
+                        {
+                            type: 'tool-call',
+                            id: 'call_abc',
+                            function: { name: 'get_weather', arguments: '{"city":"NYC"}' },
+                        },
+                        {
+                            type: 'tool-call',
+                            id: 'call_def',
+                            function: { name: 'search_docs', arguments: '{"q":"weather"}' },
+                        },
+                    ],
+                    role: 'assistant',
+                },
+            ],
+        })
+
+        const result = processAiToolCallExtraction(event)
+
+        expect(result.properties!['$ai_tools_called']).toBe('get_weather,search_docs')
+        expect(result.properties!['$ai_tool_call_count']).toBe(2)
+    })
+
+    it('extracts Vercel AI SDK tool-call format from stringified JSON', () => {
+        const event = createEvent('$ai_generation', {
+            $ai_output_choices: JSON.stringify([
+                {
+                    content: [
+                        {
+                            type: 'tool-call',
+                            id: 'call_abc',
+                            function: { name: 'get_weather', arguments: '{}' },
+                        },
+                    ],
+                    role: 'assistant',
+                },
+            ]),
+        })
+
+        const result = processAiToolCallExtraction(event)
+
+        expect(result.properties!['$ai_tools_called']).toBe('get_weather')
+        expect(result.properties!['$ai_tool_call_count']).toBe(1)
+    })
+
     it('extracts normalized format with content.type=function', () => {
         const event = createEvent('$ai_generation', {
             $ai_output_choices: [
@@ -699,6 +823,7 @@ describe('processAiToolCallExtraction', () => {
             ['tool_use keyword', 'tool_use'],
             ['function_call keyword', 'function_call'],
             ['"function" keyword', '"function"'],
+            ['tool-call keyword (Vercel/OTel)', 'tool-call'],
         ])('proceeds with parsing when %s is present', (_desc, indicator) => {
             // Build a string that contains the indicator but isn't valid tool data
             const event = createEvent('$ai_generation', {

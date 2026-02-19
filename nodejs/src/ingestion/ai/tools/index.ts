@@ -4,7 +4,7 @@ import { parseJSON } from '../../../utils/json-parse'
 import { aiToolCallExtractionCounter } from '../metrics'
 import { extractToolCallNames } from './extract-tool-calls'
 
-const TOOL_CALL_INDICATORS = ['tool_call', 'tool_use', 'function_call', '"function"']
+const TOOL_CALL_INDICATORS = ['tool_call', 'tool_use', 'function_call', '"function"', 'tool-call']
 export const MAX_OUTPUT_CHOICES_LENGTH = 500_000
 
 function stringMayContainToolCalls(s: string): boolean {
