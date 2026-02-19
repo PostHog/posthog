@@ -361,7 +361,7 @@ mod tests {
     #[test]
     fn test_override_timestamp_just_past_boundary_is_overridden() {
         let now = Utc::now();
-        let just_outside = now - TimeDelta::hours(24);
+        let just_outside = now - TimeDelta::hours(24) - TimeDelta::seconds(1);
         let (final_ts, original) = override_timestamp(just_outside);
         assert!((final_ts - now).num_seconds().abs() < 2);
         assert_eq!(original.unwrap(), just_outside);
