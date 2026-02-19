@@ -186,4 +186,4 @@ Need more granular access to queries than these dashboards provide? Take a look 
 
 ### How-to fix slow queries
 
-See [ClickHouse manual](/handbook/engineering/clickhouse/) for tips and tricks.
+See [ClickHouse manual](https://posthog.com/handbook/engineering/clickhouse/) for tips and tricks.

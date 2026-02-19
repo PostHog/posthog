@@ -4,7 +4,7 @@ sidebar: Handbook
 showTitle: true
 ---
 
-This document outlines how to do large-scale data migrations on PostHog Cloud without using [Async Migrations](/handbook/engineering/databases/async-migrations).
+This document outlines how to do large-scale data migrations on PostHog Cloud without using [Async Migrations](./async-migrations).
 
 ## Background
 
@@ -14,7 +14,7 @@ Doing this migration on cloud took several months and several false starts.
 
 ## Migration strategy
 
-[Read guide to event ingestion before this](/handbook/engineering/databases/event-ingestion).
+[Read guide to event ingestion before this](https://posthog.com/handbook/engineering/databases/event-ingestion).
 
 Desired goals on the migration:
 

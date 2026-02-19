@@ -7,7 +7,7 @@ showTitle: true
 PostHog's database schema evolves constantly along with the app.
 Each schema change requires deliberation though, as a badly designed migration can cause pain for users and require extra effort from the engineering team.
 
-For detailed patterns on writing safe Django migrations, see the [Safe Django Migrations guide](/handbook/engineering/safe-django-migrations).
+For detailed patterns on writing safe Django migrations, see the [Safe Django Migrations guide](../safe-django-migrations).
 
 ## General considerations
 

@@ -5,7 +5,7 @@ showTitle: true
 ---
 
 > ❗️ This guide is intended only for development of PostHog itself.
-> If you're looking for documentation on writing HogQL (or SQL) queries, go to the [SQL](/docs/sql) docs.
+> If you're looking for documentation on writing HogQL (or SQL) queries, go to the [SQL](https://posthog.com/docs/sql) docs.
 
 HogQL is our layer on top of ClickHouse SQL which provides nice features such as:
 

@@ -4,13 +4,13 @@ sidebar: Docs
 showTitle: true
 ---
 
-This is an internal guide to setting up and working with the data warehouse for PostHog engineers. If you're a PostHog user, check out our [data warehouse docs](/docs/data-warehouse) instead.
+This is an internal guide to setting up and working with the data warehouse for PostHog engineers. If you're a PostHog user, check out our [data warehouse docs](https://posthog.com/docs/data-warehouse) instead.
 
 ## Adding a new source
 
 Looking to add a new source to data warehouse? [We have a detailed guide in the codebase](https://github.com/PostHog/posthog/blob/master/posthog/temporal/data_imports/sources/README.md).
 
-> If you're a customer of PostHog Cloud and are looking to import data into your project, then you're likely looking for [this section of the docs instead](/docs/cdp/sources)
+> If you're a customer of PostHog Cloud and are looking to import data into your project, then you're likely looking for [this section of the docs instead](https://posthog.com/docs/cdp/sources)
 
 ## Importing your local Postgres instance
 
@@ -22,7 +22,7 @@ Looking to add a new source to data warehouse? [We have a detailed guide in the 
    4. user = posthog
    5. password = posthog
    6. schema = public
-3. Hit next, then select which tables you'd like to import. [More info on the sync types can be found here](/docs/cdp/sources#incremental-vs-append-only-vs-full-table)
+3. Hit next, then select which tables you'd like to import. [More info on the sync types can be found here](https://posthog.com/docs/cdp/sources#incremental-vs-append-only-vs-full-table)
 4. Hit next and finish the import - `temporal-worker-data-warehouse` will then import the data into your local MinIO instance
 
 ## Accessing MinIO

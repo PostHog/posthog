@@ -44,7 +44,7 @@ The PostHog web application, built with React and TypeScript. Uses [Kea](https:/
 - `src/lib` – Reusable components and utilities
 - `src/scenes` – Page-specific components organized by feature
 - `src/queries` – Query builder and data visualization components
-- `src/toolbar` – Code for the [PostHog Toolbar](/docs/user-guides/toolbar)
+- `src/toolbar` – Code for the [PostHog Toolbar](https://posthog.com/docs/user-guides/toolbar)
 
 ### `posthog`
 

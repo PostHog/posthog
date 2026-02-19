@@ -21,7 +21,7 @@ Hence the explicit separation between the data and view layers.
 #### Do-s & Don't-s
 
 - General
-  - Write all new code with TypeScript and proper typing. See [Type system guide](/docs/contribute/type-system) for guidance on generated vs handwritten types.
+  - Write all new code with TypeScript and proper typing. See [Type system guide](../type-system) for guidance on generated vs handwritten types.
   - Write your frontend data handling code first, and write it in a Kea `logic`.
   - Don't use `useState` or `useEffect` to store local state. It's false convenience. Take the extra 3 minutes and change it to a `logic` early on in the development.
   - Logics still have a tiny initialization cost. Hence this rule doesn't apply to library components in the `lib/` folder, which might be rendered hundreds of times on a page with different sets of data. Still feel free to write a logic for a complicated `lib/` component when needed.

@@ -108,7 +108,7 @@ Querying ClickHouse directly from product code is a bad idea for several reasons
 
 2. **Consistency**: HogQL handles property access, person mapping, and other PostHog-specific concerns correctly and consistently.
 
-3. **Query attribution**: If you must query ClickHouse directly for a valid reason, ensure you [tag your queries appropriately](/handbook/engineering/clickhouse/query-attribution) with the right product tag and ClickHouse user.
+3. **Query attribution**: If you must query ClickHouse directly for a valid reason, ensure you [tag your queries appropriately](https://posthog.com/handbook/engineering/clickhouse/query-attribution) with the right product tag and ClickHouse user.
 
 The only case where raw ClickHouse queries might be justified is cross-team queries, but even then consider alternatives:
 

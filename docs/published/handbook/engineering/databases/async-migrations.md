@@ -4,7 +4,7 @@ sidebar: Handbook
 showTitle: true
 ---
 
-Also see: user-facing documentation under [in the runbook](/docs/runbook/async-migrations)
+Also see: user-facing documentation under [in the runbook](https://posthog.com/docs/runbook/async-migrations)
 
 ### Writing an async migration
 

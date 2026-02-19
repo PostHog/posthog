@@ -12,7 +12,7 @@ We currently store JSON data in string columns in clickhouse, reading and parsin
 
 Materialized columns allow us to "store" specific properties stored in JSON as separate columns that are there on disk, making reading these columns up to 25x faster than normal properties.
 
-Also check out our [ClickHouse manual](/handbook/engineering/clickhouse/working-with-json) and [blog post](/blog/clickhouse-materialized-columns) for more information.
+Also check out our [ClickHouse manual](https://posthog.com/handbook/engineering/clickhouse/working-with-json) and [blog post](https://posthog.com/blog/clickhouse-materialized-columns) for more information.
 
 ## Materialized columns in practice
 
@@ -28,7 +28,7 @@ We have a cron-job which analyzes slow queries ran last week and tries to find p
 
 Note that this cron can often be disabled due to cluster issues or ongoing data migrations.
 
-See [environment variables documentation](/docs/self-host/configure/environment-variables) + instance settings for toggles which control this.
+See [environment variables documentation](https://posthog.com/docs/self-host/configure/environment-variables) + instance settings for toggles which control this.
 
 ### Manual materialization
 

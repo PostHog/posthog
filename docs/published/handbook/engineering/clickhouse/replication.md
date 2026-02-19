@@ -387,4 +387,4 @@ More documentation on this can be found at:
 - [Engines](https://kb.altinity.com/engines/)
 - [ZooKeeper schema](https://kb.altinity.com/altinity-kb-setup-and-maintenance/altinity-kb-zookeeper/zookeeper-schema/)
 
-Next in the ClickHouse manual: [Data ingestion](/handbook/engineering/clickhouse/data-ingestion)
+Next in the ClickHouse manual: [Data ingestion](https://posthog.com/handbook/engineering/clickhouse/data-ingestion)
