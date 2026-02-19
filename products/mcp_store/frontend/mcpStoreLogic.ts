@@ -136,7 +136,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
     }),
 
     urlToAction(({ actions }) => ({
-        '/mcp-servers': (_, searchParams) => {
+        '/settings/mcp-servers': (_, searchParams) => {
             const { code, state, server_id, state_token } = searchParams
             if (code && state) {
                 const parsed = fromParamsGivenUrl(`?${state}`)
@@ -148,10 +148,10 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                     displayName: parsed.display_name,
                     description: parsed.description,
                 })
-                router.actions.replace('/mcp-servers')
+                router.actions.replace('/settings/mcp-servers')
             } else if (code && server_id) {
                 actions.completeOAuthInstall({ code, serverId: server_id, stateToken: state_token })
-                router.actions.replace('/mcp-servers')
+                router.actions.replace('/settings/mcp-servers')
             }
         },
     })),

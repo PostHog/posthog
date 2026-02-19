@@ -66,7 +66,8 @@ export type SettingSectionId =
     | 'user-customization'
     | 'user-danger-zone'
     | 'user-feature-previews'
-    | 'mcp-server'
+    | 'posthog-mcp'
+    | 'mcp-servers'
 
 export type SettingId =
     | 'snippet-v2'
@@ -182,7 +183,8 @@ export type SettingId =
     | 'csp-reporting'
     | 'base-currency'
     | 'marketing-settings'
-    | 'mcp-server-configure'
+    | 'posthog-mcp-configure'
+    | 'mcp-servers-manage'
     | 'activity-log-settings'
     | 'activity-log-org-level-settings'
     | 'activity-log-notifications'

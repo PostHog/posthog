@@ -582,6 +582,9 @@ importers:
       '@posthog/products-managed-migrations':
         specifier: workspace:*
         version: link:../products/managed_migrations
+      '@posthog/products-mcp-store':
+        specifier: workspace:*
+        version: link:../products/mcp_store
       '@posthog/products-notebooks':
         specifier: workspace:*
         version: link:../products/notebooks
@@ -2418,6 +2421,8 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
 
+  products/marketing_analytics: {}
+
   products/mcp_store:
     dependencies:
       '@posthog/icons':
@@ -2428,21 +2433,19 @@ importers:
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 3.1.7(react@18.3.1)
+        version: 4.0.0-pre.3(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@3.1.7(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.3(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@3.1.7(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.3(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@3.1.7(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.3(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
-        
-  products/marketing_analytics: {}
 
   products/notebooks:
     dependencies:

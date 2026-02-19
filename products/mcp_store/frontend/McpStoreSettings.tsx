@@ -7,11 +7,7 @@ import { LemonButton, LemonInput, LemonTable, LemonTag } from '@posthog/lemon-ui
 import api from 'lib/api'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import IconPostHogService from 'public/posthog-icon.svg'
 import IconLinearService from 'public/services/linear.svg'
@@ -22,11 +18,6 @@ import { MCPServerInstallation, RecommendedServer, mcpStoreLogic } from './mcpSt
 const SERVER_ICONS: Record<string, string> = {
     'PostHog MCP': IconPostHogService,
     Linear: IconLinearService,
-}
-
-export const scene: SceneExport = {
-    component: McpStoreScene,
-    logic: mcpStoreLogic,
 }
 
 function ConnectOAuthButton({
@@ -72,7 +63,7 @@ function ConnectOAuthButton({
     )
 }
 
-export function McpStoreScene(): JSX.Element {
+export function McpStoreSettings(): JSX.Element {
     const { installations, installationsLoading, installedServerUrls, recommendedServers, serversLoading } =
         useValues(mcpStoreLogic)
     const { uninstallServer, openAddCustomServerModal } = useActions(mcpStoreLogic)
@@ -80,19 +71,13 @@ export function McpStoreScene(): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
 
     return (
-        <SceneContent>
-            <SceneTitleSection
-                name="MCP servers"
-                description="Manage MCP servers for your AI agents."
-                resourceType={{ type: 'mcp_store' }}
-                actions={
-                    <LemonButton type="primary" icon={<IconPlus />} onClick={openAddCustomServerModal} size="small">
-                        Add custom server
-                    </LemonButton>
-                }
-            />
-
-            <h3>Installed servers</h3>
+        <>
+            <div className="flex items-center justify-between mb-4">
+                <h3 className="mb-0">Installed servers</h3>
+                <LemonButton type="primary" icon={<IconPlus />} onClick={openAddCustomServerModal} size="small">
+                    Add custom server
+                </LemonButton>
+            </div>
             <LemonTable
                 loading={installationsLoading}
                 dataSource={installations}
@@ -176,7 +161,7 @@ export function McpStoreScene(): JSX.Element {
 
             {recommendedServers.length > 0 && (
                 <>
-                    <div className="flex-col items-center justify-between mt-4">
+                    <div className="flex-col items-center justify-between mt-4 mb-2">
                         <h3 className="mb-4">Recommended servers</h3>
                         <LemonInput
                             type="search"
@@ -248,8 +233,6 @@ export function McpStoreScene(): JSX.Element {
             )}
 
             <AddCustomServerModal />
-        </SceneContent>
+        </>
     )
 }
-
-export default scene
