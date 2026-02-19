@@ -493,7 +493,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             resource_entries: dict[str, dict] = {}
             for resource in ACCESS_CONTROL_RESOURCES:
                 resource_role_level = role_resource_overrides.get((rid, resource))
-                resource_default = resource_default_levels.get(resource, default_access_level(resource))
+                resource_default = resource_default_levels.get(resource)
                 resource_result = get_effective_access_level_for_role(
                     resource=resource,
                     default_level=resource_default,
@@ -602,7 +602,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             resource_entries: dict[str, dict] = {}
             for resource in ACCESS_CONTROL_RESOURCES:
                 resource_member_level = member_resource_overrides.get((mid, resource))
-                resource_default = resource_default_levels.get(resource, default_access_level(resource))
+                resource_default = resource_default_levels.get(resource)
                 resource_role_levels: list[AccessControlLevel] = [
                     role_resource_overrides[(rid, resource)]
                     for rid in member_role_ids

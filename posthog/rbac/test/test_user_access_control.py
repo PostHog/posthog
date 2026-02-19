@@ -1613,6 +1613,9 @@ class TestGetEffectiveAccessLevelForRole:
                 "manager",
                 "manager",
                 "viewer",
+                # No overrides at all - everything is None
+                ("no_default_no_override", "project", None, None, None, None, None),
+                ("resource_no_default_no_override", "feature_flag", None, None, None, None, None),
                 "project_default",
             ),
             # Role overrides same as project defaults
@@ -1654,6 +1657,9 @@ class TestGetEffectiveAccessLevelForMember:
                 "project",
                 "none",
                 ["member"],
+                # No overrides at all - everything is None
+                ("no_default_no_overrides", "project", None, [], None, False, None, None, None),
+                ("resource_no_default_no_overrides", "feature_flag", None, [], None, False, None, None, None),
                 "member",
                 True,
                 "admin",

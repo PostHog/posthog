@@ -1424,6 +1424,51 @@ class TestAccessControlRolesEndpoint(BaseAccessControlTest):
         for entry in role_data["resources"].values():
             assert entry["access_level"] is None
 
+    def test_project_admin_does_not_affect_resource_effective_level(self):
+        """Project-level admin default does not grant resource-level access."""
+        self._put_project_access_control({"access_level": "admin"})
+
+        res = self.client.get("/api/projects/@current/access_control_roles")
+        role_data = self._find_role(res.json()["results"], self.role.id)
+
+        # Project: effective admin from project default
+        assert role_data["project"]["access_level"] is None
+        assert role_data["project"]["effective_access_level"] == "admin"
+        assert role_data["project"]["inherited_access_level"] == "admin"
+        assert role_data["project"]["inherited_access_level_reason"] == "project_default"
+
+        # Resource: no access - project admin does not cascade to resources
+        ff = role_data["resources"]["feature_flag"]
+        assert ff["access_level"] is None
+        assert ff["effective_access_level"] is None
+        assert ff["inherited_access_level"] is None
+
+    def test_project_defaults_populated_without_explicit_entries(self):
+        """Project defaults should use hardcoded defaults when no AccessControl entries exist."""
+        from ee.models.rbac.access_control import AccessControl
+
+        # Ensure no access controls exist for this team
+        AccessControl.objects.filter(team=self.team).delete()
+
+        res = self.client.get("/api/projects/@current/access_control_roles")
+        assert res.status_code == status.HTTP_200_OK
+        data = res.json()
+
+        # All roles should have effective project access from the hardcoded default
+        role_data = self._find_role(data["results"], self.role.id)
+
+        # Project: effective "admin" from hardcoded default (default_access_level("project") == "admin")
+        assert role_data["project"]["access_level"] is None
+        assert role_data["project"]["effective_access_level"] == "admin"
+        assert role_data["project"]["inherited_access_level"] == "admin"
+        assert role_data["project"]["inherited_access_level_reason"] == "project_default"
+
+        # Resources: no defaults, so effective is None
+        ff = role_data["resources"]["feature_flag"]
+        assert ff["access_level"] is None
+        assert ff["effective_access_level"] is None
+        assert ff["inherited_access_level"] is None
+
     def test_only_returns_current_team_role_overrides(self):
         """Role overrides from other teams are not included."""
         from ee.models.rbac.access_control import AccessControl
@@ -1533,6 +1578,51 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         assert member_data["project"]["effective_access_level"] == "admin"
         assert member_data["project"]["inherited_access_level"] == "admin"
         assert member_data["project"]["inherited_access_level_reason"] == "role_override"
+
+    def test_project_admin_does_not_affect_resource_effective_level(self):
+        """Project-level admin default does not grant resource-level access."""
+        self._put_project_access_control({"access_level": "admin"})
+
+        res = self.client.get("/api/projects/@current/access_control_members")
+        member_data = self._find_member(res.json()["results"], self.user2_membership.id)
+
+        # Project: effective admin from project default
+        assert member_data["project"]["access_level"] is None
+        assert member_data["project"]["effective_access_level"] == "admin"
+        assert member_data["project"]["inherited_access_level"] == "admin"
+        assert member_data["project"]["inherited_access_level_reason"] == "project_default"
+
+        # Resource: no access - project admin does not cascade to resources
+        ff = member_data["resources"]["feature_flag"]
+        assert ff["access_level"] is None
+        assert ff["effective_access_level"] is None
+        assert ff["inherited_access_level"] is None
+
+    def test_project_defaults_populated_without_explicit_entries(self):
+        """Project defaults should use hardcoded defaults when no AccessControl entries exist."""
+        from ee.models.rbac.access_control import AccessControl
+
+        # Ensure no access controls exist for this team
+        AccessControl.objects.filter(team=self.team).delete()
+
+        res = self.client.get("/api/projects/@current/access_control_members")
+        assert res.status_code == status.HTTP_200_OK
+        data = res.json()
+
+        # All members should have effective project access from the hardcoded default
+        member_data = self._find_member(data["results"], self.user2_membership.id)
+
+        # Project: effective "admin" from hardcoded default (default_access_level("project") == "admin")
+        assert member_data["project"]["access_level"] is None
+        assert member_data["project"]["effective_access_level"] == "admin"
+        assert member_data["project"]["inherited_access_level"] == "admin"
+        assert member_data["project"]["inherited_access_level_reason"] == "project_default"
+
+        # Resources: no defaults, so effective is None
+        ff = member_data["resources"]["feature_flag"]
+        assert ff["access_level"] is None
+        assert ff["effective_access_level"] is None
+        assert ff["inherited_access_level"] is None
 
     def test_only_returns_current_team_member_overrides(self):
         """Member overrides from other teams are not included."""

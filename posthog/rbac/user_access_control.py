@@ -167,14 +167,27 @@ class EffectiveAccessResult:
 
 def get_effective_access_level_for_role(
     resource: APIScopeObject,
-    default_level: AccessControlLevel,
+    default_level: AccessControlLevel | None,
     role_level: AccessControlLevel | None,
 ) -> EffectiveAccessResult:
     """Compute effective access for a role from role override and default."""
+    if default_level is None and role_level is None:
+        return EffectiveAccessResult(
+            effective_access_level=None,
+            inherited_access_level=None,
+            inherited_access_level_reason=None,
+        )
+
     levels = ordered_access_levels(resource)
     inherited = default_level
 
-    effective = inherited if role_level is None else max(inherited, role_level, key=levels.index)
+    if role_level is None:
+        effective = inherited
+    elif inherited is None:
+        # using the role level if there's no default level
+        effective = role_level
+    else:
+        effective = max(inherited, role_level, key=levels.index)
 
     return EffectiveAccessResult(
         effective_access_level=effective,
@@ -185,12 +198,19 @@ def get_effective_access_level_for_role(
 
 def get_effective_access_level_for_member(
     resource: APIScopeObject,
-    default_level: AccessControlLevel,
+    default_level: AccessControlLevel | None,
     role_levels: list[AccessControlLevel],
     member_level: AccessControlLevel | None,
     is_org_admin: bool,
 ) -> EffectiveAccessResult:
     """Compute effective access for a member from member override, default, and role levels."""
+    if default_level is None and not role_levels and member_level is None:
+        return EffectiveAccessResult(
+            effective_access_level=None,
+            inherited_access_level=None,
+            inherited_access_level_reason=None,
+        )
+
     if is_org_admin:
         top = highest_access_level(resource)
         return EffectiveAccessResult(
@@ -201,16 +221,22 @@ def get_effective_access_level_for_member(
 
     levels = ordered_access_levels(resource)
 
-    # Inherited floor: highest of project default and role overrides
     inherited = default_level
     inherited_reason: InheritedAccessLevelReason = "project_default"
 
     for rl in role_levels:
-        if levels.index(rl) > levels.index(inherited):
+        # using the role level if there's no default level or the role level is higher
+        if inherited is None or levels.index(rl) > levels.index(inherited):
             inherited = rl
             inherited_reason = "role_override"
 
-    effective = inherited if member_level is None else max(inherited, member_level, key=levels.index)
+    if member_level is None:
+        effective = inherited
+    elif inherited is None:
+        # using the member level if both default and role levels are not set
+        effective = member_level
+    else:
+        effective = max(inherited, member_level, key=levels.index)
 
     return EffectiveAccessResult(
         effective_access_level=effective,
