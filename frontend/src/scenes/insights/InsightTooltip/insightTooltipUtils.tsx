@@ -47,6 +47,7 @@ export interface TooltipConfig {
     renderCount?: (value: number) => React.ReactNode
     showHeader?: boolean
     hideColorCol?: boolean
+    hideInspectActorsSection?: boolean
     groupTypeLabel?: string
     filter?: (s: SeriesDatum) => boolean
 }
