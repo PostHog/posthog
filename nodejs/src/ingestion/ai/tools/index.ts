@@ -35,17 +35,21 @@ export function processAiToolCallExtraction<T extends PluginEvent>(event: T): T 
             return event
         }
 
+        // Keep raw string for Python repr fallback
+        const rawString = typeof outputChoices === 'string' ? outputChoices : undefined
+
         // Parse if string
         let parsed: unknown = outputChoices
         if (typeof outputChoices === 'string') {
             try {
                 parsed = parseJSON(outputChoices)
             } catch {
-                return event
+                // Not valid JSON - pass through for Python repr fallback
+                parsed = undefined
             }
         }
 
-        const toolNames = extractToolCallNames(parsed)
+        const toolNames = extractToolCallNames(parsed, rawString)
 
         if (toolNames.length === 0) {
             return event
