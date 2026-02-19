@@ -9,9 +9,12 @@ from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
 
+PERIOD_START = "toStartOfDay(now()) - INTERVAL 7 DAY"
+PERIOD_END = "toStartOfDay(now())"
+
 
 def get_exception_counts(team_ids: list[int] | None = None) -> list:
-    """Exception counts and ingestion failures"""
+    """Exception counts and ingestion failures for the last 7 days"""
     from posthog.clickhouse.client import sync_execute
 
     team_filter = ""
@@ -27,8 +30,8 @@ def get_exception_counts(team_ids: list[int] | None = None) -> list:
         countIf(mat_$exception_issue_id IS NULL) as ingestion_failure_count
     FROM events
     WHERE event = '$exception'
-    AND timestamp >= now() - INTERVAL 7 DAY
-    AND timestamp < now()
+    AND timestamp >= {PERIOD_START}
+    AND timestamp < {PERIOD_END}
     {team_filter}
     GROUP BY team_id
     HAVING exception_count > 0
@@ -39,18 +42,18 @@ def get_exception_counts(team_ids: list[int] | None = None) -> list:
 
 
 def get_crash_free_sessions(team: Team) -> dict:
-    """Calculate crash free sessions rate for the last 7 days"""
+    """Calculate crash free sessions rate for the last 7 days."""
     from posthog.hogql.query import execute_hogql_query
 
     try:
         response = execute_hogql_query(
-            query="""
+            query=f"""
                 SELECT
                     uniq($session_id) as total_sessions,
                     uniqIf($session_id, event = '$exception') as crash_sessions
                 FROM events
-                WHERE timestamp >= now() - INTERVAL 7 DAY
-                AND timestamp < now()
+                WHERE timestamp >= {PERIOD_START}
+                AND timestamp < {PERIOD_END}
                 AND notEmpty($session_id)
             """,
             team=team,
@@ -80,15 +83,15 @@ def get_daily_exception_counts(team_id: int) -> list[dict]:
 
     try:
         results = sync_execute(
-            """
+            f"""
             SELECT
                 toDate(timestamp) as day,
                 count() as day_count
             FROM events
             WHERE event = '$exception'
             AND team_id = %(team_id)s
-            AND timestamp >= toStartOfDay(now() - INTERVAL 7 DAY)
-            AND timestamp < now()
+            AND timestamp >= {PERIOD_START}
+            AND timestamp < {PERIOD_END}
             GROUP BY day
             ORDER BY day ASC
             """,
@@ -117,24 +120,24 @@ def get_daily_exception_counts(team_id: int) -> list[dict]:
 
 
 def get_top_issues_for_team(team: Team) -> list[dict]:
-    """Query top 5 issues by occurrence count in the last 7 days with sparkline data"""
+    """Query top 5 issues by occurrence count for the last 7 days with sparkline data"""
     from posthog.hogql.query import execute_hogql_query
 
     from products.error_tracking.backend.models import ErrorTrackingIssue
 
     try:
         response = execute_hogql_query(
-            query="""
+            query=f"""
                 SELECT
                     issue_id,
-                    count(*) as occurrence_count,
+                    sum(day_count) as occurrence_count,
                     groupArray(day_count) as daily_counts
                 FROM (
                     SELECT issue_id, toDate(timestamp) as day, count(*) as day_count
                     FROM events
                     WHERE event = '$exception'
-                    AND timestamp >= toStartOfDay(now() - INTERVAL 7 DAY)
-                    AND timestamp < now()
+                    AND timestamp >= {PERIOD_START}
+                    AND timestamp < {PERIOD_END}
                     GROUP BY issue_id, day
                 )
                 GROUP BY issue_id
@@ -163,7 +166,7 @@ def get_new_issues_for_team(team: Team) -> list[dict]:
 
     from products.error_tracking.backend.models import ErrorTrackingIssue
 
-    week_ago = timezone.now() - datetime.timedelta(days=7)
+    week_ago = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - datetime.timedelta(days=7)
     new_issue_objects = list(
         ErrorTrackingIssue.objects.filter(team=team, created_at__gte=week_ago).values_list("id", flat=True)
     )
@@ -175,18 +178,18 @@ def get_new_issues_for_team(team: Team) -> list[dict]:
 
     try:
         response = execute_hogql_query(
-            query="""
+            query=f"""
                 SELECT
                     issue_id,
-                    count(*) as occurrence_count,
+                    sum(day_count) as occurrence_count,
                     groupArray(day_count) as daily_counts
                 FROM (
                     SELECT issue_id, toDate(timestamp) as day, count(*) as day_count
                     FROM events
                     WHERE event = '$exception'
-                    AND timestamp >= toStartOfDay(now() - INTERVAL 7 DAY)
-                    AND timestamp < now()
-                    AND issue_id IN {issue_ids}
+                    AND timestamp >= {PERIOD_START}
+                    AND timestamp < {PERIOD_END}
+                    AND issue_id IN {{issue_ids}}
                     GROUP BY issue_id, day
                 )
                 GROUP BY issue_id
@@ -233,7 +236,7 @@ def _build_issues_list(results: list, issues_by_id: dict, team: Team) -> list[di
 
 
 def _daily_counts_to_sparkline(daily_counts: list[int]) -> list[dict]:
-    """Convert a list of daily counts into sparkline bar dicts with height percentages."""
+    """Convert a list of daily counts into sparkline bar dicts with height percentages"""
     if not daily_counts:
         return []
     max_val = max(daily_counts)
