@@ -54,10 +54,11 @@ class EventSchemaViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
     mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    scope_object = "INTERNAL"
+    scope_object = "event_definition"
     serializer_class = EventSchemaSerializer
     queryset = EventSchema.objects.all()
     lookup_field = "id"

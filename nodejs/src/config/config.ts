@@ -72,6 +72,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
+        EVENT_SCHEMA_ENFORCEMENT_ENABLED: true,
         CONSUMER_BATCH_SIZE: 500,
         CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: 30_000,
         CONSUMER_LOOP_STALL_THRESHOLD_MS: 60_000, // 1 minute - consider loop stalled after this
@@ -155,6 +156,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_API_KEY: '',
         POSTHOG_HOST_URL: 'http://localhost:8010',
 
+        // Super properties for internal analytics (matching Python posthoganalytics.super_properties)
+        OTEL_SERVICE_NAME: null,
+        OTEL_SERVICE_ENVIRONMENT: null,
         // Internal API authentication
         INTERNAL_API_SECRET: '',
 

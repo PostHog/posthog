@@ -95,6 +95,7 @@ export function DataTableVisualization({
         },
         cachedResults,
         variablesOverride,
+        limitContext: context?.limitContext,
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {

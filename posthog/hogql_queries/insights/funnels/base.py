@@ -14,6 +14,7 @@ from posthog.schema import (
     FunnelTimeToConvertResults,
     FunnelVizType,
     GroupNode,
+    GroupNode,
     StepOrderValue,
 )
 
@@ -210,6 +211,7 @@ class FunnelBase(ABC):
 
     def _serialize_step(
         self,
+        step: ActionsNode | EventsNode | DataWarehouseNode | GroupNode,
         step: ActionsNode | EventsNode | DataWarehouseNode | GroupNode,
         count: int,
         index: int,

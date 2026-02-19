@@ -533,10 +533,40 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportExperimentMetricTimeout: (
             experimentId: ExperimentIdType,
-            metric: ExperimentTrendsQuery | ExperimentFunnelsQuery
+            metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
+            teamId?: number | null,
+            queryId?: string | null
         ) => ({
             experimentId,
             metric,
+            teamId,
+            queryId,
+        }),
+        reportExperimentMetricOutOfMemory: (
+            experimentId: ExperimentIdType,
+            metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
+            teamId?: number | null,
+            queryId?: string | null,
+            errorCode?: string | null,
+            errorMessage?: string | null
+        ) => ({
+            experimentId,
+            metric,
+            teamId,
+            queryId,
+            errorCode,
+            errorMessage,
+        }),
+        reportExperimentMetricFinished: (
+            experimentId: ExperimentIdType,
+            metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
+            teamId?: number | null,
+            queryId?: string | null
+        ) => ({
+            experimentId,
+            metric,
+            teamId,
+            queryId,
         }),
         reportExperimentFeatureFlagModalOpened: () => ({}),
         reportExperimentFeatureFlagSelected: (featureFlagKey: string) => ({ featureFlagKey }),
@@ -676,6 +706,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             recommendedProducts,
         }),
         reportOnboardingUseCaseSkipped: true,
+        reportAIChatOnboardingStarted: (variant: string) => ({ variant }),
+        reportAIChatOnboardingMessageSent: (stepKey: OnboardingStepKey, messageType: 'chat' | 'button') => ({
+            stepKey,
+            messageType,
+        }),
+        reportAIChatOnboardingStepTime: (stepKey: OnboardingStepKey, timeSeconds: number) => ({
+            stepKey,
+            timeSeconds,
+        }),
         reportOnboardingProductSelectionPath: (
             path: 'ai' | 'use_case' | 'browsing_history' | 'manual',
             properties?: {
@@ -1358,8 +1397,31 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 dashboard_id: dashboardId,
             })
         },
-        reportExperimentMetricTimeout: ({ experimentId, metric }) => {
-            posthog.capture('experiment metric timeout', { experiment_id: experimentId, metric })
+        reportExperimentMetricTimeout: ({ experimentId, metric, teamId, queryId }) => {
+            posthog.capture('experiment metric timeout', {
+                experiment_id: experimentId,
+                team_id: teamId,
+                query_id: queryId,
+                metric,
+            })
+        },
+        reportExperimentMetricOutOfMemory: ({ experimentId, metric, teamId, queryId, errorCode, errorMessage }) => {
+            posthog.capture('experiment metric out of memory', {
+                experiment_id: experimentId,
+                team_id: teamId,
+                query_id: queryId,
+                error_code: errorCode,
+                error_message: errorMessage,
+                metric,
+            })
+        },
+        reportExperimentMetricFinished: ({ experimentId, metric, teamId, queryId }) => {
+            posthog.capture('experiment metric finished', {
+                experiment_id: experimentId,
+                team_id: teamId,
+                query_id: queryId,
+                metric,
+            })
         },
         reportExperimentFeatureFlagModalOpened: () => {
             posthog.capture('experiment feature flag modal opened')
@@ -1748,6 +1810,23 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 use_case: properties?.useCase,
                 recommended_products: properties?.recommendedProducts,
                 has_browsing_history: properties?.hasBrowsingHistory,
+            })
+        },
+        reportAIChatOnboardingStarted: ({ variant }) => {
+            posthog.capture('ai chat onboarding started', {
+                variant,
+            })
+        },
+        reportAIChatOnboardingMessageSent: ({ stepKey, messageType }) => {
+            posthog.capture('ai chat onboarding message sent', {
+                step_key: stepKey,
+                message_type: messageType,
+            })
+        },
+        reportAIChatOnboardingStepTime: ({ stepKey, timeSeconds }) => {
+            posthog.capture('ai chat onboarding step time', {
+                step_key: stepKey,
+                time_seconds: timeSeconds,
             })
         },
         reportOnboardingProductToggled: ({ productKey, selected, recommendationSource }) => {

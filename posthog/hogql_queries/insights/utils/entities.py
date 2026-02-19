@@ -9,6 +9,7 @@ from posthog.schema import (
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     GroupNode,
+    GroupNode,
     HogQLPropertyFilter,
 )
 
@@ -22,6 +23,8 @@ def is_equal_type(a: EntityNode, b: EntityNode | ExclusionEntityNode) -> bool:
         return isinstance(b, ActionsNode) or isinstance(b, FunnelExclusionActionsNode)
     if isinstance(a, DataWarehouseNode):
         return isinstance(b, DataWarehouseNode)
+    if isinstance(a, GroupNode):
+        return isinstance(b, GroupNode)
     if isinstance(a, GroupNode):
         return isinstance(b, GroupNode)
     raise ValueError(detail=f"Type comparison for {type(a)} and {type(b)} not implemented.")

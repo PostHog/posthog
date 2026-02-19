@@ -81,9 +81,11 @@ export function ActionFilterGroup({
     insightType,
 }: ActionFilterGroupProps): JSX.Element {
     const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
-    const effectiveActionsTaxonomicGroupTypes = showQuickFilters
-        ? [TaxonomicFilterGroupType.SuggestedFilters, ...actionsTaxonomicGroupTypes]
-        : actionsTaxonomicGroupTypes
+    const effectiveActionsTaxonomicGroupTypes = (
+        showQuickFilters
+            ? [TaxonomicFilterGroupType.SuggestedFilters, ...actionsTaxonomicGroupTypes]
+            : actionsTaxonomicGroupTypes
+    ).filter((groupType) => groupType !== TaxonomicFilterGroupType.DataWarehouse)
 
     const { currentTeamId } = useValues(teamLogic)
     const { removeLocalFilter, splitLocalFilter } = useActions(entityFilterLogic({ typeKey }))
@@ -308,7 +310,9 @@ export function ActionFilterGroup({
                                     hasBreakdown={hasBreakdown}
                                     disabled={disabled || readOnly}
                                     readOnly={readOnly}
-                                    actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
+                                    actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes.filter(
+                                        (t: TaxonomicFilterGroupType) => t !== TaxonomicFilterGroupType.DataWarehouse
+                                    )}
                                     trendsDisplayCategory={trendsDisplayCategory}
                                     showNumericalPropsOnly={showNumericalPropsOnly}
                                     dataWarehousePopoverFields={dataWarehousePopoverFields}
