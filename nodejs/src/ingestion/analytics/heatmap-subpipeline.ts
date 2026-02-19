@@ -38,15 +38,7 @@ export function createHeatmapSubpipeline<TInput extends HeatmapSubpipelineInput,
     return builder
         .pipe(createDisablePersonProcessingStep())
         .pipe(createNormalizeEventStep())
-        .pipe(
-            createEventPipelineRunnerHeatmapStep(
-                options,
-                kafkaProducer,
-                teamManager,
-                groupTypeManager,
-                groupStore
-            )
-        )
+        .pipe(createEventPipelineRunnerHeatmapStep(options, kafkaProducer, teamManager, groupTypeManager, groupStore))
         .pipe(
             createExtractHeatmapDataStep({
                 kafkaProducer,
