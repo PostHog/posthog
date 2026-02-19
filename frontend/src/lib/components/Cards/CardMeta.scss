@@ -44,8 +44,9 @@
     max-height: calc(100% - 2rem);
     background: var(--color-bg-surface-primary);
     border-radius: var(--radius);
+    container-type: inline-size;
 
-    h5 {
+    .CardMeta__heading {
         margin-bottom: 0;
         overflow: hidden;
         line-height: 1rem;
@@ -56,9 +57,9 @@
 
     h4 {
         height: 1.5em;
-        margin-bottom: 0.125rem;
+        margin-bottom: 0;
         overflow: hidden;
-        font-size: 1rem;
+        font-size: 0.8125rem;
         font-weight: 600;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -67,7 +68,7 @@
     .CardMeta__primary {
         display: flex;
         width: 100%;
-        padding: 1rem;
+        padding: 0.5rem;
     }
 
     .CardMeta__divider {
@@ -104,7 +105,57 @@
         }
     }
 
+    // Hide elements by default (small container), progressively show them
+    .CardMeta__heading,
+    .CardMeta__description {
+        display: none;
+    }
+
+    // At small sizes, use grid to put controls alongside the title without overlap
+    .CardMeta__main {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .CardMeta__top {
+        grid-row: 1;
+        grid-column: 2;
+        height: auto;
+    }
+
+    .CardMeta__main > :not(.CardMeta__top) {
+        grid-column: 1;
+    }
+
+    // When details panel is shown, always display all meta elements
     &.CardMeta--details-shown {
+        .CardMeta__heading {
+            display: block;
+        }
+
+        .CardMeta__main {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .CardMeta__top {
+            align-self: stretch;
+            height: 1.5rem;
+        }
+
+        h4 {
+            font-size: 1rem;
+        }
+
+        .CardMeta__primary {
+            padding: 1rem;
+        }
+
+        .CardMeta__description {
+            display: block;
+        }
+
         .CardMeta__details {
             margin-top: 0;
             box-shadow: var(--shadow-elevation-3000);
@@ -117,6 +168,38 @@
 
         .CardMeta__divider {
             opacity: 1;
+        }
+    }
+
+    @container (min-width: 20rem) {
+        .CardMeta__heading {
+            display: block;
+        }
+
+        .CardMeta__main {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .CardMeta__top {
+            align-self: stretch;
+            height: 1.5rem;
+        }
+    }
+
+    @container (min-width: 24rem) {
+        h4 {
+            margin-bottom: 0.125rem;
+            font-size: 1rem;
+        }
+
+        .CardMeta__primary {
+            padding: 1rem;
+        }
+
+        .CardMeta__description {
+            display: block;
         }
     }
 }
@@ -152,7 +235,6 @@
     align-items: flex-start;
     width: 100%;
     height: fit-content;
-    min-height: 2rem;
 
     > * {
         max-width: 100%; // Make sure that horizontal overflow is capped, so that ellipsis on insight name works

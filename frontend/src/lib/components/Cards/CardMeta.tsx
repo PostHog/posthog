@@ -9,9 +9,9 @@ import { IconPieChart } from '@posthog/icons'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
 import { InsightColor } from '~/types'
 
@@ -42,6 +42,8 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     extraControls?: JSX.Element | null
 }
 
+const COMPACT_WIDTH = 480 // 30rem
+
 export function CardMeta({
     ribbonColor,
     showEditingControls,
@@ -58,57 +60,60 @@ export function CardMeta({
     samplingFactor,
     extraControls,
 }: CardMetaProps): JSX.Element {
-    const { ref: primaryRef, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
-    const { ref: topRef, width: topWidth } = useResizeObserver()
-    const { ref: headingRef, width: headingWidth } = useResizeObserver()
+    const { ref: containerRef, width: containerWidth } = useResizeObserver()
 
-    // Calculate available space for controls (doesn't depend on label state, so no cyclic dependency)
-    const controlsAvailableSpace = (topWidth ?? 0) - (headingWidth ?? 0)
+    const isCompact = showEditingControls && (containerWidth ?? Infinity) < COMPACT_WIDTH
 
-    // Estimate space needed for controls with labels
-    // These are approximate widths based on current button styles
-    const buttonsWithLabels = (showDetailsControls ? 1 : 0) + (extraControls ? 1 : 0)
-    const neededWidth = buttonsWithLabels * 140 // 140px per button
+    const hasDetailsToggle = showDetailsControls && setAreDetailsShown
 
-    // Show labels if card is wide enough AND there's room for labeled buttons
-    // But also when in storybook to make it neater
-    const showControlsLabels =
-        inStorybook() ||
-        inStorybookTestRunner() ||
-        (!!primaryWidth && primaryWidth > 480 && controlsAvailableSpace >= neededWidth)
+    const moreOverlay = (
+        <>
+            {isCompact && hasDetailsToggle && (
+                <>
+                    <LemonButton
+                        icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
+                        onClick={() => setAreDetailsShown((state) => !state)}
+                        fullWidth
+                    >
+                        {!areDetailsShown ? 'Show' : 'Hide'} details
+                    </LemonButton>
+                    {moreButtons && <LemonDivider />}
+                </>
+            )}
+            {moreButtons}
+        </>
+    )
 
     return (
-        <div className={clsx('CardMeta', className, areDetailsShown && 'CardMeta--details-shown')}>
-            <div className="CardMeta__primary" ref={primaryRef}>
+        <div ref={containerRef} className={clsx('CardMeta', className, areDetailsShown && 'CardMeta--details-shown')}>
+            <div className="CardMeta__primary">
                 {ribbonColor &&
                     ribbonColor !==
                         InsightColor.White /* White has historically meant no color synonymously to null */ && (
                         <div className={clsx('CardMeta__ribbon', ribbonColor)} />
                     )}
                 <div className="CardMeta__main">
-                    <div className="CardMeta__top" ref={topRef}>
-                        <h5 ref={headingRef}>
-                            {topHeading}
-                            {samplingFactor && samplingFactor < 1 && (
-                                <Tooltip
-                                    title={`Results calculated from ${100 * samplingFactor}% of users`}
-                                    placement="right"
-                                >
-                                    <IconPieChart
-                                        className="ml-1.5 text-base align-[-0.25em]"
-                                        style={{ color: 'var(--primary-3000-hover)' }}
-                                    />
-                                </Tooltip>
-                            )}
+                    <div className="CardMeta__top">
+                        <h5 className="CardMeta__heading">
+                            <span className="CardMeta__heading-content">
+                                {topHeading}
+                                {samplingFactor && samplingFactor < 1 && (
+                                    <Tooltip
+                                        title={`Results calculated from ${100 * samplingFactor}% of users`}
+                                        placement="right"
+                                    >
+                                        <IconPieChart
+                                            className="ml-1.5 text-base align-[-0.25em]"
+                                            style={{ color: 'var(--primary-3000-hover)' }}
+                                        />
+                                    </Tooltip>
+                                )}
+                            </span>
                         </h5>
                         <div className="CardMeta__controls">
-                            {extraControls &&
-                                React.cloneElement(extraControls, {
-                                    ...extraControls.props,
-                                    showLabel: showControlsLabels,
-                                })}
-                            {showDetailsControls && setAreDetailsShown && (
+                            {extraControls}
+                            {!isCompact && hasDetailsToggle && (
                                 <Tooltip title={detailsTooltip}>
                                     <LemonButton
                                         icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
@@ -116,17 +121,17 @@ export function CardMeta({
                                         size="small"
                                         active={areDetailsShown}
                                     >
-                                        {showControlsLabels && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
+                                        {!areDetailsShown ? 'Show' : 'Hide'} details
                                     </LemonButton>
                                 </Tooltip>
                             )}
                             {showEditingControls &&
                                 (moreTooltip ? (
                                     <Tooltip title={moreTooltip}>
-                                        <More overlay={moreButtons} />
+                                        <More overlay={moreOverlay} />
                                     </Tooltip>
                                 ) : (
-                                    <More overlay={moreButtons} />
+                                    <More overlay={moreOverlay} />
                                 ))}
                         </div>
                     </div>
