@@ -1,4 +1,4 @@
-import type { Config } from 'jest'
+import type { Config } from '@jest/types'
 
 process.env.TZ = process.env.TZ || 'UTC'
 
@@ -38,7 +38,7 @@ function rootDirectories(): string[] {
     return ['<rootDir>/src', '<rootDir>/../products']
 }
 
-const config: Config = {
+const config: Config.InitialOptions = {
     // All imported modules in your tests should be mocked automatically
     // automock: false,
 
