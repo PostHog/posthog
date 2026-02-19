@@ -1,1 +1,1 @@
-0004_rename_content_to_text_content
+0006_signalreportartefact_report_idx
