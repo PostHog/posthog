@@ -57,7 +57,7 @@ export const KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT = `${prefix}clickhouse_error
 export const KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES = `${prefix}clickhouse_error_tracking_issue_fingerprint_overrides${suffix}`
 
 // Warehouse source webhook ingestion
-export const KAFKA_WAREHOUSE_SOURCE_WEBHOOKS = `${prefix}warehouse_source_webhooks${suffix}`
+export const KAFKA_WAREHOUSE_SOURCE_WEBHOOKS = `${prefix}data_warehouse_source_webhooks${suffix}`
 
 // Logs ingestion topics
 export const KAFKA_LOGS_INGESTION = `${prefix}logs_ingestion${suffix}`
