@@ -5,7 +5,7 @@ showTitle: true
 ---
 
 > ❗️ This guide is intended only for development of PostHog itself. If you're looking to deploy PostHog
-> for your product analytics needs, go to [Self-host PostHog](/docs/self-host).
+> for your product analytics needs, go to [Self-host PostHog](https://posthog.com/docs/self-host).
 
 ## What does PostHog look like on the inside?
 
@@ -136,7 +136,7 @@ To get PostHog running in a dev environment:
 
 This is it – you should be seeing the PostHog app at <a href="http://localhost:8010" target="_blank">http://localhost:8010</a>.
 
-You can now change PostHog in any way you want. See [Project structure](/handbook/engineering/project-structure) for an intro to the repository's contents. To commit changes, create a new branch based on `master` for your intended change, and develop away.
+You can now change PostHog in any way you want. See [Project structure](./project-structure) for an intro to the repository's contents. To commit changes, create a new branch based on `master` for your intended change, and develop away.
 
 ### Customizing which services run
 
@@ -144,7 +144,7 @@ By default, `hogli start` runs a minimal set of services (enough for product ana
 
 ### Manual setup
 
-If you need to set up without Flox, see the [manual development setup](/handbook/engineering/manual-dev-setup) guide.
+If you need to set up without Flox, see the [manual development setup](./manual-dev-setup) guide.
 
 ### Common gotchas
 
@@ -470,4 +470,4 @@ See the [Type system guide](type-system) for details on how type generation work
 
 ## Extra: Working with the data warehouse
 
-[See here for working with data warehouse](/handbook/engineering/data-warehouse)
+[See here for working with data warehouse](./data-warehouse)

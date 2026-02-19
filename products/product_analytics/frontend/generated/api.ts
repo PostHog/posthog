@@ -12,7 +12,6 @@ import type {
     ColumnConfigurationApi,
     ColumnConfigurationsListParams,
     ElementApi,
-    ElementsList2Params,
     ElementsListParams,
     PaginatedColumnConfigurationListApi,
     PaginatedElementListApi,
@@ -159,8 +158,8 @@ export const getElementsListUrl = (projectId: string, params?: ElementsListParam
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/elements/?${stringifiedParams}`
-        : `/api/environments/${projectId}/elements/`
+        ? `/api/projects/${projectId}/elements/?${stringifiedParams}`
+        : `/api/projects/${projectId}/elements/`
 }
 
 export const elementsList = async (
@@ -175,7 +174,7 @@ export const elementsList = async (
 }
 
 export const getElementsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/elements/`
+    return `/api/projects/${projectId}/elements/`
 }
 
 export const elementsCreate = async (
@@ -192,7 +191,7 @@ export const elementsCreate = async (
 }
 
 export const getElementsRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/environments/${projectId}/elements/${id}/`
+    return `/api/projects/${projectId}/elements/${id}/`
 }
 
 export const elementsRetrieve = async (projectId: string, id: number, options?: RequestInit): Promise<ElementApi> => {
@@ -203,7 +202,7 @@ export const elementsRetrieve = async (projectId: string, id: number, options?: 
 }
 
 export const getElementsUpdateUrl = (projectId: string, id: number) => {
-    return `/api/environments/${projectId}/elements/${id}/`
+    return `/api/projects/${projectId}/elements/${id}/`
 }
 
 export const elementsUpdate = async (
@@ -221,7 +220,7 @@ export const elementsUpdate = async (
 }
 
 export const getElementsPartialUpdateUrl = (projectId: string, id: number) => {
-    return `/api/environments/${projectId}/elements/${id}/`
+    return `/api/projects/${projectId}/elements/${id}/`
 }
 
 export const elementsPartialUpdate = async (
@@ -239,7 +238,7 @@ export const elementsPartialUpdate = async (
 }
 
 export const getElementsDestroyUrl = (projectId: string, id: number) => {
-    return `/api/environments/${projectId}/elements/${id}/`
+    return `/api/projects/${projectId}/elements/${id}/`
 }
 
 export const elementsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
@@ -256,7 +255,7 @@ Now, you can pass a combination of include query parameters to get different typ
 Currently only $autocapture and $rageclick and $dead_click are supported
  */
 export const getElementsStatsRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/elements/stats/`
+    return `/api/projects/${projectId}/elements/stats/`
 }
 
 export const elementsStatsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
@@ -267,141 +266,11 @@ export const elementsStatsRetrieve = async (projectId: string, options?: Request
 }
 
 export const getElementsValuesRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/elements/values/`
+    return `/api/projects/${projectId}/elements/values/`
 }
 
 export const elementsValuesRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getElementsValuesRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getElementsList2Url = (projectId: string, params?: ElementsList2Params) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/elements/?${stringifiedParams}`
-        : `/api/projects/${projectId}/elements/`
-}
-
-export const elementsList2 = async (
-    projectId: string,
-    params?: ElementsList2Params,
-    options?: RequestInit
-): Promise<PaginatedElementListApi> => {
-    return apiMutator<PaginatedElementListApi>(getElementsList2Url(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getElementsCreate2Url = (projectId: string) => {
-    return `/api/projects/${projectId}/elements/`
-}
-
-export const elementsCreate2 = async (
-    projectId: string,
-    elementApi: ElementApi,
-    options?: RequestInit
-): Promise<ElementApi> => {
-    return apiMutator<ElementApi>(getElementsCreate2Url(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(elementApi),
-    })
-}
-
-export const getElementsRetrieve2Url = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/elements/${id}/`
-}
-
-export const elementsRetrieve2 = async (projectId: string, id: number, options?: RequestInit): Promise<ElementApi> => {
-    return apiMutator<ElementApi>(getElementsRetrieve2Url(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getElementsUpdate2Url = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/elements/${id}/`
-}
-
-export const elementsUpdate2 = async (
-    projectId: string,
-    id: number,
-    elementApi: ElementApi,
-    options?: RequestInit
-): Promise<ElementApi> => {
-    return apiMutator<ElementApi>(getElementsUpdate2Url(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(elementApi),
-    })
-}
-
-export const getElementsPartialUpdate2Url = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/elements/${id}/`
-}
-
-export const elementsPartialUpdate2 = async (
-    projectId: string,
-    id: number,
-    patchedElementApi: PatchedElementApi,
-    options?: RequestInit
-): Promise<ElementApi> => {
-    return apiMutator<ElementApi>(getElementsPartialUpdate2Url(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedElementApi),
-    })
-}
-
-export const getElementsDestroy2Url = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/elements/${id}/`
-}
-
-export const elementsDestroy2 = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getElementsDestroy2Url(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-/**
- * The original version of this API always and only returned $autocapture elements
-If no include query parameter is sent this remains true.
-Now, you can pass a combination of include query parameters to get different types of elements
-Currently only $autocapture and $rageclick and $dead_click are supported
- */
-export const getElementsStatsRetrieve2Url = (projectId: string) => {
-    return `/api/projects/${projectId}/elements/stats/`
-}
-
-export const elementsStatsRetrieve2 = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getElementsStatsRetrieve2Url(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getElementsValuesRetrieve2Url = (projectId: string) => {
-    return `/api/projects/${projectId}/elements/values/`
-}
-
-export const elementsValuesRetrieve2 = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getElementsValuesRetrieve2Url(projectId), {
         ...options,
         method: 'GET',
     })

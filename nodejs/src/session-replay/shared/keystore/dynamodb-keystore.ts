@@ -1,4 +1,10 @@
-import { DynamoDBClient, GetItemCommand, PutItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb'
+import {
+    ConditionalCheckFailedException,
+    DynamoDBClient,
+    GetItemCommand,
+    PutItemCommand,
+    UpdateItemCommand,
+} from '@aws-sdk/client-dynamodb'
 import { DecryptCommand, GenerateDataKeyCommand, KMSClient } from '@aws-sdk/client-kms'
 import sodium from 'libsodium-wrappers'
 
@@ -7,6 +13,7 @@ import { TeamService } from '../teams/team-service'
 import { DeleteKeyResult, KeyStore, SessionKey } from '../types'
 
 const KEYS_TABLE_NAME = 'session-recording-keys'
+const TOMBSTONE_TTL_SECONDS = 30 * 24 * 60 * 60 // 30 days
 
 /**
  * Keystore backed by DynamoDB and KMS.
@@ -138,7 +145,10 @@ export class DynamoDBKeyStore implements KeyStore {
                 sessionState: 'ciphertext',
             }
         } else if (sessionState === 'deleted') {
-            const deletedAt = result.Item?.deleted_at?.N ? parseInt(result.Item.deleted_at.N, 10) : undefined
+            if (!result.Item?.deleted_at?.N) {
+                throw new Error(`Key for session ${sessionId} is deleted but has no deleted_at timestamp`)
+            }
+            const deletedAt = parseInt(result.Item.deleted_at.N, 10)
             return {
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
@@ -171,37 +181,66 @@ export class DynamoDBKeyStore implements KeyStore {
             })
         )
 
-        if (!existingItem.Item) {
-            return { deleted: false, reason: 'not_found' }
-        }
-
-        // Verify the returned item belongs to the requested team (defense in depth)
-        if (existingItem.Item.team_id?.N && parseInt(existingItem.Item.team_id.N, 10) !== teamId) {
-            throw new Error(`Team ID mismatch: requested ${teamId}, got ${existingItem.Item.team_id.N}`)
-        }
-
-        if (existingItem.Item.session_state?.S === 'deleted') {
-            const deletedAt = existingItem.Item.deleted_at?.N ? parseInt(existingItem.Item.deleted_at.N, 10) : undefined
-            return { deleted: false, reason: 'already_deleted', deletedAt }
-        }
-
         const deletedAt = Math.floor(Date.now() / 1000)
-        await this.dynamoDBClient.send(
-            new UpdateItemCommand({
-                TableName: KEYS_TABLE_NAME,
-                Key: {
-                    session_id: { S: sessionId },
-                    team_id: { N: String(teamId) },
-                },
-                UpdateExpression: 'SET session_state = :deleted, deleted_at = :deleted_at REMOVE encrypted_key',
-                ExpressionAttributeValues: {
-                    ':deleted': { S: 'deleted' },
-                    ':deleted_at': { N: String(deletedAt) },
-                },
-            })
-        )
 
-        return { deleted: true }
+        if (existingItem.Item) {
+            // Verify the returned item belongs to the requested team (defense in depth)
+            if (existingItem.Item.team_id?.N && parseInt(existingItem.Item.team_id.N, 10) !== teamId) {
+                throw new Error(`Team ID mismatch: requested ${teamId}, got ${existingItem.Item.team_id.N}`)
+            }
+
+            if (existingItem.Item.session_state?.S === 'deleted') {
+                if (!existingItem.Item.deleted_at?.N) {
+                    throw new Error(`Key for session ${sessionId} is deleted but has no deleted_at timestamp`)
+                }
+                return {
+                    deleted: false,
+                    reason: 'already_deleted',
+                    deletedAt: parseInt(existingItem.Item.deleted_at.N, 10),
+                }
+            }
+
+            // Shred: atomically remove the encrypted key and mark as deleted
+            await this.dynamoDBClient.send(
+                new UpdateItemCommand({
+                    TableName: KEYS_TABLE_NAME,
+                    Key: {
+                        session_id: { S: sessionId },
+                        team_id: { N: String(teamId) },
+                    },
+                    UpdateExpression: 'SET session_state = :deleted, deleted_at = :deleted_at REMOVE encrypted_key',
+                    ExpressionAttributeValues: {
+                        ':deleted': { S: 'deleted' },
+                        ':deleted_at': { N: String(deletedAt) },
+                    },
+                })
+            )
+        } else {
+            // Tombstone for cleartext session
+            // If a key was created inbetween GetItem and this point, simply retry
+            try {
+                await this.dynamoDBClient.send(
+                    new PutItemCommand({
+                        TableName: KEYS_TABLE_NAME,
+                        Item: {
+                            session_id: { S: sessionId },
+                            team_id: { N: String(teamId) },
+                            session_state: { S: 'deleted' },
+                            deleted_at: { N: String(deletedAt) },
+                            expires_at: { N: String(deletedAt + TOMBSTONE_TTL_SECONDS) },
+                        },
+                        ConditionExpression: 'attribute_not_exists(session_id)',
+                    })
+                )
+            } catch (error) {
+                if (error instanceof ConditionalCheckFailedException) {
+                    return this.deleteKey(sessionId, teamId)
+                }
+                throw error
+            }
+        }
+
+        return { deleted: true, deletedAt }
     }
 
     stop(): void {

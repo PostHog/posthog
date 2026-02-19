@@ -237,6 +237,10 @@ function buildGroupedSchemasByOutput(schema, mappings) {
                 continue
             }
 
+            if (operation.deprecated) {
+                continue
+            }
+
             const operationId = operation.operationId || ''
             const explicitTags = operation['x-explicit-tags']
             const tags = Array.isArray(explicitTags) && explicitTags.length ? explicitTags : []

@@ -49,6 +49,7 @@ import {
     FeatureFlagType,
 } from '~/types'
 
+import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
@@ -532,6 +533,7 @@ export function OverViewTab({
                 customHog={FeatureFlagHog}
                 className={cn('my-0')}
             />
+            <ApprovalsPromoBanner />
             <div>{filtersSection}</div>
             <LemonDivider className="my-0" />
             <div className="flex items-center justify-between min-h-9">
