@@ -272,7 +272,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             "state": state,
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
-        }
+                return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
         if scopes := server.oauth_metadata.get("scopes_supported"):
             query_params["scope"] = " ".join(scopes)
 
@@ -283,7 +283,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         response.set_cookie("ph_pkce_verifier", code_verifier, max_age=600, httponly=True, samesite="Lax")
         return response
 
-    def _get_or_register_dcr_server(
+            return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
         self,
         *,
         metadata: dict,
