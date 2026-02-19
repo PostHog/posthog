@@ -33,7 +33,7 @@ import { DEFAULT_APPEARANCE } from './constants'
 import { prepareStepsForRender } from './editor/generateStepHtml'
 import type { productTourLogicType } from './productTourLogicType'
 import { isAnnouncement, productToursLogic } from './productToursLogic'
-import { hasIncompleteTargeting } from './stepUtils'
+import { getUpdatedStepOrderHistory, hasIncompleteTargeting } from './stepUtils'
 
 export const DEFAULT_TARGETING_FILTERS: FeatureFlagType['filters'] = {
     ...NEW_FLAG.filters,
@@ -152,12 +152,17 @@ function tourToFormValues(tour: ProductTour): ProductTourForm {
 }
 
 function buildDraftPayload(formValues: ProductTourForm): Record<string, any> {
+    const steps = formValues.content.steps ? prepareStepsForRender(formValues.content.steps) : []
     return {
         name: formValues.name,
         description: formValues.description,
         content: {
             ...formValues.content,
-            steps: formValues.content.steps ? prepareStepsForRender(formValues.content.steps) : [],
+            steps,
+            step_order_history: getUpdatedStepOrderHistory(
+                formValues.content.steps,
+                formValues.content.step_order_history
+            ),
         },
         auto_launch: formValues.auto_launch,
         targeting_flag_filters: formValues.targeting_flag_filters,

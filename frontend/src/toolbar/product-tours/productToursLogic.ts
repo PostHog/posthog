@@ -13,6 +13,7 @@ import { prepareStepForRender, prepareStepsForRender } from 'scenes/product-tour
 import {
     createDefaultStep,
     getDefaultStepContent,
+    getUpdatedStepOrderHistory,
     hasElementTarget,
     hasIncompleteTargeting,
 } from 'scenes/product-tours/stepUtils'
@@ -24,7 +25,7 @@ import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ElementRect } from '~/toolbar/types'
 import { TOOLBAR_ID, elementToActionStep, getRectForElement, joinWithUiHost } from '~/toolbar/utils'
 import { captureAndUploadElementScreenshot } from '~/toolbar/utils/screenshot'
-import { ProductTour, ProductTourStep, ProductTourStepType, StepOrderVersion } from '~/types'
+import { ProductTour, ProductTourStep, ProductTourStepType } from '~/types'
 
 import { inferSelector } from './elementInference'
 import type { productToursLogicType } from './productToursLogicType'
@@ -115,36 +116,6 @@ export function getStepElement(step: TourStep): HTMLElement | null {
     }
 
     return findElement(step.inferenceData)
-}
-
-/** Check if steps have changed compared to the latest version in history */
-function hasStepsChanged(currentSteps: ProductTourStep[], history: StepOrderVersion[] | undefined): boolean {
-    if (!history || history.length === 0) {
-        return true // No history means we need to create the first version
-    }
-    const latestVersion = history[history.length - 1]
-    if (currentSteps.length !== latestVersion.steps.length) {
-        return true
-    }
-    return currentSteps.some((step, index) => step.id !== latestVersion.steps[index].id)
-}
-
-/** Create updated step order history, appending a new version if steps changed */
-function getUpdatedStepOrderHistory(
-    currentSteps: ProductTourStep[],
-    existingHistory: StepOrderVersion[] | undefined
-): StepOrderVersion[] {
-    const history = existingHistory ? [...existingHistory] : []
-
-    if (hasStepsChanged(currentSteps, history)) {
-        history.push({
-            id: uuid(),
-            steps: currentSteps,
-            created_at: new Date().toISOString(),
-        })
-    }
-
-    return history
 }
 
 function buildDraftPayload(form: TourForm, tours: ProductTour[]): Record<string, unknown> {
