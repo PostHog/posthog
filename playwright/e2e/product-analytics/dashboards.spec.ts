@@ -57,7 +57,7 @@ test.describe('Dashboards', () => {
             await page.goto(dashboardUrl, { waitUntil: 'domcontentloaded' })
             await expect(page).toHaveURL(/\/dashboard\//)
             await expect(
-                page.locator('.InsightCard').first().getByTestId('insight-card-title')
+                page.locator('.InsightCard').first().locator('[data-attr="insight-card-title"]')
             ).toContainText(updatedName)
         })
     })
