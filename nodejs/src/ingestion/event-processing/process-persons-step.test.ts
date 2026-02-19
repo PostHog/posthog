@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { PipelineResultType, isOkResult } from '~/ingestion/pipelines/results'
+import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/pipelines/results'
 import { BatchWritingPersonsStore } from '~/worker/ingestion/persons/batch-writing-person-store'
 import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
 
@@ -26,6 +26,7 @@ describe('createProcessPersonsStep', () => {
     let team: Team
     let pluginEvent: PluginEvent
     let timestamp: DateTime
+    let personRepository: PostgresPersonRepository
     let personsStore: BatchWritingPersonsStore
 
     const options: EventPipelineRunnerOptions = {
@@ -47,7 +48,7 @@ describe('createProcessPersonsStep', () => {
         teamId = await createTeam(hub.postgres, organizationId)
         team = (await getTeam(hub, teamId))!
 
-        const personRepository = new PostgresPersonRepository(hub.postgres)
+        personRepository = new PostgresPersonRepository(hub.postgres)
         personsStore = new BatchWritingPersonsStore(personRepository, hub.kafkaProducer)
 
         pluginEvent = {
@@ -78,6 +79,27 @@ describe('createProcessPersonsStep', () => {
         timestamp,
         ...overrides,
     })
+
+    async function createPersonWithDistinctIds(distinctId: string, ...extraDistinctIds: string[]) {
+        const result = await personRepository.createPerson(
+            DateTime.utc(),
+            {},
+            {},
+            {},
+            teamId,
+            null,
+            false,
+            new UUIDT().toString(),
+            { distinctId }
+        )
+        if (!result.success) {
+            throw new Error(`Failed to create person with distinct_id ${distinctId}`)
+        }
+        for (const extraId of extraDistinctIds) {
+            await personRepository.addDistinctId(result.person, extraId, 1)
+        }
+        return result.person
+    }
 
     it('creates person with $set properties', async () => {
         const step = createProcessPersonsStep(options, hub.kafkaProducer, personsStore)
@@ -221,6 +243,73 @@ describe('createProcessPersonsStep', () => {
         if (isOkResult(result)) {
             expect(result.value.eventWithPerson).toBeDefined()
             expect((result.value as any).normalizedEvent).toBeUndefined()
+        }
+    })
+
+    it('returns DLQ result when merge limit is exceeded in LIMIT mode', async () => {
+        await createPersonWithDistinctIds('person-1')
+        await createPersonWithDistinctIds('person-2', 'person-2-extra-1', 'person-2-extra-2')
+
+        const identifyEvent: PluginEvent = {
+            ...pluginEvent,
+            event: '$identify',
+            distinct_id: 'person-1',
+            properties: {
+                $anon_distinct_id: 'person-2',
+            },
+        }
+
+        const limitOptions: EventPipelineRunnerOptions = {
+            ...options,
+            PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 2,
+        }
+
+        const step = createProcessPersonsStep(limitOptions, hub.kafkaProducer, personsStore)
+        const result = await step(
+            createInput({
+                normalizedEvent: identifyEvent,
+                timestamp: DateTime.fromISO(identifyEvent.timestamp!),
+            })
+        )
+
+        expect(result.type).toBe(PipelineResultType.DLQ)
+        if (isDlqResult(result)) {
+            expect(result.reason).toBe('Merge limit exceeded')
+        }
+    })
+
+    it('returns redirect result when merge limit is exceeded in ASYNC mode', async () => {
+        await createPersonWithDistinctIds('person-1')
+        await createPersonWithDistinctIds('person-2', 'person-2-extra-1', 'person-2-extra-2')
+
+        const identifyEvent: PluginEvent = {
+            ...pluginEvent,
+            event: '$identify',
+            distinct_id: 'person-1',
+            properties: {
+                $anon_distinct_id: 'person-2',
+            },
+        }
+
+        const asyncOptions: EventPipelineRunnerOptions = {
+            ...options,
+            PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 2,
+            PERSON_MERGE_ASYNC_ENABLED: true,
+            PERSON_MERGE_ASYNC_TOPIC: 'async-merge-topic',
+        }
+
+        const step = createProcessPersonsStep(asyncOptions, hub.kafkaProducer, personsStore)
+        const result = await step(
+            createInput({
+                normalizedEvent: identifyEvent,
+                timestamp: DateTime.fromISO(identifyEvent.timestamp!),
+            })
+        )
+
+        expect(result.type).toBe(PipelineResultType.REDIRECT)
+        if (isRedirectResult(result)) {
+            expect(result.reason).toBe('Event redirected to async merge topic')
+            expect(result.topic).toBe('async-merge-topic')
         }
     })
 })
