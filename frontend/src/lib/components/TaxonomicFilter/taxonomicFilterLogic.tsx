@@ -297,10 +297,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         activeTab: [
             (state: any): TaxonomicFilterGroupType => {
                 const groupTypes = selectors.taxonomicGroupTypes(state)
+                const propsGroupType = selectors.groupType(state)
+                // If there's an existing filter type (e.g., SQL expression being edited),
+                // use that instead of defaulting to SuggestedFilters
+                if (propsGroupType && groupTypes.includes(propsGroupType)) {
+                    return propsGroupType
+                }
                 if (groupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)) {
                     return TaxonomicFilterGroupType.SuggestedFilters
                 }
-                return selectors.groupType(state) || groupTypes[0]
+                return propsGroupType || groupTypes[0]
             },
             {
                 setActiveTab: (_, { activeTab }) => activeTab,
