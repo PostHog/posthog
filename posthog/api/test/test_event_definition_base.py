@@ -103,6 +103,13 @@ class TestEventDefinitionGeneratorBase(BaseTest):
                 [("1", "event_a", [("field1", "String", True)])],
                 False,
             ),
+            (
+                "If the is_optional_in_types flag changes, the hashes should differ",
+                "1.0.0",
+                [("1", "event_a", [("field1", "String", True, False)])],
+                [("1", "event_a", [("field1", "String", True, True)])],
+                False,
+            ),
         ]
     )
     def test_calculate_schema_hash(
@@ -133,14 +140,14 @@ class TestEventDefinitionGeneratorBase(BaseTest):
         )
 
     def _build_schema(
-        self, schema_spec: list[tuple[str, str, list[tuple[str, str, bool]]]]
+        self, schema_spec: list[tuple[str, str, list]]
     ) -> tuple[list[MagicMock], dict[str, list[MagicMock]]]:
         """
         Build mock events and schema_map from specification.
 
         Args:
             schema_spec: List of tuples (event_id, event_name, properties)
-                        where properties is a list of tuples (prop_name, prop_type, is_required)
+                        where properties is a list of tuples (prop_name, prop_type, is_required[, is_optional_in_types])
 
         Returns:
             Tuple of (events list, schema_map dict)
@@ -155,11 +162,12 @@ class TestEventDefinitionGeneratorBase(BaseTest):
             events.append(event)
 
             properties: list[MagicMock] = []
-            for prop_name, prop_type, is_required in prop_specs:
+            for prop_spec in prop_specs:
                 prop = MagicMock()
-                prop.name = prop_name
-                prop.property_type = prop_type
-                prop.is_required = is_required
+                prop.name = prop_spec[0]
+                prop.property_type = prop_spec[1]
+                prop.is_required = prop_spec[2]
+                prop.is_optional_in_types = prop_spec[3] if len(prop_spec) > 3 else False
                 properties.append(prop)
 
             schema_map[event_id] = properties

@@ -69,6 +69,7 @@ export interface SchemaPropertyGroupProperty {
     name: string
     property_type: PropertyType
     is_required: boolean
+    is_optional_in_types: boolean
     description: string
 }
 
@@ -213,6 +214,7 @@ export const schemaManagementLogic = kea<schemaManagementLogicType>([
                             name: '',
                             property_type: 'String' as PropertyType,
                             is_required: false,
+                            is_optional_in_types: false,
                             description: '',
                         },
                     ],

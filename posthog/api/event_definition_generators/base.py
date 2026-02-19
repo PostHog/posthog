@@ -50,7 +50,7 @@ class EventDefinitionGenerator(ABC):
         schema_data = []
         for event_def in event_definitions:
             properties = schema_map.get(str(event_def.id), [])
-            prop_data = [(p.name, p.property_type, p.is_required) for p in properties]
+            prop_data = [(p.name, p.property_type, p.is_required, p.is_optional_in_types) for p in properties]
             # Sort properties by name for deterministic ordering
             schema_data.append((event_def.name, sorted(prop_data)))
 
