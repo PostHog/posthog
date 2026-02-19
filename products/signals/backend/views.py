@@ -71,14 +71,11 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = SignalSourceConfigSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "task"
-    queryset = SignalSourceConfig.objects.all()
-
-    def safely_get_queryset(self, queryset):
-        return queryset.filter(team=self.team).order_by("-created_at")
+    scope_object = "INTERNAL"
+    queryset = SignalSourceConfig.objects.all().order_by("-updated_at")
 
     def perform_create(self, serializer):
-        serializer.save(team=self.team, created_by=self.request.user)
+        serializer.save(team_id=self.team_id, created_by=self.request.user)
 
     def perform_update(self, serializer):
         serializer.save()
@@ -92,7 +89,7 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
     serializer_class = SignalReportSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "task"  # Using task scope as signal_report doesn't have its own scope yet
+    scope_object = "INTERNAL"
     queryset = SignalReport.objects.all()
 
     def safely_get_queryset(self, queryset):
