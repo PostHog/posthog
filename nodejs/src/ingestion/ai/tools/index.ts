@@ -9,7 +9,7 @@ import { extractToolCallNames } from './extract-tool-calls'
  *
  * For $ai_generation events, parses $ai_output_choices to find tool calls
  * and sets:
- * - $ai_tools_called: JSON array of tool names in call order
+ * - $ai_tools_called: comma-separated tool names in call order
  * - $ai_tool_call_count: integer count of tool calls
  *
  * Respects user-provided values (same pattern as error normalization).
@@ -55,7 +55,7 @@ export function processAiToolCallExtraction<T extends PluginEvent>(event: T): T 
             return event
         }
 
-        event.properties['$ai_tools_called'] = JSON.stringify(toolNames)
+        event.properties['$ai_tools_called'] = toolNames.join(',')
         event.properties['$ai_tool_call_count'] = toolNames.length
         aiToolCallExtractionCounter.labels({ status: 'extracted' }).inc()
 

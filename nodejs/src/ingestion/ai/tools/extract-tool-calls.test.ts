@@ -296,7 +296,7 @@ describe('processAiToolCallExtraction', () => {
 
         const result = processAiToolCallExtraction(event)
 
-        expect(result.properties!['$ai_tools_called']).toBe('["get_weather","search_docs"]')
+        expect(result.properties!['$ai_tools_called']).toBe('get_weather,search_docs')
         expect(result.properties!['$ai_tool_call_count']).toBe(2)
     })
 
@@ -316,7 +316,7 @@ describe('processAiToolCallExtraction', () => {
 
         const result = processAiToolCallExtraction(event)
 
-        expect(result.properties!['$ai_tools_called']).toBe('["web_search"]')
+        expect(result.properties!['$ai_tools_called']).toBe('web_search')
         expect(result.properties!['$ai_tool_call_count']).toBe(1)
     })
 
@@ -335,7 +335,7 @@ describe('processAiToolCallExtraction', () => {
 
         const result = processAiToolCallExtraction(event)
 
-        expect(result.properties!['$ai_tools_called']).toBe('["get_weather"]')
+        expect(result.properties!['$ai_tools_called']).toBe('get_weather')
         expect(result.properties!['$ai_tool_call_count']).toBe(1)
     })
 
@@ -354,7 +354,7 @@ describe('processAiToolCallExtraction', () => {
 
         const result = processAiToolCallExtraction(event)
 
-        expect(result.properties!['$ai_tools_called']).toBe('["get_weather"]')
+        expect(result.properties!['$ai_tools_called']).toBe('get_weather')
         expect(result.properties!['$ai_tool_call_count']).toBe(1)
     })
 
@@ -370,7 +370,7 @@ describe('processAiToolCallExtraction', () => {
 
         const result = processAiToolCallExtraction(event)
 
-        expect(result.properties!['$ai_tools_called']).toBe('["get_weather"]')
+        expect(result.properties!['$ai_tools_called']).toBe('get_weather')
         expect(result.properties!['$ai_tool_call_count']).toBe(1)
     })
 
@@ -382,7 +382,7 @@ describe('processAiToolCallExtraction', () => {
 
         const result = processAiToolCallExtraction(event)
 
-        expect(result.properties!['$ai_tools_called']).toBe('["get_weather"]')
+        expect(result.properties!['$ai_tools_called']).toBe('get_weather')
         expect(result.properties!['$ai_tool_call_count']).toBe(1)
     })
 
@@ -399,7 +399,7 @@ describe('processAiToolCallExtraction', () => {
 
         const result = processAiToolCallExtraction(event)
 
-        expect(result.properties!['$ai_tools_called']).toBe('["get_weather"]')
+        expect(result.properties!['$ai_tools_called']).toBe('get_weather')
         expect(result.properties!['$ai_tool_call_count']).toBe(1)
     })
 

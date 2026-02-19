@@ -2050,7 +2050,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_tools_called": {
             "label": "AI Tools Called (LLM)",
             "description": "The names of tools called by the LLM in this generation.",
-            "examples": ['["get_weather", "search_docs"]'],
+            "examples": ["get_weather,search_docs"],
         },
         "$ai_tool_call_count": {
             "label": "AI Tool Call Count (LLM)",
