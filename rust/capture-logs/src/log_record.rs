@@ -4,6 +4,7 @@ use anyhow::Result;
 use base64::{prelude::BASE64_STANDARD, Engine};
 use chrono::serde::ts_microseconds;
 use chrono::DateTime;
+use chrono::TimeDelta;
 use chrono::Utc;
 use clickhouse::Row;
 use opentelemetry_proto::tonic::{
@@ -44,7 +45,7 @@ impl KafkaLogRow {
         record: LogRecord,
         resource: Option<Resource>,
         scope: Option<InstrumentationScope>,
-    ) -> Result<Self> {
+    ) -> Result<(Self, bool)> {
         // Extract body - convert any AnyValue type to JSON string
         let body = match record.body {
             Some(body) => match body.value {
@@ -72,7 +73,7 @@ impl KafkaLogRow {
 
         let resource_attributes = extract_resource_attributes(resource);
 
-        let attributes: HashMap<String, String> = record
+        let mut attributes: HashMap<String, String> = record
             .attributes
             .into_iter()
             .map(|kv| {
@@ -100,10 +101,19 @@ impl KafkaLogRow {
         // Trace flags
         let trace_flags = record.flags;
 
-        let timestamp = match record.time_unix_nano {
+        let raw_timestamp = match record.time_unix_nano {
             0 => Utc::now(),
             _ => DateTime::<Utc>::from_timestamp_nanos(record.time_unix_nano.try_into()?),
         };
+
+        let (timestamp, original_timestamp) = override_timestamp(raw_timestamp);
+        let was_overridden = original_timestamp.is_some();
+        if let Some(original) = original_timestamp {
+            attributes.insert(
+                "$originalTimestamp".to_string(),
+                original.to_rfc3339(),
+            );
+        }
 
         let observed_timestamp = Utc::now();
 
@@ -125,7 +135,22 @@ impl KafkaLogRow {
         };
         debug!("log: {:?}", log_row);
 
-        Ok(log_row)
+        Ok((log_row, was_overridden))
+    }
+}
+
+const TIMESTAMP_OVERRIDE_HOURS: i64 = 24;
+
+/// Override timestamps outside of 24 hours from now. Returns the final timestamp
+/// and the original if it was overridden.
+pub fn override_timestamp(timestamp: DateTime<Utc>) -> (DateTime<Utc>, Option<DateTime<Utc>>) {
+    let now = Utc::now();
+    let max_delta = TimeDelta::hours(TIMESTAMP_OVERRIDE_HOURS);
+
+    if timestamp < now - max_delta || timestamp > now + max_delta {
+        (now, Some(timestamp))
+    } else {
+        (timestamp, None)
     }
 }
 
@@ -291,4 +316,54 @@ fn any_value_to_json(value: AnyValue) -> JsonValue {
 
 fn any_value_to_string(value: AnyValue) -> String {
     any_value_to_json(value).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_override_timestamp_within_range_is_unchanged() {
+        let now = Utc::now();
+        let one_hour_ago = now - TimeDelta::hours(1);
+        let (final_ts, original) = override_timestamp(one_hour_ago);
+        assert_eq!(final_ts, one_hour_ago);
+        assert!(original.is_none());
+    }
+
+    #[test]
+    fn test_override_timestamp_far_past_is_overridden() {
+        let now = Utc::now();
+        let two_days_ago = now - TimeDelta::hours(48);
+        let (final_ts, original) = override_timestamp(two_days_ago);
+        assert!((final_ts - now).num_seconds().abs() < 2);
+        assert_eq!(original.unwrap(), two_days_ago);
+    }
+
+    #[test]
+    fn test_override_timestamp_far_future_is_overridden() {
+        let now = Utc::now();
+        let two_days_ahead = now + TimeDelta::hours(48);
+        let (final_ts, original) = override_timestamp(two_days_ahead);
+        assert!((final_ts - now).num_seconds().abs() < 2);
+        assert_eq!(original.unwrap(), two_days_ahead);
+    }
+
+    #[test]
+    fn test_override_timestamp_at_boundary_is_not_overridden() {
+        let now = Utc::now();
+        let just_within = now - TimeDelta::hours(22);
+        let (final_ts, original) = override_timestamp(just_within);
+        assert_eq!(final_ts, just_within);
+        assert!(original.is_none());
+    }
+
+    #[test]
+    fn test_override_timestamp_just_past_boundary_is_overridden() {
+        let now = Utc::now();
+        let just_outside = now - TimeDelta::hours(24);
+        let (final_ts, original) = override_timestamp(just_outside);
+        assert!((final_ts - now).num_seconds().abs() < 2);
+        assert_eq!(original.unwrap(), just_outside);
+    }
 }
