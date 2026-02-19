@@ -211,7 +211,7 @@ async def _summarize_description(
                 client.models.generate_content(
                     model=GEMINI_MODEL,
                     contents=prompt_parts,
-                    config=types.GenerateContentConfig(max_output_tokens=max(threshold // 4, 128)),
+                    config=types.GenerateContentConfig(max_output_tokens=max(threshold // 4, 256)),
                 ),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
@@ -293,12 +293,12 @@ async def _check_actionability(
                 model=GEMINI_MODEL,
                 contents=[prompt],
                 # Limiting the output in hopes it will force LLM to give a short response
-                config=types.GenerateContentConfig(max_output_tokens=64),
+                config=types.GenerateContentConfig(max_output_tokens=128),
             ),
             timeout=LLM_CALL_TIMEOUT_SECONDS,
         )
         response_text = (response.text or "").strip().upper()
-        return "NOT_ACTIONABLE" not in response_text
+        return "NOT_ACTION" not in response_text
     except Exception as e:
         # If LLM call fails, allow to pass to not block the emission, as fails should not happen often
         posthoganalytics.capture_exception(
