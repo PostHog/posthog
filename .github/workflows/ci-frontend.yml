@@ -56,6 +56,7 @@ jobs:
                         - package.json
                         - pnpm-lock.yaml
                         - jest.*.ts
+                        - vitest.*.ts
                         - tsconfig.json
                         - tsconfig.*.json
                         - webpack.config.js
@@ -306,9 +307,36 @@ jobs:
                   SHARD_INDEX: ${{ matrix.chunk }}
                   SHARD_COUNT: 3
 
+    vitest:
+        runs-on: depot-ubuntu-24.04
+        needs: changes
+        if: needs.changes.outputs.frontend == 'true'
+        name: Vitest (error_tracking)
+
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+
+            - name: Fix node-gyp permissions
+              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+
+            - name: Set up Node.js
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+              with:
+                  node-version: 24.13.0
+                  cache: pnpm
+
+            - name: Install package.json dependencies with pnpm
+              run: pnpm --filter=@posthog/products-error-tracking... install --frozen-lockfile
+
+            - name: Test with Vitest
+              run: pnpm --filter=@posthog/products-error-tracking test
+
     calculate-running-time:
         name: Calculate running time
-        needs: [jest, frontend-typescript-checks, frontend-format, frontend-bundle-size, changes]
+        needs: [jest, vitest, frontend-typescript-checks, frontend-format, frontend-bundle-size, changes]
         runs-on: ubuntu-latest
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
             always() && github.actor != 'dependabot[bot]' &&
@@ -328,7 +356,7 @@ jobs:
                   runner: 'depot'
 
     frontend_tests:
-        needs: [jest, frontend-format, frontend-bundle-size, frontend-typescript-checks]
+        needs: [jest, vitest, frontend-format, frontend-bundle-size, frontend-typescript-checks]
         name: Frontend Tests Pass
         runs-on: ubuntu-latest
         if: always()
@@ -341,6 +369,11 @@ jobs:
                     exit 1
                   fi
                   echo "Frontend jest tests passed."
+                  if [[ "${{ needs.vitest.result }}" != "success" && "${{ needs.vitest.result }}" != "skipped" ]]; then
+                    echo "Frontend vitest tests failed."
+                    exit 1
+                  fi
+                  echo "Frontend vitest tests passed."
                   if [[ "${{ needs.frontend-format.result }}" != "success" && "${{ needs.frontend-format.result }}" != "skipped" ]]; then
                     echo "Frontend linting failed."
                     exit 1

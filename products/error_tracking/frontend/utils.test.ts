@@ -121,7 +121,7 @@ describe('mergeIssues', () => {
 
 describe('generate sparkline labels', () => {
     beforeAll(() => {
-        jest.useFakeTimers().setSystemTime(new Date('2023-01-10 17:22:08'))
+        vi.useFakeTimers().setSystemTime(new Date('2023-01-10 17:22:08'))
     })
 
     it('test date range label generation', async () => {
