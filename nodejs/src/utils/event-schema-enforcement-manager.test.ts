@@ -25,7 +25,9 @@ describe('EventSchemaEnforcementManager', () => {
         const team = await getFirstTeam(hub)
         teamId = team.id
         projectId = team.project_id
-        fetchSchemasSpy = jest.spyOn(schemaManager as any, 'fetchSchemas')
+        fetchSchemasSpy = jest.spyOn(schemaManager as any, 'fetchSchemas') as jest.Spied<
+            (typeof schemaManager)['fetchSchemas']
+        >
     })
 
     afterEach(async () => {

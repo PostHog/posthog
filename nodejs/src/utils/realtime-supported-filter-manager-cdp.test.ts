@@ -34,7 +34,7 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
         fetchRealtimeSupportedFiltersSpy = jest.spyOn(
             realtimeSupportedFilterManager as any,
             'fetchRealtimeSupportedFilters'
-        )
+        ) as jest.Spied<(typeof realtimeSupportedFilterManager)['fetchRealtimeSupportedFilters']>
     })
 
     afterEach(async () => {

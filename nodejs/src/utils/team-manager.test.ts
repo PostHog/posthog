@@ -34,7 +34,7 @@ describe('TeamManager()', () => {
         teamId = team.id
         teamToken = team.api_token
         organizationId = team.organization_id
-        fetchTeamsSpy = jest.spyOn(teamManager as any, 'fetchTeams')
+        fetchTeamsSpy = jest.spyOn(teamManager as any, 'fetchTeams') as jest.Spied<(typeof teamManager)['fetchTeams']>
     })
 
     afterEach(async () => {

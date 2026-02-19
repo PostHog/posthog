@@ -66,7 +66,7 @@ describe('EmailService', () => {
 
     describe('executeSendEmail', () => {
         let invocation: CyclotronJobInvocationHogFunction
-        let sendEmailSpy: jest.Spied<typeof service.sesV2Client.send>
+        let sendEmailSpy: jest.Mock
         beforeEach(async () => {
             await insertIntegration(hub.postgres, team.id, {
                 id: 1,
@@ -251,7 +251,7 @@ describe('EmailService', () => {
     })
     describe('native email sending with ses', () => {
         let invocation: CyclotronJobInvocationHogFunction
-        let sendEmailSpy: jest.Spied<typeof service.sesV2Client.send>
+        let sendEmailSpy: jest.Mock
         beforeEach(async () => {
             const actualFetch = jest.requireActual('~/utils/request').fetch as jest.Mock
             mockFetch.mockImplementation((...args: any[]): Promise<any> => {
@@ -276,7 +276,7 @@ describe('EmailService', () => {
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1, email: 'test@posthog-test.com' },
             })
-            sendEmailSpy = jest.spyOn(service.sesV2Client!, 'send')
+            sendEmailSpy = jest.spyOn(service.sesV2Client!, 'send') as any
         })
 
         it('should error if not verified', async () => {
