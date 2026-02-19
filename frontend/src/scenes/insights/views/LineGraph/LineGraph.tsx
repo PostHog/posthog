@@ -7,7 +7,7 @@ import chartTrendline from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import {
     ActiveElement,
@@ -30,6 +30,7 @@ import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useChart } from 'lib/hooks/useChart'
+import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
@@ -48,7 +49,6 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { hexToRGBA, lightenDarkenColor } from '~/lib/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { GoalLine, TrendsFilter } from '~/queries/schema/schema-general'
-import { isInsightVizNode } from '~/queries/utils'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
 
 function truncateString(str: string, num: number): string {
@@ -59,7 +59,8 @@ function truncateString(str: string, num: number): string {
 }
 
 const RESOLVED_COLOR_MAP = new Map<string, string>()
-function resolveVariableColor(color: string | undefined): string | undefined {
+const INCOMPLETE_SEGMENT_BORDER_DASH = [10, 10]
+export function resolveVariableColor(color: string | undefined): string | undefined {
     if (!color) {
         return color
     }
@@ -226,6 +227,7 @@ export interface LineGraphProps {
     hideAnnotations?: boolean
     hideXAxis?: boolean
     hideYAxis?: boolean
+    inCardView?: boolean
     legend?: DeepPartial<LegendOptions<ChartType>>
     yAxisScaleType?: string | null
     showMultipleYAxes?: boolean | null
@@ -270,6 +272,7 @@ export function LineGraph_({
     hideAnnotations,
     hideXAxis,
     hideYAxis,
+    inCardView,
     yAxisScaleType,
     showMultipleYAxes = false,
     legend = { display: false },
@@ -285,17 +288,13 @@ export function LineGraph_({
     const { isDarkModeOn } = useValues(themeLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
-    const { timezone, isTrends, isFunnels, breakdownFilter, query, interval, insightData } = useValues(
+    const { timezone, isTrends, isFunnels, breakdownFilter, interval, insightData } = useValues(
         insightVizDataLogic(insightProps)
     )
-    const { theme, getTrendsColor, getTrendsHidden, hoveredDatasetIndex, isShiftPressed } = useValues(
-        trendsDataLogic(insightProps)
-    )
-    const { setHoveredDatasetIndex, setIsShiftPressed } = useActions(trendsDataLogic(insightProps))
+    const { theme, getTrendsColor, getTrendsHidden, hoveredDatasetIndex } = useValues(trendsDataLogic(insightProps))
+    const { setHoveredDatasetIndex } = useActions(trendsDataLogic(insightProps))
 
-    const hideTooltipOnScroll = isInsightVizNode(query) ? query.hideTooltipOnScroll : undefined
-
-    const { hideTooltip, getTooltip } = useInsightTooltip()
+    const { tooltipId, hideTooltip, getTooltip } = useInsightTooltip()
 
     const colors = getGraphColors()
     const isHorizontal = type === GraphType.HorizontalBar
@@ -304,6 +303,7 @@ export function LineGraph_({
         throw new Error('Use PieChart not LineGraph for this `GraphType`')
     }
 
+    const isShiftPressed = useKeyHeld('Shift')
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar].includes(type)
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
@@ -311,56 +311,11 @@ export function LineGraph_({
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
     const isHighlightBarMode = isBar && isStacked && isShiftPressed
 
-    const handleKeyDown = (e: KeyboardEvent): void => {
-        if (e.key === 'Shift') {
-            setIsShiftPressed(true)
-        }
-    }
-    const handleKeyUp = (e: KeyboardEvent): void => {
-        if (e.key === 'Shift') {
-            setIsShiftPressed(false)
+    useEffect(() => {
+        if (!isShiftPressed) {
             setHoveredDatasetIndex(null)
         }
-    }
-
-    // Track shift key for single-bar hover mode in stacked charts
-    useEffect(() => {
-        if (!isBar || !isStacked) {
-            return
-        }
-
-        window.addEventListener('keydown', handleKeyDown)
-        window.addEventListener('keyup', handleKeyUp)
-
-        return () => {
-            window.removeEventListener('keydown', handleKeyDown)
-            window.removeEventListener('keyup', handleKeyUp)
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isBar, isStacked])
-
-    // Add scrollend event on main element to hide tooltips when scrolling
-    useEffect(() => {
-        if (!hideTooltipOnScroll) {
-            return
-        }
-
-        const handleScrollEnd = (): void => hideTooltip()
-
-        // Scroll events happen on the main element due to overflow-y: scroll
-        // but we need to make sure it exists before adding the event listener,
-        // e.g: it does not exist in the shared pages
-        const main = document.getElementsByTagName('main')[0]
-        if (main) {
-            main.addEventListener('scrollend', handleScrollEnd)
-        }
-
-        return () => {
-            if (main) {
-                main.removeEventListener('scrollend', handleScrollEnd)
-            }
-        }
-    }, [hideTooltipOnScroll, hideTooltip])
+    }, [isShiftPressed, setHoveredDatasetIndex])
 
     // Add event listeners to canvas
     useOnMountEffect(() => {
@@ -398,6 +353,8 @@ export function LineGraph_({
 
     function processDataset(dataset: ChartDataset<any>, index: number): ChartDataset<any> {
         const isPrevious = !!dataset.compare && dataset.compare_label === 'previous'
+        const isActiveSeries = !dataset.compare || dataset.compare_label !== 'previous'
+        const incompleteStartIndex = dataset.data.length + incompletenessOffsetFromEnd
 
         const themeColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
@@ -433,6 +390,20 @@ export function LineGraph_({
             adjustedData = adjustedData.map((value) => (typeof value === 'number' ? (value / count) * 100 : value))
         }
 
+        const shouldShowIncompleteLineSegment = type === GraphType.Line && isInProgress && isActiveSeries
+        const shouldShowIncompleteAreaSegment = shouldShowIncompleteLineSegment && isArea
+        const areaIncompletePattern = shouldShowIncompleteAreaSegment
+            ? createPinstripePattern(hexToRGBA(mainColor, 0.5), isDarkModeOn)
+            : undefined
+        const incompleteSegmentBorderDash = shouldShowIncompleteLineSegment
+            ? (ctx: ScriptableLineSegmentContext) =>
+                  ctx.p1DataIndex >= incompleteStartIndex ? INCOMPLETE_SEGMENT_BORDER_DASH : undefined
+            : undefined
+        const incompleteSegmentBackgroundColor = shouldShowIncompleteAreaSegment
+            ? (ctx: ScriptableLineSegmentContext) =>
+                  ctx.p1DataIndex >= incompleteStartIndex ? areaIncompletePattern : undefined
+            : undefined
+
         // `horizontalBar` colors are set in `ActionsHorizontalBar.tsx` and overridden in spread of `dataset` below
         return {
             borderColor: mainColor,
@@ -441,30 +412,8 @@ export function LineGraph_({
             fill: isArea ? 'origin' : false,
             backgroundColor,
             segment: {
-                borderDash: (ctx: ScriptableLineSegmentContext) => {
-                    // If chart is line graph, show dotted lines for incomplete data
-                    if (!(type === GraphType.Line && isInProgress)) {
-                        return undefined
-                    }
-
-                    const isIncomplete = ctx.p1DataIndex >= dataset.data.length + incompletenessOffsetFromEnd
-                    const isActive = !dataset.compare || dataset.compare_label != 'previous'
-                    // if last date is still active show dotted line
-                    return isIncomplete && isActive ? [10, 10] : undefined
-                },
-                backgroundColor: (ctx: ScriptableLineSegmentContext) => {
-                    // If chart is area graph, show pinstripe pattern for incomplete data
-                    if (!(type === GraphType.Line && isInProgress && isArea)) {
-                        return undefined
-                    }
-
-                    const isIncomplete = ctx.p1DataIndex >= dataset.data.length + incompletenessOffsetFromEnd
-                    const isActive = !dataset.compare || dataset.compare_label != 'previous'
-                    // if last date is still active show dotted line
-                    const areaBackgroundColor = hexToRGBA(mainColor, 0.5)
-                    const areaIncompletePattern = createPinstripePattern(areaBackgroundColor, isDarkModeOn)
-                    return isIncomplete && isActive ? areaIncompletePattern : undefined
-                },
+                borderDash: incompleteSegmentBorderDash,
+                backgroundColor: incompleteSegmentBackgroundColor,
             },
             borderWidth: isBar ? 0 : 2,
             pointRadius: Array.isArray(adjustedData) && adjustedData.length === 1 ? 4 : 0,
@@ -505,8 +454,6 @@ export function LineGraph_({
     function generateYaxesForLineGraph(
         dataSetCount: number,
         seriesNonZeroMin: number,
-        goalLines: GoalLine[],
-        goalLinesY: number[],
         goalLinesWithColor: GoalLine[],
         tickOptions: Partial<TickOptions>,
         precision: number,
@@ -535,22 +482,6 @@ export function LineGraph_({
 
                     return colors.axisLabel as Color
                 },
-            },
-            afterTickToLabelConversion: (axis: { id: string; ticks: { value: number }[] }) => {
-                if (!axis.id.startsWith('y')) {
-                    return
-                }
-
-                const nonAnnotationTicks = axis.ticks.filter(
-                    ({ value }: { value: number }) => !goalLinesY.includes(value)
-                )
-                const annotationTicks = goalLines.map((value) => ({
-                    value: value.value,
-                    label: `⬤ ${formatYAxisTick(value.value)}`,
-                }))
-
-                // Guarantee that all annotations exist as ticks
-                axis.ticks = [...nonAnnotationTicks, ...annotationTicks]
             },
             grid: gridOptions,
         }
@@ -704,14 +635,26 @@ export function LineGraph_({
                                 type: 'line',
                                 yMin: annotation.value,
                                 yMax: annotation.value,
-                                borderColor: resolveVariableColor(annotation.borderColor) || 'rgb(255, 99, 132)',
+                                borderWidth: 2,
+                                borderDash: [6, 6],
+                                borderColor: resolveVariableColor(annotation.borderColor),
                                 label: {
                                     content: annotation.label,
                                     display: annotation.displayLabel ?? true,
                                     position: annotation.position ?? 'end',
                                 },
-                                borderWidth: 1,
-                                borderDash: [5, 8],
+                                enter: () => {
+                                    const tooltipEl = document.getElementById(`InsightTooltipWrapper-${tooltipId}`)
+                                    if (tooltipEl) {
+                                        tooltipEl.classList.add('opacity-0', 'invisible')
+                                    }
+                                },
+                                leave: () => {
+                                    const tooltipEl = document.getElementById(`InsightTooltipWrapper-${tooltipId}`)
+                                    if (tooltipEl) {
+                                        tooltipEl.classList.remove('opacity-0', 'invisible')
+                                    }
+                                },
                             }
 
                             return acc
@@ -909,7 +852,7 @@ export function LineGraph_({
                 },
             }
 
-            const truncateRows = !inSurveyView && !!insightProps.dashboardId
+            const truncateRows = !inSurveyView && !!inCardView
 
             if (type === GraphType.Bar) {
                 if (hideXAxis || hideYAxis) {
@@ -973,8 +916,6 @@ export function LineGraph_({
                         (showMultipleYAxes && new Set(processedDatasets.map((d) => d.yAxisID)).size) ||
                             processedDatasets.length,
                         seriesNonZeroMin,
-                        goalLines,
-                        goalLinesY,
                         goalLinesWithColor,
                         tickOptions,
                         precision,
@@ -1102,8 +1043,10 @@ export function LineGraph_({
         ],
     })
 
-    // Use canvasRef directly from useChart for resize observer - avoids sync issues with separate ref
-    const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
+    // Only observe canvas size when annotations are shown — avoids unnecessary ResizeObservers on dashboards.
+    // When showAnnotations is false, noRef.current is null so the observer disconnects (verified in use-resize-observer v9.1.0 source).
+    const noRef = useRef<HTMLCanvasElement>(null)
+    const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: showAnnotations ? canvasRef : noRef })
 
     return (
         <div className={clsx('LineGraph w-full grow relative overflow-hidden')} data-attr={dataAttr}>

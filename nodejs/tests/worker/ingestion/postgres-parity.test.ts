@@ -127,6 +127,7 @@ describe('postgres parity', () => {
             {
                 id: expect.any(String),
                 created_at: expect.any(DateTime),
+                last_seen_at: expect.any(DateTime),
                 properties: {
                     userProp: 'propValue',
                     userPropOnce: 'propOnceValue',

@@ -1,6 +1,4 @@
-import { useEffect } from 'react'
-// @ts-expect-error - useSyncExternalStore is available in React 18 but types are v17
-import { useSyncExternalStore } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 
 // Determine the correct hidden property name and change event for browser compatibility
 // adapted from https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API#example

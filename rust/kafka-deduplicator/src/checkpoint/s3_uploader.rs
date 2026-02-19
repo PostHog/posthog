@@ -2,11 +2,9 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
-use object_store::aws::AmazonS3Builder;
 use object_store::buffered::BufWriter;
-use object_store::limit::LimitStore;
 use object_store::path::Path as ObjectPath;
-use object_store::{ClientOptions, ObjectStore, ObjectStoreExt, PutPayload};
+use object_store::{ObjectStore, ObjectStoreExt, PutPayload};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::fs::File;
@@ -15,6 +13,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use super::config::CheckpointConfig;
+use super::error::UploadCancelledError;
+use super::s3_client::create_s3_client;
 use super::uploader::CheckpointUploader;
 use crate::metrics_const::CHECKPOINT_FILE_UPLOADS_COUNTER;
 
@@ -70,77 +70,16 @@ pub struct S3Uploader {
 
 impl S3Uploader {
     pub async fn new(config: CheckpointConfig) -> Result<Self> {
-        // Per-request timeout (analogous to operation_attempt_timeout in aws_sdk_s3)
-        let client_options = ClientOptions::new().with_timeout(config.s3_attempt_timeout);
-
-        let mut builder = AmazonS3Builder::new()
-            .with_bucket_name(&config.s3_bucket)
-            .with_client_options(client_options)
-            .with_retry(object_store::RetryConfig {
-                max_retries: config.s3_max_retries,
-                // Total retry budget (analogous to operation_timeout in aws_sdk_s3)
-                retry_timeout: config.s3_operation_timeout,
-                ..Default::default()
-            });
-
-        // Set region if provided
-        if let Some(ref region) = config.aws_region {
-            builder = builder.with_region(region);
-        }
-
-        // Set custom endpoint for MinIO/local dev
-        if let Some(ref endpoint) = config.s3_endpoint {
-            builder = builder.with_endpoint(endpoint);
-            // Allow HTTP for local development
-            if endpoint.starts_with("http://") {
-                builder = builder.with_allow_http(true);
-            }
-        }
-
-        // Set credentials if provided (for local dev without IAM)
-        if let (Some(ref access_key), Some(ref secret_key)) =
-            (&config.s3_access_key_id, &config.s3_secret_access_key)
-        {
-            builder = builder
-                .with_access_key_id(access_key)
-                .with_secret_access_key(secret_key);
-        }
-
-        // Force path-style URLs if needed (required for MinIO)
-        if config.s3_force_path_style {
-            builder = builder.with_virtual_hosted_style_request(false);
-        }
-
-        let base_store = builder.build().with_context(|| {
-            format!(
-                "Failed to create S3 client for bucket '{}' in region '{}'",
-                config.s3_bucket,
-                config.aws_region.as_deref().unwrap_or("default")
-            )
-        })?;
-
-        // Wrap with LimitStore for bounded concurrency
-        let store: Arc<dyn ObjectStore> = Arc::new(LimitStore::new(
-            base_store,
-            config.max_concurrent_checkpoint_file_uploads,
-        ));
-
-        // Validate bucket access by attempting to list - fail fast if misconfigured
-        if let Some(Err(e)) = store.list(Some(&ObjectPath::from(""))).next().await {
-            return Err(anyhow::anyhow!(e)).with_context(|| {
-                format!(
-                    "S3 bucket validation failed for '{}' in region '{}' - check bucket exists, credentials, and network connectivity",
-                    config.s3_bucket,
-                    config.aws_region.as_deref().unwrap_or("default")
-                )
-            });
-        }
+        let store =
+            create_s3_client(&config, config.max_concurrent_checkpoint_file_uploads).await?;
 
         info!(
-            "S3 bucket '{}' validated successfully with max {} concurrent uploads",
+            "S3 uploader initialized for bucket '{}' with max {} concurrent uploads",
             config.s3_bucket, config.max_concurrent_checkpoint_file_uploads
         );
 
+        // Coerce to trait object for use with BufWriter
+        let store: Arc<dyn ObjectStore> = store;
         Ok(Self { store, config })
     }
 
@@ -158,9 +97,10 @@ impl S3Uploader {
                 metrics::counter!(CHECKPOINT_FILE_UPLOADS_COUNTER, "status" => "cancelled")
                     .increment(1);
                 warn!("Upload cancelled before starting: {s3_key}");
-                return Err(anyhow::anyhow!(
-                    "Upload cancelled before starting: {s3_key}"
-                ));
+                return Err(UploadCancelledError {
+                    reason: format!("before starting: {s3_key}"),
+                }
+                .into());
             }
         }
 
@@ -201,7 +141,10 @@ impl S3Uploader {
                     metrics::counter!(CHECKPOINT_FILE_UPLOADS_COUNTER, "status" => "cancelled")
                         .increment(1);
                     warn!("Upload of {s3_key} cancelled mid-stream");
-                    return Err(anyhow::anyhow!("Upload cancelled: {s3_key}"));
+                    return Err(UploadCancelledError {
+                        reason: format!("mid-stream: {s3_key}"),
+                    }
+                    .into());
                 }
                 ChunkResult::Error(e) => {
                     let _ = upload.abort().await;
@@ -252,7 +195,10 @@ impl CheckpointUploader for S3Uploader {
         if let Some(token) = cancel_token {
             if token.is_cancelled() {
                 warn!("Upload cancelled before starting batch");
-                return Err(anyhow::anyhow!("Upload cancelled before starting"));
+                return Err(UploadCancelledError {
+                    reason: "before starting batch".to_string(),
+                }
+                .into());
             }
         }
 
@@ -314,7 +260,10 @@ impl CheckpointUploader for S3Uploader {
         if let Some(token) = cancel_token {
             if token.is_cancelled() {
                 warn!("Upload cancelled before metadata upload");
-                return Err(anyhow::anyhow!("Upload cancelled before metadata upload"));
+                return Err(UploadCancelledError {
+                    reason: "before metadata upload".to_string(),
+                }
+                .into());
             }
         }
 

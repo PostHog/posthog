@@ -1636,6 +1636,19 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_ctes_preserve_declaration_order(self):
+            node = cast(
+                ast.SelectQuery,
+                self._select(
+                    "with zz_first as (select 1 from events), "
+                    "mm_middle as (select * from zz_first), "
+                    "aa_last as (select * from mm_middle) "
+                    "select * from aa_last"
+                ),
+            )
+            assert isinstance(node.ctes, dict)
+            self.assertEqual(list(node.ctes.keys()), ["zz_first", "mm_middle", "aa_last"])
+
         def test_ctes_subquery_recursion(self):
             query = "with users as (select event, timestamp as tt from events ), final as ( select tt from users ) select * from final"
             self.assertEqual(
@@ -2942,5 +2955,30 @@ def parser_test_factory(backend: HogQLParserBackend):
             )
 
             self.assertEqual(self._select("SELECT 1 UNION ALL SELECT 2;"), self._select("SELECT 1 UNION ALL SELECT 2"))
+
+        def test_postgres_style_cast(self):
+            self.assertEqual(
+                self._expr("x::int"),
+                ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="int"),
+            )
+            self.assertEqual(self._expr("'123'::int"), ast.TypeCast(expr=ast.Constant(value="123"), type_name="int"))
+            self.assertEqual(self._expr("x::integer"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="integer"))
+            self.assertEqual(self._expr("x::text"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="text"))
+            self.assertEqual(self._expr("x::float"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="float"))
+            self.assertEqual(self._expr("x::boolean"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="boolean"))
+            self.assertEqual(self._expr("x::INT"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="int"))
+            self.assertEqual(self._expr("x::Text"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="text"))
+            self.assertEqual(
+                self._expr("a.b::int"),
+                ast.TypeCast(expr=ast.Field(chain=["a", "b"]), type_name="int"),
+            )
+            self.assertEqual(
+                self._expr("x::int + 1"),
+                ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Add,
+                    left=ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="int"),
+                    right=ast.Constant(value=1),
+                ),
+            )
 
     return TestParser

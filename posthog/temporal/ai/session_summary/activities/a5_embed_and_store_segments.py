@@ -10,6 +10,9 @@ import temporalio
 from posthog.schema import EmbeddingModelName
 
 from posthog.api.embedding_worker import emit_embedding_request
+from posthog.models.team.team import Team
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.types.video import VideoSegmentOutput, VideoSummarySingleSessionInputs
 
 SESSION_SEGMENTS_EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_LARGE_3072
@@ -27,6 +30,18 @@ async def embed_and_store_segments_activity(
     Each segment description is embedded with metadata including session_id, team_id,
     distinct_id, and timestamps.
     """
+    if not segments:
+        return
+    team = await Team.objects.aget(id=inputs.team_id)
+    session_metadata = await database_sync_to_async(
+        SessionReplayEvents().get_metadata
+    )(
+        session_id=inputs.session_id,
+        team=team,  # TODO: get_metadata actually only uses team_id – we should refactor it to avoid pointless Team lookup
+    )
+    if not session_metadata:
+        logger.error(f"Session metadata not found for session {inputs.session_id}", session_id=inputs.session_id)
+        return
     try:
         for segment in segments:
             # Use the description directly as the content to embed
@@ -42,6 +57,10 @@ async def embed_and_store_segments_activity(
                 "distinct_id": inputs.user_distinct_id_to_log,
                 "start_time": segment.start_time,
                 "end_time": segment.end_time,
+                "session_start_time": session_metadata["start_time"].isoformat(),
+                "session_end_time": session_metadata["end_time"].isoformat(),
+                "session_duration": session_metadata["duration"],
+                "session_active_seconds": session_metadata["active_seconds"],
             }
 
             emit_embedding_request(

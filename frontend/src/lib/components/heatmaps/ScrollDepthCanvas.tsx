@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { useMousePosition } from 'lib/components/heatmaps/useMousePosition'
+import { useScrollSync } from 'lib/components/heatmaps/useScrollSync'
 import { cn } from 'lib/utils/css-classes'
 
 import { HeatmapElement } from '~/toolbar/types'
@@ -86,7 +87,7 @@ function ScrollDepthMouseInfo({
     context: 'in-app' | 'toolbar'
     exportToken?: string
 }): JSX.Element | null {
-    const { heatmapElements, rawHeatmapLoading, heatmapScrollY } = useValues(heatmapDataLogic({ context, exportToken }))
+    const { heatmapElements, rawHeatmapLoading } = useValues(heatmapDataLogic({ context, exportToken }))
 
     const { y: mouseY } = useMousePosition()
 
@@ -103,11 +104,9 @@ function ScrollDepthMouseInfo({
     const relativeMouseY = mouseY - iframeTop
     const adjustedMouseY = relativeMouseY < 0 ? 0 : relativeMouseY
 
-    const scrolledMouseY = adjustedMouseY + heatmapScrollY
-
     const elementInMouseY = heatmapElements.find((x, i) => {
         const lastY = heatmapElements[i - 1]?.y ?? 0
-        return scrolledMouseY >= lastY && scrolledMouseY < x.y
+        return adjustedMouseY >= lastY && adjustedMouseY < x.y
     })
 
     const maxCount = heatmapElements[0]?.count ?? 0
@@ -133,9 +132,8 @@ export function ScrollDepthCanvas({
     context?: 'in-app' | 'toolbar'
     exportToken?: string
 }): JSX.Element | null {
-    const { heatmapElements, heatmapColorPalette, heatmapScrollY, isReady } = useValues(
-        heatmapDataLogic({ context, exportToken })
-    )
+    const { heatmapElements, heatmapColorPalette, isReady } = useValues(heatmapDataLogic({ context, exportToken }))
+    const { innerRef } = useScrollSync(context === 'toolbar')
     const maxCount = heatmapElements[0]?.count ?? 0
 
     if (!heatmapElements.length) {
@@ -152,10 +150,11 @@ export function ScrollDepthCanvas({
             data-attr="scroll-depth-canvas"
         >
             <div
+                ref={innerRef}
                 className="absolute top-0 left-0 right-0"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
-                    transform: `translateY(${-heatmapScrollY}px)`,
+                    willChange: context === 'toolbar' ? 'transform' : undefined,
                 }}
             >
                 {heatmapElements.map(({ y, count }, i) => (

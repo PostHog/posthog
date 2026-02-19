@@ -22,6 +22,7 @@ use uuid::Uuid;
 
 static WORKER: OnceCell<Worker> = OnceCell::new();
 static MANAGER: OnceCell<QueueManager> = OnceCell::new();
+static SHADOW_MANAGER: OnceCell<QueueManager> = OnceCell::new();
 static RUNTIME: OnceCell<Runtime> = OnceCell::new();
 
 fn runtime<'a, C: Context<'a>>(cx: &mut C) -> NeonResult<&'static Runtime> {
@@ -140,6 +141,43 @@ fn maybe_init_worker(cx: FunctionContext) -> JsResult<JsPromise> {
 
 fn maybe_init_manager(cx: FunctionContext) -> JsResult<JsPromise> {
     init_manager_impl(cx, false)
+}
+
+fn init_shadow_manager_impl(mut cx: FunctionContext, throw_on_reinit: bool) -> JsResult<JsPromise> {
+    let arg1 = cx.argument::<JsString>(0)?;
+    let config: ManagerConfig = from_json_string(&mut cx, arg1)?;
+
+    let (deferred, promise) = cx.promise();
+    let channel = cx.channel();
+    let runtime = runtime(&mut cx)?;
+
+    let fut = async move {
+        let manager = QueueManager::new(config).await;
+        deferred.settle_with(&channel, move |mut cx| {
+            if SHADOW_MANAGER.get().is_some() && !throw_on_reinit {
+                return Ok(cx.null()); // Short circuit to make using maybe_init a no-op
+            }
+            let manager = manager.or_else(|e| cx.throw_error(format!("{e}")))?;
+            let already_set = SHADOW_MANAGER.set(manager).is_err();
+            if already_set && throw_on_reinit {
+                cx.throw_error("shadow manager already initialized")
+            } else {
+                Ok(cx.null())
+            }
+        });
+    };
+
+    runtime.spawn(fut);
+
+    Ok(promise)
+}
+
+fn init_shadow_manager(cx: FunctionContext) -> JsResult<JsPromise> {
+    init_shadow_manager_impl(cx, true)
+}
+
+fn maybe_init_shadow_manager(cx: FunctionContext) -> JsResult<JsPromise> {
+    init_shadow_manager_impl(cx, false)
 }
 
 // throw_error has a type signature that makes it inconvenient to use in closures, because
@@ -268,6 +306,128 @@ fn bulk_create_jobs(mut cx: FunctionContext) -> JsResult<JsPromise> {
             None => {
                 deferred.settle_with(&channel, |mut cx| {
                     throw_null_err(&mut cx, "manager not initialized")
+                });
+                return;
+            }
+        };
+
+        let res = manager.bulk_create_jobs(jobs).await;
+        deferred.settle_with(&channel, move |mut cx| {
+            let ids = res.or_else(|e| cx.throw_error(format!("{e}")))?;
+            let returned = JsArray::new(&mut cx, ids.len());
+            for (i, id) in ids.iter().enumerate() {
+                let id = cx.string(id.to_string());
+                returned.set(&mut cx, i as u32, id)?;
+            }
+            Ok(returned)
+        });
+    };
+
+    runtime.spawn(fut);
+
+    Ok(promise)
+}
+
+fn shadow_create_job(mut cx: FunctionContext) -> JsResult<JsPromise> {
+    let arg1: Handle<JsString> = cx.argument::<JsString>(0)?;
+
+    let blob = cx.argument::<JsValue>(1)?;
+    let blob = if blob.is_a::<JsNull, _>(&mut cx) || blob.is_a::<JsUndefined, _>(&mut cx) {
+        None
+    } else {
+        Some(
+            blob.downcast_or_throw::<JsUint8Array, _>(&mut cx)?
+                .as_slice(&cx)
+                .to_vec(),
+        )
+    };
+
+    let js_job: JsJob = from_json_string(&mut cx, arg1)?;
+
+    let job = js_job.to_job_init(blob);
+
+    let (deferred, promise) = cx.promise();
+    let channel = cx.channel();
+    let runtime = runtime(&mut cx)?;
+
+    let fut = async move {
+        let manager = match SHADOW_MANAGER.get() {
+            Some(manager) => manager,
+            None => {
+                deferred.settle_with(&channel, |mut cx| {
+                    throw_null_err(&mut cx, "shadow manager not initialized")
+                });
+                return;
+            }
+        };
+        let res = manager.create_job(job).await;
+        deferred.settle_with(&channel, move |mut cx| {
+            let id = res.or_else(|e| cx.throw_error(format!("{e}")))?;
+            Ok(cx.string(id.to_string()))
+        });
+    };
+
+    runtime.spawn(fut);
+
+    Ok(promise)
+}
+
+fn shadow_bulk_create_jobs(mut cx: FunctionContext) -> JsResult<JsPromise> {
+    let jobs = cx.argument::<JsString>(0)?;
+    let jobs: Vec<JsJob> = from_json_string(&mut cx, jobs)?;
+
+    let blobs = cx.argument::<JsValue>(1)?;
+    let blob_lengths = cx.argument::<JsValue>(2)?;
+
+    let blobs = blobs
+        .downcast_or_throw::<JsUint8Array, _>(&mut cx)?
+        .as_slice(&cx)
+        .to_vec();
+
+    let blob_lengths: Vec<usize> = blob_lengths
+        .downcast_or_throw::<JsUint32Array, _>(&mut cx)?
+        .as_slice(&cx)
+        .iter()
+        .map(|&v| v as usize)
+        .collect();
+
+    if jobs.len() != blob_lengths.len() {
+        return cx.throw_error("jobs and blob_lengths must have the same length");
+    }
+
+    if blobs.len() != blob_lengths.iter().sum::<usize>() {
+        return cx.throw_error("blob_lengths must sum to the length of blobs");
+    }
+
+    let mut blob_offset: usize = 0;
+    let blobs: Vec<Option<Vec<u8>>> = blob_lengths
+        .iter()
+        .map(|&len| {
+            if len == 0 {
+                return None;
+            }
+            let blob = blobs[blob_offset..blob_offset + len].to_vec();
+            blob_offset += len;
+            Some(blob)
+        })
+        .collect();
+
+    let jobs: Vec<JobInit> = jobs
+        .into_iter()
+        .zip(blobs)
+        .map(|(job, blob)| job.to_job_init(blob))
+        .collect();
+
+    let (deferred, promise) = cx.promise();
+    let channel = cx.channel();
+    let runtime = runtime(&mut cx)?;
+
+    let fut = async move {
+        let manager = match SHADOW_MANAGER.get() {
+            Some(manager) => manager,
+            None => {
+                deferred.settle_with(&channel, |mut cx| {
+                    throw_null_err(&mut cx, "shadow manager not initialized")
                 });
                 return;
             }
@@ -747,8 +907,12 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("initManager", init_manager)?;
     cx.export_function("maybeInitWorker", maybe_init_worker)?;
     cx.export_function("maybeInitManager", maybe_init_manager)?;
+    cx.export_function("initShadowManager", init_shadow_manager)?;
+    cx.export_function("maybeInitShadowManager", maybe_init_shadow_manager)?;
     cx.export_function("createJob", create_job)?;
     cx.export_function("bulkCreateJobs", bulk_create_jobs)?;
+    cx.export_function("shadowCreateJob", shadow_create_job)?;
+    cx.export_function("shadowBulkCreateJobs", shadow_bulk_create_jobs)?;
     cx.export_function("dequeueJobs", dequeue_jobs)?;
     cx.export_function("dequeueJobsWithVmState", dequeue_with_vm_state)?;
     cx.export_function("releaseJob", release_job)?;

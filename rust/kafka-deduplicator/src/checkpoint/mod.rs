@@ -1,10 +1,12 @@
 pub mod client;
 pub mod config;
 pub mod downloader;
+pub mod error;
 pub mod export;
 pub mod import;
 pub mod metadata;
 pub mod planner;
+pub mod s3_client;
 pub mod s3_downloader;
 pub mod s3_uploader;
 pub mod uploader;
@@ -15,9 +17,14 @@ pub use config::CheckpointConfig;
 pub use downloader::CheckpointDownloader;
 pub use export::CheckpointExporter;
 pub use import::CheckpointImporter;
-pub use metadata::{CheckpointFile, CheckpointInfo, CheckpointMetadata};
+pub use metadata::{
+    hash_prefix_for_partition, CheckpointFile, CheckpointInfo, CheckpointMetadata,
+    METADATA_FILENAME,
+};
 pub use planner::{plan_checkpoint, CheckpointPlan, LocalCheckpointFile};
 pub use s3_downloader::S3Downloader;
 pub use s3_uploader::S3Uploader;
 pub use uploader::CheckpointUploader;
 pub use worker::CheckpointWorker;
+
+pub use error::{DownloadCancelledError, ImportTimeoutError, UploadCancelledError};

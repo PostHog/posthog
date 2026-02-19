@@ -1,0 +1,62 @@
+# serializer version: 1
+# name: TestSessionProfileQuery.test_session_profile_point_query_v3
+  '''
+  SELECT
+      sessions.session_id AS session_id,
+      sessions.distinct_id AS distinct_id,
+      sessions.`$start_timestamp` AS `$start_timestamp`,
+      sessions.`$end_timestamp` AS `$end_timestamp`,
+      sessions.`$entry_current_url` AS `$entry_current_url`,
+      sessions.`$session_duration` AS `$session_duration`,
+      sessions.`$channel_type` AS `$channel_type`,
+      sessions.`$is_bounce` AS `$is_bounce`
+  FROM
+      (SELECT
+          toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS session_id,
+          argMaxMerge(raw_sessions_v3.distinct_id) AS distinct_id,
+          min(toTimeZone(raw_sessions_v3.min_timestamp, %(hogql_val_0)s)) AS `$start_timestamp`,
+          max(toTimeZone(raw_sessions_v3.max_timestamp, %(hogql_val_1)s)) AS `$end_timestamp`,
+          argMinMerge(raw_sessions_v3.entry_url) AS `$entry_current_url`,
+          dateDiff(%(hogql_val_2)s, min(toTimeZone(raw_sessions_v3.min_timestamp, %(hogql_val_3)s)), max(toTimeZone(raw_sessions_v3.max_timestamp, %(hogql_val_4)s))) AS `$session_duration`,
+          multiIf(match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), %(hogql_val_5)s), %(hogql_val_6)s)), %(hogql_val_7)s), %(hogql_val_8)s, or(in(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), %(hogql_val_9)s), %(hogql_val_10)s)), tuple(%(hogql_val_11)s, %(hogql_val_12)s, %(hogql_val_13)s, %(hogql_val_14)s, %(hogql_val_15)s, %(hogql_val_16)s)), startsWith(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), %(hogql_val_17)s), %(hogql_val_18)s)), %(hogql_val_19)s), tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 5), isNotNull(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 7), %(hogql_val_20)s), %(hogql_val_21)s))), coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), %(hogql_val_22)s), %(hogql_val_23)s)), ''), 'source')) , dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), %(hogql_val_22)s), %(hogql_val_23)s)), '')), 'source'))), if(match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), %(hogql_val_24)s), %(hogql_val_25)s)), %(hogql_val_26)s), %(hogql_val_27)s, NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), %(hogql_val_28)s), %(hogql_val_29)s)), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), ''), 'source')) , dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), '')), 'source'))), multiIf(ifNull(equals(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 7), %(hogql_val_30)s), %(hogql_val_31)s), %(hogql_val_32)s), 0), %(hogql_val_33)s, match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), %(hogql_val_34)s), %(hogql_val_35)s)), %(hogql_val_36)s), %(hogql_val_37)s, tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 6), %(hogql_val_38)s, %(hogql_val_39)s)), and(ifNull(equals(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), %(hogql_val_40)s), 0), isNull(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), %(hogql_val_41)s), %(hogql_val_42)s))), or(isNull(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), %(hogql_val_43)s), %(hogql_val_44)s))), in(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), %(hogql_val_45)s), %(hogql_val_46)s)), tuple(%(hogql_val_47)s, %(hogql_val_48)s, %(hogql_val_49)s))), not(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 6))), %(hogql_val_50)s, coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), %(hogql_val_51)s), %(hogql_val_52)s)), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), %(hogql_val_51)s), %(hogql_val_52)s)), '')), 'source'))), if(match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), %(hogql_val_53)s), %(hogql_val_54)s)), %(hogql_val_55)s), %(hogql_val_56)s, NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), %(hogql_val_57)s), %(hogql_val_58)s)), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), '')), 'source'))), multiIf(match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), %(hogql_val_59)s), %(hogql_val_60)s)), %(hogql_val_61)s), %(hogql_val_62)s, match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), %(hogql_val_63)s), %(hogql_val_64)s)), %(hogql_val_65)s), %(hogql_val_66)s, tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 6), %(hogql_val_67)s, ifNull(equals(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), %(hogql_val_68)s), 0), %(hogql_val_69)s, isNotNull(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4)), %(hogql_val_70)s, %(hogql_val_71)s))) AS `$channel_type`,
+          if(ifNull(equals(uniqUpToMerge(1)(raw_sessions_v3.page_screen_uniq_up_to), 0), 0), NULL, not(or(ifNull(greaterOrEquals(uniqUpToMerge(1)(raw_sessions_v3.page_screen_uniq_up_to), 2), 0), max(raw_sessions_v3.has_autocapture), greaterOrEquals(dateDiff(%(hogql_val_72)s, min(toTimeZone(raw_sessions_v3.min_timestamp, %(hogql_val_73)s)), max(toTimeZone(raw_sessions_v3.max_timestamp, %(hogql_val_74)s))), 10)))) AS `$is_bounce`,
+          raw_sessions_v3.session_id_v7 AS session_id_v7
+      FROM
+          raw_sessions_v3
+      WHERE
+          and(equals(raw_sessions_v3.team_id, <TEAM_ID>), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(%(hogql_val_75)s, %(hogql_val_76)s)), 80)))))
+      GROUP BY
+          raw_sessions_v3.session_id_v7) AS sessions
+  WHERE
+      ifNull(equals(sessions.session_id, %(hogql_val_77)s), 0)
+  LIMIT 1
+  '''
+# ---
+# name: TestSessionProfileQuery.test_session_profile_with_timestamp_filter_v2
+  '''
+  SELECT
+      sessions.session_id AS session_id,
+      sessions.distinct_id AS distinct_id,
+      sessions.`$start_timestamp` AS `$start_timestamp`,
+      sessions.`$end_timestamp` AS `$end_timestamp`,
+      sessions.`$session_duration` AS `$session_duration`
+  FROM
+      (SELECT
+          toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+          nullIf(argMaxMerge(raw_sessions.distinct_id), %(hogql_val_0)s) AS distinct_id,
+          min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_1)s)) AS `$start_timestamp`,
+          max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_2)s)) AS `$end_timestamp`,
+          dateDiff(%(hogql_val_3)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_4)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_5)s))) AS `$session_duration`,
+          raw_sessions.session_id_v7 AS session_id_v7
+      FROM
+          raw_sessions
+      WHERE
+          and(equals(raw_sessions.team_id, <TEAM_ID>), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(parseDateTime64BestEffort(%(hogql_val_6)s, 6, %(hogql_val_7)s), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(parseDateTime64BestEffort(%(hogql_val_8)s, 6, %(hogql_val_9)s), toIntervalDay(3))))
+      GROUP BY
+          raw_sessions.session_id_v7,
+          raw_sessions.session_id_v7) AS sessions
+  WHERE
+      and(ifNull(greaterOrEquals(sessions.`$start_timestamp`, parseDateTime64BestEffort(%(hogql_val_10)s, 6, %(hogql_val_11)s)), 0), ifNull(lessOrEquals(sessions.`$start_timestamp`, parseDateTime64BestEffort(%(hogql_val_12)s, 6, %(hogql_val_13)s)), 0), ifNull(equals(sessions.session_id, %(hogql_val_14)s), 0))
+  LIMIT 1
+  '''
+# ---

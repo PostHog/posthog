@@ -198,6 +198,8 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 'showMetadataFooter' in searchParams && (searchParams.showMetadataFooter ?? false)
             if (values.showMetadataFooter !== showMetadataFooter) {
                 actions.setShowMetadataFooter(showMetadataFooter)
+                // If we display metadata footer (for analysis purposes), we also want to skip inactivity to speed up rendering
+                actions.setSkipInactivitySetting(showMetadataFooter)
             }
         },
         // Putting `*` last to match it only if more specific routes don't match, as the matching seems to be exclusive

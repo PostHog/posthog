@@ -35,7 +35,7 @@ class TestProducts(BaseTest):
         products_by_category = Products.get_products_by_category()
         categories = set(products_by_category.keys())
 
-        expected_categories = {"Analytics", "Behavior", "Features", "Tools", "Unreleased"}
+        expected_categories = {"Analytics", "AI Analytics", "Behavior", "Features", "Tools", "Unreleased"}
         assert categories == expected_categories
 
     def test_get_products_by_category_each_category_has_list_of_strings(self):

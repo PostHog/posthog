@@ -38,6 +38,11 @@ class TestHogFunction(TestCase):
         assert json_filters["bytecode"] == ["_H", HOGQL_BYTECODE_VERSION, 29]  # TRUE
 
     def test_hog_function_filters_compilation(self):
+        self.team.test_account_filters = [
+            {"key": "$host", "operator": "not_regex", "value": r"^(localhost|127\.0\.0\.1)($|:)", "type": "event"},
+        ]
+        self.team.save()
+
         action = Action.objects.create(team=self.team, name="Test Action")
         item = HogFunction.objects.create(
             name="Test",
@@ -95,6 +100,11 @@ class TestHogFunction(TestCase):
         }
 
     def test_hog_function_team_filters_only_compilation(self):
+        self.team.test_account_filters = [
+            {"key": "$host", "operator": "not_regex", "value": r"^(localhost|127\.0\.0\.1)($|:)", "type": "event"},
+        ]
+        self.team.save()
+
         item = HogFunction.objects.create(
             name="Test",
             type="destination",

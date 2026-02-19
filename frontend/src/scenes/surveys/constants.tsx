@@ -694,6 +694,7 @@ export enum SURVEY_CREATED_SOURCE {
     CUSTOMER_ANALYTICS_INSIGHT = 'customer_analytics_insight',
     ERROR_TRACKING = 'error_tracking',
     WEB_ANALYTICS = 'web_analytics',
+    LLM_ANALYTICS = 'llm_analytics',
 }
 
 export enum SURVEY_FORM_INPUT_IDS {

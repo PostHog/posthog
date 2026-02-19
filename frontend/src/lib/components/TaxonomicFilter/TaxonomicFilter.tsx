@@ -47,6 +47,7 @@ export function TaxonomicFilter({
     maxContextOptions,
     useVerticalLayout,
     allowNonCapturedEvents = false,
+    hogQLGlobals,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -80,6 +81,7 @@ export function TaxonomicFilter({
         autoSelectItem: true,
         allowNonCapturedEvents,
         maxContextOptions,
+        hogQLGlobals,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
@@ -140,9 +142,12 @@ export const TaxonomicFilterSearchInput = forwardRef<
     {
         searchInputRef: React.Ref<HTMLInputElement> | null
         onClose: TaxonomicFilterProps['onClose']
-    } & Pick<LemonInputPropsText, 'onClick' | 'size' | 'prefix' | 'fullWidth' | 'onChange'> &
+    } & Pick<LemonInputPropsText, 'onClick' | 'size' | 'prefix' | 'fullWidth' | 'onChange' | 'autoFocus'> &
         Pick<TooltipProps, 'docLink'>
->(function UniversalSearchInput({ searchInputRef, onClose, onChange, docLink, ...props }, ref): JSX.Element {
+>(function UniversalSearchInput(
+    { searchInputRef, onClose, onChange, docLink, autoFocus = true, ...props },
+    ref
+): JSX.Element {
     const { searchQuery, searchPlaceholder, showNumericalPropsOnly } = useValues(taxonomicFilterLogic)
     const {
         setSearchQuery: setTaxonomicSearchQuery,
@@ -226,7 +231,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
             }}
             inputRef={searchInputRef}
             onChange={_onChange}
-            autoFocus
+            autoFocus={autoFocus}
         />
     )
 })

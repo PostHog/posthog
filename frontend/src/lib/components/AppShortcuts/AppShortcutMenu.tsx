@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 
 import { IconArrowRight } from '@posthog/icons'
 
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { IconAction } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -87,8 +88,8 @@ export function RenderKeybind({ keybind, className }: RenderKeybindProps): JSX.E
 }
 
 export function AppShortcutMenu(): JSX.Element | null {
-    const { appShortcutMenuOpen } = useValues(appShortcutLogic)
-    const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
+    const { appShortcutMenuOpen, disabledShortcutNames } = useValues(appShortcutLogic)
+    const { setAppShortcutMenuOpen, toggleShortcutDisabled } = useActions(appShortcutLogic)
     const { registeredAppShortcuts } = useValues(appShortcutLogic)
     const { activeTab } = useValues(sceneLogic)
     const comboboxRef = useRef<ListBoxHandle>(null)
@@ -279,6 +280,7 @@ export function AppShortcutMenu(): JSX.Element | null {
                                 </Combobox.Group>
                                 {group.shortcuts.map((shortcut, index) => {
                                     const isFirstItem = groupIndex === 0 && index === 0
+                                    const isDisabled = disabledShortcutNames.includes(shortcut.name)
                                     return (
                                         <Combobox.Group key={shortcut.name} value={[shortcut.intent]}>
                                             <Combobox.Item focusFirst={isFirstItem} asChild>
@@ -288,18 +290,41 @@ export function AppShortcutMenu(): JSX.Element | null {
                                                     onClick={(e) => {
                                                         e.preventDefault()
                                                         e.stopPropagation()
-                                                        handleItemClick(shortcut)
+                                                        if (!isDisabled) {
+                                                            handleItemClick(shortcut)
+                                                        }
                                                     }}
                                                     truncate
                                                 >
-                                                    <span className="flex items-center gap-2 truncate max-w-full">
+                                                    <span
+                                                        className={cn(
+                                                            'flex items-center gap-2 truncate max-w-full',
+                                                            isDisabled && 'opacity-50 line-through'
+                                                        )}
+                                                    >
                                                         {getShortcutIcon(shortcut)}
                                                         {shortcut.intent}
                                                     </span>
-                                                    <RenderKeybind
-                                                        keybind={shortcut.keybind as string[][]}
-                                                        className="ml-auto"
-                                                    />
+                                                    <span className="ml-auto flex items-center gap-1.5">
+                                                        <RenderKeybind
+                                                            keybind={shortcut.keybind as string[][]}
+                                                            className={cn(isDisabled && 'opacity-50')}
+                                                        />
+                                                        <div
+                                                            onClick={(e) => {
+                                                                e.stopPropagation()
+                                                            }}
+                                                        >
+                                                            <LemonSwitch
+                                                                size="xxsmall"
+                                                                checked={!isDisabled}
+                                                                onChange={() => toggleShortcutDisabled(shortcut.name)}
+                                                                tooltip={
+                                                                    isDisabled ? 'Enable shortcut' : 'Disable shortcut'
+                                                                }
+                                                            />
+                                                        </div>
+                                                    </span>
                                                 </ButtonPrimitive>
                                             </Combobox.Item>
                                         </Combobox.Group>

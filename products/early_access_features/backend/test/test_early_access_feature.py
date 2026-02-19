@@ -652,6 +652,7 @@ class TestEarlyAccessFeature(APIBaseTest):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "early_access_features",
+                "source": "web",
             },
         )
 

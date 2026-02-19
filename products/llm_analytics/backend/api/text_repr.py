@@ -31,6 +31,7 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models import User
+from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import LLMAnalyticsTextReprBurstThrottle, LLMAnalyticsTextReprSustainedThrottle
 
 from products.llm_analytics.backend.api.metrics import llma_track_latency
@@ -132,7 +133,8 @@ class LLMAnalyticsTextReprViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     Uses pure Python formatters for all processing.
     """
 
-    scope_object = "llm_analytics"  # type: ignore[assignment]
+    scope_object = "llm_analytics"
+    permission_classes = [AccessControlPermission]
 
     def get_throttles(self):
         """Apply rate limiting to prevent abuse of text formatting endpoint."""

@@ -4704,6 +4704,7 @@ dependencies = [
  "opentelemetry 0.22.0",
  "opentelemetry-otlp",
  "opentelemetry_sdk 0.22.1",
+ "rand 0.8.5",
  "rayon",
  "rdkafka",
  "rocksdb",
@@ -6005,6 +6006,28 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "personhog-router"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum 0.7.5",
+ "common-alloc",
+ "common-metrics",
+ "envconfig",
+ "health",
+ "http 1.4.0",
+ "metrics",
+ "personhog-proto",
+ "pin-project",
+ "tokio",
+ "tokio-stream",
+ "tonic 0.12.3",
+ "tower 0.4.13",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -9657,6 +9680,7 @@ dependencies = [
  "getrandom 0.3.1",
  "js-sys",
  "serde_core",
+ "sha1_smol",
  "wasm-bindgen",
 ]
 

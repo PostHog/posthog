@@ -42,7 +42,7 @@ export function ExceptionRenderer({
             return false
         }
 
-        if (!stackTrace.frames || stackTrace.frames.length === 0) {
+        if (!Array.isArray(stackTrace.frames) || stackTrace.frames.length === 0) {
             return false
         }
 

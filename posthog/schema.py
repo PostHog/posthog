@@ -24,6 +24,9 @@ class AIEventType(StrEnum):
     FIELD_AI_FEEDBACK = "$ai_feedback"
     FIELD_AI_EVALUATION = "$ai_evaluation"
     FIELD_AI_TRACE_SUMMARY = "$ai_trace_summary"
+    FIELD_AI_GENERATION_SUMMARY = "$ai_generation_summary"
+    FIELD_AI_TRACE_CLUSTERS = "$ai_trace_clusters"
+    FIELD_AI_GENERATION_CLUSTERS = "$ai_generation_clusters"
 
 
 class MathGroupTypeIndex(float, Enum):
@@ -42,6 +45,9 @@ class AgentMode(StrEnum):
     PLAN = "plan"
     EXECUTION = "execution"
     SURVEY = "survey"
+    ONBOARDING = "onboarding"
+    RESEARCH = "research"
+    FLAGS = "flags"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -333,11 +339,10 @@ class AssistantTool(StrEnum):
     SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
+    EXPERIMENT_SESSION_REPLAYS_SUMMARY = "experiment_session_replays_summary"
     CREATE_SURVEY = "create_survey"
     EDIT_SURVEY = "edit_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
-    CREATE_DASHBOARD = "create_dashboard"
-    EDIT_CURRENT_DASHBOARD = "edit_current_dashboard"
     READ_TAXONOMY = "read_taxonomy"
     SEARCH = "search"
     READ_DATA = "read_data"
@@ -366,6 +371,7 @@ class AssistantTool(StrEnum):
     CREATE_NOTEBOOK = "create_notebook"
     LIST_DATA = "list_data"
     FINALIZE_PLAN = "finalize_plan"
+    RECOMMEND_PRODUCTS = "recommend_products"
 
 
 class AssistantToolCall(BaseModel):
@@ -1168,6 +1174,10 @@ class OrderDirection(StrEnum):
     DESC = "desc"
 
 
+class DomainConnectProviderName(RootModel[Literal["Cloudflare"]]):
+    root: Literal["Cloudflare"] = "Cloudflare"
+
+
 class DurationType(StrEnum):
     DURATION = "duration"
     ACTIVE_SECONDS = "active_seconds"
@@ -1623,7 +1633,111 @@ class ExternalDataSourceType(StrEnum):
     TIK_TOK_ADS = "TikTokAds"
     BING_ADS = "BingAds"
     SHOPIFY = "Shopify"
+    ATTIO = "Attio"
     SNAPCHAT_ADS = "SnapchatAds"
+    LINEAR = "Linear"
+    INTERCOM = "Intercom"
+    AMPLITUDE = "Amplitude"
+    MIXPANEL = "Mixpanel"
+    JIRA = "Jira"
+    ACTIVE_CAMPAIGN = "ActiveCampaign"
+    MARKETO = "Marketo"
+    ADJUST = "Adjust"
+    APPS_FLYER = "AppsFlyer"
+    FRESHDESK = "Freshdesk"
+    GOOGLE_ANALYTICS = "GoogleAnalytics"
+    PIPEDRIVE = "Pipedrive"
+    SEND_GRID = "SendGrid"
+    SLACK = "Slack"
+    PAGER_DUTY = "PagerDuty"
+    ASANA = "Asana"
+    NOTION = "Notion"
+    AIRTABLE = "Airtable"
+    GREENHOUSE = "Greenhouse"
+    BAMBOO_HR = "BambooHR"
+    LEVER = "Lever"
+    GIT_LAB = "GitLab"
+    DATADOG = "Datadog"
+    SENTRY = "Sentry"
+    PENDO = "Pendo"
+    FULL_STORY = "FullStory"
+    AMAZON_ADS = "AmazonAds"
+    PINTEREST_ADS = "PinterestAds"
+    APPLE_SEARCH_ADS = "AppleSearchAds"
+    QUICK_BOOKS = "QuickBooks"
+    XERO = "Xero"
+    NET_SUITE = "NetSuite"
+    WOO_COMMERCE = "WooCommerce"
+    BIG_COMMERCE = "BigCommerce"
+    PAY_PAL = "PayPal"
+    SQUARE = "Square"
+    ZOOM = "Zoom"
+    TRELLO = "Trello"
+    MONDAY = "Monday"
+    CLICK_UP = "ClickUp"
+    CONFLUENCE = "Confluence"
+    RECURLY = "Recurly"
+    SALES_LOFT = "SalesLoft"
+    OUTREACH = "Outreach"
+    GONG = "Gong"
+    CALENDLY = "Calendly"
+    TYPEFORM = "Typeform"
+    ITERABLE = "Iterable"
+    ZOHO_CRM = "ZohoCRM"
+    CLOSE = "Close"
+    ORACLE = "Oracle"
+    DYNAMO_DB = "DynamoDB"
+    ELASTICSEARCH = "Elasticsearch"
+    KAFKA = "Kafka"
+    LAUNCH_DARKLY = "LaunchDarkly"
+    BRAINTREE = "Braintree"
+    RECHARGE = "Recharge"
+    HELP_SCOUT = "HelpScout"
+    GORGIAS = "Gorgias"
+    INSTAGRAM = "Instagram"
+    YOU_TUBE_ANALYTICS = "YouTubeAnalytics"
+    FACEBOOK_PAGES = "FacebookPages"
+    TWITTER_ADS = "TwitterAds"
+    WORKDAY = "Workday"
+    SERVICE_NOW = "ServiceNow"
+    PARDOT = "Pardot"
+    COPPER = "Copper"
+    FRONT = "Front"
+    CHART_MOGUL = "ChartMogul"
+    ZUORA = "Zuora"
+    PADDLE = "Paddle"
+    CIRCLE_CI = "CircleCI"
+    COCKROACH_DB = "CockroachDB"
+    FIREBASE = "Firebase"
+    AZURE_BLOB = "AzureBlob"
+    GOOGLE_DRIVE = "GoogleDrive"
+    ONE_DRIVE = "OneDrive"
+    SHARE_POINT = "SharePoint"
+    BOX = "Box"
+    SFTP = "SFTP"
+    MICROSOFT_TEAMS = "MicrosoftTeams"
+    AIRCALL = "Aircall"
+    WEBFLOW = "Webflow"
+    OKTA = "Okta"
+    AUTH0 = "Auth0"
+    PRODUCTBOARD = "Productboard"
+    SMARTSHEET = "Smartsheet"
+    WRIKE = "Wrike"
+    PLAID = "Plaid"
+    SURVEY_MONKEY = "SurveyMonkey"
+    EVENTBRITE = "Eventbrite"
+    RING_CENTRAL = "RingCentral"
+    TWILIO = "Twilio"
+    FRESHSALES = "Freshsales"
+    SHORTCUT = "Shortcut"
+    CONVERT_KIT = "ConvertKit"
+    DRIP = "Drip"
+    CAMPAIGN_MONITOR = "CampaignMonitor"
+    MAILER_LITE = "MailerLite"
+    OMNISEND = "Omnisend"
+    BREVO = "Brevo"
+    POSTMARK = "Postmark"
+    GRANOLA = "Granola"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1695,6 +1809,7 @@ class FileSystemIconType(StrEnum):
     ERROR_TRACKING = "error_tracking"
     HEATMAP = "heatmap"
     SESSION_REPLAY = "session_replay"
+    SESSION_PROFILE = "session_profile"
     SURVEY = "survey"
     PRODUCT_TOUR = "product_tour"
     USER_INTERVIEW = "user_interview"
@@ -1712,6 +1827,7 @@ class FileSystemIconType(StrEnum):
     WORKFLOWS = "workflows"
     NOTEBOOK = "notebook"
     ACTION = "action"
+    ACTIVITY = "activity"
     COMMENT = "comment"
     ANNOTATION = "annotation"
     EVENT = "event"
@@ -1740,6 +1856,15 @@ class FileSystemIconType(StrEnum):
     CONVERSATIONS = "conversations"
     TOOLBAR = "toolbar"
     SETTINGS = "settings"
+    HEALTH = "health"
+    INBOX = "inbox"
+    SDK_DOCTOR = "sdk_doctor"
+    PIPELINE_STATUS = "pipeline_status"
+    LLM_EVALUATIONS = "llm_evaluations"
+    LLM_DATASETS = "llm_datasets"
+    LLM_PROMPTS = "llm_prompts"
+    LLM_CLUSTERS = "llm_clusters"
+    EXPORTS = "exports"
 
 
 class FileSystemViewLogEntry(BaseModel):
@@ -1913,17 +2038,44 @@ class HeatmapSettings(BaseModel):
     yAxisLabel: str | None = None
 
 
-class HedgehogColorOptions(StrEnum):
+class HedgehogActorAccessoryOption(StrEnum):
+    BERET = "beret"
+    CAP = "cap"
+    CHEF = "chef"
+    COWBOY = "cowboy"
+    EYEPATCH = "eyepatch"
+    FLAG = "flag"
+    GLASSES = "glasses"
+    GRADUATION = "graduation"
+    PARROT = "parrot"
+    PARTY = "party"
+    PINEAPPLE = "pineapple"
+    SUNGLASSES = "sunglasses"
+    TOPHAT = "tophat"
+    XMAS_HAT = "xmas-hat"
+    XMAS_ANTLERS = "xmas-antlers"
+    XMAS_SCARF = "xmas-scarf"
+
+
+class HedgehogActorColorOption(StrEnum):
     GREEN = "green"
     RED = "red"
     BLUE = "blue"
     PURPLE = "purple"
     DARK = "dark"
     LIGHT = "light"
+    GREYSCALE = "greyscale"
     SEPIA = "sepia"
     INVERT = "invert"
-    INVERT_HUE = "invert-hue"
-    GREYSCALE = "greyscale"
+    RAINBOW = "rainbow"
+
+
+class HedgehogActorSkinOption(StrEnum):
+    DEFAULT = "default"
+    SPIDERHOG = "spiderhog"
+    ROBOHOG = "robohog"
+    HOGZILLA = "hogzilla"
+    GHOST = "ghost"
 
 
 class HogCompileResponse(BaseModel):
@@ -2262,7 +2414,7 @@ class MarketingIntegrationConfig1(BaseModel):
     nameField: Literal["campaign_name"] = "campaign_name"
     primarySource: Literal["google"] = "google"
     sourceType: Literal["GoogleAds"] = "GoogleAds"
-    statsTableName: Literal["campaign_stats"] = "campaign_stats"
+    statsTableName: Literal["campaign_overview_stats"] = "campaign_overview_stats"
     tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
@@ -2282,11 +2434,20 @@ class MarketingIntegrationConfig2(BaseModel):
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
+class ConversionActionTypes(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fallback: list[str] = Field(..., max_length=14, min_length=14)
+    omni: list[str] = Field(..., max_length=5, min_length=5)
+
+
 class MarketingIntegrationConfig3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     campaignTableName: Literal["campaigns"] = "campaigns"
+    conversionActionTypes: ConversionActionTypes
     defaultSources: list[str] = Field(..., max_length=9, min_length=9)
     idField: Literal["id"] = "id"
     nameField: Literal["name"] = "name"
@@ -2342,6 +2503,23 @@ class MarketingIntegrationConfig6(BaseModel):
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
+class MarketingIntegrationConfig7(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    conversionFields: list[str] = Field(..., max_length=3, min_length=3)
+    conversionValueFields: list[str] = Field(..., max_length=3, min_length=3)
+    defaultSources: list[str] = Field(..., max_length=1, min_length=1)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["snapchat"] = "snapchat"
+    sourceType: Literal["SnapchatAds"] = "SnapchatAds"
+    statsTableName: Literal["campaign_stats_daily"] = "campaign_stats_daily"
+    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+
+
 class MarketingIntegrationConfig(
     RootModel[
         MarketingIntegrationConfig1
@@ -2350,6 +2528,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig4
         | MarketingIntegrationConfig5
         | MarketingIntegrationConfig6
+        | MarketingIntegrationConfig7
     ]
 ):
     root: (
@@ -2359,6 +2538,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig4
         | MarketingIntegrationConfig5
         | MarketingIntegrationConfig6
+        | MarketingIntegrationConfig7
     )
 
 
@@ -2380,16 +2560,6 @@ class MatchingEventsResponse(BaseModel):
         extra="forbid",
     )
     results: list[MatchedRecordingEvent]
-
-
-class MaxActionContext(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str | None = None
-    id: float
-    name: str
-    type: Literal["action"] = "action"
 
 
 class MaxAddonInfo(BaseModel):
@@ -2562,6 +2732,31 @@ class MaxProductInfo(BaseModel):
     usage_limit: float | None = None
 
 
+class MetaAdsConversionFallbackActionTypes(StrEnum):
+    PURCHASE = "purchase"
+    OFFSITE_CONVERSION_FB_PIXEL_PURCHASE = "offsite_conversion.fb_pixel_purchase"
+    APP_CUSTOM_EVENT_FB_MOBILE_PURCHASE = "app_custom_event.fb_mobile_purchase"
+    LEAD = "lead"
+    OFFSITE_CONVERSION_FB_PIXEL_LEAD = "offsite_conversion.fb_pixel_lead"
+    ONSITE_CONVERSION_LEAD_GROUPED = "onsite_conversion.lead_grouped"
+    COMPLETE_REGISTRATION = "complete_registration"
+    OFFSITE_CONVERSION_FB_PIXEL_COMPLETE_REGISTRATION = "offsite_conversion.fb_pixel_complete_registration"
+    APP_CUSTOM_EVENT_FB_MOBILE_COMPLETE_REGISTRATION = "app_custom_event.fb_mobile_complete_registration"
+    OFFSITE_COMPLETE_REGISTRATION_ADD_META_LEADS = "offsite_complete_registration_add_meta_leads"
+    APP_INSTALL = "app_install"
+    MOBILE_APP_INSTALL = "mobile_app_install"
+    SUBSCRIBE = "subscribe"
+    OFFSITE_CONVERSION_FB_PIXEL_SUBSCRIBE = "offsite_conversion.fb_pixel_subscribe"
+
+
+class MetaAdsConversionOmniActionTypes(StrEnum):
+    OMNI_PURCHASE = "omni_purchase"
+    OMNI_LEAD = "omni_lead"
+    OMNI_COMPLETE_REGISTRATION = "omni_complete_registration"
+    OMNI_APP_INSTALL = "omni_app_install"
+    OMNI_SUBSCRIBE = "omni_subscribe"
+
+
 class MetaAdsDefaultSources(StrEnum):
     META = "meta"
     FACEBOOK = "facebook"
@@ -2586,8 +2781,9 @@ class MinimalHedgehogConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    accessories: list[str]
-    color: HedgehogColorOptions | None = None
+    accessories: list[HedgehogActorAccessoryOption] | None = None
+    color: HedgehogActorColorOption | None = None
+    skin: HedgehogActorSkinOption | None = None
     use_as_profile: bool
 
 
@@ -2631,6 +2827,7 @@ class NativeMarketingSource(StrEnum):
     TIK_TOK_ADS = "TikTokAds"
     REDDIT_ADS = "RedditAds"
     BING_ADS = "BingAds"
+    SNAPCHAT_ADS = "SnapchatAds"
 
 
 class NodeKind(StrEnum):
@@ -2813,6 +3010,8 @@ class PlaywrightWorkspaceSetupData(BaseModel):
         extra="forbid",
     )
     organization_name: str | None = None
+    skip_onboarding: bool | None = None
+    use_current_time: bool | None = None
 
 
 class PlaywrightWorkspaceSetupResult(BaseModel):
@@ -2845,8 +3044,13 @@ class ProductIntentContext(StrEnum):
     ERROR_TRACKING_ISSUE_EXPLAINED = "error_tracking_issue_explained"
     LLM_ANALYTICS_VIEWED = "llm_analytics_viewed"
     LLM_ANALYTICS_DOCS_VIEWED = "llm_analytics_docs_viewed"
+    LLM_CLUSTER_EXPLORED = "llm_cluster_explored"
+    LLM_DATASET_CREATED = "llm_dataset_created"
+    LLM_EVALUATION_CREATED = "llm_evaluation_created"
+    LLM_PROMPT_CREATED = "llm_prompt_created"
     LOGS_DOCS_VIEWED = "logs_docs_viewed"
     LOGS_SET_FILTERS = "logs_set_filters"
+    LOGS_SETTINGS_OPENED = "logs_settings_opened"
     TAXONOMIC_FILTER_EMPTY_STATE = "taxonomic filter empty state"
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = "create_experiment_from_funnel_button"
     WEB_ANALYTICS_INSIGHT = "web_analytics_insight"
@@ -2884,6 +3088,8 @@ class ProductIntentContext(StrEnum):
     MARKETING_ANALYTICS_SETTINGS_UPDATED = "marketing_analytics_settings_updated"
     MARKETING_ANALYTICS_DASHBOARD_INTERACTION = "marketing_analytics_dashboard_interaction"
     MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED = "marketing_analytics_ads_integration_visited"
+    MARKETING_ANALYTICS_DATA_SOURCE_CONNECTED = "marketing_analytics_data_source_connected"
+    MARKETING_ANALYTICS_ONBOARDING_COMPLETED = "marketing_analytics_onboarding_completed"
     CUSTOMER_ANALYTICS_DASHBOARD_BUSINESS_MODE_CHANGED = "customer_analytics_dashboard_business_mode_changed"
     CUSTOMER_ANALYTICS_DASHBOARD_CONFIGURATION_BUTTON_CLICKED = (
         "customer_analytics_dashboard_configuration_button_clicked"
@@ -2897,6 +3103,8 @@ class ProductIntentContext(StrEnum):
     WORKFLOW_CREATED = "workflow_created"
     DATA_PIPELINE_CREATED = "data_pipeline_created"
     BATCH_EXPORT_CREATED = "batch_export_created"
+    BATCH_EXPORT_UPDATED = "batch_export_updated"
+    BATCH_EXPORT_BACKFILL_CREATED = "batch_export_backfill_created"
     NOTEBOOK_CREATED = "notebook_created"
     PRODUCT_TOUR_CREATED = "product_tour_created"
     TASK_CREATED = "task_created"
@@ -2930,6 +3138,10 @@ class ProductKey(StrEnum):
     LINKS = "links"
     LIVE_DEBUGGER = "live_debugger"
     LLM_ANALYTICS = "llm_analytics"
+    LLM_CLUSTERS = "llm_clusters"
+    LLM_DATASETS = "llm_datasets"
+    LLM_EVALUATIONS = "llm_evaluations"
+    LLM_PROMPTS = "llm_prompts"
     LOGS = "logs"
     MARKETING_ANALYTICS = "marketing_analytics"
     MAX = "max"
@@ -3025,6 +3237,8 @@ class PropertyOperator(StrEnum):
     SEMVER_TILDE = "semver_tilde"
     SEMVER_CARET = "semver_caret"
     SEMVER_WILDCARD = "semver_wildcard"
+    ICONTAINS_MULTI = "icontains_multi"
+    NOT_ICONTAINS_MULTI = "not_icontains_multi"
 
 
 class Mark(BaseModel):
@@ -3069,6 +3283,11 @@ class QueryLogTags(BaseModel):
             " churn the Schema when we add a new Scene *"
         ),
     )
+
+
+class LimitContext(Enum):
+    POSTHOG_AI = "posthog_ai"
+    NONE_TYPE_NONE = None
 
 
 class QueryResponseAlternative7(BaseModel):
@@ -3180,6 +3399,17 @@ class RefreshType(StrEnum):
     LAZY_ASYNC = "lazy_async"
 
 
+class ReplayInactivityPeriod(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    active: bool
+    recording_ts_from_s: float | None = None
+    recording_ts_to_s: float | None = None
+    ts_from_s: float
+    ts_to_s: float | None = None
+
+
 class ResolvedDateRangeResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3228,6 +3458,12 @@ class RetentionDashboardDisplayType(StrEnum):
 class RetentionEntityKind(StrEnum):
     ACTIONS_NODE = "ActionsNode"
     EVENTS_NODE = "EventsNode"
+
+
+class AggregationType(StrEnum):
+    COUNT = "count"
+    SUM = "sum"
+    AVG = "avg"
 
 
 class TimeWindowMode(StrEnum):
@@ -3445,6 +3681,30 @@ class SlashCommandName(StrEnum):
     FIELD_USAGE = "/usage"
     FIELD_FEEDBACK = "/feedback"
     FIELD_TICKET = "/ticket"
+
+
+class SnapchatAdsConversionFields(StrEnum):
+    CONVERSION_PURCHASES = "conversion_purchases"
+    CONVERSION_SIGN_UPS = "conversion_sign_ups"
+    CONVERSION_SUBSCRIBE = "conversion_subscribe"
+
+
+class SnapchatAdsConversionValueFields(StrEnum):
+    CONVERSION_PURCHASES_VALUE = "conversion_purchases_value"
+    CONVERSION_SIGN_UPS_VALUE = "conversion_sign_ups_value"
+    CONVERSION_SUBSCRIBE_VALUE = "conversion_subscribe_value"
+
+
+class SnapchatAdsDefaultSources(StrEnum):
+    SNAPCHAT = "snapchat"
+
+
+class SnapchatAdsTableExclusions(StrEnum):
+    STATS_DAILY = "stats_daily"
+
+
+class SnapchatAdsTableKeywords(StrEnum):
+    CAMPAIGNS = "campaigns"
 
 
 class SourceFieldFileUploadJsonFormatConfig(BaseModel):
@@ -3719,6 +3979,7 @@ class TaxonomicFilterGroupType(StrEnum):
     ACTIVITY_LOG_PROPERTIES = "activity_log_properties"
     MAX_AI_CONTEXT = "max_ai_context"
     WORKFLOW_VARIABLES = "workflow_variables"
+    SUGGESTED_FILTERS = "suggested_filters"
     EMPTY = "empty"
 
 
@@ -5254,7 +5515,6 @@ class HogQLQueryModifiers(BaseModel):
         default=None,
         description=("Try to automatically convert HogQL queries to use preaggregated tables at the AST level *"),
     )
-    usePresortedEventsTable: bool | None = None
     useWebAnalyticsPreAggregatedTables: bool | None = None
 
 
@@ -5292,6 +5552,7 @@ class LLMTrace(BaseModel):
     )
     aiSessionId: str | None = None
     createdAt: str
+    distinctId: str
     errorCount: float | None = None
     events: list[LLMTraceEvent]
     id: str
@@ -5302,7 +5563,7 @@ class LLMTrace(BaseModel):
     outputCost: float | None = None
     outputState: Any | None = None
     outputTokens: float | None = None
-    person: LLMTracePerson
+    person: LLMTracePerson | None = None
     totalCost: float | None = None
     totalLatency: float | None = None
     traceName: str | None = None
@@ -5413,6 +5674,16 @@ class MatchedRecording(BaseModel):
     )
     events: list[MatchedRecordingEvent]
     session_id: str | None = None
+
+
+class MaxActionContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = None
+    id: int
+    name: str
+    type: Literal["action"] = "action"
 
 
 class MaxBillingContextBillingPeriod(BaseModel):
@@ -6269,6 +6540,7 @@ class SourceFieldInputConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    caption: str | None = None
     label: str
     name: str
     placeholder: str
@@ -7995,7 +8267,6 @@ class CachedFunnelsQueryResponse(BaseModel):
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    isUdf: bool | None = None
     is_cached: bool
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -10385,35 +10656,26 @@ class EndpointRunRequest(BaseModel):
         default=False,
         description=("Whether to include debug information (such as the executed HogQL) in the response."),
     )
-    filters_override: DashboardFilter | None = Field(
-        default=None,
-        description=(
-            "A map for overriding insight query filters.\n\nTip: Use to get data for a specific customer or user."
-        ),
-    )
+    filters_override: DashboardFilter | None = None
     limit: int | None = Field(
         default=None,
         description=("Maximum number of results to return. If not provided, returns all results."),
-    )
-    query_override: dict[str, Any] | None = Field(
-        default=None,
-        description=(
-            "Map of Insight query keys to be overridden at execution time. For example:"
-            '   Assuming query = {"kind": "TrendsQuery", "series": [{"kind":'
-            ' "EventsNode","name": "$pageview","event": "$pageview","math": "total"}]} '
-            '  If query_override = {"series": [{"kind": "EventsNode","name":'
-            ' "$identify","event": "$identify","math": "total"}]}   The query executed'
-            " will return the count of $identify events, instead of $pageview's"
-        ),
     )
     refresh: EndpointRefreshMode | None = EndpointRefreshMode.CACHE
     variables: dict[str, Any] | None = Field(
         default=None,
         description=(
-            "A map for overriding HogQL query variables, where the key is the variable"
-            " name and the value is the variable value. Variable must be set on the"
-            " endpoint's query between curly braces (i.e. {variable.from_date}) For"
-            ' example: {"from_date": "1970-01-01"}'
+            "Variables to parameterize the endpoint query. The key is the variable name"
+            " and the value is the variable value.\n\nFor HogQL endpoints:   Keys must"
+            " match a variable `code_name` defined in the query (referenced as"
+            ' `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`\n\nFor'
+            " non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from`"
+            " and `date_to` are built-in variables that filter the date range.    "
+            ' Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`\n\nFor'
+            " materialized insight endpoints:   - Use the breakdown property name as"
+            ' the key to filter by breakdown value.     Example: `{"$browser":'
+            ' "Chrome"}`   - `date_from`/`date_to` are not supported on materialized'
+            " insight endpoints.\n\nUnknown variable names will return a 400 error."
         ),
     )
     version: int | None = Field(
@@ -11261,7 +11523,6 @@ class FunnelsQueryResponse(BaseModel):
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    isUdf: bool | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None,
@@ -13201,7 +13462,6 @@ class QueryResponseAlternative66(BaseModel):
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    isUdf: bool | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None,
@@ -13678,6 +13938,14 @@ class RetentionEntity(BaseModel):
 class RetentionFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    aggregationProperty: str | None = Field(
+        default=None,
+        description="The property to aggregate when aggregationType is sum or avg",
+    )
+    aggregationType: AggregationType | None = Field(
+        default=AggregationType.COUNT,
+        description="The aggregation type to use for retention",
     )
     cumulative: bool | None = None
     dashboardDisplay: RetentionDashboardDisplayType | None = None
@@ -14207,7 +14475,7 @@ class WebAnalyticsAssistantFilters(BaseModel):
     date_from: str | None = None
     date_to: str | None = None
     doPathCleaning: bool | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
 
 
 class WebAnalyticsExternalSummaryQuery(BaseModel):
@@ -14216,7 +14484,7 @@ class WebAnalyticsExternalSummaryQuery(BaseModel):
     )
     dateRange: DateRange
     kind: Literal["WebAnalyticsExternalSummaryQuery"] = "WebAnalyticsExternalSummaryQuery"
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebAnalyticsExternalSummaryQueryResponse | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -14249,7 +14517,7 @@ class WebExternalClicksTableQuery(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebExternalClicksTableQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
@@ -14287,7 +14555,7 @@ class WebGoalsQuery(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebGoalsQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
@@ -14323,7 +14591,7 @@ class WebOverviewQuery(BaseModel):
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebOverviewQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
@@ -14360,7 +14628,7 @@ class WebPageURLSearchQuery(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebPageURLSearchQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
@@ -14404,7 +14672,7 @@ class WebStatsTableQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebStatsTableQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
@@ -15292,6 +15560,10 @@ class FunnelsFilter(BaseModel):
     binCount: int | None = None
     breakdownAttributionType: BreakdownAttributionType | None = BreakdownAttributionType.FIRST_TOUCH
     breakdownAttributionValue: int | None = None
+    breakdownSorting: str | None = Field(
+        default=None,
+        description=("Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)"),
+    )
     exclusions: list[FunnelExclusionEventsNode | FunnelExclusionActionsNode] | None = []
     funnelAggregateByHogQL: str | None = None
     funnelFromStep: int | None = None
@@ -15310,6 +15582,10 @@ class FunnelsFilter(BaseModel):
     resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
         default=None,
         description="Customizations for the appearance of result datasets.",
+    )
+    showTrendLines: bool | None = Field(
+        default=None,
+        description=("Display linear regression trend lines on the chart (only for historical trends viz)"),
     )
     showValuesOnSeries: bool | None = False
     useUdf: bool | None = None
@@ -15483,7 +15759,7 @@ class InsightFilter(
         | StickinessFilter
         | LifecycleFilter
         | CalendarHeatmapFilter
-        | list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+        | list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     ]
 ):
     root: (
@@ -15494,7 +15770,7 @@ class InsightFilter(
         | StickinessFilter
         | LifecycleFilter
         | CalendarHeatmapFilter
-        | list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+        | list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     )
 
 
@@ -15529,7 +15805,7 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
     )
     kind: Literal["MarketingAnalyticsAggregatedQuery"] = "MarketingAnalyticsAggregatedQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: MarketingAnalyticsAggregatedQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
@@ -15578,7 +15854,7 @@ class MarketingAnalyticsTableQuery(BaseModel):
     orderBy: list[list[str | MarketingAnalyticsOrderByEnum]] | None = Field(
         default=None, description="Columns to order by - similar to EventsQuery format"
     )
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: MarketingAnalyticsTableQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
@@ -15689,7 +15965,7 @@ class NonIntegratedConversionsTableQuery(BaseModel):
     orderBy: list[list[str | MarketingAnalyticsOrderByEnum]] | None = Field(
         default=None, description="Columns to order by"
     )
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: NonIntegratedConversionsTableQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
@@ -16055,7 +16331,7 @@ class WebTrendsQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebTrendsQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
@@ -16093,7 +16369,7 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
     percentile: WebVitalsPercentile
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebVitalsPathBreakdownQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
@@ -16953,6 +17229,7 @@ class LogsQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: OrderBy3 | None = None
+    resourceFingerprint: str | None = None
     response: LogsQueryResponse | None = None
     searchTerm: str | None = None
     serviceNames: list[str]
@@ -17938,7 +18215,7 @@ class WebVitalsQuery(BaseModel):
     kind: Literal["WebVitalsQuery"] = "WebVitalsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
     response: WebGoalsQueryResponse | None = None
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
@@ -18639,7 +18916,7 @@ class MaxDashboardContext(BaseModel):
     )
     description: str | None = None
     filters: DashboardFilter
-    id: float
+    id: int
     insights: list[MaxInsightContext]
     name: str | None = None
     type: Literal["dashboard"] = "dashboard"
@@ -18752,6 +19029,10 @@ class QueryRequest(BaseModel):
         description=("Client provided query ID. Can be used to retrieve the status or cancel the query."),
     )
     filters_override: DashboardFilter | None = None
+    limit_context: LimitContext | None = Field(
+        default=None,
+        description=("Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value."),
+    )
     name: str | None = Field(
         default=None,
         description=(

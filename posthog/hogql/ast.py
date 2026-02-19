@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Literal, Optional, Union, cast, get_args
 
+import posthog.hogql.resolver_utils as resolver_utils
 from posthog.hogql.base import AST, CTE, ConstantType, Expr, Type, UnknownType
 from posthog.hogql.constants import ConstantDataType, HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
@@ -26,6 +27,14 @@ from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionErro
 
 # :NOTE: when you add new AST fields or nodes, add them to CloningVisitor and TraversingVisitor in visitor.py as well.
 # :NOTE2: also search for ":TRICKY:" in "resolver.py" when modifying SelectQuery or JoinExpr
+
+
+@dataclass(kw_only=True)
+class TypeCast(Expr):
+    """A type cast expression."""
+
+    expr: Expr
+    type_name: str
 
 
 @dataclass(kw_only=True)
@@ -324,6 +333,40 @@ class SelectViewType(BaseTableType):
 
 
 @dataclass(kw_only=True)
+class CTETableType(BaseTableType):
+    name: str
+    select_query_type: SelectQueryType | SelectSetQueryType
+
+    def has_child(self, name: str, context: HogQLContext) -> bool:
+        try:
+            self.resolve_database_table(context).get_field(name)
+            return True
+        except Exception:
+            return False
+
+    def resolve_database_table(self, context: HogQLContext) -> Table:
+        return resolver_utils.resolve_cte_database_table(self.select_query_type, context)
+
+    def resolve_column_constant_type(self, name: str, context: HogQLContext) -> ConstantType:
+        field = self.resolve_database_table(context).get_field(name)
+        if isinstance(field, DatabaseField):
+            return field.get_constant_type()
+        return UnknownType()
+
+
+@dataclass(kw_only=True)
+class CTETableAliasType(BaseTableType):
+    alias: str
+    cte_table_type: CTETableType
+
+    def resolve_database_table(self, context: HogQLContext) -> Table:
+        return self.cte_table_type.resolve_database_table(context)
+
+    def resolve_column_constant_type(self, name: str, context: HogQLContext) -> ConstantType:
+        return self.cte_table_type.resolve_column_constant_type(name, context)
+
+
+@dataclass(kw_only=True)
 class SelectQueryAliasType(Type):
     alias: str
     select_query_type: SelectQueryType | SelectSetQueryType
@@ -383,6 +426,13 @@ class StringJSONType(StringType):
 class StringArrayType(StringType):
     def print_type(self) -> str:
         return "Array"
+
+
+@dataclass(kw_only=True)
+class StringLiteralType(StringType):
+    """Matches only specific constant string values"""
+
+    values: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass(kw_only=True)

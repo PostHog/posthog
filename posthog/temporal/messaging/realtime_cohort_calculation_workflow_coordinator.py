@@ -1,4 +1,5 @@
 import math
+import asyncio
 import datetime as dt
 import dataclasses
 from typing import Any, Optional, TypedDict
@@ -13,6 +14,7 @@ from posthog.models.cohort.cohort import Cohort, CohortType
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.messaging.constants import get_child_workflow_id
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
     RealtimeCohortCalculationWorkflow,
     RealtimeCohortCalculationWorkflowInputs,
@@ -67,7 +69,6 @@ async def get_realtime_cohort_calculation_count_activity(
 
     @database_sync_to_async
     def get_cohort_count():
-        # Only get cohorts that are not deleted and have cohort_type='realtime'
         queryset = Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME)
         if inputs.team_id is not None:
             queryset = queryset.filter(team_id=inputs.team_id)
@@ -115,7 +116,7 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
         # Step 2: Calculate ranges for each child workflow
         cohorts_per_workflow = math.ceil(total_cohorts / inputs.parallelism)
 
-        # Step 3: Prepare all workflow configs first
+        # Step 3: Prepare all workflow configs
         workflow_configs: list[WorkflowConfig] = []
         for i in range(inputs.parallelism):
             offset = i * cohorts_per_workflow
@@ -126,7 +127,7 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
 
             workflow_configs.append(
                 WorkflowConfig(
-                    id=f"{temporalio.workflow.info().workflow_id}-child-{i}",
+                    id=get_child_workflow_id(temporalio.workflow.info().workflow_id, i),
                     inputs=RealtimeCohortCalculationWorkflowInputs(
                         limit=limit,
                         offset=offset,
@@ -142,7 +143,8 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
         total_workflows = len(workflow_configs)
         workflow_logger.info(f"Prepared {total_workflows} workflow configurations")
 
-        # Step 4: Launch workflows in jittered batches
+        # Step 4: Launch workflows in batches and collect handles
+        child_workflow_handles = []
         workflows_scheduled = 0
         for batch_start in range(0, total_workflows, inputs.workflows_per_batch):
             batch_end = min(batch_start + inputs.workflows_per_batch, total_workflows)
@@ -154,15 +156,16 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
                 f"Starting batch {batch_number}/{total_batches}: scheduling {len(batch_configs)} workflows"
             )
 
-            # Start all workflows in current batch
+            # Start all workflows in current batch and collect handles
             for config in batch_configs:
-                await temporalio.workflow.start_child_workflow(
+                child_handle = await temporalio.workflow.start_child_workflow(
                     RealtimeCohortCalculationWorkflow.run,
                     config["inputs"],
                     id=config["id"],
                     task_queue=settings.MESSAGING_TASK_QUEUE,
                     parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
                 )
+                child_workflow_handles.append(child_handle)
                 workflows_scheduled += 1
 
                 workflow_logger.info(
@@ -180,7 +183,25 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
                 workflow_logger.info(f"Waiting {inputs.batch_delay_minutes} minutes before starting next batch...")
                 await temporalio.workflow.sleep(delay_seconds)
 
-        workflow_logger.info(
-            f"Coordinator completed: scheduled {workflows_scheduled} child workflows in jittered batches"
-        )
+        workflow_logger.info(f"All {workflows_scheduled} child workflows scheduled, waiting for completion...")
+
+        # Step 5: Wait for all child workflows to complete
+        completed_count = 0
+        failed_count = 0
+
+        workflow_logger.info(f"Waiting for {len(child_workflow_handles)} child workflows to complete...")
+        for handle in asyncio.as_completed(child_workflow_handles):
+            try:
+                await handle  # Get the result (raises if failed)
+                completed_count += 1
+                workflow_logger.info(
+                    f"Child workflow completed successfully ({completed_count + failed_count}/{workflows_scheduled})"
+                )
+            except Exception as e:
+                failed_count += 1
+                workflow_logger.exception(
+                    f"Child workflow failed ({completed_count + failed_count}/{workflows_scheduled}): {e}"
+                )
+
+        workflow_logger.info(f"Coordinator completed: {completed_count} succeeded, {failed_count} failed")
         return

@@ -8,6 +8,7 @@ import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
 import { dayjs } from 'lib/dayjs'
 import { IconWithCount } from 'lib/lemon-ui/icons'
+import { humanFriendlyNumber } from 'lib/utils'
 
 import { ExportedAssetType, ExporterFormat } from '~/types'
 
@@ -98,7 +99,13 @@ function ExportRow({ asset }: { asset: ExportedAssetType }): JSX.Element {
                     )}
                     {isNotDownloaded && <span className="text-xs text-secondary mt-1"> · not downloaded yet</span>}
                     {asset.export_format === ExporterFormat.CSV && (
-                        <span className="text-xs text-secondary mt-1"> · {ROW_LIMIT_IN_THOUSANDS}k row limit</span>
+                        <span className="text-xs text-secondary mt-1">
+                            {` · `}
+                            {asset.export_context?.row_limit
+                                ? humanFriendlyNumber(asset.export_context.row_limit)
+                                : `${ROW_LIMIT_IN_THOUSANDS}k`}{' '}
+                            row limit
+                        </span>
                     )}
                 </div>
             </div>

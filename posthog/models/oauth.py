@@ -27,6 +27,11 @@ class OAuthApplicationAccessLevel(enum.Enum):
     TEAM = "team"
 
 
+class OAuthApplicationAuthBrand(enum.Enum):
+    POSTHOG = "posthog"
+    TWIG = "twig"
+
+
 def is_loopback_host(hostname: str | None) -> bool:
     """Check if hostname is a loopback address (localhost or 127.0.0.0/8)."""
     if not hostname:
@@ -154,6 +159,19 @@ class OAuthApplication(AbstractApplication):
     # Verification status - manually set by PostHog staff
     is_verified: models.BooleanField = models.BooleanField(
         default=False, help_text="True if this application has been verified by PostHog"
+    )
+
+    # First-party flag - manually set by PostHog staff
+    # First-party apps skip the OAuth consent screen and can use direct token exchange
+    is_first_party: models.BooleanField = models.BooleanField(
+        default=False, help_text="True if this is a first-party PostHog application that skips OAuth consent"
+    )
+
+    auth_brand: models.CharField = models.CharField(
+        max_length=32,
+        choices=[(brand.value, brand.value) for brand in OAuthApplicationAuthBrand],
+        default=OAuthApplicationAuthBrand.POSTHOG.value,
+        help_text="Branding to use on authentication pages",
     )
 
 

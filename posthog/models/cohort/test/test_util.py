@@ -13,10 +13,10 @@ from posthog.hogql.hogql import HogQLContext
 
 from posthog.exceptions import (
     ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
-    EstimatedQueryExecutionTimeTooLong,
-    QuerySizeExceeded,
 )
 from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.util import (
@@ -901,7 +901,7 @@ class TestParseErrorCode(BaseTest):
             "SocketTimeoutError": SocketTimeoutError,
             "ClickHouseQueryTimeOut": ClickHouseQueryTimeOut,
             "ClickHouseQueryMemoryLimitExceeded": ClickHouseQueryMemoryLimitExceeded,
-            "QuerySizeExceeded": QuerySizeExceeded,
+            "QuerySizeExceeded": ClickHouseQuerySizeExceeded,
             "DRFValidationError": DRFValidationError,
             "ValueError": ValueError,
             "Exception": Exception,
@@ -911,7 +911,7 @@ class TestParseErrorCode(BaseTest):
             return simple_exceptions[exception_type]("test")
 
         if exception_type == "EstimatedQueryExecutionTimeTooLong":
-            return EstimatedQueryExecutionTimeTooLong()
+            return ClickHouseEstimatedQueryExecutionTimeTooLong()
 
         if exception_type == "PydanticValidationError":
             try:

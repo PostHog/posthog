@@ -48,7 +48,7 @@ from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
-from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import FakeKafka
+from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
@@ -73,6 +73,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 )
 from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import ExternalDataSourceType
+from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import DuckLakeCopyDataImportsWorkflow
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
@@ -206,7 +207,7 @@ async def _run(
     schema_name: str,
     table_name: str,
     source_type: str,
-    job_inputs: dict[str, str],
+    job_inputs: dict[str, str | dict[str, str]],
     mock_data_response: Any,
     sync_type: Optional[ExternalDataSchema.SyncType] = None,
     sync_type_config: Optional[dict] = None,
@@ -346,7 +347,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
             async with Worker(
                 activity_environment.client,
                 task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-                workflows=[ExternalDataJobWorkflow, CDPProducerJobWorkflow],
+                workflows=[ExternalDataJobWorkflow, CDPProducerJobWorkflow, DuckLakeCopyDataImportsWorkflow],
                 activities=ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -1456,7 +1457,7 @@ async def test_postgres_nan_numerical_values(team, postgres_config, postgres_con
 @pytest.mark.asyncio
 async def test_delete_table_on_reset(team, stripe_balance_transaction, mock_stripe_client):
     with (
-        mock.patch.object(s3fs.S3FileSystem, "delete") as mock_s3_delete,
+        mock.patch.object(s3fs.S3FileSystem, "_rm") as mock_s3_delete,
     ):
         workflow_id, inputs = await _run(
             team=team,
@@ -1559,7 +1560,6 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
-        "engine": "rust",
     }
 
     # The last call should be an append
@@ -1569,7 +1569,6 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
-        "engine": "rust",
     }
 
 
@@ -1627,7 +1626,6 @@ async def test_delta_no_merging_on_first_sync_uncapped_chunk_size(team, postgres
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
-        "engine": "rust",
     }
 
 
@@ -1699,7 +1697,6 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
-        "engine": "rust",
     }
 
     # The subsequent call should be an append
@@ -1709,7 +1706,6 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
-        "engine": "rust",
     }
 
 
@@ -1964,7 +1960,7 @@ async def test_partition_folders_with_existing_table(team, postgres_config, post
     )
     await postgres_connection.commit()
 
-    def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
+    async def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
         return pa_table
 
     # Emulate an existing table with no partitions
@@ -2053,7 +2049,7 @@ async def test_partition_folders_with_existing_table_and_pipeline_reset(
     )
     await postgres_connection.commit()
 
-    def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
+    async def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
         return pa_table
 
     # Emulate an existing table with no partitions
@@ -2228,7 +2224,7 @@ async def test_row_tracking_incrementing(team, postgres_config, postgres_connect
     await postgres_connection.commit()
 
     with (
-        mock.patch("posthog.temporal.data_imports.pipelines.pipeline.pipeline.decrement_rows") as mock_decrement_rows,
+        mock.patch("posthog.temporal.data_imports.pipelines.common.extract.decrement_rows") as mock_decrement_rows,
         mock.patch("posthog.temporal.data_imports.external_data_job.finish_row_tracking") as mock_finish_row_tracking,
     ):
         _, inputs = await _run(
@@ -2258,7 +2254,7 @@ async def test_row_tracking_incrementing(team, postgres_config, postgres_connect
         DATA_WAREHOUSE_REDIS_HOST="localhost",
         DATA_WAREHOUSE_REDIS_PORT="6379",
     ):
-        row_count_in_redis = get_rows(team.id, schema_id)
+        row_count_in_redis = await get_rows(team.id, schema_id)
 
     assert row_count_in_redis == 1
 
@@ -2383,12 +2379,11 @@ async def test_worker_shutdown_desc_sort_order(team):
     def mock_raise_if_is_worker_shutdown(self):
         raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
 
-    async def mock_get_workflows(*args, **kwargs):
+    def mock_get_messages(*args, **kwargs):
         yield {
-            "workflow_id": "test-workflow-id",
-            "run_id": "test-run-id",
-            "status": "RUNNING",
-            "close_time": datetime.now().isoformat(),
+            "id": "test-message-id",
+            "conversation_updated_at": datetime.now().isoformat(),
+            "created_at": datetime.now().isoformat(),
         }
 
     with (
@@ -2397,25 +2392,20 @@ async def test_worker_shutdown_desc_sort_order(team):
             "posthog.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
         ) as mock_trigger_schedule_buffer_one,
         mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1),
-        mock.patch("posthog.temporal.data_imports.sources.temporalio.temporalio._get_workflows", mock_get_workflows),
+        mock.patch("posthog.temporal.data_imports.sources.vitally.vitally.get_messages", mock_get_messages),
     ):
         _, inputs = await _run(
             team=team,
-            schema_name="workflows",
-            table_name="temporalio_workflows",
-            source_type="TemporalIO",
+            schema_name="Messages",
+            table_name="vitally_messages",
+            source_type="Vitally",
             job_inputs={
-                "host": "test",
-                "port": "1234",
-                "namespace": "test",
-                "server_client_root_ca": "test",
-                "client_certificate": "test",
-                "client_private_key": "test",
-                "encryption_key": "test",
+                "secret_token": "test_token",
+                "region": {"selection": "EU", "subdomain": ""},
             },
             mock_data_response=[],
             sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
-            sync_type_config={"incremental_field": "close_time", "incremental_field_type": "datetime"},
+            sync_type_config={"incremental_field": "conversation_updated_at", "incremental_field_type": "datetime"},
             ignore_assertions=True,
         )
 
@@ -3021,8 +3011,13 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
         filters={"source": "data-warehouse-table", "data_warehouse": [{"table_name": "stripe.customer"}]},
     )
 
+    mock_kafka_producer = mock.MagicMock()
+    mock_kafka_producer.produce = mock.AsyncMock()
+    mock_kafka_producer.flush = mock.AsyncMock()
+    mock_kafka_producer.close = mock.AsyncMock()
+
     with (
-        mock.patch.object(FakeKafka, "produce") as mock_produce,
+        mock.patch.object(CDPProducer, "_get_kafka_producer", return_value=mock_kafka_producer),
         mock.patch(
             "posthog.temporal.data_imports.pipelines.pipeline.pipeline.time.time_ns", return_value=1768828644858352000
         ),
@@ -3036,36 +3031,34 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
             mock_data_response=stripe_customer["data"],
         )
 
-    mock_produce.assert_called_with(
-        topic="",
-        data={
-            "team_id": team.id,
-            "properties": {
-                "delinquent": False,
-                "object": "customer",
-                "tax_exempt": "none",
-                "address": None,
-                "invoice_prefix": "0759376C",
-                "balance": 0,
-                "currency": None,
-                "livemode": False,
-                "invoice_settings": '{"custom_fields":null,"default_payment_method":null,"footer":null,"rendering_options":null}',
-                "metadata": "{}",
-                "id": "cus_NffrFeUfNV2Hib",
-                "next_invoice_sequence": 1,
-                "email": "jennyrosen@example.com",
-                "phone": None,
-                "test_clock": None,
-                "discount": None,
-                "default_source": None,
-                "created": 1680893993,
-                "shipping": None,
-                "name": "Jenny Rosen",
-                "preferred_locales": "[]",
-                "description": None,
-                "_ph_debug": '{"load_id": 1768828644858352000}',
-                "_ph_partition_key": "2023-w14",
-            },
+    mock_kafka_producer.produce.assert_called()
+    call_kwargs = mock_kafka_producer.produce.call_args[1]
+    assert call_kwargs["data"] == {
+        "team_id": team.id,
+        "properties": {
+            "delinquent": False,
+            "object": "customer",
+            "tax_exempt": "none",
+            "address": None,
+            "invoice_prefix": "0759376C",
+            "balance": 0,
+            "currency": None,
+            "livemode": False,
+            "invoice_settings": '{"custom_fields":null,"default_payment_method":null,"footer":null,"rendering_options":null}',
+            "metadata": "{}",
+            "id": "cus_NffrFeUfNV2Hib",
+            "next_invoice_sequence": 1,
+            "email": "jennyrosen@example.com",
+            "phone": None,
+            "test_clock": None,
+            "discount": None,
+            "default_source": None,
+            "created": 1680893993,
+            "shipping": None,
+            "name": "Jenny Rosen",
+            "preferred_locales": "[]",
+            "description": None,
+            "_ph_debug": '{"load_id": 1768828644858352000}',
+            "_ph_partition_key": "2023-w14",
         },
-        value_serializer=mock.ANY,
-    )
+    }

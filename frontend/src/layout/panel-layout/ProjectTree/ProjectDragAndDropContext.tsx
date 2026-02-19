@@ -188,7 +188,7 @@ export function ProjectDragAndDropProvider({ children }: { children: React.React
                                 {iconForType((activeItem.type as any) || 'default_icon_type')}
                             </span>
                             <span className="truncate font-medium text-primary">
-                                {('name' in activeItem && activeItem.name) || activeItem.path || 'Unnamed item'}
+                                {('name' in activeItem && String(activeItem.name)) || activeItem.path || 'Unnamed item'}
                             </span>
                         </ButtonPrimitive>
                     ) : null}

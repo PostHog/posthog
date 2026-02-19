@@ -1,5 +1,11 @@
 # PostHog Development Guide
 
+## Codebase Structure
+
+- [Monorepo layout](docs/internal/monorepo-layout.md) - high-level directory structure (products, services, common)
+- [Products README](products/README.md) - how to create and structure products
+- [Products architecture](products/architecture.md) - DTOs, facades, isolated testing
+
 ## Commands
 
 - Environment:
@@ -9,6 +15,7 @@
 - Tests:
   - All tests: `pytest`
   - Single test: `pytest path/to/test.py::TestClass::test_method`
+  - Product tests (Turbo): `pnpm turbo run backend:test --filter=@posthog/products-<name>`
   - Frontend: `pnpm --filter=@posthog/frontend test`
   - Single frontend test: `pnpm --filter=@posthog/frontend jest <test_file>`
 - Lint:
@@ -20,6 +27,7 @@
 - Build:
   - Frontend: `pnpm --filter=@posthog/frontend build`
   - Start dev: `./bin/start`
+- LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
 
 ## Commits and Pull Requests
 
@@ -30,6 +38,7 @@ Use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) for a
 - `feat`: New feature or functionality (touches production code)
 - `fix`: Bug fix (touches production code)
 - `chore`: Non-production changes (docs, tests, config, CI, refactoring agents instructions, etc.)
+- Scope convention: use `llma` for LLM analytics changes (for example, `feat(llma): ...`)
 
 ### Format
 
@@ -49,57 +58,6 @@ Examples:
 - Scope is optional but encouraged when the change is specific to a feature area
 - Description should be lowercase and not end with a period
 - Keep the first line under 72 characters
-
-## ClickHouse Migrations
-
-### Migration structure
-
-```python
-operations = [
-    run_sql_with_exceptions(
-        SQL_FUNCTION(),
-        node_roles=[...],
-        sharded=False,  # True for sharded tables
-        is_alter_on_replicated_table=False  # True for ALTER on replicated tables
-    ),
-]
-```
-
-### Node roles (choose based on table type)
-
-- `[NodeRole.DATA]`: Sharded tables (data nodes only)
-- `[NodeRole.DATA, NodeRole.COORDINATOR]`: Non-sharded data tables, distributed read tables, replicated tables, views, dictionaries
-- `[NodeRole.INGESTION_SMALL]`: Writable tables, Kafka tables, materialized views on ingestion layer
-
-### Table engines quick reference
-
-MergeTree engines:
-
-- `AggregatingMergeTree(table, replication_scheme=ReplicationScheme.SHARDED)` for sharded tables
-- `ReplacingMergeTree(table, replication_scheme=ReplicationScheme.REPLICATED)` for non-sharded
-- Other variants: `CollapsingMergeTree`, `ReplacingMergeTreeDeleted`
-
-Distributed engine:
-
-- Sharded: `Distributed(data_table="sharded_events", sharding_key="sipHash64(person_id)")`
-- Non-sharded: `Distributed(data_table="my_table", cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)`
-
-### Critical rules
-
-- NEVER use `ON CLUSTER` clause in SQL statements
-- Always use `IF EXISTS` / `IF NOT EXISTS` clauses
-- When dropping and recreating replicated table in same migration, use `DROP TABLE IF EXISTS ... SYNC`
-- If a function generating SQL has on_cluster param, always set `on_cluster=False`
-- Use `sharded=True` when altering sharded tables
-- Use `is_alter_on_replicated_table=True` when altering non-sharded replicated tables
-
-### Testing
-
-Delete entry from `infi_clickhouse_orm_migrations` table to re-run a migration
-
-### Detailed documentation
-
-See `posthog/clickhouse/migrations/AGENTS.md` for comprehensive patterns, examples, and ingestion layer setup
 
 ## Security
 
@@ -170,6 +128,14 @@ semgrep --test .semgrep/rules/
 docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/rules/
 ```
 
+## Architecture guidelines
+
+- API views should declare request/response schemas — prefer `@validated_request` from `posthog.api.mixins` or `@extend_schema` from drf-spectacular
+- Django serializers are the source of truth for frontend API types — `hogli build:openapi` generates TypeScript via drf-spectacular + Orval. Generated files (`api.schemas.ts`, `api.ts`) live in `frontend/src/generated/core/` and `products/{product}/frontend/generated/` — don't edit them manually, change serializers and rerun. See `docs/published/type-system.md` for the full pipeline
+- New features should live in `products/` — read [products/README.md](products/README.md) for layout and setup. When _creating a new_ product, follow [products/architecture.md](products/architecture.md) (DTOs, facades, isolation). Most existing products are legacy moves and don't use this architecture yet — match the patterns already in the product you're editing
+- Always filter querysets by `team_id` — in serializers, access the team via `self.context["get_team"]()`
+- **Do not add domain-specific fields to the `Team` model.** Use a Team Extension model instead — see `posthog/models/team/README.md` for the pattern and helpers
+
 ## Important rules for Code Style
 
 - Python: Use type hints, follow mypy strict rules
@@ -192,5 +158,10 @@ docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/ru
 
 ## General
 
+- Markdown: prefer semantic line breaks; no hard wrapping
 - Use American English spelling
 - When mentioning PostHog products, the product names should use Sentence casing, not Title Casing. For example, 'Product analytics', not 'Product Analytics'. Any other buttons, tab text, tooltips, etc should also all use Sentence casing. For example, 'Save as view' instead of 'Save As View'.
+
+## Skills
+
+Skills are created inside [.agents/skills](.agents/skills/) by default and then symlinked to [.claude/skills](.claude/skills). Make sure you always treat `.agents/skills` as the source of truth.

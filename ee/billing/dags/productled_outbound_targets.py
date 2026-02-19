@@ -8,7 +8,6 @@ import polars as pl
 import dagster
 from dagster import AssetKey, JsonMetadataValue, MetadataValue
 
-from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
@@ -66,13 +65,6 @@ TEAM_PRODUCT_SCHEMA = {
     "autocapture_exceptions_opt_in": pl.Boolean,
 }
 
-PRODUCT_EVENT_MAP = {
-    "session_recording_opt_in": ("$snapshot", "session_recording"),
-    "surveys_opt_in": ("survey sent", "surveys"),
-    "heatmaps_opt_in": ("$heatmap", "heatmaps"),
-    "autocapture_exceptions_opt_in": ("$exception", "autocapture_exceptions"),
-}
-
 
 def build_team_product_df(org_ids: list[str]) -> pl.DataFrame:
     """Fetch team-level product flags from ClickHouse ETL table for the given orgs."""
@@ -87,7 +79,7 @@ def build_team_product_df(org_ids: list[str]) -> pl.DataFrame:
             surveys_opt_in,
             heatmaps_opt_in,
             autocapture_exceptions_opt_in
-        FROM posthog_team
+        FROM models.posthog_team
         WHERE organization_id IN %(org_ids)s
     """
     results = sync_execute(query, {"org_ids": org_ids})
@@ -123,54 +115,88 @@ def compute_multi_product_usage(team_df: pl.DataFrame) -> dict[str, int]:
     )
 
 
-def compute_event_growth(team_df: pl.DataFrame) -> dict[str, float | None]:
-    """Compute month-over-month event growth percentage per org."""
-    if len(team_df) == 0:
-        return {}
+def fetch_org_usage(org_ids: list[str]) -> pl.DataFrame:
+    """Fetch current billing period usage data from ClickHouse ETL table for the given orgs.
 
-    team_ids = team_df["team_id"].to_list()
-    team = Team.objects.get(id=PLO_TEAM_ID)
+    Returns a DataFrame with columns: organization_id, event_count, recording_count,
+    survey_count, exception_count.
+    """
+    if not org_ids:
+        return pl.DataFrame(
+            schema={
+                "organization_id": pl.Utf8,
+                "event_count": pl.Int64,
+                "recording_count": pl.Int64,
+                "survey_count": pl.Int64,
+                "exception_count": pl.Int64,
+            }
+        )
 
     query = """
         SELECT
-            properties.$team_id as team_id,
-            countIf(timestamp >= now() - interval 30 day) as current_count,
-            countIf(timestamp >= now() - interval 60 day AND timestamp < now() - interval 30 day) as prior_count
-        FROM events
-        WHERE properties.$team_id IN {team_ids}
-          AND timestamp >= now() - interval 60 day
-        GROUP BY team_id
+            toString(id) as organization_id,
+            JSONExtractInt(usage, 'events', 'usage') as event_count,
+            JSONExtractInt(usage, 'recordings', 'usage') as recording_count,
+            JSONExtractInt(usage, 'survey_responses', 'usage') as survey_count,
+            JSONExtractInt(usage, 'exceptions', 'usage') as exception_count
+        FROM models.posthog_organization
+        WHERE toString(id) IN %(org_ids)s
+          AND usage IS NOT NULL
+        ORDER BY _inserted_at DESC
+        LIMIT 1 BY id
     """
+    results = sync_execute(query, {"org_ids": org_ids})
 
-    response = execute_hogql_query(
-        query=query,
-        team=team,
-        query_type="plo_event_growth",
-        limit_context=LimitContext.SAVED_QUERY,
-        placeholders={"team_ids": ast.Tuple(exprs=[ast.Constant(value=t) for t in team_ids])},
+    if not results:
+        return pl.DataFrame(
+            schema={
+                "organization_id": pl.Utf8,
+                "event_count": pl.Int64,
+                "recording_count": pl.Int64,
+                "survey_count": pl.Int64,
+                "exception_count": pl.Int64,
+            }
+        )
+
+    return pl.DataFrame(
+        results,
+        schema=["organization_id", "event_count", "recording_count", "survey_count", "exception_count"],
+        orient="row",
     )
 
-    # Build team_id → org_id mapping
-    team_to_org = dict(zip(team_df["team_id"].to_list(), team_df["organization_id"].to_list()))
 
-    # Aggregate per org
-    org_current: dict[str, int] = {}
-    org_prior: dict[str, int] = {}
-    for row in response.results or []:
-        tid, current, prior = row[:3]
-        org_id = team_to_org.get(tid)
-        if org_id:
-            org_current[org_id] = org_current.get(org_id, 0) + current
-            org_prior[org_id] = org_prior.get(org_id, 0) + prior
+# @FIXME-AT: This is a workaround until we have a stable way to query MoM growth without scanning events table in CH.
+# Threshold for considering an org as having "significant" event activity.
+# Orgs above this threshold qualify for the event_growth_pct signal.
+# This replaces the prior MoM growth calculation which required scanning the events table.
+HIGH_EVENT_VOLUME_THRESHOLD = 10000
+
+
+def compute_event_growth(org_ids: list[str]) -> dict[str, float | None]:
+    """Check for high event volume as a proxy for growth signal.
+
+    Since we cannot efficiently compute MoM growth without scanning the events table,
+    we use current billing period event count from Organization.usage as a threshold signal.
+    Orgs with event_count > HIGH_EVENT_VOLUME_THRESHOLD are considered to have significant activity.
+
+    Returns a dict mapping org_id to a synthetic "growth" value:
+    - 100.0 for orgs above threshold (will pass the >30% filter)
+    - 0.0 for orgs below threshold
+    """
+    if not org_ids:
+        return {}
+
+    usage_df = fetch_org_usage(org_ids)
+    if len(usage_df) == 0:
+        return {}
 
     result: dict[str, float | None] = {}
-    for org_id in org_current.keys() | org_prior.keys():
-        current = org_current.get(org_id, 0)
-        prior = org_prior.get(org_id, 0)
-        if prior == 0:
-            result[org_id] = None
-        else:
-            result[org_id] = (current - prior) / prior * 100
+    for row in usage_df.iter_rows(named=True):
+        org_id = row["organization_id"]
+        event_count = row["event_count"] or 0
+        # Return 100.0 (passes >30% filter) if above threshold, else 0.0
+        result[org_id] = 100.0 if event_count > HIGH_EVENT_VOLUME_THRESHOLD else 0.0
+
     return result
 
 
@@ -192,64 +218,42 @@ def compute_new_users_30d(org_ids: list[str]) -> dict[str, int]:
     return {str(row["organization_id"]): row["new_user_count"] for row in rows}
 
 
-def compute_new_product_this_month(team_df: pl.DataFrame) -> dict[str, str]:
-    """Detect products newly adopted this month (events this month but not last month, with flag on)."""
-    if len(team_df) == 0:
+def compute_active_products(org_ids: list[str]) -> dict[str, str]:
+    """Detect products with actual usage in the current billing period.
+
+    Uses Organization.usage data from the ClickHouse ETL table to identify
+    products that have non-zero usage. This replaces the prior event-scanning
+    approach which was too slow for production.
+
+    Returns a dict mapping org_id to comma-separated list of active product names.
+    """
+    if not org_ids:
         return {}
 
-    team_ids = team_df["team_id"].to_list()
-    team = Team.objects.get(id=PLO_TEAM_ID)
+    usage_df = fetch_org_usage(org_ids)
+    if len(usage_df) == 0:
+        return {}
 
-    all_events = [ev for ev, _ in PRODUCT_EVENT_MAP.values()]
+    # Map usage columns to product names
+    usage_to_product = {
+        "recording_count": "session_recording",
+        "survey_count": "surveys",
+        "exception_count": "autocapture_exceptions",
+    }
 
-    query = """
-        SELECT
-            properties.$team_id as team_id,
-            event,
-            countIf(timestamp >= toStartOfMonth(now())) as this_month,
-            countIf(timestamp >= toStartOfMonth(now()) - interval 1 month AND timestamp < toStartOfMonth(now())) as prior_month
-        FROM events
-        WHERE properties.$team_id IN {team_ids}
-          AND event IN {events}
-          AND timestamp >= toStartOfMonth(now()) - interval 1 month
-        GROUP BY team_id, event
-    """
+    result: dict[str, str] = {}
+    for row in usage_df.iter_rows(named=True):
+        org_id = row["organization_id"]
+        active_products: list[str] = []
 
-    response = execute_hogql_query(
-        query=query,
-        team=team,
-        query_type="plo_new_product",
-        limit_context=LimitContext.SAVED_QUERY,
-        placeholders={
-            "team_ids": ast.Tuple(exprs=[ast.Constant(value=t) for t in team_ids]),
-            "events": ast.Tuple(exprs=[ast.Constant(value=e) for e in all_events]),
-        },
-    )
+        for usage_col, product_name in usage_to_product.items():
+            if (row[usage_col] or 0) > 0:
+                active_products.append(product_name)
 
-    # Build team_id → (org_id, flags) mapping
-    team_to_org: dict[Any, str] = {}
-    team_flags: dict[Any, dict[str, bool]] = {}
-    for row in team_df.to_dicts():
-        tid = row["team_id"]
-        team_to_org[tid] = row["organization_id"]
-        team_flags[tid] = {f: row[f] for f in PRODUCT_FLAGS}
+        if active_products:
+            result[org_id] = ",".join(sorted(active_products))
 
-    # Event → flag mapping (reverse of PRODUCT_EVENT_MAP)
-    event_to_flag = {ev: flag for flag, (ev, _) in PRODUCT_EVENT_MAP.items()}
-
-    # Collect new products per org
-    org_new_products: dict[str, set[str]] = {}
-    for row in response.results or []:
-        tid, event, this_month, prior_month = row[:4]
-        if this_month > 0 and prior_month == 0:
-            flag = event_to_flag.get(event)
-            if flag and team_flags.get(tid, {}).get(flag, False):
-                org_id = team_to_org.get(tid)
-                if org_id:
-                    _, product_name = PRODUCT_EVENT_MAP[flag]
-                    org_new_products.setdefault(org_id, set()).add(product_name)
-
-    return {org_id: ",".join(sorted(products)) for org_id, products in org_new_products.items()}
+    return result
 
 
 def fetch_org_users(org_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
@@ -290,10 +294,14 @@ def filter_qualified(df: pl.DataFrame) -> pl.DataFrame:
 
 def dataframe_to_plo_clay_payload(df: pl.DataFrame, org_users: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
     """Convert enriched PLO DataFrame to Clay webhook payload with user data attached."""
-    return [
-        {**record, "users": org_users.get(record["organization_id"], [])}
-        for record in df.select(PAYLOAD_COLUMNS).to_dicts()
-    ]
+    # Cast datetime columns to ISO format strings for JSON serialization
+    selected = df.select(PAYLOAD_COLUMNS)
+    for col_name in selected.columns:
+        if selected[col_name].dtype == pl.Datetime:
+            selected = selected.with_columns(pl.col(col_name).dt.to_string("%Y-%m-%dT%H:%M:%S%.fZ"))
+        elif selected[col_name].dtype == pl.Date:
+            selected = selected.with_columns(pl.col(col_name).dt.to_string("%Y-%m-%d"))
+    return [{**record, "users": org_users.get(record["organization_id"], [])} for record in selected.to_dicts()]
 
 
 def get_plo_prior_hashes(context: dagster.AssetExecutionContext) -> dict[str, str]:
@@ -396,17 +404,17 @@ def qualify_signals(
     multi_product = compute_multi_product_usage(team_df)
     context.log.info("Computed multi-product usage for %d orgs", len(multi_product))
 
-    # Signal 2: Event growth MoM
-    event_growth = compute_event_growth(team_df)
-    context.log.info("Computed event growth for %d orgs", len(event_growth))
+    # Signal 2: High event volume (proxy for growth)
+    event_growth = compute_event_growth(org_ids)
+    context.log.info("Computed event volume signal for %d orgs", len(event_growth))
 
     # Signal 3: New users in last 30 days
     new_users = compute_new_users_30d(org_ids)
     context.log.info("Computed new users for %d orgs", len(new_users))
 
-    # Signal 4: New product this month
-    new_products = compute_new_product_this_month(team_df)
-    context.log.info("Computed new products for %d orgs", len(new_products))
+    # Signal 4: Active products with usage
+    new_products = compute_active_products(org_ids)
+    context.log.info("Computed active products for %d orgs", len(new_products))
 
     # Join signals onto base targets
     org_id_list = plo_base_targets["organization_id"].to_list()

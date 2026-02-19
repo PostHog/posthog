@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::{http::Method, routing::get, routing::post, Router};
+use axum::{extract::DefaultBodyLimit, http::Method, routing::get, routing::post, Router};
 use capture::metrics_middleware::track_metrics;
 use capture_logs::config::Config;
 use capture_logs::endpoints::datadog;
@@ -149,6 +149,7 @@ async fn main() {
             post(datadog::export_datadog_logs_http).options(options_handler),
         )
         .with_state(logs_service)
+        .layer(DefaultBodyLimit::max(config.max_request_body_size_bytes))
         .layer(axum::middleware::from_fn(track_metrics))
         .layer(RequestDecompressionLayer::new())
         .layer(cors);

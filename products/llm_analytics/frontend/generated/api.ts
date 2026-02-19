@@ -330,6 +330,37 @@ export const evaluationsCreate = async (
 }
 
 /**
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
+export const getLlmAnalyticsClusteringConfigRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/clustering_config/`
+}
+
+export const llmAnalyticsClusteringConfigRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLlmAnalyticsClusteringConfigRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
+export const getLlmAnalyticsClusteringConfigSetEventFiltersCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/clustering_config/set_event_filters/`
+}
+
+export const llmAnalyticsClusteringConfigSetEventFiltersCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getLlmAnalyticsClusteringConfigSetEventFiltersCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+/**
  * Trigger a new clustering workflow run.
 
 This endpoint validates the request parameters and starts a Temporal workflow
@@ -554,6 +585,24 @@ export const llmAnalyticsProviderKeysDestroy = async (
     return apiMutator<void>(getLlmAnalyticsProviderKeysDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+/**
+ * Get evaluations using this key and alternative keys for replacement.
+ */
+export const getLlmAnalyticsProviderKeysDependentConfigsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/provider_keys/${id}/dependent_configs/`
+}
+
+export const llmAnalyticsProviderKeysDependentConfigsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LLMProviderKeyApi> => {
+    return apiMutator<LLMProviderKeyApi>(getLlmAnalyticsProviderKeysDependentConfigsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

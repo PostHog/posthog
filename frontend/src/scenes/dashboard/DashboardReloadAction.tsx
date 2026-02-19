@@ -47,9 +47,7 @@ export function DashboardReloadAction(): JSX.Element {
     const { triggerDashboardRefresh, setAutoRefresh, setPageVisibility, cancelDashboardRefresh } =
         useActions(dashboardLogic)
 
-    usePageVisibilityCb((pageIsVisible) => {
-        setPageVisibility(pageIsVisible)
-    })
+    usePageVisibilityCb(setPageVisibility)
 
     // Force a re-render when nextAllowedDashboardRefresh is reached, since the blockRefresh
     // selector uses now() which isn't reactive - it only recomputes on dependency changes

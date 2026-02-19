@@ -1,5 +1,7 @@
-import { actions, afterMount, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 
 import type { sidePanelStatusIncidentIoLogicType } from './sidePanelStatusIncidentIoLogicType'
 
@@ -125,6 +127,10 @@ function getWorstStatusForRegion(summary: IncidentIoSummary): NormalizedStatus {
 export const sidePanelStatusIncidentIoLogic = kea<sidePanelStatusIncidentIoLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelStatusIncidentIoLogic']),
 
+    connect(() => ({
+        values: [superpowersLogic, ['fakeStatusOverride', 'superpowersEnabled']],
+    })),
+
     actions({
         setPageVisibility: (visible: boolean) => ({ visible }),
     }),
@@ -143,13 +149,22 @@ export const sidePanelStatusIncidentIoLogic = kea<sidePanelStatusIncidentIoLogic
     })),
 
     selectors({
-        status: [
+        rawStatus: [
             (s) => [s.summary],
             (summary: IncidentIoSummary | null): NormalizedStatus => {
                 if (!summary) {
                     return 'operational'
                 }
                 return getWorstStatusForRegion(summary)
+            },
+        ],
+        status: [
+            (s) => [s.rawStatus, s.fakeStatusOverride, s.superpowersEnabled],
+            (rawStatus, fakeStatusOverride, superpowersEnabled): NormalizedStatus => {
+                if (superpowersEnabled && fakeStatusOverride !== 'none') {
+                    return fakeStatusOverride as NormalizedStatus
+                }
+                return rawStatus
             },
         ],
         statusDescription: [
