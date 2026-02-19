@@ -116,7 +116,7 @@ const featureFlagActionsMapping: Record<
                                     )
                                 }) || []
                             newButtons[0] = (
-                                <>
+                                <Fragment key={nonEmptyProperties[0].key ?? 0}>
                                     <span>
                                         <strong>{rollout_percentage ?? 100}%</strong> of{' '}
                                     </span>
@@ -124,7 +124,7 @@ const featureFlagActionsMapping: Record<
                                         key={nonEmptyProperties[0].key}
                                         item={nonEmptyProperties[0]}
                                     />
-                                </>
+                                </Fragment>
                             )
                             groupAdditions.push(...newButtons)
                         } else {
