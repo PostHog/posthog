@@ -10,27 +10,17 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
 from posthog.models import Cohort, Team
-from posthog.models.property import Property
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.utils import is_cohort_property
-from posthog.types import AnyPropertyFilter
 
 
-def _get_cohort_filter_info(prop: AnyPropertyFilter) -> tuple[int, bool, bool] | None:
+def _get_cohort_filter_info(prop: CohortPropertyFilter) -> tuple[int, bool]:
     """
-    Extract cohort ID and whether it's a NOT IN filter from a property filter.
-    Returns (cohort_id, is_negated, is_static) or None if not a cohort property.
+    Extract cohort ID and whether it's a NOT IN filter from a cohort property filter.
+    Returns (cohort_id, is_negated).
     """
-    if isinstance(prop, CohortPropertyFilter):
-        is_negated = prop.operator == PropertyOperator.NOT_IN
-        return (prop.value, is_negated, False)  # is_static determined later
-    elif isinstance(prop, Property) and prop.type == "cohort":
-        is_negated = prop.operator == "not_in" or prop.negation
-        cohort_id = int(prop.value) if prop.value else None
-        if cohort_id is None:
-            return None
-        return (cohort_id, is_negated, False)
-    return None
+    is_negated = prop.operator == PropertyOperator.NOT_IN
+    return (prop.value, is_negated)
 
 
 class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
@@ -64,14 +54,10 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
         cohort_filters: list[tuple[int, bool, bool, int]] = []
 
         for prop in self._query.properties or []:
-            if not is_cohort_property(prop):
+            if not isinstance(prop, CohortPropertyFilter):
                 continue
 
-            info = _get_cohort_filter_info(prop)
-            if info is None:
-                continue
-
-            cohort_id, is_negated, _ = info
+            cohort_id, is_negated = _get_cohort_filter_info(prop)
 
             # Look up cohort to determine if it's static and get version
             try:
