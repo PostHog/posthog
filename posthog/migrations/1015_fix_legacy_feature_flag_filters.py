@@ -19,8 +19,9 @@ def fix_legacy_feature_flag_filters(apps, schema_editor):
     """
     FeatureFlag = apps.get_model("posthog", "FeatureFlag")
     total = 0
+    queryset = FeatureFlag.objects.filter(Q(filters__isnull=True) | ~Q(filters__has_key="groups"))
+
     while True:
-        # Re-evaluate queryset each iteration to exclude already-updated flags
         flags = list(queryset[:BATCH_SIZE])
         if not flags:
             break
