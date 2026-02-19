@@ -8,10 +8,24 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
-import type { ChatMessage, ConversationMessage, ConversationTicket, SidePanelViewState } from '../../types'
+import type {
+    ChatMessage,
+    ConversationMessage,
+    ConversationTicket,
+    RestoreFlowState,
+    SidePanelViewState,
+} from '../../types'
 import type { sidepanelTicketsLogicType } from './sidepanelTicketsLogicType'
 
 const POLL_INTERVAL = 60 * 1000 // 60 seconds
+
+function removeRestoreTokenFromUrl(): void {
+    const url = new URL(window.location.href)
+    if (url.searchParams.has('ph_conv_restore')) {
+        url.searchParams.delete('ph_conv_restore')
+        window.history.replaceState(window.history.state, '', url.toString())
+    }
+}
 
 export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
     path(['products', 'conversations', 'frontend', 'components', 'SidePanel', 'sidepanelTicketsLogic']),
@@ -33,6 +47,10 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         setView: (view: SidePanelViewState) => ({ view }),
         setCurrentTicket: (ticket: ConversationTicket) => ({ ticket }),
         sendMessage: (content: string, onSuccess: () => void) => ({ content, onSuccess }),
+        requestRestoreLink: (email: string) => ({ email }),
+        restoreFromUrlToken: true,
+        setRestoreState: (state: RestoreFlowState) => ({ state }),
+        setRestoreError: (error: string | null) => ({ error }),
     }),
     reducers({
         view: [
@@ -81,6 +99,20 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             false,
             {
                 setMessageSending: (_, { sending }) => sending,
+            },
+        ],
+        restoreState: [
+            'idle' as RestoreFlowState,
+            {
+                setRestoreState: (_, { state }) => state,
+                setView: () => 'idle' as RestoreFlowState,
+            },
+        ],
+        restoreError: [
+            null as string | null,
+            {
+                setRestoreError: (_, { error }) => error,
+                setRestoreState: () => null,
             },
         ],
     }),
@@ -227,6 +259,44 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             actions.loadMessages(ticket.id)
             actions.markAsRead(ticket.id)
         },
+        requestRestoreLink: async ({ email }) => {
+            if (!posthog.conversations?.requestRestoreLink) {
+                return
+            }
+            actions.setRestoreState('sending')
+            try {
+                await posthog.conversations.requestRestoreLink(email)
+                actions.setRestoreState('sent')
+            } catch (e: any) {
+                const message =
+                    e?.status === 429
+                        ? 'Too many requests. Please try again later.'
+                        : 'Something went wrong. Please try again.'
+                actions.setRestoreError(message)
+                actions.setRestoreState('error')
+            }
+        },
+        restoreFromUrlToken: async () => {
+            if (!posthog.conversations?.restoreFromUrlToken) {
+                return
+            }
+            try {
+                const result = await posthog.conversations.restoreFromUrlToken()
+                if (result?.status === 'success') {
+                    const count = result.migrated_ticket_ids?.length ?? 0
+                    if (count > 0) {
+                        lemonToast.success(
+                            `Restored ${count} ticket${count === 1 ? '' : 's'} from your previous session.`
+                        )
+                    }
+                    actions.loadTickets()
+                }
+            } catch (e) {
+                console.error('Failed to restore from URL token:', e)
+            } finally {
+                removeRestoreTokenFromUrl()
+            }
+        },
     })),
     subscriptions(({ actions, values }) => ({
         sidePanelOpen: (open: boolean) => {
@@ -236,9 +306,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         },
     })),
     afterMount(({ actions, values, cache }) => {
-        // Only load if feature is enabled
         if (values.isEnabled) {
             actions.loadTickets()
+            actions.restoreFromUrlToken()
         }
 
         // Set up visibility change listener (only if feature is enabled)

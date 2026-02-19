@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import { IconChevronRight } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { stripMarkdown } from 'lib/utils/stripMarkdown'
@@ -41,7 +42,12 @@ export function TicketsList(): JSX.Element {
             >
                 Create new ticket
             </LemonButton>
-
+            <p className="text-center text-xs text-muted-alt m-0">
+                Switched browsers?{' '}
+                <Link className="cursor-pointer" onClick={() => setView('restore')} data-attr="sidebar-recover-tickets">
+                    Recover your tickets
+                </Link>
+            </p>
             {tickets.length === 0 ? (
                 <div className="text-center text-muted-alt py-8">
                     <p>No tickets yet.</p>
