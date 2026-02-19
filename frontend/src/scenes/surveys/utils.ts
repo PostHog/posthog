@@ -504,11 +504,21 @@ interface SanitizeSurveyOptions {
 
 export function sanitizeSurvey(survey: Partial<Survey>, options?: SanitizeSurveyOptions): Partial<Survey> {
     const sanitizedQuestions =
-        survey.questions?.map((question) => ({
-            ...question,
-            question: sanitizeHTML(question.question ?? ''),
-            description: sanitizeHTML(question.description ?? ''),
-        })) || []
+        survey.questions?.map((question) => {
+            const sanitized = {
+                ...question,
+                question: sanitizeHTML(question.question ?? ''),
+                description: sanitizeHTML(question.description ?? ''),
+            }
+            if (
+                (sanitized.type === SurveyQuestionType.SingleChoice ||
+                    sanitized.type === SurveyQuestionType.MultipleChoice) &&
+                sanitized.choices
+            ) {
+                sanitized.choices = sanitized.choices.map((choice) => choice.trim())
+            }
+            return sanitized
+        }) || []
 
     const sanitizedAppearance = sanitizeSurveyAppearance(
         survey.appearance,
