@@ -331,6 +331,7 @@ export interface UserType extends UserBaseType {
         project_weekly_digest_disabled: Record<number, boolean>
         all_weekly_digest_disabled: boolean
         error_tracking_issue_assigned: boolean
+        error_tracking_weekly_digest: boolean
         discussions_mentioned: boolean
         data_pipeline_error_threshold?: number
     }

@@ -143,7 +143,7 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         assert counts[day_1_ago] == 2
         assert counts[day_3_ago] == 1
 
-        pcts = {d["day"]: d["height_pct"] for d in result}
+        pcts = {d["day"]: d["height_percent"] for d in result}
         assert pcts[day_1_ago] == 100
         assert pcts[day_3_ago] == 50
 

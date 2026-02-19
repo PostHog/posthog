@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -186,14 +187,16 @@ export function UpdateEmailPreferences(): JSX.Element {
                 />
             </div>
 
-            <div className="border rounded p-4">
-                <SimpleSwitch
-                    setting="error_tracking_weekly_digest"
-                    label="Error tracking weekly digest"
-                    description="Get a weekly summary of exceptions caught across your projects every Monday"
-                    dataAttr="error_tracking_weekly_digest_enabled"
-                />
-            </div>
+            {useFeatureFlag('ERROR_TRACKING_WEEKLY_DIGEST') && (
+                <div className="border rounded p-4">
+                    <SimpleSwitch
+                        setting="error_tracking_weekly_digest"
+                        label="Error tracking weekly digest"
+                        description="Get a weekly summary of exceptions caught across your projects every Monday"
+                        dataAttr="error_tracking_weekly_digest_enabled"
+                    />
+                </div>
+            )}
 
             <div className="border rounded p-4">
                 <SimpleSwitch
