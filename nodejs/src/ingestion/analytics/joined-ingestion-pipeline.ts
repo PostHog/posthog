@@ -4,6 +4,7 @@ import { HogTransformerService } from '../../cdp/hog-transformations/hog-transfo
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub, Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
 import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
@@ -44,6 +45,8 @@ export interface JoinedIngestionPipelineConfig {
     groupStore: BatchWritingGroupStore
     hogTransformer: HogTransformerService
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    eventSchemaEnforcementManager: EventSchemaEnforcementManager
+    eventSchemaEnforcementEnabled: boolean
     overflowEnabled: boolean
     overflowTopic: string
     dlqTopic: string
@@ -115,6 +118,8 @@ export function createJoinedIngestionPipeline<
         groupStore,
         hogTransformer,
         eventIngestionRestrictionManager,
+        eventSchemaEnforcementManager,
+        eventSchemaEnforcementEnabled,
         overflowEnabled,
         overflowTopic,
         dlqTopic,
@@ -135,6 +140,8 @@ export function createJoinedIngestionPipeline<
 
     const postTeamConfig: PostTeamPreprocessingSubpipelineConfig = {
         eventIngestionRestrictionManager,
+        eventSchemaEnforcementManager,
+        eventSchemaEnforcementEnabled,
         cookielessManager: hub.cookielessManager,
         overflowTopic,
         preservePartitionLocality: hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
