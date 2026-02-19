@@ -1,3 +1,4 @@
+import logging
 from typing import cast
 
 from django.db import transaction
@@ -24,10 +25,16 @@ from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from .metrics import llma_track_latency
 
+logger = logging.getLogger(__name__)
+
 
 def validate_provider_key(provider: str, api_key: str) -> tuple[str, str | None]:
     """Validate an API key for any supported provider using the unified client."""
-    return Client.validate_key(provider, api_key)
+    try:
+        return Client.validate_key(provider, api_key)
+    except Exception as e:
+        logger.exception(f"Provider key validation failed for provider '{provider}': {e}")
+        return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
 
 
 class LLMProviderKeySerializer(serializers.ModelSerializer):
@@ -70,7 +77,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         elif provider == LLMProvider.ANTHROPIC:
             if not value.startswith("sk-ant-"):
                 raise serializers.ValidationError("Invalid Anthropic API key format. Key should start with 'sk-ant-'.")
-        # Gemini and OpenRouter keys have no standard prefix, so no format validation needed
+        # Gemini, OpenRouter, and Fireworks keys have no standard prefix, so no format validation needed
 
         return value
 
