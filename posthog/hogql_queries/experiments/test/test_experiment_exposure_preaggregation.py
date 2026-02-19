@@ -437,6 +437,99 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         assert result.variant_results is not None
         assert result.variant_results[0].number_of_samples == 1
 
+    def test_filters_exposures_by_experiment_date_range(self):
+        """Test that precomputed jobs covering broader time ranges are filtered to experiment dates."""
+        feature_flag = self.create_feature_flag(key="date-filter-test")
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
+        )
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Create exposures before experiment starts (Jan 2-3)
+        for i in range(3):
+            _create_person(distinct_ids=[f"early_control_{i}"], team_id=self.team.pk)
+            self._create_exposure_event(
+                f"early_control_{i}", feature_flag, "control", datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"early_control_{i}",
+                timestamp=datetime(2024, 1, 2, 13, 0, 0, tzinfo=UTC),
+                properties={feature_flag_property: "control"},
+            )
+
+        for i in range(4):
+            _create_person(distinct_ids=[f"early_test_{i}"], team_id=self.team.pk)
+            self._create_exposure_event(
+                f"early_test_{i}", feature_flag, "test", datetime(2024, 1, 3, 12, 0, 0, tzinfo=UTC)
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"early_test_{i}",
+                timestamp=datetime(2024, 1, 3, 13, 0, 0, tzinfo=UTC),
+                properties={feature_flag_property: "test"},
+            )
+
+        # Create exposures during experiment (Jan 6-7)
+        for i in range(2):
+            _create_person(distinct_ids=[f"valid_control_{i}"], team_id=self.team.pk)
+            self._create_exposure_event(
+                f"valid_control_{i}", feature_flag, "control", datetime(2024, 1, 6, 12, 0, 0, tzinfo=UTC)
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"valid_control_{i}",
+                timestamp=datetime(2024, 1, 6, 13, 0, 0, tzinfo=UTC),
+                properties={feature_flag_property: "control"},
+            )
+
+        for i in range(3):
+            _create_person(distinct_ids=[f"valid_test_{i}"], team_id=self.team.pk)
+            self._create_exposure_event(
+                f"valid_test_{i}", feature_flag, "test", datetime(2024, 1, 7, 12, 0, 0, tzinfo=UTC)
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"valid_test_{i}",
+                timestamp=datetime(2024, 1, 7, 13, 0, 0, tzinfo=UTC),
+                properties={feature_flag_property: "test"},
+            )
+
+        # Create experiment with narrow range (Jan 5-9)
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 5, tzinfo=UTC),
+            end_date=datetime(2024, 1, 9, tzinfo=UTC),
+        )
+
+        # Create precomputation job for BROAD range (Jan 1-10) - includes exposures before experiment
+        builder = self._build_lazy_computation_builder(experiment, feature_flag, metric)
+        query_string, placeholders = builder.get_exposure_query_for_precomputation()
+        ensure_precomputed(
+            team=self.team,
+            insert_query=query_string,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 10, tzinfo=UTC),
+            table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+            placeholders=placeholders,
+        )
+
+        experiment.exposure_preaggregation_enabled = True
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        lazy_result = self._run_experiment(experiment, metric)
+
+        # Should only count users exposed during experiment window (Jan 5-9): 2 control + 3 test
+        assert lazy_result.baseline is not None
+        assert lazy_result.baseline.number_of_samples == 2, "Should only count control users from Jan 6+"
+        assert lazy_result.variant_results is not None
+        assert lazy_result.variant_results[0].number_of_samples == 3, "Should only count test users from Jan 7+"
+
     def test_falls_back_to_events_scan_on_lazy_computation_failure(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
