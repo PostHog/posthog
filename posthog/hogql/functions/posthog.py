@@ -64,4 +64,7 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "uniqueSurveySubmissionsFilter": HogQLFunctionMeta(
         "uniqueSurveySubmissionsFilter", 1, 1, signatures=[((StringType(),), StringType())]
     ),
+    # traffic type classification functions
+    "getTrafficType": HogQLFunctionMeta("getTrafficType", 1, 1, signatures=[((StringType(),), StringType())]),
+    "getTrafficCategory": HogQLFunctionMeta("getTrafficCategory", 1, 1, signatures=[((StringType(),), StringType())]),
 }
