@@ -1,6 +1,6 @@
 import classNames from 'classnames'
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import React, { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
@@ -89,8 +89,9 @@ import {
 } from './utils'
 
 function TraceNavigation(): JSX.Element {
+    const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
     const { viewMode, newerTraceId, newerTimestamp, olderTraceId, olderTimestamp, neighborsLoading } =
-        useValues(llmAnalyticsTraceLogic)
+        useValues(traceLogic)
     const { searchParams } = useValues(router)
     const baseSearchParams = sanitizeTraceUrlSearchParams(searchParams)
 
@@ -176,7 +177,9 @@ export function LLMAnalyticsTraceScene({ tabId }: { tabId?: string }): JSX.Eleme
 }
 
 function TraceSceneWrapper(): JSX.Element {
-    const { searchQuery, commentCount } = useValues(llmAnalyticsTraceLogic)
+    const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
+    const traceDataLogic = useMountedLogic(llmAnalyticsTraceDataLogic)
+    const { searchQuery, commentCount } = useValues(traceLogic)
     const { searchParams } = useValues(router)
     const {
         enrichedTree,
@@ -188,7 +191,7 @@ function TraceSceneWrapper(): JSX.Element {
         metricEvents,
         eventMetadata,
         effectiveEventId,
-    } = useValues(llmAnalyticsTraceDataLogic)
+    } = useValues(traceDataLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -426,10 +429,12 @@ function TraceSidebar({
     tree: EnrichedTraceTreeNode[]
     showBillingInfo?: boolean
 }): JSX.Element {
+    const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
+    const traceDataLogic = useMountedLogic(llmAnalyticsTraceDataLogic)
     const ref = useRef<HTMLDivElement | null>(null)
-    const { mostRelevantEvent, searchOccurrences } = useValues(llmAnalyticsTraceDataLogic)
-    const { searchQuery } = useValues(llmAnalyticsTraceLogic)
-    const { setSearchQuery, setEventId } = useActions(llmAnalyticsTraceLogic)
+    const { mostRelevantEvent, searchOccurrences } = useValues(traceDataLogic)
+    const { searchQuery } = useValues(traceLogic)
+    const { setSearchQuery, setEventId } = useActions(traceLogic)
 
     const [searchValue, setSearchValue] = useState(searchQuery)
 
@@ -565,7 +570,8 @@ const TreeNode = React.memo(function TraceNode({
     const usage = node.displayUsage
     const item = node.event
 
-    const { eventTypeExpanded } = useValues(llmAnalyticsTraceLogic)
+    const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
+    const { eventTypeExpanded } = useValues(traceLogic)
     const { searchParams } = useValues(router)
     const eventType = getEventType(item)
     const isCollapsedDueToFilter = !eventTypeExpanded(eventType)
@@ -724,7 +730,8 @@ function EventContentDisplay({
     output: unknown
     raisedError?: boolean
 }): JSX.Element {
-    const { searchQuery } = useValues(llmAnalyticsTraceLogic)
+    const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
+    const { searchQuery } = useValues(traceLogic)
     if (!input && !output) {
         // If we have no data here we should not render anything
         // In future plan to point docs to show how to add custom trace events
@@ -792,10 +799,11 @@ const EventContent = React.memo(
         eventMetadata?: Record<string, unknown>
         showBillingInfo?: boolean
     }): JSX.Element => {
+        const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
         const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
         const { featureFlags } = useValues(featureFlagLogic)
-        const { displayOption, lineNumber, initialTab, viewMode } = useValues(llmAnalyticsTraceLogic)
-        const { handleTextViewFallback, copyLinePermalink, setViewMode } = useActions(llmAnalyticsTraceLogic)
+        const { displayOption, lineNumber, initialTab, viewMode } = useValues(traceLogic)
+        const { handleTextViewFallback, copyLinePermalink, setViewMode } = useActions(traceLogic)
 
         const node = event && isLLMEvent(event) ? findNodeForEvent(tree, event.id) : null
         const aggregation = node?.aggregation || null
@@ -1183,9 +1191,11 @@ function EventTypeTag({ event, size }: { event: LLMTrace | LLMTraceEvent; size?:
 }
 
 function EventTypeFilters(): JSX.Element {
-    const { availableEventTypes } = useValues(llmAnalyticsTraceDataLogic)
-    const { eventTypeExpanded } = useValues(llmAnalyticsTraceLogic)
-    const { toggleEventTypeExpanded } = useActions(llmAnalyticsTraceLogic)
+    const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
+    const traceDataLogic = useMountedLogic(llmAnalyticsTraceDataLogic)
+    const { availableEventTypes } = useValues(traceDataLogic)
+    const { eventTypeExpanded } = useValues(traceLogic)
+    const { toggleEventTypeExpanded } = useActions(traceLogic)
 
     if (availableEventTypes.length === 0) {
         return <></>
@@ -1229,8 +1239,9 @@ function CopyTraceButton({ trace, tree }: { trace: LLMTrace; tree: EnrichedTrace
 }
 
 function DisplayOptionsSelect(): JSX.Element {
-    const { displayOption } = useValues(llmAnalyticsTraceLogic)
-    const { setDisplayOption } = useActions(llmAnalyticsTraceLogic)
+    const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
+    const { displayOption } = useValues(traceLogic)
+    const { setDisplayOption } = useActions(traceLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const displayOptions = [
@@ -1271,7 +1282,8 @@ function DisplayOptionsSelect(): JSX.Element {
 }
 
 function TraceMetricsTable(): JSX.Element | null {
-    const { metricsAndFeedbackEvents } = useValues(llmAnalyticsTraceDataLogic)
+    const traceDataLogic = useMountedLogic(llmAnalyticsTraceDataLogic)
+    const { metricsAndFeedbackEvents } = useValues(traceDataLogic)
 
     if (!metricsAndFeedbackEvents?.length) {
         return null
