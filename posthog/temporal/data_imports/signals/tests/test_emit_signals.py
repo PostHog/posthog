@@ -74,7 +74,7 @@ class TestQueryNewRecords:
                 )
 
         query_arg = mock_parse.call_args[0][0]
-        assert "updated_at > {last_synced_at}" in query_arg
+        assert "parseDateTimeBestEffort(updated_at) > {last_synced_at}" in query_arg
         assert mock_parse.call_args.kwargs["placeholders"]["last_synced_at"] == ast.Constant(
             value=datetime(2025, 1, 1, 0, 0, tzinfo=UTC)
         )
@@ -97,7 +97,7 @@ class TestQueryNewRecords:
                 )
 
         query_arg = mock_parse.call_args[0][0]
-        assert "time > now() - interval 14 day" in query_arg
+        assert "parseDateTimeBestEffort(time) > now() - interval 14 day" in query_arg
         assert "placeholders" not in mock_parse.call_args.kwargs
 
     def test_returns_empty_on_query_error(self):

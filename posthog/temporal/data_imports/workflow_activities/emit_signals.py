@@ -149,13 +149,15 @@ def _query_new_records(
 ) -> list[dict[str, Any]]:
     where_parts: list[str] = []
     placeholders: dict[str, Any] = {}
+    # Wrap in parseDateTimeBestEffort to handle sources that store dates as strings
+    partition_expr = f"parseDateTimeBestEffort({config.partition_field})"
     # Continuous sync - need to analyze all that happened since the last one (based on the schema schedule)
     if last_synced_at is not None:
-        where_parts.append(f"{config.partition_field} > {{last_synced_at}}")
+        where_parts.append(f"{partition_expr} > {{last_synced_at}}")
         placeholders["last_synced_at"] = ast.Constant(value=datetime.fromisoformat(last_synced_at))
     # First ever sync - look back a limited window
     else:
-        where_parts.append(f"{config.partition_field} > now() - interval {config.first_sync_lookback_days} day")
+        where_parts.append(f"{partition_expr} > now() - interval {config.first_sync_lookback_days} day")
     if config.where_clause:
         where_parts.append(config.where_clause)
     where_sql = " AND ".join(where_parts)
