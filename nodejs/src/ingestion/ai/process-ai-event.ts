@@ -12,6 +12,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { logger } from '../../utils/logger'
 import { EventWithProperties, extractCoreModelParams, processCost } from './costs'
 import { processAiErrorNormalization } from './errors'
+import { processAiToolCallExtraction } from './tools'
 
 export { EventWithProperties } from './costs'
 
@@ -36,6 +37,7 @@ export const AI_EVENT_TYPES = new Set([
  * 2. Normalize error messages (events with $ai_is_error=true)
  * 3. Calculate costs (generation/embedding events only)
  * 4. Extract model parameters (generation/embedding events only)
+ * 5. Extract tool calls (generation events only)
  */
 export const processAiEvent = (event: PluginEvent): PluginEvent | EventWithProperties => {
     // If the event doesn't carry properties, there's nothing to do.
@@ -59,7 +61,9 @@ export const processAiEvent = (event: PluginEvent): PluginEvent | EventWithPrope
 
     const eventWithCosts = processCost(withErrorNormalization)
 
-    return extractCoreModelParams(eventWithCosts)
+    const withModelParams = extractCoreModelParams(eventWithCosts)
+
+    return processAiToolCallExtraction(withModelParams)
 }
 
 /**

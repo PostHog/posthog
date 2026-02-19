@@ -293,6 +293,7 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_EVALUATIONS_SUMMARY: 'llm-analytics-evaluations-summary', // owner: #team-llm-analytics
     LLM_ANALYTICS_SESSION_SUMMARIZATION: 'llm-analytics-session-summarization', // owner: #team-llm-analytics
     LLM_ANALYTICS_CLUSTERS_TAB: 'llm-analytics-clusters-tab', // owner: #team-llm-analytics
+    LLM_ANALYTICS_TOOLS_TAB: 'llm-analytics-tools-tab', // owner: #team-llm-analytics
     LLM_ANALYTICS_CLUSTERING_ADMIN: 'llm-analytics-clustering-admin', // owner: #team-llm-analytics
     LLM_ANALYTICS_SESSIONS_VIEW: 'llm-analytics-sessions-view', // owner: #team-llm-analytics
     LLM_ANALYTICS_SUMMARIZATION: 'llm-analytics-summarization', // owner: #team-llm-analytics
