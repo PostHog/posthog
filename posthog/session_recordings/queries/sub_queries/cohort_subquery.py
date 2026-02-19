@@ -1,17 +1,10 @@
-from posthog.schema import (
-    CohortPropertyFilter,
-    FilterLogicalOperator,
-    PropertyGroupFilterValue,
-    PropertyOperator,
-    RecordingsQuery,
-)
+from posthog.schema import CohortPropertyFilter, PropertyOperator, RecordingsQuery
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
 from posthog.models import Cohort, Team
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
-from posthog.session_recordings.queries.utils import is_cohort_property
 
 
 def _get_cohort_filter_info(prop: CohortPropertyFilter) -> tuple[int, bool]:
@@ -156,17 +149,4 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
             {
                 "team_id": ast.Constant(value=self._team.pk),
             },
-        )
-
-    @property
-    def cohort_properties(self) -> PropertyGroupFilterValue | None:
-        """Legacy property for backwards compatibility."""
-        cohort_property_groups = [g for g in (self._query.properties or []) if is_cohort_property(g)]
-        return (
-            PropertyGroupFilterValue(
-                type=FilterLogicalOperator.AND_ if self.property_operand == "AND" else FilterLogicalOperator.OR_,
-                values=cohort_property_groups,
-            )
-            if cohort_property_groups
-            else None
         )
