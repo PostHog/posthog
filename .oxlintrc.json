@@ -228,6 +228,7 @@
         "no-constant-binary-expression": "error",
         "no-useless-rename": "error",
         "no-useless-call": "error",
+        "jest/no-alias-methods": "error",
         "jest/no-restricted-matchers": [
             "error",
             {
