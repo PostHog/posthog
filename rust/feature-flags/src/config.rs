@@ -472,6 +472,12 @@ pub struct Config {
     // Default: 100 (sequential is faster for typical workloads of ~50 flags)
     #[envconfig(from = "PARALLEL_EVAL_THRESHOLD", default = "100")]
     pub parallel_eval_threshold: usize,
+
+    // When true, skip all writes to PostgreSQL and Redis.
+    // Used to safely deploy and test the personhog migration path
+    // without risking any data mutations.
+    #[envconfig(from = "SKIP_WRITES", default = "false")]
+    pub skip_writes: FlexBool,
 }
 
 impl Config {
@@ -592,6 +598,7 @@ impl Config {
             redis_client_retry_count: 3,
             optimize_experience_continuity_lookups: FlexBool(true),
             parallel_eval_threshold: 100,
+            skip_writes: FlexBool(false),
         }
     }
 
@@ -732,6 +739,7 @@ mod tests {
         assert_eq!(config.new_analytics_capture_endpoint, "/i/v0/e/");
         assert_eq!(config.debug, FlexBool(false));
         assert!(!config.flags_session_replay_quota_check);
+        assert_eq!(config.skip_writes, FlexBool(false));
     }
 
     #[test]

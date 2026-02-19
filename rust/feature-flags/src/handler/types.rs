@@ -62,6 +62,8 @@ pub struct FeatureFlagEvaluationContext {
     pub optimize_experience_continuity_lookups: bool,
     /// Flag count threshold for switching from sequential to parallel evaluation.
     pub parallel_eval_threshold: usize,
+    /// When true, skip all writes to PostgreSQL and Redis.
+    pub skip_writes: bool,
 }
 
 /// SDK type classification based on user-agent parsing.

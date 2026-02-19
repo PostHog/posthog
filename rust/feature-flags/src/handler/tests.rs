@@ -192,6 +192,7 @@ async fn test_evaluate_feature_flags() {
         flag_keys: None,
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -284,6 +285,7 @@ async fn test_evaluate_feature_flags_with_errors() {
         flag_keys: None,
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -690,6 +692,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         flag_keys: None,
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -795,6 +798,7 @@ async fn test_evaluate_feature_flags_details() {
         flag_keys: None,
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -952,6 +956,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
         flag_keys: None,
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -1044,6 +1049,7 @@ async fn test_long_distinct_id() {
         flag_keys: None,
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
