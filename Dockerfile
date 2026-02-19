@@ -313,6 +313,8 @@ COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_trans
 
 # Add in custom bin files and Django deps.
 COPY --chown=posthog:posthog ./bin ./bin/
+# Persons SQL migration files (read by apply_persons_migrations management command for hobby deploys)
+COPY --chown=posthog:posthog ./rust/persons_migrations ./rust/persons_migrations/
 COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
