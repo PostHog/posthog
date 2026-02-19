@@ -10,6 +10,7 @@ import {
     normalizeMessages,
     parseOpenAIToolCalls,
     parsePartialJSON,
+    sanitizeTraceUrlSearchParams,
 } from './utils'
 
 describe('LLM Analytics utils', () => {
@@ -20,6 +21,42 @@ describe('LLM Analytics utils', () => {
             ['2024-03-01T06:30:00Z', '2024-02-29T06:30:00Z'],
         ])('subtracts 24 hours from %s to get %s', (input, expected) => {
             expect(getSessionStartTimestamp(input)).toBe(expected)
+        })
+    })
+
+    describe('sanitizeTraceUrlSearchParams', () => {
+        it.each([
+            [
+                {
+                    date_from: '-30d',
+                    event: 'event-id',
+                    timestamp: '2026-01-29T22:07:59Z',
+                    exception_ts: '2026-01-29T22:07:59Z',
+                    line: '5',
+                    tab: 'conversation',
+                    back_to: 'traces',
+                    filters: [{ key: '$ai_model', value: ['gpt-4o'] }],
+                    search: 'foo',
+                },
+                {},
+                {
+                    date_from: '-30d',
+                    filters: [{ key: '$ai_model', value: ['gpt-4o'] }],
+                    search: 'foo',
+                },
+            ],
+            [
+                {
+                    date_from: '-30d',
+                    event: 'event-id',
+                    search: 'foo',
+                    back_to: 'generations',
+                },
+                { removeSearch: true },
+                { date_from: '-30d' },
+            ],
+        ])('removes trace-scoped URL params', (searchParams, options, expected) => {
+            expect(sanitizeTraceUrlSearchParams(searchParams, options)).toEqual(expected)
         })
     })
 

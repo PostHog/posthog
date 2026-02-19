@@ -20,7 +20,7 @@ class Annotation(ModelActivityMixin, models.Model):
         USER = "USR", "user"
         GITHUB = "GIT", "GitHub"
 
-    content = models.CharField(max_length=400, null=True, blank=True)
+    content = models.CharField(max_length=8192, null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now, null=True)
     updated_at = models.DateTimeField(auto_now=True)
     dashboard_item = models.ForeignKey("posthog.Insight", on_delete=models.SET_NULL, null=True, blank=True)
