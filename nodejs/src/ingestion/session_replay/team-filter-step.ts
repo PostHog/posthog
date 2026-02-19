@@ -1,5 +1,3 @@
-import { MessageHeader } from 'node-rdkafka'
-
 import { TeamForReplay } from '../../session-recording/teams/types'
 import { TeamService } from '../../session-replay/shared/teams/team-service'
 import { dlq, drop, ok } from '../pipelines/results'
@@ -15,16 +13,11 @@ export interface TeamFilterStepOutput {
     parsedMessage: ParseMessageStepOutput['parsedMessage']
 }
 
-function readTokenFromHeaders(headers: MessageHeader[] | undefined): string | undefined {
-    const tokenHeader = headers?.find((header: MessageHeader) => header.token)?.token
-    return typeof tokenHeader === 'string' ? tokenHeader : tokenHeader?.toString()
-}
-
 /**
  * Creates a step that validates team ownership and enriches messages with team context.
  *
  * Error handling:
- * - DLQ: Missing token header (capture should always add this, indicates a bug)
+ * - DLQ: Missing token (capture should always add this, indicates a bug)
  * - DROP: Team not found or disabled (intentional business logic)
  * - DROP: Missing retention period (team configuration issue)
  */
@@ -34,7 +27,7 @@ export function createTeamFilterStep(
     return async function teamFilterStep(input) {
         const { parsedMessage } = input
 
-        const token = readTokenFromHeaders(parsedMessage.headers)
+        const token = parsedMessage.token
         if (!token) {
             // DLQ: Capture should always add a token header. Missing token indicates a bug.
             return dlq('no_token_in_header')
