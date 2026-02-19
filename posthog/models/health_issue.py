@@ -70,6 +70,30 @@ class HealthIssue(UUIDModel):
         return hashlib.sha256(content.encode()).hexdigest()
 
     @classmethod
+    def upsert_issue(
+        cls,
+        team_id: int,
+        kind: str,
+        severity: str,
+        payload: dict[str, Any],
+        hash_keys: Optional[list[str]] = None,
+    ) -> tuple["HealthIssue", bool]:
+        unique_hash = cls.compute_unique_hash(kind, payload, hash_keys)
+
+        issue, created = cls.objects.update_or_create(
+            team_id=team_id,
+            kind=kind,
+            unique_hash=unique_hash,
+            status=cls.Status.ACTIVE,
+            defaults={
+                "severity": severity,
+                "payload": payload,
+            },
+        )
+
+        return issue, created
+
+    @classmethod
     def bulk_upsert(
         cls,
         kind: str,
