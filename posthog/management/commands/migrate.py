@@ -205,7 +205,7 @@ class Command(DjangoMigrateCommand):
         database = options.get("database", DEFAULT_DB_ALIAS)
         interactive = options.get("interactive", True)
         production_mode = options.get("production", False)
-        test_mode = os.environ.get("TEST") == "1"
+        test_mode = settings.TEST
         skip_caching = production_mode or test_mode
         skip_orphan_check = options.get("skip_orphan_check", False) or skip_caching
 
@@ -297,7 +297,7 @@ class Command(DjangoMigrateCommand):
                 # Don't block migrations if orphan check fails
                 self.stdout.write(self.style.WARNING(f"⚠️  Could not check for orphaned migrations: {e}"))
 
-        # Track applied migrations for caching (skip in production mode)
+        # Track applied migrations for caching (skip in production and test mode)
         if not skip_caching:
             recorder = MigrationRecorder(connection)
             applied_before = set(recorder.applied_migrations())
@@ -305,7 +305,7 @@ class Command(DjangoMigrateCommand):
         # Run the actual migrate command
         super().handle(*args, **options)
 
-        # Cache any newly applied migrations (skip in production mode)
+        # Cache any newly applied migrations (skip in production and test mode)
         if not skip_caching:
             applied_after = set(recorder.applied_migrations())
             newly_applied = applied_after - applied_before
