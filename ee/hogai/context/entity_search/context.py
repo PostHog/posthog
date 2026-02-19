@@ -192,7 +192,7 @@ class EntitySearchContext:
             return await self._list_insights(limit, offset)
         else:
             # Fetch database entities
-            db_results, _, total_count = await database_sync_to_async(search_entities_fts, thread_sensitive=False)(
+            db_results, _, maybe_count = await database_sync_to_async(search_entities_fts, thread_sensitive=False)(
                 entities={entity_type},
                 query=None,  # No search query, just listing
                 project_id=self._team.project_id,
@@ -202,8 +202,9 @@ class EntitySearchContext:
                 offset=offset,
             )
             all_entities.extend(db_results)
+            assert maybe_count is not None
+            total_count = maybe_count
 
-        assert total_count is not None
         return all_entities, total_count
 
     def format_entities(self, entities: list[dict]) -> str:
