@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-export function useSecondRender(callback) {
+export function useSecondRender(callback: () => void): boolean {
     const [secondRender, setSecondRender] = useState(false)
 
     useEffect(() => {
