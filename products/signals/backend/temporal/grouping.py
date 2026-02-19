@@ -409,7 +409,7 @@ You will receive:
 
 If a candidate signal from ANY query is related to the new signal, respond with:
 {
-  "reason": "<Brief, less than 100 character sentence explaining the specific relationship between the new signal and the matched signal — what root cause, feature, or user journey connects them>",
+  "reason": "<Brief, less than 100 character sentence explaining what connects the two signals>",
   "match_type": "existing",
   "signal_id": "<the signal_id of the matching candidate>",
   "query_index": <0-based index of the query that surfaced this candidate>
