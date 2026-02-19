@@ -1,4 +1,6 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use tokio::sync::Mutex;
 
 use crate::{
     error::{EventError, UnhandledError},
@@ -45,7 +47,7 @@ impl<T: TryInto<ExceptionProperties, Error = EventError> + Clone> Stage for PreP
     }
 
     async fn process(self, batch: Batch<Self::Input>) -> Result<Batch<Self::Output>, Self::Error> {
-        let mut ctx = self.ctx.lock().expect("failed to lock ctx");
+        let mut ctx = self.ctx.lock().await;
         Ok(batch
             .into_iter()
             .map(|item| {

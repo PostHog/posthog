@@ -1,4 +1,6 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use tokio::sync::Mutex;
 
 use crate::{
     error::{EventError, UnhandledError},
@@ -41,7 +43,7 @@ impl<T: Clone, O> Stage for PostProcessingStage<T, O> {
         self,
         batch: Batch<Self::Input>,
     ) -> Result<Batch<Self::Output>, UnhandledError> {
-        let mut ctx = self.ctx.lock().expect("failed to lock ctx");
+        let mut ctx = self.ctx.lock().await;
         Ok(Batch::from(
             batch
                 .into_iter()
