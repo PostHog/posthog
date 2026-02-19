@@ -248,6 +248,12 @@ class TestDynamicClientRegistration(APIBaseTest):
         self.assertEqual(app.client_type, "confidential")
         self.assertTrue(app.is_dcr_client)
 
+        # The returned secret must be plaintext (not a hash) and must verify against the stored hash
+        from django.contrib.auth.hashers import check_password
+
+        self.assertFalse(data["client_secret"].startswith("pbkdf2_sha256$"))
+        self.assertTrue(check_password(data["client_secret"], app.client_secret))
+
     def test_unsupported_auth_method_rejected(self):
         response = self.client.post(
             "/oauth/register/",

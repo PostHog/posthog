@@ -45,6 +45,15 @@ import {
 } from '~/types'
 
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
+import { EXPERIMENT_VARIANT_MULTIPLE } from './constants'
+
+const MULTIPLE_VARIANT_WARNING_THRESHOLD = 0.5
+
+export function filterLowMultipleVariant<T extends { variant: string; percentage: number }>(variants: T[]): T[] {
+    return variants.filter(
+        (v) => v.variant !== EXPERIMENT_VARIANT_MULTIPLE || v.percentage > MULTIPLE_VARIANT_WARNING_THRESHOLD
+    )
+}
 
 export function isEventExposureConfig(config: ExperimentExposureConfig): config is ExperimentEventExposureConfig {
     return config.kind === NodeKind.ExperimentEventExposureConfig || 'event' in config
@@ -103,7 +112,7 @@ export function transformFiltersForWinningVariant(
             {
                 properties: [],
                 rollout_percentage: 100,
-                description: 'Added automatically when the experiment variant was shipped',
+                description: 'Added automatically when the experiment was ended to keep only one variant.',
             },
             // Preserve existing groups so that users can roll back this action
             // by deleting the newly added release condition
