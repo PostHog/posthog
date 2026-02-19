@@ -283,7 +283,7 @@ export function Exposures(): JSX.Element {
                                         : humanFriendlyNumber(totalExposures)}
                                 </span>
                                 {exposures?.timeseries?.length > 0 && <MicroChart exposures={exposures} />}
-                                {variants.length > 0 && (
+                                {filteredVariants.length > 0 && (
                                     <div className="ml-2 flex items-center gap-4">
                                         {filteredVariants.map(({ variant, percentage }) => (
                                             <div key={variant} className="flex items-center gap-2">
