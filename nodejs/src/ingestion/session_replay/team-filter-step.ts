@@ -1,29 +1,31 @@
+import { ParsedMessageData } from '../../session-recording/kafka/types'
 import { TeamForReplay } from '../../session-recording/teams/types'
 import { TeamService } from '../../session-replay/shared/teams/team-service'
 import { dlq, drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
-import { ParseMessageStepOutput } from './parse-message-step'
+
+export type TeamTokenResolver = Pick<TeamService, 'getTeamByToken' | 'getRetentionPeriodByTeamId'>
 
 export interface TeamFilterStepInput {
-    parsedMessage: ParseMessageStepOutput['parsedMessage']
+    parsedMessage: ParsedMessageData
 }
 
 export interface TeamFilterStepOutput {
     team: TeamForReplay
-    parsedMessage: ParseMessageStepOutput['parsedMessage']
 }
 
 /**
  * Creates a step that validates team ownership and enriches messages with team context.
+ * This step is additive - it preserves all input properties and adds team context.
  *
  * Error handling:
  * - DLQ: Missing token (capture should always add this, indicates a bug)
  * - DROP: Team not found or disabled (intentional business logic)
  * - DROP: Missing retention period (team configuration issue)
  */
-export function createTeamFilterStep(
-    teamService: TeamService
-): ProcessingStep<TeamFilterStepInput, TeamFilterStepOutput> {
+export function createTeamFilterStep<T extends TeamFilterStepInput>(
+    teamService: TeamTokenResolver
+): ProcessingStep<T, T & TeamFilterStepOutput> {
     return async function teamFilterStep(input) {
         const { parsedMessage } = input
 
@@ -45,6 +47,6 @@ export function createTeamFilterStep(
             return drop('team_missing_retention_period')
         }
 
-        return ok({ team, parsedMessage })
+        return ok({ ...input, team })
     }
 }

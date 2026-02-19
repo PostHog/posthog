@@ -187,13 +187,11 @@ export class SessionRecordingIngester {
             poolMaxSize: this.hub.REDIS_POOL_MAX_SIZE,
         })
 
-        const teamService = new TeamService(postgres)
+        this.teamService = new TeamService(postgres)
 
         this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.restrictionRedisPool, {
             pipeline: 'session_recordings',
         })
-
-        this.teamService = teamService
         if (ingestionWarningProducer) {
             const captureWarning: CaptureIngestionWarningFn = async (teamId, type, details, debounce) => {
                 await captureIngestionWarning(ingestionWarningProducer, teamId, type, details, debounce)
@@ -201,7 +199,7 @@ export class SessionRecordingIngester {
             this.libVersionMonitor = new LibVersionMonitor(captureWarning)
         }
 
-        const retentionService = new RetentionService(this.redisPool, teamService)
+        const retentionService = new RetentionService(this.redisPool, this.teamService)
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
         const metadataStore = new SessionMetadataStore(
@@ -237,7 +235,7 @@ export class SessionRecordingIngester {
         })
 
         const region = hub.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
-        const keyStore = getKeyStore(teamService, retentionService, region, {
+        const keyStore = getKeyStore(this.teamService, retentionService, region, {
             kmsEndpoint: hub.SESSION_RECORDING_KMS_ENDPOINT,
             dynamoDBEndpoint: hub.SESSION_RECORDING_DYNAMODB_ENDPOINT,
         })
