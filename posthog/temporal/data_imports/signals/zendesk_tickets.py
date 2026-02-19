@@ -27,12 +27,13 @@ A ticket is ACTIONABLE if it describes:
 - A usability issue or confusion about the product
 - A performance problem
 - A question about the product or product integrations
+- An ask to help with the product
 - and similar cases
 
 A ticket is NOT_ACTIONABLE if it is:
 - Spam, abuse, or profanity with no real feedback
 - A billing/account question with no product feedback
-- A generic "thank you" or "how do I" question answerable by docs
+- A generic "thank you"
 - An auto-generated or bot message
 
 <ticket>

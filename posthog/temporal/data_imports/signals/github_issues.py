@@ -32,7 +32,6 @@ An issue is NOT_ACTIONABLE if it is:
 - A bot-generated issue (like dependency bumps)
 - Spam, abuse, or profanity with no real feedback
 - A "works for me" report with no actionable detail
-- A stale issue with no meaningful content
 
 <issue>
 {description}
