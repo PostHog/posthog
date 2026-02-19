@@ -2,6 +2,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { SetupTaskId } from 'lib/components/ProductSetup'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -14,7 +15,7 @@ import { reverseProxyCheckerLogic } from '../ReverseProxyChecker/reverseProxyChe
 import { globalSetupLogic } from './globalSetupLogic'
 import type { productSetupLogicType } from './productSetupLogicType'
 import { getProductSetupConfig, getTasksForProduct } from './productSetupRegistry'
-import { SetupTaskId, type SetupTaskWithState } from './types'
+import type { SetupTaskWithState } from './types'
 
 export interface ProductSetupLogicProps {
     productKey: ProductKey
