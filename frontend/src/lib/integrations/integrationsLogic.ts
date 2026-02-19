@@ -181,15 +181,9 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 })
 
                 // Add the integration ID to the replaceUrl so that the landing page can use it
-                // Insert before any hash fragment so integration_id is a search param, not part of the hash
-                const hashIndex = replaceUrl.indexOf('#')
-                if (hashIndex !== -1) {
-                    const beforeHash = replaceUrl.substring(0, hashIndex)
-                    const hash = replaceUrl.substring(hashIndex)
-                    replaceUrl = `${beforeHash}${beforeHash.includes('?') ? '&' : '?'}integration_id=${integration.id}${hash}`
-                } else {
-                    replaceUrl += `${replaceUrl.includes('?') ? '&' : '?'}integration_id=${integration.id}`
-                }
+                const url = new URL(replaceUrl, window.location.origin)
+                url.searchParams.set('integration_id', String(integration.id))
+                replaceUrl = url.pathname + url.search + url.hash
 
                 actions.loadIntegrations()
                 lemonToast.success(`Integration successful.`)
