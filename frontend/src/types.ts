@@ -5075,12 +5075,13 @@ export type AccessControlResponseType = {
     user_can_edit_access_levels: boolean
 }
 
-export type EffectiveAccessLevelReason = 'project_default' | 'member_override' | 'role_override' | 'organization_admin'
+export type InheritedAccessLevelReason = 'project_default' | 'role_override' | 'organization_admin'
 
-export interface AccessControlEffectiveEntry {
+export interface EffectiveAccessControlEntry {
     access_level: AccessControlLevel | null
-    effective_access_level?: AccessControlLevel
-    effective_access_level_reason?: EffectiveAccessLevelReason
+    effective_access_level: AccessControlLevel | null
+    inherited_access_level: AccessControlLevel | null
+    inherited_access_level_reason: InheritedAccessLevelReason | null
     minimum: AccessControlLevel
     maximum: AccessControlLevel
 }
@@ -5089,8 +5090,8 @@ export interface AccessControlDefaultsResponse {
     available_project_levels: AccessControlLevel[]
     available_resource_levels: AccessControlLevel[]
     can_edit: boolean
-    project_access_level: AccessControlLevel | null
-    resource_access_levels: Record<string, AccessControlEffectiveEntry>
+    project_access_level: AccessControlLevel
+    resource_access_levels: Record<string, EffectiveAccessControlEntry>
 }
 
 export interface AccessControlRolesResponse {
@@ -5100,8 +5101,8 @@ export interface AccessControlRolesResponse {
     results: {
         role_id: RoleType['id']
         role_name: string
-        project: AccessControlEffectiveEntry
-        resources: Record<string, AccessControlEffectiveEntry>
+        project: EffectiveAccessControlEntry
+        resources: Record<string, EffectiveAccessControlEntry>
     }[]
 }
 
@@ -5113,8 +5114,8 @@ export interface AccessControlMembersResponse {
         organization_membership_id: OrganizationMemberType['id']
         user: { uuid: string; first_name: string; email: string }
         organization_level: number
-        project: AccessControlEffectiveEntry
-        resources: Record<string, AccessControlEffectiveEntry>
+        project: EffectiveAccessControlEntry
+        resources: Record<string, EffectiveAccessControlEntry>
     }[]
 }
 
