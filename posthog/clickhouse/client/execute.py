@@ -433,7 +433,7 @@ def format_sql(rendered_sql, colorize=True):
                 pygments.lexers.get_lexer_by_name("sql"),
                 pygments.formatters.TerminalFormatter(),
             )
-        except:
+        except Exception:
             pass
 
     return formatted_sql
