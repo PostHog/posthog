@@ -332,7 +332,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                                     closeTabId(tabId, { source: 'open_in_side_panel' })
                                 }}
                             >
-                                Open in side panel
+                                {isRemovingSidePanelFlag ? 'Open in context panel' : 'Open in side panel'}
                             </LemonButton>
                         ) : undefined}
                     </>
