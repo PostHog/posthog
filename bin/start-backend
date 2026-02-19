@@ -1,17 +1,6 @@
 #!/bin/bash
 set -e
 
-export OBJECT_STORAGE_ENDPOINT=http://localhost:19000
-export SESSION_RECORDING_V2_S3_ENDPOINT=http://localhost:8333
-
-export CLICKHOUSE_API_USER="api"
-export CLICKHOUSE_API_PASSWORD="apipass"
-export CLICKHOUSE_APP_USER="app"
-export CLICKHOUSE_APP_PASSWORD="apppass"
-
-# Suppress frozen modules warning since we only debug our code, not stdlib
-export PYDEVD_DISABLE_FILE_VALIDATION=1
-
 # Cross-platform Docker host access
 # On macOS/Windows: Docker runs in a VM, use 127.0.0.1 for the host bind
 # On Linux: Use bridge gateway IP for container access while maintaining security
