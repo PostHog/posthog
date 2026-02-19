@@ -10,6 +10,7 @@ import type { ExperimentWarning } from '../experimentLogic'
 function warningCaption(key: ExperimentWarning['key']): string {
     switch (key) {
         case 'running_but_flag_disabled':
+            return 'The experiment is paused'
         case 'running_but_single_variant_shipped':
         case 'running_but_no_rollout':
             return 'The experiment is running, but no users are exposed to the A/B test'
@@ -30,8 +31,8 @@ function WarningDetail({
         case 'running_but_flag_disabled':
             return (
                 <>
-                    The linked feature flag {flagLink} is <strong>disabled</strong>. Resume the experiment or enable the
-                    flag to start collecting data.
+                    The linked feature flag {flagLink} is <strong>disabled</strong> while the experiment has not been
+                    ended. Resume or end the experiment.
                 </>
             )
         case 'running_but_single_variant_shipped':
