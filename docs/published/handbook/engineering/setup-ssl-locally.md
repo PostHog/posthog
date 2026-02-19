@@ -49,7 +49,7 @@ ngrok start --all
 ```bash
 export WEBPACK_HOT_RELOAD_HOST=0.0.0.0
 export LOCAL_HTTPS=1
-export JS_URL=https://68f83839843a.ngrok.io
+export JS_URL=https://68f83839843a.ngrok-free.dev
 pnpm start
 ```
 
@@ -115,8 +115,8 @@ sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keyc
      server {
          listen       443 ssl;
          server_name  secure.posthog.dev;
-         ssl_certificate  /Users/timglaser/dev/localhost.crt;
-         ssl_certificate_key /Users/timglaser/dev/localhost.key    ;
+         ssl_certificate  /path/to/your/certs/localhost.crt;
+         ssl_certificate_key /path/to/your/certs/localhost.key;
          ssl_prefer_server_ciphers  on;
          ssl_session_cache    shared:SSL:1m;
          ssl_session_timeout  5m;

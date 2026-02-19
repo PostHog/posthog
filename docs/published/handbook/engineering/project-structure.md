@@ -22,7 +22,7 @@ showTitle: true
 │       └── toolbar  # PostHog Toolbar code
 ├── livestream       # Golang service for live events API
 ├── playwright       # End-to-end tests using Playwright
-├── plugin-server    # Node.js service for event ingestion and plugins
+├── nodejs           # Node.js service for event ingestion and plugins
 ├── posthog          # Django backend application
 │   └── api          # REST API endpoints
 │   └── clickhouse   # ClickHouse database interactions
@@ -62,7 +62,7 @@ Product-specific code organized as **vertical slices**. Each product folder cont
 
 See the [products README](https://github.com/PostHog/posthog/blob/master/products/README.md) for detailed conventions.
 
-### `plugin-server`
+### `nodejs`
 
 Node.js service responsible for:
 

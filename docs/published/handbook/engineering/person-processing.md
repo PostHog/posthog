@@ -270,7 +270,7 @@ SET is_merged = posthog_personlessdistinctid.is_merged
 RETURNING is_merged
 ```
 
-#### 3.3 Person processing step
+#### 2.3 Person processing step
 
 **Location**: `nodejs/src/worker/ingestion/event-pipeline/processPersonsStep.ts`
 

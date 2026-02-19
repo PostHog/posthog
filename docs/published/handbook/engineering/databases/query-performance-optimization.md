@@ -6,7 +6,7 @@ showTitle: true
 
 Making sure PostHog operates fast at scale is key to our success.
 
-This document outlines some best practices to archive good query performance at scale, as well as describing tools and procedures to discover and fix performance issues.
+This document outlines some best practices to achieve good query performance at scale, as well as describing tools and procedures to discover and fix performance issues.
 
 PostHog uses two different datastores:
 
@@ -86,8 +86,8 @@ Fixing a slow query is usually a 3 steps process:
 
 ### How-to reduce IO
 
-1.  Indices require IO, we can get rid of some IO by removing unused indices
-2.  Can check writes IO with something like:
+1. Indices require IO, we can get rid of some IO by removing unused indices
+2. Can check writes IO with something like:
 
 ```sql
 SELECT total_time, blk_write_time, calls, query
@@ -96,7 +96,7 @@ ORDER BY (blk_write_time) DESC
 LIMIT 10;
 ```
 
-3.  SELECTs can cause writes IO: https://blog.okmeter.io/postgresql-exploring-how-select-queries-can-produce-disk-writes-f36c8bee6b6f
+3. SELECTs can cause writes IO: https://blog.okmeter.io/postgresql-exploring-how-select-queries-can-produce-disk-writes-f36c8bee6b6f
 
 #### Removing unused indices on foreign key fields
 
@@ -141,12 +141,12 @@ This will generate a migration, however, if you look at the `./manage.py sqlmigr
 output it may not be dropping the index concurrently, so will be a blocking
 operation. To get around this we need to modify the migration:
 
-1.  use
-    [`SeparateDatabaseAndState`](https://docs.djangoproject.com/en/3.2/ref/migration-operations/#separatedatabaseandstate)
-    to allow django to keep track of the state of
-    the model in the db, but let us modify how the index is created.
-2.  use
-    [`RemoveIndexConcurrently`](https://docs.djangoproject.com/en/4.0/ref/contrib/postgres/operations/#django.contrib.postgres.operations.RemoveIndexConcurrently) to drop the index without blocking.
+1. use
+   [`SeparateDatabaseAndState`](https://docs.djangoproject.com/en/3.2/ref/migration-operations/#separatedatabaseandstate)
+   to allow django to keep track of the state of
+   the model in the db, but let us modify how the index is created.
+2. use
+   [`RemoveIndexConcurrently`](https://docs.djangoproject.com/en/4.0/ref/contrib/postgres/operations/#django.contrib.postgres.operations.RemoveIndexConcurrently) to drop the index without blocking.
 
 #### Avoiding locking on related tables
 
