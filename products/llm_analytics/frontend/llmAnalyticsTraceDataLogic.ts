@@ -343,13 +343,10 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
                 }
 
                 if (!showableEvents?.length) {
-                    return null
+                    return trace || null
                 }
 
-                const matchedEvent =
-                    showableEvents.find((event) => {
-                        return event.id === effectiveEventId
-                    }) || null
+                const matchedEvent = resolveTraceEventById(showableEvents, effectiveEventId)
 
                 // If URL carries a stale/invalid event id, fall back to trace root instead of hard-failing.
                 return matchedEvent || trace || null
@@ -570,6 +567,17 @@ export function getEffectiveEventId(eventId: string | null, initialFocusEventId:
 
     // Otherwise, use the initial focus event
     return initialFocusEventId
+}
+
+export function resolveTraceEventById(showableEvents: LLMTraceEvent[], effectiveEventId: string): LLMTraceEvent | null {
+    return (
+        showableEvents.find(
+            (event) =>
+                event.id === effectiveEventId ||
+                event.properties.$ai_generation_id === effectiveEventId ||
+                event.properties.$ai_span_id === effectiveEventId
+        ) || null
+    )
 }
 
 function findOrphanedRoots(idMap: Map<string, LLMTraceEvent>, traceId: string): string[] {
