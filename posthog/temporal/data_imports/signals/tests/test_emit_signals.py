@@ -23,6 +23,7 @@ from posthog.temporal.data_imports.workflow_activities.emit_signals import (
     _build_emitter_outputs,
     _check_actionability,
     _emit_signals,
+    _extract_thoughts,
     _filter_actionable,
     _query_new_records,
     _summarize_description,
@@ -45,6 +46,27 @@ def _make_config(**overrides: Any) -> SignalSourceTableConfig:
         "fields": ("id", "description"),
     }
     return SignalSourceTableConfig(**(defaults | overrides))
+
+
+def _make_llm_response(text: str | None, thought: str | None = None) -> MagicMock:
+    """Build a mock Gemini response with optional thought parts."""
+    response = MagicMock()
+    response.text = text
+    parts = []
+    if thought is not None:
+        thought_part = MagicMock()
+        thought_part.text = thought
+        thought_part.thought = True
+        parts.append(thought_part)
+    if text is not None:
+        answer_part = MagicMock()
+        answer_part.text = text
+        answer_part.thought = False
+        parts.append(answer_part)
+    candidate = MagicMock()
+    candidate.content.parts = parts
+    response.candidates = [candidate]
+    return response
 
 
 def _make_output(source_id: str = "1", description: str = "test signal") -> SignalEmitterOutput:
@@ -132,7 +154,6 @@ class TestBuildEmitterOutputs:
 
         assert [o.source_id for o in outputs] == ["1", "3"]
 
-
 class TestCheckActionability:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -146,14 +167,25 @@ class TestCheckActionability:
     )
     async def test_classifies_based_on_llm_response(self, llm_response, expected):
         mock_client = MagicMock()
-        mock_response = MagicMock()
-        mock_response.text = llm_response
-        mock_client.models.generate_content = AsyncMock(return_value=mock_response)
+        mock_client.models.generate_content = AsyncMock(return_value=_make_llm_response(llm_response))
 
         output = _make_output(description="test ticket")
-        result = await _check_actionability(mock_client, output, "Is this actionable? {description}")
+        is_actionable, _thoughts = await _check_actionability(mock_client, output, "Is this actionable? {description}")
 
-        assert result is expected
+        assert is_actionable is expected
+
+    @pytest.mark.asyncio
+    async def test_returns_thoughts_from_response(self):
+        mock_client = MagicMock()
+        mock_client.models.generate_content = AsyncMock(
+            return_value=_make_llm_response("NOT_ACTIONABLE", thought="Just a billing question, not a bug.")
+        )
+
+        _is_actionable, thoughts = await _check_actionability(
+            mock_client, _make_output(), "Is this actionable? {description}"
+        )
+
+        assert thoughts == "Just a billing question, not a bug."
 
     @pytest.mark.asyncio
     async def test_returns_true_on_llm_error(self):
@@ -161,20 +193,19 @@ class TestCheckActionability:
         mock_client.models.generate_content = AsyncMock(side_effect=Exception("API error"))
 
         with patch(f"{MODULE_PATH}.posthoganalytics"):
-            result = await _check_actionability(mock_client, _make_output(), "prompt {description}")
+            is_actionable, thoughts = await _check_actionability(mock_client, _make_output(), "prompt {description}")
 
-        assert result is True
+        assert is_actionable is True
+        assert thoughts is None
 
     @pytest.mark.asyncio
     async def test_returns_true_on_none_response_text(self):
         mock_client = MagicMock()
-        mock_response = MagicMock()
-        mock_response.text = None
-        mock_client.models.generate_content = AsyncMock(return_value=mock_response)
+        mock_client.models.generate_content = AsyncMock(return_value=_make_llm_response(None))
 
-        result = await _check_actionability(mock_client, _make_output(), "prompt {description}")
+        is_actionable, _thoughts = await _check_actionability(mock_client, _make_output(), "prompt {description}")
 
-        assert result is True
+        assert is_actionable is True
 
 
 class TestFilterActionable:
@@ -183,13 +214,16 @@ class TestFilterActionable:
         outputs = [_make_output(source_id="1"), _make_output(source_id="2"), _make_output(source_id="3")]
 
         mock_client = MagicMock()
-        responses = ["ACTIONABLE", "NOT_ACTIONABLE", "ACTIONABLE"]
+        responses = [
+            _make_llm_response("ACTIONABLE"),
+            _make_llm_response("NOT_ACTIONABLE", thought="This is just a billing question."),
+            _make_llm_response("ACTIONABLE"),
+        ]
         call_count = 0
 
         async def mock_generate(*args, **kwargs):
             nonlocal call_count
-            resp = MagicMock()
-            resp.text = responses[call_count]
+            resp = responses[call_count]
             call_count += 1
             return resp
 

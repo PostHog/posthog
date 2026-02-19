@@ -218,7 +218,10 @@ async def _summarize_description(
                     contents=prompt_parts,
                     config=types.GenerateContentConfig(
                         max_output_tokens=max(threshold // 4, 256),
-                        thinking_config=types.ThinkingConfig(thinking_budget=LLM_THINKING_BUDGET_TOKENS),
+                        thinking_config=types.ThinkingConfig(
+                            thinking_budget=LLM_THINKING_BUDGET_TOKENS,
+                            include_thoughts=True,
+                        ),
                     ),
                 ),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
@@ -287,12 +290,29 @@ async def _summarize_long_descriptions(
     return result
 
 
+def _extract_thoughts(response: types.GenerateContentResponse) -> str | None:
+    """Extract thinking/reasoning text from a Gemini response with include_thoughts=True."""
+    if not response.candidates:
+        return None
+    content = response.candidates[0].content
+    if content is None or content.parts is None:
+        return None
+    thoughts = []
+    for part in content.parts:
+        if part.text and part.thought:
+            thoughts.append(part.text)
+    return "\n".join(thoughts) if thoughts else None
+
+
 async def _check_actionability(
     client: AsyncClient,
     output: SignalEmitterOutput,
     actionability_prompt: str,
-) -> bool:
-    """Check if the signal is actionable through LLM-as-a-judge call"""
+) -> tuple[bool, str | None]:
+    """Check if the signal is actionable through LLM-as-a-judge call.
+
+    Returns (is_actionable, thoughts) where thoughts is the model's reasoning.
+    """
     try:
         # One-shotting it, as the task is simple, so adding retry logic would be excessive
         prompt = actionability_prompt.format(description=output.description)
@@ -302,13 +322,21 @@ async def _check_actionability(
                 contents=[prompt],
                 config=types.GenerateContentConfig(
                     max_output_tokens=128,
-                    thinking_config=types.ThinkingConfig(thinking_budget=LLM_THINKING_BUDGET_TOKENS),
+                    thinking_config=types.ThinkingConfig(
+                        thinking_budget=LLM_THINKING_BUDGET_TOKENS,
+                        # Logging thoughts to get more context for evals
+                        include_thoughts=True,
+                    ),
                 ),
             ),
             timeout=LLM_CALL_TIMEOUT_SECONDS,
         )
+        thoughts = _extract_thoughts(response)
         response_text = (response.text or "").strip().upper()
-        return "NOT_ACTION" not in response_text
+        # TODO: Remove after tests
+        if "NOT_ACTION" in response_text:
+            print("")
+        return "NOT_ACTION" not in response_text, thoughts
     except Exception as e:
         # If LLM call fails, allow to pass to not block the emission, as fails should not happen often
         posthoganalytics.capture_exception(
@@ -320,7 +348,7 @@ async def _check_actionability(
                 "source_id": output.source_id,
             },
         )
-        return True
+        return True, None
 
 
 async def _filter_actionable(
@@ -334,7 +362,7 @@ async def _filter_actionable(
     activity.heartbeat()
     checked_count = 0
 
-    async def _bounded_check(output: SignalEmitterOutput) -> bool:
+    async def _bounded_check(output: SignalEmitterOutput) -> tuple[bool, str | None]:
         nonlocal checked_count
         async with semaphore:
             result = await _check_actionability(client, output, actionability_prompt)
@@ -343,21 +371,26 @@ async def _filter_actionable(
                 activity.heartbeat()
             return result
 
-    tasks: dict[int, asyncio.Task[bool]] = {}
+    tasks: dict[int, asyncio.Task[tuple[bool, str | None]]] = {}
     async with asyncio.TaskGroup() as tg:
         for i, output in enumerate(outputs):
             tasks[i] = tg.create_task(_bounded_check(output))
     actionable = []
     filtered_count = 0
     for i, output in enumerate(outputs):
-        result = tasks[i].result()
-        if result:
+        is_actionable, thoughts = tasks[i].result()
+        if is_actionable:
             actionable.append(output)
         else:
             filtered_count += 1
             activity.logger.info(
                 "Filtered non-actionable signal",
-                extra={**extra, "signal_source_type": output.source_type, "signal_source_id": output.source_id},
+                extra={
+                    **extra,
+                    "signal_source_type": output.source_type,
+                    "signal_source_id": output.source_id,
+                    "thoughts": thoughts,
+                },
             )
     if filtered_count > 0:
         activity.logger.info(
