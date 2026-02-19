@@ -1,5 +1,6 @@
 use common_types::ClickHouseEvent;
 use std::sync::Arc;
+use tracing::error;
 
 use crate::{
     app_context::AppContext,
@@ -70,12 +71,14 @@ fn handle_result(
             // we keep suppressed errors to drop events later in the pipeline
             EventError::Suppressed(_) => Err(err),
             // we attach error to original event and continue
-            evt_err => {
-                clickhouse_event
-                    .attach_error(evt_err.to_string())
-                    .expect("failed to attach error");
-                Ok(clickhouse_event)
-            }
+            evt_err => match clickhouse_event.attach_error(evt_err.to_string()) {
+                Ok(_) => Ok(clickhouse_event),
+                Err(err) => {
+                    // Best effort to attach error to ClickHouseEvent
+                    error!("Failed to attach error to ClickHouseEvent: {}", err);
+                    Ok(clickhouse_event)
+                }
+            },
         },
     };
     Ok(new_item)
