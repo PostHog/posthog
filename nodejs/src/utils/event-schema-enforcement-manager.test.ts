@@ -11,7 +11,7 @@ describe('EventSchemaEnforcementManager', () => {
     let postgres: PostgresRouter
     let teamId: Team['id']
     let projectId: Team['project_id']
-    let fetchSchemasSpy: jest.SpyInstance
+    let fetchSchemasSpy: jest.Spied
 
     beforeEach(async () => {
         const now = Date.now()

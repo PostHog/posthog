@@ -3,7 +3,7 @@ import { TeamService } from './team-service'
 
 describe('TeamService', () => {
     let teamService: TeamService
-    let fetchSpy: jest.SpyInstance
+    let fetchSpy: jest.Spied
 
     beforeEach(() => {
         jest.useFakeTimers()

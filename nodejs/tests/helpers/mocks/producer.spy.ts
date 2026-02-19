@@ -34,10 +34,7 @@ const tryDecompress = (value: string | Buffer): string => {
 }
 
 export class KafkaProducerObserver {
-    public readonly produceSpy: jest.SpyInstance<
-        Promise<void>,
-        Parameters<typeof KafkaProducerWrapper.prototype.produce>
-    >
+    public readonly produceSpy: jest.Spied<typeof KafkaProducerWrapper.prototype.produce>
 
     constructor(private producer: KafkaProducerWrapper) {
         // Spy on the methods we need

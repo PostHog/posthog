@@ -10,14 +10,14 @@ import { BASE_REDIS_KEY, HogWatcherService, HogWatcherState } from './hog-watche
 
 jest.mock('~/utils/posthog', () => ({ captureTeamEvent: jest.fn() }))
 
-const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
+const mockNow: jest.Spied = jest.spyOn(Date, 'now')
 const mockCaptureTeamEvent: jest.Mock = require('~/utils/posthog').captureTeamEvent as any
 
 describe('HogWatcher', () => {
     let now: number
     let hub: Hub
     let watcher: HogWatcherService
-    let onStateChangeSpy: jest.SpyInstance
+    let onStateChangeSpy: jest.Spied
     let redis: RedisV2
     const hogFunctionId: string = 'hog-function-id'
     let hogFunction: HogFunctionType
@@ -52,7 +52,7 @@ describe('HogWatcher', () => {
         hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS = true
 
         watcher = new HogWatcherService(hub, redis)
-        onStateChangeSpy = jest.spyOn(watcher as any, 'onStateChange') as jest.SpyInstance
+        onStateChangeSpy = jest.spyOn(watcher as any, 'onStateChange') as jest.Spied
         hogFunction = createHogFunction({ id: hogFunctionId, team_id: 2 })
     })
 
@@ -427,7 +427,7 @@ describe('HogWatcher', () => {
     })
 
     describe('observeResultsBuffered', () => {
-        let observeResultsSpy: jest.SpyInstance
+        let observeResultsSpy: jest.Spied
         beforeEach(() => {
             observeResultsSpy = jest.spyOn(watcher, 'observeResults')
             hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS = 3

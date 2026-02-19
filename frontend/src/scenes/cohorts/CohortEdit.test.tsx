@@ -95,8 +95,8 @@ describe('cohortEditLogic', () => {
     })
 
     describe('scroll to error functionality', () => {
-        let scrollIntoViewSpy: jest.SpyInstance
-        let querySelectorSpy: jest.SpyInstance
+        let scrollIntoViewSpy: jest.Spied
+        let querySelectorSpy: jest.Spied
 
         beforeEach(() => {
             scrollIntoViewSpy = jest.fn()

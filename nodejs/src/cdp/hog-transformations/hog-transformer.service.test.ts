@@ -928,7 +928,7 @@ describe('HogTransformer', () => {
     })
 
     describe('legacy plugins', () => {
-        let executeSpy: jest.SpyInstance
+        let executeSpy: jest.Spied
 
         beforeEach(async () => {
             const filterOutPlugin = createHogFunction({

@@ -107,7 +107,7 @@ describe('LogsIngestionConsumer', () => {
     let team: Team
     let team2: Team
     let fixedTime: DateTime
-    let logMessageDroppedCounterSpy: jest.SpyInstance
+    let logMessageDroppedCounterSpy: jest.Spied
 
     const createLogsIngestionConsumer = async (hub: Hub, overrides: any = {}) => {
         const consumer = new LogsIngestionConsumer(hub, overrides)
@@ -579,12 +579,12 @@ describe('LogsIngestionConsumer', () => {
     })
 
     describe('rate limiting', () => {
-        let bytesReceivedSpy: jest.SpyInstance
-        let bytesAllowedSpy: jest.SpyInstance
-        let bytesDroppedSpy: jest.SpyInstance
-        let recordsReceivedSpy: jest.SpyInstance
-        let recordsAllowedSpy: jest.SpyInstance
-        let recordsDroppedSpy: jest.SpyInstance
+        let bytesReceivedSpy: jest.Spied
+        let bytesAllowedSpy: jest.Spied
+        let bytesDroppedSpy: jest.Spied
+        let recordsReceivedSpy: jest.Spied
+        let recordsAllowedSpy: jest.Spied
+        let recordsDroppedSpy: jest.Spied
 
         beforeEach(() => {
             bytesReceivedSpy = jest.spyOn(logsBytesReceivedCounter, 'inc')

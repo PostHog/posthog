@@ -48,8 +48,8 @@ describe('SourceWebhooksConsumer', () => {
         let hogFunctionPixel: HogFunctionType
         let server: Server
 
-        let mockExecuteSpy: jest.SpyInstance
-        let mockQueueInvocationsSpy: jest.SpyInstance
+        let mockExecuteSpy: jest.Spied
+        let mockQueueInvocationsSpy: jest.Spied
 
         beforeEach(async () => {
             hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS = 50

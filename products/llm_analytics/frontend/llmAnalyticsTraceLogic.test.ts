@@ -334,7 +334,7 @@ describe('llmAnalyticsTraceLogic', () => {
     })
 
     describe('setSearchQuery URL updates', () => {
-        let routerSpy: jest.SpyInstance
+        let routerSpy: jest.Spied
 
         beforeEach(() => {
             const mockLocation = {
