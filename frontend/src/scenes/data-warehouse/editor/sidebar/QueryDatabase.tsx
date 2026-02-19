@@ -15,9 +15,9 @@ import {
 } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
+import { IconTextSize } from 'lib/lemon-ui/icons'
 import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
-import { IconTextSize } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'

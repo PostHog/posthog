@@ -17,6 +17,14 @@ import { NEW_INTERNAL_TAB } from 'lib/utils/newInternalTab'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { withForwardedSearchParams } from 'lib/utils/sceneLogicUtils'
 import {
+    emptySceneParams,
+    forwardedRedirectQueryParams,
+    preloadedScenes,
+    redirects,
+    routes,
+    sceneConfigurations,
+} from 'scenes/scenes'
+import {
     LoadedScene,
     Params,
     Scene,
@@ -26,25 +34,17 @@ import {
     SceneTab,
     sceneToAccessControlResourceType,
 } from 'scenes/sceneTypes'
-import {
-    emptySceneParams,
-    forwardedRedirectQueryParams,
-    preloadedScenes,
-    redirects,
-    routes,
-    sceneConfigurations,
-} from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel } from '~/types'
 
-import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
 import { parseCouponCampaign } from './coupons/utils'
 import { organizationLogic } from './organizationLogic'
+import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
 import { inviteLogic } from './settings/organization/inviteLogic'
 import { teamLogic } from './teamLogic'

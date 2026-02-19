@@ -8,9 +8,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
 
     // Get installation steps from product-analytics only
-    const installationSteps = getReactNativeStepsPA(ctx).filter(
-        (step: StepDefinition) => step.title !== 'Send events'
-    )
+    const installationSteps = getReactNativeStepsPA(ctx).filter((step: StepDefinition) => step.title !== 'Send events')
 
     // Add experiments-specific steps
     const experimentSteps: StepDefinition[] = [

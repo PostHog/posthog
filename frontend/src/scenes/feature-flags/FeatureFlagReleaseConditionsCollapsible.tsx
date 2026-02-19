@@ -9,10 +9,10 @@ import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { Link } from 'lib/lemon-ui/Link'
-import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
 import { clamp } from 'lib/utils'
 
@@ -22,6 +22,7 @@ import {
     FeatureFlagReleaseConditionsLogicProps,
     featureFlagReleaseConditionsLogic,
 } from './featureFlagReleaseConditionsLogic'
+import { type ModifiedField } from './FeatureFlagTemplates'
 
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
     readOnly?: boolean

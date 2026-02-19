@@ -1,5 +1,7 @@
 // sort-imports-ignore
 
+import './NodeWrapper.scss'
+
 // KLUDGE: Do NOT remove the `sort-imports-ignore` comment. It's used to sort the imports.
 // Our KNOWN_NODES resolution will NOT work if the imports here are sorted in a different way.
 import {
@@ -10,28 +12,24 @@ import {
     NodeViewProps,
     getExtensionField,
 } from '@tiptap/react'
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
-import './NodeWrapper.scss'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
-import { notebookLogic } from '../Notebook/notebookLogic'
-import { hashCodeForString } from 'lib/utils'
-import { useInView } from 'react-intersection-observer'
-import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
-import { posthogNodeInputRule, posthogNodePasteRule, useSyncedAttributes } from './utils'
-import { KNOWN_NODES } from '../utils'
-import { NotebookNodeTitle } from './components/NotebookNodeTitle'
-import { DuckSqlRunMenu } from './components/DuckSqlRunMenu'
-import { HogqlSqlRunMenu } from './components/HogqlSqlRunMenu'
-import { PythonRunMenu } from './components/PythonRunMenu'
-import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
-import { NotebookNodeContext } from './NotebookNodeContext'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { useInView } from 'react-intersection-observer'
+
 import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconPencil, IconPlus, IconX } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { hashCodeForString } from 'lib/utils'
+
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
+
+import { notebookLogic } from '../Notebook/notebookLogic'
+import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import {
     CreatePostHogWidgetNodeOptions,
     CustomNotebookNodeAttributes,
@@ -40,7 +38,14 @@ import {
     NotebookNodeResource,
     NotebookNodeType,
 } from '../types'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { KNOWN_NODES } from '../utils'
+import { DuckSqlRunMenu } from './components/DuckSqlRunMenu'
+import { HogqlSqlRunMenu } from './components/HogqlSqlRunMenu'
+import { NotebookNodeTitle } from './components/NotebookNodeTitle'
+import { PythonRunMenu } from './components/PythonRunMenu'
+import { NotebookNodeContext } from './NotebookNodeContext'
+import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
+import { posthogNodeInputRule, posthogNodePasteRule, useSyncedAttributes } from './utils'
 
 const NON_COPYABLE_NODES = [
     NotebookNodeType.PersonProperties,

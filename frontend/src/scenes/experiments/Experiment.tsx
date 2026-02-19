@@ -9,9 +9,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ExperimentForm } from './ExperimentForm'
-import { ExperimentView } from './ExperimentView/ExperimentView'
 import { type ExperimentLogicProps, FORM_MODES, experimentLogic } from './experimentLogic'
 import { type ExperimentSceneLogicProps, experimentSceneLogic } from './experimentSceneLogic'
+import { ExperimentView } from './ExperimentView/ExperimentView'
 
 export const scene: SceneExport<ExperimentSceneLogicProps> = {
     component: Experiment,

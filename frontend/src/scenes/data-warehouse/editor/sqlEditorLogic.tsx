@@ -48,7 +48,6 @@ import {
 } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
-import { ViewEmptyState } from './ViewLoadingState'
 import { draftsLogic } from './draftsLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
@@ -61,6 +60,7 @@ import {
     aiSuggestionOnReject,
     aiSuggestionOnRejectText,
 } from './suggestions/aiSuggestion'
+import { ViewEmptyState } from './ViewLoadingState'
 
 export interface SqlEditorLogicProps {
     tabId: string

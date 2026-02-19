@@ -1,10 +1,9 @@
-import fse from 'fs-extra'
-import { cloneNode } from 'ts-clone-node'
-import ts from 'typescript'
-
 // Build frontend/src/products.{json,tsx} from manifest.tsx files
 import * as ps from 'child_process'
+import fse from 'fs-extra'
 import path from 'path'
+import { cloneNode } from 'ts-clone-node'
+import ts from 'typescript'
 import { fileURLToPath } from 'url'
 
 export const __dirname = path.dirname(fileURLToPath(import.meta.url))

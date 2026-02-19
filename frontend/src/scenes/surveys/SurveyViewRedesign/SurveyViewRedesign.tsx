@@ -13,27 +13,27 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
+import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
+import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
+import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
 import { SurveyHeadline } from 'scenes/surveys/SurveyHeadline'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
+import { getSurveyStatus, surveysLogic } from 'scenes/surveys/surveysLogic'
 import { SurveySQLHelper } from 'scenes/surveys/SurveySQLHelper'
 import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
-import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
-import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
-import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
-import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
-import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { getSurveyStatus, surveysLogic } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
     ScenePanelActionsSection,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import {
     AccessControlLevel,

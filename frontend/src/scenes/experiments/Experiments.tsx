@@ -8,17 +8,17 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { pluralize } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -27,8 +27,8 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
-import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
+import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -44,11 +44,6 @@ import {
 } from '~/types'
 
 import { DuplicateExperimentModal } from './DuplicateExperimentModal'
-import { ExperimentVelocityStats } from './ExperimentVelocityStats'
-import { StatusTag } from './ExperimentView/components'
-import { ExperimentsSettings } from './ExperimentsSettings'
-import { Holdouts } from './Holdouts'
-import { SharedMetrics } from './SharedMetrics/SharedMetrics'
 import {
     EXPERIMENTS_PER_PAGE,
     ExperimentsFilters,
@@ -57,6 +52,11 @@ import {
     getShippedVariantKey,
     isSingleVariantShipped,
 } from './experimentsLogic'
+import { ExperimentsSettings } from './ExperimentsSettings'
+import { ExperimentVelocityStats } from './ExperimentVelocityStats'
+import { StatusTag } from './ExperimentView/components'
+import { Holdouts } from './Holdouts'
+import { SharedMetrics } from './SharedMetrics/SharedMetrics'
 import { isLegacyExperiment } from './utils'
 
 export const scene: SceneExport = {

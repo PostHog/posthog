@@ -1,12 +1,11 @@
 import { match } from 'ts-pattern'
 
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { ActivityLogItem, HumanizedChange, userNameForLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 
 import { ExperimentProgressStatus } from '~/types'
 
-import { StatusTag } from './ExperimentView/components'
 import {
     getExperimentChangeDescription,
     getHoldoutChangeDescription,
@@ -14,6 +13,7 @@ import {
     nameOrLinkToExperiment,
     nameOrLinkToSharedMetric,
 } from './activity-descriptions'
+import { StatusTag } from './ExperimentView/components'
 
 //exporting so the linter doesn't complain about this not being used
 export const ExperimentDetails = ({

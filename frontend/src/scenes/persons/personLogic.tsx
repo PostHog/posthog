@@ -3,8 +3,8 @@ import { lazyLoaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
