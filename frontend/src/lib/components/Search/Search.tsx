@@ -14,6 +14,7 @@ import {
     useRef,
     useState,
 } from 'react'
+import { TextMorph } from 'torph/react'
 
 import { IconSearch, IconX } from '@posthog/icons'
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
@@ -66,36 +67,23 @@ const PLACEHOLDER_CYCLE_INTERVAL = 3000
 // Hooks
 // ============================================================================
 
-const useRotatingPlaceholder = (isActive: boolean): { text: string; isVisible: boolean } => {
+const useRotatingPlaceholder = (isActive: boolean): string => {
     const [index, setIndex] = useState(0)
-    const [isVisible, setIsVisible] = useState(true)
 
     useEffect(() => {
         if (!isActive) {
             setIndex(0)
-            setIsVisible(true)
             return
         }
 
-        let timeoutId: ReturnType<typeof setTimeout> | undefined
-
         const interval = setInterval(() => {
-            setIsVisible(false)
-            timeoutId = setTimeout(() => {
-                setIndex((prev) => (prev + 1) % PLACEHOLDER_OPTIONS.length)
-                setIsVisible(true)
-            }, 200)
+            setIndex((prev) => (prev + 1) % PLACEHOLDER_OPTIONS.length)
         }, PLACEHOLDER_CYCLE_INTERVAL)
 
-        return () => {
-            clearInterval(interval)
-            if (timeoutId !== undefined) {
-                clearTimeout(timeoutId)
-            }
-        }
+        return () => clearInterval(interval)
     }, [isActive])
 
-    return { text: PLACEHOLDER_OPTIONS[index], isVisible }
+    return PLACEHOLDER_OPTIONS[index]
 }
 
 // ============================================================================
@@ -242,6 +230,8 @@ export interface SearchRootProps {
     onAskAiClick?: () => void
     /** Custom class for the container */
     className?: string
+    /** Initial search value (useful for stories/tests) */
+    defaultSearchValue?: string
 }
 
 function SearchRoot({
@@ -252,11 +242,12 @@ function SearchRoot({
     showAskAiLink = true,
     onAskAiClick,
     className = '',
+    defaultSearchValue = '',
 }: SearchRootProps): JSX.Element {
     const { allCategories, isSearching } = useValues(searchLogic({ logicKey }))
     const { setSearch } = useActions(searchLogic({ logicKey }))
 
-    const [searchValue, setSearchValue] = useState('')
+    const [searchValue, setSearchValue] = useState(defaultSearchValue)
     const inputRef = useRef<HTMLInputElement>(null!)
     const actionsRef = useRef<Autocomplete.Root.Actions>(null)
     const highlightedItemRef = useRef<SearchItem | null>(null)
@@ -421,7 +412,7 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
     const { searchValue, setSearchValue, isActive, inputRef, showAskAiLink, onAskAiClick, highlightedItemRef } =
         useSearchContext()
 
-    const { text: placeholderText, isVisible: placeholderVisible } = useRotatingPlaceholder(isActive && !searchValue)
+    const placeholderText = useRotatingPlaceholder(isActive && !searchValue)
 
     const handleInputChange = useCallback(
         (value: string) => {
@@ -468,12 +459,7 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
                 {searchValue ? null : (
                     <span className="text-tertiary pointer-events-none absolute left-8 top-1/2 -translate-y-1/2 ">
                         <span className="text-tertiary">Search for </span>
-                        <span
-                            className="transition-opacity duration-200"
-                            style={{ opacity: placeholderVisible ? 1 : 0 }}
-                        >
-                            {placeholderText}
-                        </span>
+                        <TextMorph as="span">{placeholderText}</TextMorph>
                     </span>
                 )}
                 <Autocomplete.Input
@@ -607,8 +593,9 @@ function SearchResults({
                                     {Array.from({
                                         length: group.category === 'recents' ? RECENTS_LIMIT : 10,
                                     }).map((_, i) => (
-                                        <div key={i} className="px-2">
-                                            <WrappingLoadingSkeleton fullWidth>
+                                        // We give the height to the parent div and padding so the skeleton vibibily has some space and isn't a block
+                                        <div key={i} className="px-2 h-[30px] py-px">
+                                            <WrappingLoadingSkeleton fullWidth className="h-full">
                                                 <ButtonPrimitive fullWidth className="invisible">
                                                     &nbsp;
                                                 </ButtonPrimitive>

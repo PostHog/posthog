@@ -74,7 +74,6 @@ class EvaluationPatternSerializer(serializers.Serializer):
     title = serializers.CharField()
     description = serializers.CharField()
     frequency = serializers.CharField()
-    example_reasoning = serializers.CharField()
     example_generation_ids = serializers.ListField(child=serializers.CharField())
 
 
@@ -293,7 +292,6 @@ class LLMEvaluationSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                             "title": "Clear Communication",
                             "description": "Responses consistently provided well-structured information",
                             "frequency": "common",
-                            "example_reasoning": "Good formatting and clear explanation",
                             "example_generation_ids": ["gen_abc123", "gen_ghi789"],
                         }
                     ],
@@ -302,7 +300,6 @@ class LLMEvaluationSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                             "title": "Factual Errors",
                             "description": "Some responses contained inaccurate information",
                             "frequency": "occasional",
-                            "example_reasoning": "Response contained factual errors",
                             "example_generation_ids": ["gen_def456"],
                         }
                     ],

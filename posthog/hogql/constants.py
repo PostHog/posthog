@@ -32,7 +32,9 @@ MAX_SELECT_COHORT_CALCULATION_LIMIT = 1000000000  # 1b persons
 # Max limit for LLM traces
 MAX_SELECT_TRACES_LIMIT_EXPORT = 10000  # 10k traces
 # Max limit for PostHog AI queries
-MAX_SELECT_POSTHOG_AI_LIMIT = 100  # 100 rows
+MAX_SELECT_POSTHOG_AI_LIMIT = 500  # 500 rows
+# Default limit for PostHog AI queries
+DEFAULT_POSTHOG_AI_RETURNED_ROWS = 100
 # Max amount of memory usage when doing group by before swapping to disk. Only used in certain queries
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 22 * 1024 * 1024 * 1024
 
@@ -42,10 +44,11 @@ CSV_EXPORT_BREAKDOWN_LIMIT_LOW = 64  # The lowest limit we want to go to
 
 BREAKDOWN_VALUES_LIMIT = 25
 BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
+BREAKDOWN_VALUE_MAX_LENGTH = 400
 
 type HogQLDialect = Literal["hogql", "clickhouse", "postgres"]
 
-type HogQLParserBackend = Literal["python", "cpp", "cpp-json"]
+type HogQLParserBackend = Literal["python", "cpp-json"]
 
 
 class LimitContext(StrEnum):
@@ -76,7 +79,7 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
     elif limit_context == LimitContext.SAVED_QUERY:
         return sys.maxsize  # Max python int
     elif limit_context == LimitContext.POSTHOG_AI:
-        return MAX_SELECT_POSTHOG_AI_LIMIT  # 100
+        return MAX_SELECT_POSTHOG_AI_LIMIT  # 500
     else:
         raise ValueError(f"Unexpected LimitContext value: {limit_context}")
 
@@ -85,8 +88,10 @@ def get_default_limit_for_context(limit_context: LimitContext) -> int:
     """Limit used if no limit is provided"""
     if limit_context == LimitContext.EXPORT:
         return CSV_EXPORT_LIMIT
-    elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC, LimitContext.POSTHOG_AI):
+    elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC):
         return DEFAULT_RETURNED_ROWS  # 100
+    elif limit_context == LimitContext.POSTHOG_AI:
+        return DEFAULT_POSTHOG_AI_RETURNED_ROWS  # 100
     elif limit_context == LimitContext.HEATMAPS:
         return MAX_SELECT_HEATMAPS_LIMIT  # 1M
     elif limit_context == LimitContext.COHORT_CALCULATION:
@@ -113,6 +118,10 @@ class HogQLQuerySettings(BaseModel):
     date_time_input_format: Optional[str] = None
     join_algorithm: Optional[str] = None
     force_data_skipping_indices: Optional[list[str]] = None
+    load_balancing: Optional[str] = None
+    optimize_skip_unused_shards: Optional[bool] = None
+    read_overflow_mode: Optional[str] = None
+    max_bytes_to_read: Optional[int] = None
 
 
 # Settings applied on top of all HogQL queries.
@@ -139,5 +148,3 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     allow_experimental_join_condition: Optional[bool] = True
     preferred_block_size_bytes: Optional[int] = None
     use_hive_partitioning: Optional[int] = 0
-    read_overflow_mode: Optional[str] = None
-    max_bytes_to_read: Optional[int] = None

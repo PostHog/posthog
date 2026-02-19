@@ -27,7 +27,7 @@ import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
 import { EditorCommands, EditorRange } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
+import { IconBold, IconItalic, IconTableChart } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { selectFiles } from 'lib/utils/file-utils'
 
@@ -275,7 +275,7 @@ order by count() desc
             ),
     },
     {
-        title: 'SQL (duckdb)',
+        title: 'SQL (DuckDB)',
         search: 'duck sql',
         icon: <IconHogQL color="currentColor" />,
         command: (chain, pos) =>
@@ -284,6 +284,23 @@ order by count() desc
                 attrs: {
                     code: '',
                     returnVariable: 'duck_df',
+                    __init: {
+                        showSettings: true,
+                    },
+                },
+            }),
+        featureFlag: FEATURE_FLAGS.NOTEBOOK_PYTHON,
+    },
+    {
+        title: 'SQL (HogQL)',
+        search: 'hogql sql',
+        icon: <IconHogQL color="currentColor" />,
+        command: (chain, pos) =>
+            chain.insertContentAt(pos, {
+                type: NotebookNodeType.HogQLSQL,
+                attrs: {
+                    code: '',
+                    returnVariable: 'hogql_df',
                     __init: {
                         showSettings: true,
                     },
@@ -377,6 +394,41 @@ order by count() desc
 
             return chain
         },
+    },
+    {
+        title: 'Table',
+        search: 'table grid spreadsheet',
+        icon: <IconTableChart />,
+        command: (chain, pos) =>
+            chain.insertContentAt(pos, {
+                type: 'table',
+                content: [
+                    {
+                        type: 'tableRow',
+                        content: [
+                            { type: 'tableHeader', content: [{ type: 'paragraph' }] },
+                            { type: 'tableHeader', content: [{ type: 'paragraph' }] },
+                            { type: 'tableHeader', content: [{ type: 'paragraph' }] },
+                        ],
+                    },
+                    {
+                        type: 'tableRow',
+                        content: [
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                        ],
+                    },
+                    {
+                        type: 'tableRow',
+                        content: [
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                        ],
+                    },
+                ],
+            }),
     },
     {
         title: 'Embedded iframe',

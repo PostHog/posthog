@@ -9,8 +9,11 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
+    CustomerJourneyApi,
+    CustomerJourneysListParams,
     CustomerProfileConfigApi,
     CustomerProfileConfigsListParams,
+    PaginatedCustomerJourneyListApi,
     PaginatedCustomerProfileConfigListApi,
 } from './api.schemas'
 
@@ -30,6 +33,50 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getCustomerJourneysListUrl = (projectId: string, params?: CustomerJourneysListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/customer_journeys/?${stringifiedParams}`
+        : `/api/environments/${projectId}/customer_journeys/`
+}
+
+export const customerJourneysList = async (
+    projectId: string,
+    params?: CustomerJourneysListParams,
+    options?: RequestInit
+): Promise<PaginatedCustomerJourneyListApi> => {
+    return apiMutator<PaginatedCustomerJourneyListApi>(getCustomerJourneysListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCustomerJourneysCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/customer_journeys/`
+}
+
+export const customerJourneysCreate = async (
+    projectId: string,
+    customerJourneyApi: NonReadonly<CustomerJourneyApi>,
+    options?: RequestInit
+): Promise<CustomerJourneyApi> => {
+    return apiMutator<CustomerJourneyApi>(getCustomerJourneysCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(customerJourneyApi),
+    })
+}
 
 export const getCustomerProfileConfigsListUrl = (projectId: string, params?: CustomerProfileConfigsListParams) => {
     const normalizedParams = new URLSearchParams()

@@ -1,3 +1,5 @@
+import { getDefaultEventName } from 'lib/utils/getAppContext'
+
 import {
     FunnelsQuery,
     InsightQueryNode,
@@ -11,99 +13,129 @@ import {
 } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, FunnelVizType, PathType, RetentionPeriod } from '~/types'
 
-export const trendsQueryDefault: TrendsQuery = {
-    kind: NodeKind.TrendsQuery,
-    series: [
-        {
-            kind: NodeKind.EventsNode,
-            name: '$pageview',
-            event: '$pageview',
-            math: BaseMathType.TotalCount,
-        },
-    ],
-    trendsFilter: {},
+function getTrendsQueryDefault(): TrendsQuery {
+    const defaultEvent = getDefaultEventName()
+    return {
+        kind: NodeKind.TrendsQuery,
+        series: [
+            {
+                kind: NodeKind.EventsNode,
+                name: defaultEvent === null ? 'All events' : defaultEvent,
+                event: defaultEvent,
+                math: BaseMathType.TotalCount,
+            },
+        ],
+        trendsFilter: {},
+    }
 }
 
-export const calendarHeatmapQueryDefault: TrendsQuery = {
-    kind: NodeKind.TrendsQuery,
-    series: [
-        {
-            kind: NodeKind.EventsNode,
-            name: '$pageview',
-            event: '$pageview',
-            math: BaseMathType.TotalCount,
+function getCalendarHeatmapQueryDefault(): TrendsQuery {
+    const defaultEvent = getDefaultEventName()
+    return {
+        kind: NodeKind.TrendsQuery,
+        series: [
+            {
+                kind: NodeKind.EventsNode,
+                name: defaultEvent === null ? 'All events' : defaultEvent,
+                event: defaultEvent,
+                math: BaseMathType.TotalCount,
+            },
+        ],
+        trendsFilter: {
+            display: ChartDisplayType.CalendarHeatmap,
         },
-    ],
-    trendsFilter: {
-        display: ChartDisplayType.CalendarHeatmap,
-    },
+    }
 }
 
-export const funnelsQueryDefault: FunnelsQuery = {
-    kind: NodeKind.FunnelsQuery,
-    series: [
-        {
-            kind: NodeKind.EventsNode,
-            name: '$pageview',
-            event: '$pageview',
+function getFunnelsQueryDefault(): FunnelsQuery {
+    const defaultEvent = getDefaultEventName()
+    return {
+        kind: NodeKind.FunnelsQuery,
+        series: [
+            {
+                kind: NodeKind.EventsNode,
+                name: defaultEvent === null ? 'All events' : defaultEvent,
+                event: defaultEvent,
+            },
+        ],
+        funnelsFilter: {
+            funnelVizType: FunnelVizType.Steps,
         },
-    ],
-    funnelsFilter: {
-        funnelVizType: FunnelVizType.Steps,
-    },
+    }
 }
 
-const retentionQueryDefault: RetentionQuery = {
-    kind: NodeKind.RetentionQuery,
-    retentionFilter: {
-        period: RetentionPeriod.Day,
-        totalIntervals: 8,
-        targetEntity: {
-            id: '$pageview',
-            name: '$pageview',
-            type: 'events',
+function getRetentionQueryDefault(): RetentionQuery {
+    const defaultEvent = getDefaultEventName()
+    const eventName = defaultEvent === null ? 'All events' : defaultEvent
+    return {
+        kind: NodeKind.RetentionQuery,
+        retentionFilter: {
+            period: RetentionPeriod.Day,
+            totalIntervals: 8,
+            targetEntity: {
+                id: defaultEvent ?? undefined,
+                name: eventName,
+                type: 'events',
+            },
+            returningEntity: {
+                id: defaultEvent ?? undefined,
+                name: eventName,
+                type: 'events',
+            },
+            retentionType: 'retention_first_time',
+            meanRetentionCalculation: 'simple',
         },
-        returningEntity: {
-            id: '$pageview',
-            name: '$pageview',
-            type: 'events',
-        },
-        retentionType: 'retention_first_time',
-        meanRetentionCalculation: 'simple',
-    },
+    }
 }
 
-const pathsQueryDefault: PathsQuery = {
-    kind: NodeKind.PathsQuery,
-    pathsFilter: {
-        includeEventTypes: [PathType.PageView],
-    },
+function getPathsQueryDefault(): PathsQuery {
+    const defaultEvent = getDefaultEventName()
+    let pathType: PathType
+    if (defaultEvent === '$screen') {
+        pathType = PathType.Screen
+    } else if (defaultEvent === null) {
+        pathType = PathType.CustomEvent
+    } else {
+        pathType = PathType.PageView
+    }
+    return {
+        kind: NodeKind.PathsQuery,
+        pathsFilter: {
+            includeEventTypes: [pathType],
+        },
+    }
 }
 
-const stickinessQueryDefault: StickinessQuery = {
-    kind: NodeKind.StickinessQuery,
-    series: [
-        {
-            kind: NodeKind.EventsNode,
-            name: '$pageview',
-            event: '$pageview',
-            math: BaseMathType.UniqueUsers,
+function getStickinessQueryDefault(): StickinessQuery {
+    const defaultEvent = getDefaultEventName()
+    return {
+        kind: NodeKind.StickinessQuery,
+        series: [
+            {
+                kind: NodeKind.EventsNode,
+                name: defaultEvent === null ? 'All events' : defaultEvent,
+                event: defaultEvent,
+                math: BaseMathType.UniqueUsers,
+            },
+        ],
+        stickinessFilter: {
+            computedAs: StickinessComputationModes.NonCumulative,
         },
-    ],
-    stickinessFilter: {
-        computedAs: StickinessComputationModes.NonCumulative,
-    },
+    }
 }
 
-const lifecycleQueryDefault: LifecycleQuery = {
-    kind: NodeKind.LifecycleQuery,
-    series: [
-        {
-            kind: NodeKind.EventsNode,
-            name: '$pageview',
-            event: '$pageview',
-        },
-    ],
+function getLifecycleQueryDefault(): LifecycleQuery {
+    const defaultEvent = getDefaultEventName()
+    return {
+        kind: NodeKind.LifecycleQuery,
+        series: [
+            {
+                kind: NodeKind.EventsNode,
+                name: defaultEvent === null ? 'All events' : defaultEvent,
+                event: defaultEvent,
+            },
+        ],
+    }
 }
 
 /** Product Analytics insight node kinds that support tab switching in the insight UI */
@@ -112,11 +144,21 @@ export type ProductAnalyticsInsightNodeKind = Exclude<
     NodeKind.WebStatsTableQuery | NodeKind.WebOverviewQuery
 >
 
-export const nodeKindToDefaultQuery: Record<ProductAnalyticsInsightNodeKind, InsightQueryNode> = {
-    [NodeKind.TrendsQuery]: trendsQueryDefault,
-    [NodeKind.FunnelsQuery]: funnelsQueryDefault,
-    [NodeKind.RetentionQuery]: retentionQueryDefault,
-    [NodeKind.PathsQuery]: pathsQueryDefault,
-    [NodeKind.StickinessQuery]: stickinessQueryDefault,
-    [NodeKind.LifecycleQuery]: lifecycleQueryDefault,
+/** Legacy exports for backwards compatibility - use getNodeKindToDefaultQuery() instead */
+export const trendsQueryDefault = getTrendsQueryDefault()
+export const calendarHeatmapQueryDefault = getCalendarHeatmapQueryDefault()
+export const funnelsQueryDefault = getFunnelsQueryDefault()
+
+export function getNodeKindToDefaultQuery(): Record<ProductAnalyticsInsightNodeKind, InsightQueryNode> {
+    return {
+        [NodeKind.TrendsQuery]: getTrendsQueryDefault(),
+        [NodeKind.FunnelsQuery]: getFunnelsQueryDefault(),
+        [NodeKind.RetentionQuery]: getRetentionQueryDefault(),
+        [NodeKind.PathsQuery]: getPathsQueryDefault(),
+        [NodeKind.StickinessQuery]: getStickinessQueryDefault(),
+        [NodeKind.LifecycleQuery]: getLifecycleQueryDefault(),
+    }
 }
+
+/** @deprecated Use getNodeKindToDefaultQuery() instead */
+export const nodeKindToDefaultQuery = getNodeKindToDefaultQuery()

@@ -157,6 +157,7 @@ export type MessageApiContextualTools = { [key: string]: unknown }
  * `plan` - plan
  * `execution` - execution
  * `survey` - survey
+ * `onboarding` - onboarding
  * `research` - research
  * `flags` - flags
  */
@@ -170,6 +171,7 @@ export const AgentModeEnumApi = {
     plan: 'plan',
     execution: 'execution',
     survey: 'survey',
+    onboarding: 'onboarding',
     research: 'research',
     flags: 'flags',
 } as const
@@ -330,6 +332,7 @@ export interface TicketApi {
     /** @nullable */
     readonly last_message_text: string | null
     readonly unread_team_count: number
+    readonly unread_customer_count: number
     /** @nullable */
     readonly session_id: string | null
     readonly session_context: unknown
@@ -365,6 +368,7 @@ export interface PatchedTicketApi {
     /** @nullable */
     readonly last_message_text?: string | null
     readonly unread_team_count?: number
+    readonly unread_customer_count?: number
     /** @nullable */
     readonly session_id?: string | null
     readonly session_context?: unknown

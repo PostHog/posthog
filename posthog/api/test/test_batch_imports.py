@@ -473,6 +473,30 @@ class TestBatchImportAPI(APIBaseTest):
         batch_import = BatchImport.objects.get(id=response.json()["id"])
         self.assertIsNotNone(batch_import)
 
+    def test_s3_gzip_migration_creates_correct_import_config(self):
+        """Test that s3_gzip source type creates import_config with type s3_gzip"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "s3_gzip",
+                "content_type": "captured",
+                "s3_bucket": "test-bucket",
+                "s3_region": "us-east-1",
+                "s3_prefix": "exports/",
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        batch_import = BatchImport.objects.get(id=response.json()["id"])
+        self.assertEqual(batch_import.import_config["source"]["type"], "s3_gzip")
+        self.assertEqual(batch_import.import_config["source"]["bucket"], "test-bucket")
+        self.assertEqual(batch_import.import_config["source"]["prefix"], "exports/")
+        self.assertEqual(batch_import.import_config["source"]["region"], "us-east-1")
+        self.assertIn("aws_access_key_id", batch_import.secrets)
+        self.assertIn("aws_secret_access_key", batch_import.secrets)
+
     @parameterized.expand(
         [
             ("running_unclaimed", BatchImport.Status.RUNNING, None, "waiting_to_start"),

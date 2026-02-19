@@ -175,12 +175,24 @@ func copyFileWithEnvSubst(src, dst, version string) error {
 		version = "latest"
 	}
 
-	logger.Debug("copyFileWithEnvSubst: REGISTRY_URL=%q, POSTHOG_APP_TAG=%q", registryURL, version)
+	nodeTag := os.Getenv("POSTHOG_NODE_TAG")
+	if nodeTag == "" {
+		nodeTag = ReadEnvValue("POSTHOG_NODE_TAG")
+	}
+	if nodeTag == "" {
+		nodeTag = "latest"
+	}
+
+	logger.Debug("copyFileWithEnvSubst: REGISTRY_URL=%q, POSTHOG_APP_TAG=%q, POSTHOG_NODE_TAG=%q", registryURL, version, nodeTag)
 
 	content = strings.ReplaceAll(content, "${REGISTRY_URL}", registryURL)
 	content = strings.ReplaceAll(content, "$REGISTRY_URL", registryURL)
 	content = strings.ReplaceAll(content, "${POSTHOG_APP_TAG}", version)
 	content = strings.ReplaceAll(content, "$POSTHOG_APP_TAG", version)
+	// Replace POSTHOG_NODE_TAG, preserving the :-latest default syntax for Docker Compose
+	content = strings.ReplaceAll(content, "${POSTHOG_NODE_TAG:-latest}", nodeTag)
+	content = strings.ReplaceAll(content, "${POSTHOG_NODE_TAG}", nodeTag)
+	content = strings.ReplaceAll(content, "$POSTHOG_NODE_TAG", nodeTag)
 
 	return os.WriteFile(dst, []byte(content), 0644)
 }

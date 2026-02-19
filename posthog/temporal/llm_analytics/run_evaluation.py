@@ -33,6 +33,7 @@ from products.llm_analytics.backend.llm.errors import (
     ModelPermissionError,
     QuotaExceededError,
     RateLimitError,
+    StructuredOutputParseError,
 )
 from products.llm_analytics.backend.models.evaluation_config import EvaluationConfig
 from products.llm_analytics.backend.models.evaluations import Evaluation
@@ -415,6 +416,14 @@ Output: {output_data}"""
             f"Model '{model}' not found.",
             non_retryable=True,
         )
+    except StructuredOutputParseError as e:
+        increment_errors("parse_error")
+        raise ApplicationError(
+            str(e),
+            {"error_type": "parse_error"},
+            non_retryable=True,
+        ) from e
+
     except Exception:
         increment_errors("unknown_error")
         raise
@@ -600,7 +609,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 error_type = details.get("error_type")
 
                 # Handle skippable errors - return success with skip info
-                if error_type in ("trial_limit_reached", "key_invalid"):
+                if error_type in ("trial_limit_reached", "key_invalid", "parse_error"):
                     if error_type == "trial_limit_reached":
                         await temporalio.workflow.execute_activity(
                             disable_evaluation_activity,

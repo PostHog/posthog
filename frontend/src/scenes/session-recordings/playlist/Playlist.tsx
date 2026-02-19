@@ -101,7 +101,7 @@ export function Playlist({
         otherRecordings,
         hasNext,
     } = useValues(sessionRecordingsPlaylistLogic)
-    const { maybeLoadSessionRecordings, setFilters, setSelectedRecordingId } =
+    const { maybeLoadSessionRecordings, setFilters, setSelectedRecordingId, loadSessionRecordings } =
         useActions(sessionRecordingsPlaylistLogic)
 
     const onScrollListEdge = (edge: 'bottom' | 'top'): void => {
@@ -228,14 +228,17 @@ export function Playlist({
     return (
         <div className="flex flex-col min-w-60 h-full">
             {!notebookNode && type !== 'collection' && (
-                <DraggableToNotebook className="mb-2" href={urls.replay(ReplayTabs.Home, filters)}>
-                    <RecordingsUniversalFiltersEmbedButton
-                        filters={filters}
-                        setFilters={setFilters}
-                        totalFiltersCount={totalFiltersCount}
-                        currentSessionRecordingId={activeSessionRecordingId}
-                    />
-                </DraggableToNotebook>
+                <div className="mb-2 flex gap-2">
+                    <DraggableToNotebook className="flex-1" href={urls.replay(ReplayTabs.Home, filters)}>
+                        <RecordingsUniversalFiltersEmbedButton
+                            filters={filters}
+                            setFilters={setFilters}
+                            totalFiltersCount={totalFiltersCount}
+                            currentSessionRecordingId={activeSessionRecordingId}
+                            onReload={() => loadSessionRecordings()}
+                        />
+                    </DraggableToNotebook>
+                </div>
             )}
             <div
                 ref={playlistRef}

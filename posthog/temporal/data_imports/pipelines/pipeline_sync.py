@@ -19,6 +19,7 @@ from clickhouse_driver.errors import ServerException
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.exceptions_capture import capture_exception
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.pipelines.helpers import build_table_name
 
@@ -55,14 +56,18 @@ class PipelineInputs:
     team_id: int
 
 
-def update_last_synced_at_sync(job_id: str, schema_id: str, team_id: int) -> None:
-    job = ExternalDataJob.objects.get(pk=job_id)
-    schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
-    schema.last_synced_at = job.created_at
-    schema.save()
+async def update_last_synced_at(job_id: str, schema_id: str, team_id: int) -> None:
+    @database_sync_to_async_pool
+    def _update():
+        job = ExternalDataJob.objects.get(pk=job_id)
+        schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
+        schema.last_synced_at = job.created_at
+        schema.save()
+
+    await _update()
 
 
-def validate_schema_and_update_table_sync(
+async def validate_schema_and_update_table(
     run_id: str,
     team_id: int,
     schema_id: uuid.UUID,
@@ -72,6 +77,7 @@ def validate_schema_and_update_table_sync(
     table_schema_dict: Optional[dict[str, str]] = None,
 ) -> None:
     """
+    Async version of validate_schema_and_update_table_sync.
 
     Validates the schemas of data that has been synced by external data job.
     If the schemas are valid, it creates or updates the DataWarehouseTable model with the new url pattern.
@@ -87,114 +93,120 @@ def validate_schema_and_update_table_sync(
     logger = LOGGER.bind(team_id=team_id)
 
     if row_count == 0:
-        logger.warn("Skipping `validate_schema_and_update_table` due to `row_count` being 0")
+        await logger.awarn("Skipping `validate_schema_and_update_table` due to `row_count` being 0")
         return
 
-    job = ExternalDataJob.objects.prefetch_related(
-        "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
-    ).get(pk=run_id)
+    @database_sync_to_async_pool
+    def _validate_and_update():
+        job = ExternalDataJob.objects.prefetch_related(
+            "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
+        ).get(pk=run_id)
 
-    external_data_schema = (
-        ExternalDataSchema.objects.prefetch_related("source").exclude(deleted=True).get(id=schema_id, team_id=team_id)
-    )
+        external_data_schema = (
+            ExternalDataSchema.objects.prefetch_related("source")
+            .exclude(deleted=True)
+            .get(id=schema_id, team_id=team_id)
+        )
 
-    _schema_id = external_data_schema.id
-    _schema_name: str = external_data_schema.name
-    incremental_or_append = external_data_schema.should_use_incremental_field
+        _schema_id = external_data_schema.id
+        _schema_name: str = external_data_schema.name
+        incremental_or_append = external_data_schema.should_use_incremental_field
 
-    table_name = build_table_name(job.pipeline, _schema_name)
-    normalized_schema_name = NamingConvention().normalize_identifier(_schema_name)
-    new_url_pattern = job.url_pattern_by_schema(normalized_schema_name)
+        table_name = build_table_name(job.pipeline, _schema_name)
+        normalized_schema_name = NamingConvention().normalize_identifier(_schema_name)
+        new_url_pattern = job.url_pattern_by_schema(normalized_schema_name)
 
-    # Check
-    try:
-        with transaction.atomic():
-            logger.info(f"Row count for {_schema_name} ({_schema_id}) is {row_count}")
+        # Check
+        try:
+            with transaction.atomic():
+                logger.info(f"Row count for {_schema_name} ({_schema_id}) is {row_count}")
 
-            table_params = {
-                "name": table_name,
-                "format": table_format,
-                "url_pattern": new_url_pattern,
-                "team_id": team_id,
-                "row_count": row_count,
-                "queryable_folder": queryable_folder,
-            }
+                table_params = {
+                    "name": table_name,
+                    "format": table_format,
+                    "url_pattern": new_url_pattern,
+                    "team_id": team_id,
+                    "row_count": row_count,
+                    "queryable_folder": queryable_folder,
+                }
 
-            # create or update
-            table_created: DataWarehouseTable | None = external_data_schema.table
-            if table_created:
-                table_created.format = table_params["format"]
-                table_created.url_pattern = new_url_pattern
-                table_created.queryable_folder = queryable_folder
-                if incremental_or_append:
-                    table_created.row_count = table_created.get_count()
-                else:
-                    table_created.row_count = row_count
-                table_created.save()
-
-            if not table_created:
-                # Check if we already have an orphaned table that we can repurpose
-                existing_tables = DataWarehouseTable.objects.filter(
-                    team_id=team_id, name=table_name, external_data_source_id=job.pipeline.id, deleted=False
-                )
-                existing_tables_count = existing_tables.count()
-                if existing_tables_count > 0:
-                    table_created = existing_tables[0]
-                    logger.debug(
-                        f"Found {existing_tables_count} existing tables - skipping creating and using {table_created.id}"
-                    )
+                # create or update
+                table_created: DataWarehouseTable | None = external_data_schema.table
+                if table_created:
+                    table_created.format = table_params["format"]
+                    table_created.url_pattern = new_url_pattern
+                    table_created.queryable_folder = queryable_folder
+                    if incremental_or_append:
+                        table_created.row_count = table_created.get_count()
+                    else:
+                        table_created.row_count = row_count
+                    table_created.save()
 
                 if not table_created:
-                    logger.debug(f"Creating table for schema: {str(schema_id)}")
-                    table_created = DataWarehouseTable.objects.create(
-                        external_data_source_id=job.pipeline.id, **table_params
+                    # Check if we already have an orphaned table that we can repurpose
+                    existing_tables = DataWarehouseTable.objects.filter(
+                        team_id=team_id, name=table_name, external_data_source_id=job.pipeline.id, deleted=False
                     )
+                    existing_tables_count = existing_tables.count()
+                    if existing_tables_count > 0:
+                        table_created = existing_tables[0]
+                        logger.debug(
+                            f"Found {existing_tables_count} existing tables - skipping creating and using {table_created.id}"
+                        )
 
-            assert isinstance(table_created, DataWarehouseTable) and table_created is not None
+                    if not table_created:
+                        logger.debug(f"Creating table for schema: {str(schema_id)}")
+                        table_created = DataWarehouseTable.objects.create(
+                            external_data_source_id=job.pipeline.id, **table_params
+                        )
 
-            raw_db_columns: dict[str, dict[str, str]] = table_created.get_columns()
-            db_columns = {key: column.get("clickhouse", "") for key, column in raw_db_columns.items()}
+                assert isinstance(table_created, DataWarehouseTable) and table_created is not None
 
-            columns = {}
-            for column_name, db_column_type in db_columns.items():
-                hogql_type = table_schema_dict.get(column_name)
+                raw_db_columns: dict[str, dict[str, str]] = table_created.get_columns()
+                db_columns = {key: column.get("clickhouse", "") for key, column in raw_db_columns.items()}
 
-                if hogql_type is None:
-                    capture_exception(Exception(f"HogQL type not found for column: {column_name}"))
-                    continue
+                columns = {}
+                for column_name, db_column_type in db_columns.items():
+                    hogql_type = table_schema_dict.get(column_name)
 
-                columns[column_name] = {
-                    "clickhouse": db_column_type,
-                    "hogql": hogql_type,
-                }
-            table_created.columns = columns
-            table_created.save()
+                    if hogql_type is None:
+                        capture_exception(Exception(f"HogQL type not found for column: {column_name}"))
+                        continue
 
-            # schema could have been deleted by this point
-            schema_model = (
-                ExternalDataSchema.objects.prefetch_related("source")
-                .exclude(deleted=True)
-                .get(id=_schema_id, team_id=team_id)
-            )
+                    columns[column_name] = {
+                        "clickhouse": db_column_type,
+                        "hogql": hogql_type,
+                    }
+                table_created.columns = columns
+                table_created.save()
 
-            schema_model.table = table_created
-            schema_model.save()
+                # schema could have been deleted by this point
+                schema_model = (
+                    ExternalDataSchema.objects.prefetch_related("source")
+                    .exclude(deleted=True)
+                    .get(id=_schema_id, team_id=team_id)
+                )
 
-    except ServerException as err:
-        if err.code == 636:
+                schema_model.table = table_created
+                schema_model.save()
+
+        except ServerException as err:
+            if err.code == 636:
+                logger.exception(
+                    f"Data Warehouse: No data for schema {_schema_name} for external data job {job.pk}",
+                    exc_info=err,
+                )
+            else:
+                logger.exception(
+                    f"Data Warehouse: Unknown ServerException {job.pk}",
+                    exc_info=err,
+                )
+        except Exception as e:
+            # TODO: handle other exceptions here
             logger.exception(
-                f"Data Warehouse: No data for schema {_schema_name} for external data job {job.pk}",
-                exc_info=err,
+                f"Data Warehouse: Could not validate schema for external data job {job.pk}",
+                exc_info=e,
             )
-        else:
-            logger.exception(
-                f"Data Warehouse: Unknown ServerException {job.pk}",
-                exc_info=err,
-            )
-    except Exception as e:
-        # TODO: handle other exceptions here
-        logger.exception(
-            f"Data Warehouse: Could not validate schema for external data job {job.pk}",
-            exc_info=e,
-        )
-        raise
+            raise
+
+    await _validate_and_update()

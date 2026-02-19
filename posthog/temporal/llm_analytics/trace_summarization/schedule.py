@@ -23,6 +23,7 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_MAX_GENERATIONS_PER_WINDOW,
     DEFAULT_MAX_ITEMS_PER_WINDOW,
     DEFAULT_MODE,
+    DEFAULT_TRACE_BATCH_SIZE,
     DEFAULT_WINDOW_MINUTES,
     GENERATION_COORDINATOR_SCHEDULE_ID,
     SCHEDULE_INTERVAL_HOURS,
@@ -41,7 +42,7 @@ async def create_batch_trace_summarization_schedule(client: Client):
             COORDINATOR_WORKFLOW_NAME,
             BatchTraceSummarizationCoordinatorInputs(
                 max_items=DEFAULT_MAX_ITEMS_PER_WINDOW,
-                batch_size=DEFAULT_BATCH_SIZE,
+                batch_size=DEFAULT_TRACE_BATCH_SIZE,
                 mode=DEFAULT_MODE,
                 window_minutes=DEFAULT_WINDOW_MINUTES,
             ),
@@ -50,7 +51,7 @@ async def create_batch_trace_summarization_schedule(client: Client):
             execution_timeout=timedelta(minutes=COORDINATOR_EXECUTION_TIMEOUT_MINUTES),
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=SCHEDULE_INTERVAL_HOURS))]),
-        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.BUFFER_ONE),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
     if await a_schedule_exists(client, COORDINATOR_SCHEDULE_ID):
@@ -93,7 +94,7 @@ async def create_batch_generation_summarization_schedule(client: Client):
                 )
             ]
         ),
-        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.BUFFER_ONE),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
     if await a_schedule_exists(client, GENERATION_COORDINATOR_SCHEDULE_ID):

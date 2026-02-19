@@ -219,6 +219,7 @@ class AgentExecutor:
         if isinstance(message.event, MessageEvent):
             return (AssistantEventType.MESSAGE, message.event.payload)
         elif isinstance(message.event, ConversationEvent):
+            # nosemgrep: idor-lookup-without-team (ID from internal Redis stream, caller validates user+team ownership)
             conversation = await Conversation.objects.select_related("user").aget(id=message.event.payload)
             return (AssistantEventType.CONVERSATION, conversation)
         elif isinstance(message.event, UpdateEvent):

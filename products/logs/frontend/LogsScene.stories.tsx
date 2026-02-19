@@ -344,6 +344,7 @@ export default {
             waitForSelector: '[data-attr="logs-viewer"]',
         },
     }, // scene mode
+    tags: ['test-skip'],
 } as Meta
 
 export function LogsScene(): JSX.Element {

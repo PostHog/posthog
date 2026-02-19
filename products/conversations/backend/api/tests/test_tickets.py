@@ -1,5 +1,5 @@
 from posthog.test.base import APIBaseTest, BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.db import transaction
 
@@ -20,37 +20,8 @@ def immediate_on_commit(func):
     func()
 
 
-class BaseConversationsAPITest(APIBaseTest):
-    feature_flag_patcher: MagicMock
-    mock_feature_flag: MagicMock
-
-    def setUp(self):
-        super().setUp()
-        # Enable conversations feature flag by default
-        self.set_conversations_feature_flag(True)
-
-    def tearDown(self):
-        if hasattr(self, "feature_flag_patcher"):
-            self.feature_flag_patcher.stop()
-        super().tearDown()
-
-    def set_conversations_feature_flag(self, enabled=True):
-        if hasattr(self, "feature_flag_patcher"):
-            self.feature_flag_patcher.stop()
-
-        self.feature_flag_patcher = patch("posthoganalytics.feature_enabled")  # type: ignore[assignment]
-        self.mock_feature_flag = self.feature_flag_patcher.start()
-
-        def check_flag(flag_name, *_args, **_kwargs):
-            if flag_name == "product-support":
-                return enabled
-            return False
-
-        self.mock_feature_flag.side_effect = check_flag
-
-
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
-class TestTicketAPI(BaseConversationsAPITest):
+class TestTicketAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.ticket = Ticket.objects.create_with_number(
@@ -522,7 +493,7 @@ class TestTicketAPI(BaseConversationsAPITest):
         # Includes: session, user, org, team, permissions, feature flag check, count query, tickets query,
         # person distinct_id query (batch), person prefetch, all distinct_ids query (batch)
         # Note: message stats are denormalized, no subqueries needed
-        with self.assertNumQueries(14):
+        with self.assertNumQueries(13):
             response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should have original ticket + 10 new tickets = 11 total
@@ -535,28 +506,8 @@ class TestTicketAPI(BaseConversationsAPITest):
                 self.assertIn("assignee", ticket_data)
                 self.assertIn("person", ticket_data)
 
-    def test_feature_flag_required(self, mock_on_commit):
-        """Verify that product-support feature flag is required for API access."""
-        self.set_conversations_feature_flag(False)
 
-        endpoints = [
-            (f"/api/projects/{self.team.id}/conversations/tickets/", "GET"),
-            (f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/", "GET"),
-            (f"/api/projects/{self.team.id}/conversations/tickets/", "POST"),
-            (f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/", "PATCH"),
-            (f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/", "DELETE"),
-        ]
-
-        for url, method in endpoints:
-            response = getattr(self.client, method.lower())(url, format="json")
-            self.assertEqual(
-                response.status_code,
-                status.HTTP_403_FORBIDDEN,
-                f"Failed for {method} {url}: expected 403, got {response.status_code}",
-            )
-
-
-class TestTicketAssignment(BaseConversationsAPITest):
+class TestTicketAssignment(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.ticket = Ticket.objects.create_with_number(
@@ -771,7 +722,7 @@ class TestTicketAssignment(BaseConversationsAPITest):
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
-class TestUnreadCountEndpoint(BaseConversationsAPITest):
+class TestUnreadCountEndpoint(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.team.conversations_enabled = True
@@ -921,7 +872,7 @@ class TestUnreadCountEndpoint(BaseConversationsAPITest):
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
-class TestPrivateMessageAppAPI(BaseConversationsAPITest):
+class TestPrivateMessageAppAPI(APIBaseTest):
     """Test that authenticated App API users can create private messages."""
 
     def setUp(self):

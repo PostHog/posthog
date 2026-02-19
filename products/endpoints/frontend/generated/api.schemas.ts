@@ -54,6 +54,8 @@ export const PropertyOperatorApi = {
     semver_tilde: 'semver_tilde',
     semver_caret: 'semver_caret',
     semver_wildcard: 'semver_wildcard',
+    icontains_multi: 'icontains_multi',
+    not_icontains_multi: 'not_icontains_multi',
 } as const
 
 /**
@@ -2261,6 +2263,11 @@ export interface FunnelsFilterApi {
      * @nullable
      */
     resultCustomizations?: FunnelsFilterApiResultCustomizations
+    /**
+     * Display linear regression trend lines on the chart (only for historical trends viz)
+     * @nullable
+     */
+    showTrendLines?: boolean | null
     /** @nullable */
     showValuesOnSeries?: boolean | null
     /** @nullable */
@@ -3231,7 +3238,12 @@ export interface WebStatsTableQueryApi {
     offset?: number | null
     /** @nullable */
     orderBy?: (typeof WebStatsTableQueryApiOrderByItem)[keyof typeof WebStatsTableQueryApiOrderByItem][] | null
-    properties: (EventPropertyFilterApi | PersonPropertyFilterApi | SessionPropertyFilterApi)[]
+    properties: (
+        | EventPropertyFilterApi
+        | PersonPropertyFilterApi
+        | SessionPropertyFilterApi
+        | CohortPropertyFilterApi
+    )[]
     response?: WebStatsTableQueryResponseApi | null
     sampling?: WebAnalyticsSamplingApi | null
     /**
@@ -3342,7 +3354,12 @@ export interface WebOverviewQueryApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** @nullable */
     orderBy?: (typeof WebOverviewQueryApiOrderByItem)[keyof typeof WebOverviewQueryApiOrderByItem][] | null
-    properties: (EventPropertyFilterApi | PersonPropertyFilterApi | SessionPropertyFilterApi)[]
+    properties: (
+        | EventPropertyFilterApi
+        | PersonPropertyFilterApi
+        | SessionPropertyFilterApi
+        | CohortPropertyFilterApi
+    )[]
     response?: WebOverviewQueryResponseApi | null
     sampling?: WebAnalyticsSamplingApi | null
     /**
