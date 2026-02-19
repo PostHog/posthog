@@ -147,8 +147,8 @@ function ReportListPane(): JSX.Element {
                 `flex-shrink-0 h-full p-3 overflow-y-auto w-full`,
                 `@3xl/main-content-container:max-w-[50%] @3xl/main-content-container:border-r border-primary`,
                 // On mobile, hide the list when a report is selected, or when the user hasn't set up Inbox yet
-                selectedReportId != null ||
-                    (shouldShowEnablingCtaOnMobile && 'hidden @3xl/main-content-container:block'),
+                (selectedReportId != null || shouldShowEnablingCtaOnMobile) &&
+                    'hidden @3xl/main-content-container:block',
                 // List narrower when no reports, to focus attention on the main CTA area; wider with reports for readability
                 reports.length ? '@3xl/main-content-container:w-120' : '@3xl/main-content-container:w-80'
             )}
