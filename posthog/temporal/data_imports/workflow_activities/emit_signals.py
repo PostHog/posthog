@@ -333,9 +333,6 @@ async def _check_actionability(
         )
         thoughts = _extract_thoughts(response)
         response_text = (response.text or "").strip().upper()
-        # TODO: Remove after tests
-        if "NOT_ACTION" in response_text:
-            print("")
         return "NOT_ACTION" not in response_text, thoughts
     except Exception as e:
         # If LLM call fails, allow to pass to not block the emission, as fails should not happen often
