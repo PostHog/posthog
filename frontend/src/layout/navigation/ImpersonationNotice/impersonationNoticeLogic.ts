@@ -12,6 +12,7 @@ export interface ImpersonationTicket {
     id: string
     ticket_number: number
     team_id: number
+    messages: CommentType[]
 }
 
 export interface TicketMessage {
@@ -21,6 +22,25 @@ export interface TicketMessage {
     authorName: string
     createdAt: string
     isPrivate: boolean
+}
+
+function commentToTicketMessage(comment: CommentType): TicketMessage {
+    const authorType = comment.item_context?.author_type || 'customer'
+    let displayName = 'Customer'
+    if (comment.created_by) {
+        displayName =
+            [comment.created_by.first_name, comment.created_by.last_name].filter(Boolean).join(' ') ||
+            comment.created_by.email ||
+            'Support'
+    }
+    return {
+        id: comment.id,
+        content: comment.content || '',
+        authorType: authorType === 'support' ? 'human' : authorType,
+        authorName: displayName,
+        createdAt: comment.created_at,
+        isPrivate: comment.item_context?.is_private || false,
+    }
 }
 
 export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
@@ -53,46 +73,6 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
                         return await api.get('admin/impersonation/ticket/')
                     } catch {
                         return null
-                    }
-                },
-            },
-        ],
-        ticketMessages: [
-            [] as TicketMessage[],
-            {
-                loadTicketMessages: async () => {
-                    const ticket = values.impersonationTicket
-                    if (!ticket) {
-                        return []
-                    }
-                    try {
-                        const response = await api.comments.list({
-                            scope: 'conversations_ticket',
-                            item_id: ticket.id,
-                        })
-                        // Transform comments to TicketMessage format and reverse for oldest first
-                        return (response.results || []).reverse().map((comment: CommentType) => {
-                            const authorType = comment.item_context?.author_type || 'customer'
-                            let displayName = 'Customer'
-                            if (comment.created_by) {
-                                displayName =
-                                    [comment.created_by.first_name, comment.created_by.last_name]
-                                        .filter(Boolean)
-                                        .join(' ') ||
-                                    comment.created_by.email ||
-                                    'Support'
-                            }
-                            return {
-                                id: comment.id,
-                                content: comment.content || '',
-                                authorType: authorType === 'support' ? 'human' : authorType,
-                                authorName: displayName,
-                                createdAt: comment.created_at,
-                                isPrivate: comment.item_context?.is_private || false,
-                            }
-                        })
-                    } catch {
-                        return []
                     }
                 },
             },
@@ -134,6 +114,12 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
     selectors({
         isReadOnly: [(s) => [s.user], (user: UserType | null): boolean => user?.is_impersonated_read_only ?? true],
         isImpersonated: [(s) => [s.user], (user: UserType | null): boolean => user?.is_impersonated ?? false],
+        ticketMessages: [
+            (s) => [s.impersonationTicket],
+            (ticket: ImpersonationTicket | null): TicketMessage[] =>
+                (ticket?.messages || []).map(commentToTicketMessage),
+        ],
+        ticketMessagesLoading: [(s) => [s.impersonationTicketLoading], (loading: boolean): boolean => loading],
     }),
 
     listeners(({ actions, values }) => ({
@@ -157,18 +143,6 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
                 if (secondsAway > 30) {
                     actions.maximize()
                 }
-            }
-        },
-        loadImpersonationTicketSuccess: () => {
-            // Load messages once we have the ticket
-            if (values.impersonationTicket) {
-                actions.loadTicketMessages()
-            }
-        },
-        toggleTicketExpanded: () => {
-            // Load messages when expanding if we haven't already
-            if (values.isTicketExpanded && values.ticketMessages.length === 0 && values.impersonationTicket) {
-                actions.loadTicketMessages()
             }
         },
     })),

@@ -1,6 +1,7 @@
 import json
 import uuid
 
+from django.conf import settings
 from django.http import Http404, JsonResponse
 from django.views.decorators.http import require_http_methods
 
@@ -8,6 +9,7 @@ import posthoganalytics
 from loginas.utils import is_impersonated_session
 from loginas.views import user_login as loginas_user_login
 
+from posthog.api.comments import CommentSerializer
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.middleware import (
     IMPERSONATION_READ_ONLY_SESSION_KEY,
@@ -15,6 +17,27 @@ from posthog.middleware import (
     is_read_only_impersonation,
 )
 from posthog.models import User
+from posthog.models.comment.comment import Comment
+
+POSTHOG_INTERNAL_TEAM_ID = 2
+
+
+def _get_ticket(ticket_id: str):
+    """Fetch a support ticket by ID, restricting to the internal team in production."""
+    from products.conversations.backend.models import Ticket
+
+    try:
+        return Ticket.objects.get(id=ticket_id, team_id=POSTHOG_INTERNAL_TEAM_ID)
+    except Ticket.DoesNotExist:
+        if settings.DEBUG:
+            ticket = Ticket.objects.filter(id=ticket_id).first()
+            if ticket:
+                raise Http404(
+                    f"Ticket {ticket_id} belongs to team {ticket.team_id}, "
+                    f"not the internal team ({POSTHOG_INTERNAL_TEAM_ID}). "
+                    f"Update POSTHOG_INTERNAL_TEAM_ID or use a ticket from the correct team."
+                )
+        raise Http404("Ticket not found")
 
 
 def _configure_impersonation_session(
@@ -132,12 +155,7 @@ def loginas_user_from_ticket(request):
     except ValueError:
         return JsonResponse({"error": "ticket_id must be a valid UUID"}, status=400)
 
-    from products.conversations.backend.models import Ticket
-
-    try:
-        ticket = Ticket.objects.get(id=ticket_id)
-    except Ticket.DoesNotExist:
-        raise Http404("Ticket not found")
+    ticket = _get_ticket(ticket_id)
 
     email = ticket.anonymous_traits.get("email") if ticket.anonymous_traits else None
     if not email:
@@ -186,17 +204,24 @@ def get_impersonation_ticket(request):
     except (ValueError, AttributeError):
         raise Http404()
 
-    from products.conversations.backend.models import Ticket
+    ticket = _get_ticket(ticket_id)
 
-    try:
-        ticket = Ticket.objects.get(id=ticket_id)
-    except Ticket.DoesNotExist:
-        raise Http404()
+    comments = (
+        Comment.objects.filter(
+            team_id=POSTHOG_INTERNAL_TEAM_ID,
+            scope="conversations_ticket",
+            item_id=ticket_id,
+            deleted=False,
+        )
+        .select_related("created_by")
+        .order_by("created_at")
+    )
 
     return JsonResponse(
         {
             "id": str(ticket.id),
             "ticket_number": ticket.ticket_number,
             "team_id": ticket.team_id,
+            "messages": CommentSerializer(comments, many=True).data,
         }
     )

@@ -1224,6 +1224,13 @@ class TestImpersonationFromTicket(APIBaseTest):
 
         self.url = reverse("impersonation-from-ticket")
 
+        self._team_id_patcher = patch("ee.admin.loginas_views.POSTHOG_INTERNAL_TEAM_ID", self.team.id)
+        self._team_id_patcher.start()
+
+    def tearDown(self):
+        self._team_id_patcher.stop()
+        super().tearDown()
+
     _SENTINEL = object()
 
     def _create_ticket(self, anonymous_traits=_SENTINEL, **kwargs):
@@ -1421,6 +1428,20 @@ class TestImpersonationFromTicket(APIBaseTest):
         assert response.headers["Location"] == f"/support/tickets/{ticket.id}"
         assert self.client.get("/api/users/@me/").json()["email"] == self.user.email
 
+    def test_ticket_on_wrong_team_returns_404(self):
+        from posthog.models import Team
+
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        ticket = self._create_ticket(team=other_team)
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps({"ticket_id": str(ticket.id)}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 404
+
 
 @override_settings(ADMIN_PORTAL_ENABLED=True)
 @override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_KEY=None)
@@ -1443,6 +1464,13 @@ class TestGetImpersonationTicket(APIBaseTest):
 
         self.impersonate_url = reverse("impersonation-from-ticket")
         self.ticket_url = reverse("impersonation-ticket")
+
+        self._team_id_patcher = patch("ee.admin.loginas_views.POSTHOG_INTERNAL_TEAM_ID", self.team.id)
+        self._team_id_patcher.start()
+
+    def tearDown(self):
+        self._team_id_patcher.stop()
+        super().tearDown()
 
     def _create_ticket(self):
         from products.conversations.backend.models import Ticket
