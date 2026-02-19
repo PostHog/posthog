@@ -75,4 +75,27 @@ export const FEATURE_SUPPORT: Record<Feature, PlatformSupportConfig> = {
     sessionReplayMasking: {
         web: { version: '1.227.0' },
     },
+    autocapture: {
+        web: { version: '1.0.0' },
+        reactNative: { note: 'via code config' },
+        ios: { note: 'via code config' },
+    },
+    heatmaps: {
+        web: { version: '1.102.0' },
+    },
+    deadClicks: {
+        web: { version: '1.165.0' },
+    },
+    webVitals: {
+        web: { version: '1.141.2' },
+    },
+    surveys: {
+        web: { version: '1.81.1' },
+        android: { note: 'via API' },
+        ios: { note: 'via API' },
+        reactNative: { note: 'via API' },
+    },
+    logsCapture: {
+        web: { version: '1.329.0' },
+    },
 }

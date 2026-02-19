@@ -186,3 +186,27 @@ class TestSQLResultsFormatter(BaseTest):
         self.assertNotIn(TRUNCATED_MARKER, output)
         self.assertFalse(formatter.has_truncated_values)
         self.assertIn(long_string, output)
+
+    def test_no_truncation_when_max_cell_length_is_none(self):
+        query = AssistantHogQLQuery(query="SELECT properties")
+        large_dict = {"key_" + str(i): "value_" + str(i) * 50 for i in range(20)}
+        results = [{"properties": large_dict}]
+        columns = ["properties"]
+
+        formatter = SQLResultsFormatter(query, results, columns, max_cell_length=None)
+        output = formatter.format()
+
+        self.assertNotIn(TRUNCATED_MARKER, output)
+        self.assertFalse(formatter.has_truncated_values)
+        self.assertIn(str(large_dict), output)
+
+    def test_custom_max_cell_length(self):
+        query = AssistantHogQLQuery(query="SELECT data")
+        results = [{"data": {"a": "x" * 100}}]
+        columns = ["data"]
+
+        formatter = SQLResultsFormatter(query, results, columns, max_cell_length=50)
+        output = formatter.format()
+
+        self.assertIn(TRUNCATED_MARKER, output)
+        self.assertTrue(formatter.has_truncated_values)

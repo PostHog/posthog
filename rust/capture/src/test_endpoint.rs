@@ -73,7 +73,7 @@ pub async fn test_black_hole(
             let input: EventFormData = match serde_urlencoded::from_bytes(body.deref()) {
                 Ok(input) => input,
                 Err(e) => {
-                    error!("failed to decode form data: {}", e);
+                    error!("failed to decode form data: {e:#}");
                     metrics::counter!(REQUEST_OUTCOME, "outcome" => "failure", "reason" => "form_data_decoding_error").increment(1);
                     return Err(CaptureError::RequestDecodingError(String::from(
                         "missing data field",
@@ -90,7 +90,7 @@ pub async fn test_black_hole(
             {
                 Ok(payload) => payload,
                 Err(e) => {
-                    error!("failed to decode form data: {}", e);
+                    error!("failed to decode form data: {e:#}");
                     metrics::counter!(REQUEST_OUTCOME, "outcome" => "failure", "reason" => "base64_form_decode_error").increment(1);
                     return Err(CaptureError::RequestDecodingError(String::from(
                         "failed to decode base64",

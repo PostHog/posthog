@@ -23,11 +23,6 @@ export function PreAggregatedTablesSetting(): JSX.Element {
 
     return (
         <>
-            <p>
-                Choose whether to use pre-aggregated tables for Web Analytics queries. Pre-aggregated tables can
-                significantly improve query performance, but like sampling, may have slight differences in results
-                compared to querying raw event data.
-            </p>
             <AccessControlAction
                 resourceType={AccessControlResourceType.WebAnalytics}
                 minAccessLevel={AccessControlLevel.Editor}

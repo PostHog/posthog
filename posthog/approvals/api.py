@@ -30,8 +30,8 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
     scope_object = "INTERNAL"
     queryset = ChangeRequest.objects.all().order_by("-created_at")
     permission_classes = [OrganizationMemberPermissions, PremiumFeaturePermission]
+    premium_feature_on_cloud = AvailableFeature.APPROVALS
     serializer_class = ChangeRequestSerializer
-    premium_feature = AvailableFeature.APPROVALS
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         filters = self.request.query_params
@@ -55,7 +55,7 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
 
         return queryset.select_related("created_by", "applied_by").prefetch_related("approvals")
 
-    @action(methods=["POST"], detail=True, permission_classes=[CanApprove])
+    @action(methods=["POST"], detail=True, permission_classes=[PremiumFeaturePermission, CanApprove])
     def approve(self, request: Request, pk=None, **kwargs) -> Response:
         """
         Approve a change request.
@@ -90,7 +90,7 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
 
         return Response(response_data, status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=True, permission_classes=[CanApprove])
+    @action(methods=["POST"], detail=True, permission_classes=[PremiumFeaturePermission, CanApprove])
     def reject(self, request: Request, pk=None, **kwargs) -> Response:
         """Reject a change request."""
         change_request: ChangeRequest = self.get_object()
@@ -123,7 +123,7 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
             status=status.HTTP_200_OK,
         )
 
-    @action(methods=["POST"], detail=True, permission_classes=[CanCancel])
+    @action(methods=["POST"], detail=True, permission_classes=[PremiumFeaturePermission, CanCancel])
     def cancel(self, request: Request, pk=None, **kwargs) -> Response:
         """
         Cancel a change request.
@@ -160,7 +160,7 @@ class ApprovalPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = ApprovalPolicy.objects.all().order_by("-created_at")
     serializer_class = ApprovalPolicySerializer
     permission_classes = [OrganizationMemberPermissions, OrganizationAdminWritePermissions, PremiumFeaturePermission]
-    premium_feature = AvailableFeature.APPROVALS
+    premium_feature_on_cloud = AvailableFeature.APPROVALS
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         filters = self.request.query_params

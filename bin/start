@@ -102,11 +102,6 @@ if ! command -v mprocs &>/dev/null; then
     fi
 fi
 
-# Advertise intent-based dev environment
-echo ""
-echo "💡 New: 'hogli dev:setup' lets you configure which services to start"
-echo ""
-
 # Use custom config, if provided (e.g. bin/start --custom bin/mprocs-custom.yaml)
 # Ensure to provide config path after --custom flag
 if [[ "$*" == *"--custom"* ]]; then
@@ -129,12 +124,12 @@ if [[ "$*" == *"--custom"* ]]; then
     exec mprocs --config "$config_path"
 else
     GENERATED_CONFIG="$REPOSITORY_ROOT/.posthog/.generated/mprocs.yaml"
-
+    
     # Generate/regenerate config using hogli (defaults to product_analytics if no config exists)
     if command -v hogli &>/dev/null; then
         hogli dev:generate 2>/dev/null || true
     fi
-
+    
     if [[ -f "$GENERATED_CONFIG" ]]; then
         exec mprocs --config "$GENERATED_CONFIG"
     else

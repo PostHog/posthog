@@ -1,12 +1,15 @@
 {
     "name": "@posthog/products-workflows",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    },
     "dependencies": {
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
-        "posthog-js": "1.345.4",
+        "posthog-js": "catalog:",
         "use-debounce": "catalog:"
     },
     "devDependencies": {

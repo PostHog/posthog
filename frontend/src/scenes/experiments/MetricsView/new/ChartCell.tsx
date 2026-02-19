@@ -27,6 +27,11 @@ import {
 } from './constants'
 import { useAxisScale } from './useAxisScale'
 
+const CHART_CELL_HEIGHT_STYLE = {
+    height: `${CELL_HEIGHT}px`,
+    maxHeight: `${CELL_HEIGHT}px`,
+}
+
 interface ChartCellProps {
     variantResult: ExperimentVariantResult
     metric: ExperimentMetric
@@ -82,7 +87,7 @@ export function ChartCell({
             className={`p-0 align-top text-center relative overflow-hidden ${
                 isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
             } ${isLastRow ? 'border-b' : ''}`}
-            style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+            style={CHART_CELL_HEIGHT_STYLE}
         >
             <div className="relative h-full">
                 <svg

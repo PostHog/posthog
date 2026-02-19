@@ -156,6 +156,8 @@ export interface MinimalPersonApi {
     properties?: unknown
     readonly created_at: string
     readonly uuid: string
+    /** @nullable */
+    readonly last_seen_at: string | null
 }
 
 export type SessionRecordingApiExternalReferencesItem = { [key: string]: unknown }
@@ -275,30 +277,6 @@ export type SessionRecordingPlaylistsListParams = {
 }
 
 export type SessionRecordingsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type SessionRecordingPlaylistsList2Params = {
-    created_by?: number
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    short_id?: string
-}
-
-export type SessionRecordingsList2Params = {
     /**
      * Number of results to return per page.
      */

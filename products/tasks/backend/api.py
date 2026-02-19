@@ -25,20 +25,26 @@ from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.storage import object_storage
 
 from .models import Task, TaskRun
+from .repository_readiness import compute_repository_readiness
 from .serializers import (
+    ConnectionTokenResponseSerializer,
     ErrorResponseSerializer,
+    RepositoryReadinessQuerySerializer,
+    RepositoryReadinessResponseSerializer,
     TaskListQuerySerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
     TaskRunArtifactPresignResponseSerializer,
     TaskRunArtifactsUploadRequestSerializer,
     TaskRunArtifactsUploadResponseSerializer,
+    TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
     TaskRunSessionLogsQuerySerializer,
     TaskRunUpdateSerializer,
     TaskSerializer,
 )
-from .temporal.client import execute_task_processing_workflow, execute_video_segment_clustering_workflow
+from .services.connection_token import create_sandbox_connection_token
+from .temporal.client import execute_task_processing_workflow
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +69,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "partial_update",
             "destroy",
             "run",
-            "cluster_video_segments",
+            "repository_readiness",
         ]
     }
 
@@ -77,6 +83,30 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
+
+    @validated_request(
+        query_serializer=RepositoryReadinessQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=RepositoryReadinessResponseSerializer, description="Repository readiness status"
+            ),
+        },
+        summary="Get repository readiness",
+        description="Get autonomy readiness details for a specific repository in the current project.",
+    )
+    @action(detail=False, methods=["get"], url_path="repository_readiness", required_scopes=["task:read"])
+    def repository_readiness(self, request, **kwargs):
+        repository = request.validated_query_data["repository"]
+        window_days = request.validated_query_data["window_days"]
+        refresh = request.validated_query_data["refresh"]
+
+        result = compute_repository_readiness(
+            team=self.team,
+            repository=repository,
+            window_days=window_days,
+            refresh=refresh,
+        )
+        return Response(result)
 
     def safely_get_queryset(self, queryset):
         qs = queryset.filter(team=self.team, deleted=False).order_by("-created_at")
@@ -152,7 +182,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(TaskSerializer(task).data)
 
     @validated_request(
-        request_serializer=None,
+        request_serializer=TaskRunCreateRequestSerializer,
         responses={
             200: OpenApiResponse(response=TaskSerializer, description="Task with updated latest run"),
             404: OpenApiResponse(description="Task not found"),
@@ -163,10 +193,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
         task = cast(Task, self.get_object())
+        mode = request.validated_data.get("mode", "background")
 
-        logger.info(f"Creating task run for task {task.id}")
+        logger.info(f"Creating task run for task {task.id} with mode={mode}")
 
-        task_run = task.create_run()
+        task_run = task.create_run(mode=mode)
 
         logger.info(f"Triggering workflow for task {task.id}, run {task_run.id}")
 
@@ -175,58 +206,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task.refresh_from_db()
 
         return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
-
-    @validated_request(
-        request_serializer=None,
-        responses={
-            200: OpenApiResponse(description="Clustering workflow completed"),
-            500: OpenApiResponse(description="Clustering workflow failed"),
-        },
-        summary="Run video segment clustering",
-        description="Run the video segment clustering workflow for this team. DEBUG only. Blocks until workflow completes.",
-    )
-    @action(detail=False, methods=["post"], url_path="cluster_video_segments", required_scopes=["task:write"])
-    def cluster_video_segments(self, request, **kwargs):
-        """Run video segment clustering workflow for the current team.
-
-        This is a DEBUG endpoint for manually triggering the clustering workflow.
-        Blocks until the workflow completes and returns the result.
-        """
-        from django.conf import settings
-
-        if not settings.DEBUG:
-            return Response(
-                {"error": "This endpoint is only available in DEBUG mode"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        try:
-            # Use 7 days lookback for manual debug runs (vs watermark-based for scheduled runs)
-            lookback_hours = 7 * 24  # 7 days
-            result = execute_video_segment_clustering_workflow(team_id=self.team.id, lookback_hours=lookback_hours)
-
-            response_status = status.HTTP_200_OK if result.get("success") else status.HTTP_500_INTERNAL_SERVER_ERROR
-
-            return Response(
-                {
-                    "workflow_id": result["workflow_id"],
-                    "lookback_hours": lookback_hours,
-                    "success": result.get("success"),
-                    "error": result.get("error"),
-                    "segments_processed": result.get("segments_processed"),
-                    "clusters_found": result.get("clusters_found"),
-                    "reports_created": result.get("reports_created"),
-                    "reports_updated": result.get("reports_updated"),
-                    "artefacts_created": result.get("artefacts_created"),
-                },
-                status=response_status,
-            )
-        except Exception:
-            logger.exception(f"Failed to run video segment clustering workflow for team {self.team.id}")
-            return Response(
-                {"error": "Failed to run video segment clustering workflow"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
 
 
 @extend_schema(tags=["task-runs"])
@@ -301,22 +280,49 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def partial_update(self, request, *args, **kwargs):
         task_run = cast(TaskRun, self.get_object())
+        old_status = task_run.status
 
         # Update fields from validated data
         for key, value in request.validated_data.items():
             setattr(task_run, key, value)
 
+        new_status = request.validated_data.get("status")
+        terminal_statuses = [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED]
+
         # Auto-set completed_at if status is completed or failed
-        if "status" in request.validated_data and request.validated_data["status"] in [
-            TaskRun.Status.COMPLETED,
-            TaskRun.Status.FAILED,
-        ]:
+        if new_status in terminal_statuses:
             if not task_run.completed_at:
                 task_run.completed_at = timezone.now()
+
+            # Signal Temporal workflow if status changed to terminal state
+            if old_status != new_status:
+                self._signal_workflow_completion(
+                    task_run,
+                    new_status,
+                    request.validated_data.get("error_message"),
+                )
 
         task_run.save()
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
+
+    def _signal_workflow_completion(self, task_run: TaskRun, status: str, error_message: str | None) -> None:
+        """Send completion signal to Temporal workflow."""
+        from posthog.temporal.common.client import sync_connect
+
+        from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
+
+        try:
+            client = sync_connect()
+            workflow_id = f"task-processing-{task_run.task_id}-{task_run.id}"
+            handle = client.get_workflow_handle(workflow_id)
+
+            import asyncio
+
+            asyncio.run(handle.signal(ProcessTaskWorkflow.complete_task, args=[status, error_message]))
+            logger.info(f"Signaled workflow completion for task run {task_run.id} with status {status}")
+        except Exception as e:
+            logger.warning(f"Failed to signal workflow completion for task run {task_run.id}: {e}")
 
     def safely_get_queryset(self, queryset):
         # Task runs are always scoped to a specific task
@@ -511,7 +517,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = TaskRunArtifactPresignResponseSerializer({"url": url, "expires_in": expires_in})
         return Response(serializer.data)
 
-    @validated_request(
+    @extend_schema(
         responses={
             200: OpenApiResponse(description="Log content in JSONL format"),
             404: OpenApiResponse(description="Task run not found"),
@@ -531,6 +537,30 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         response["Cache-Control"] = "no-cache"
         response["Server-Timing"] = timer.to_header_string()
         return response
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(
+                response=ConnectionTokenResponseSerializer,
+                description="Connection token for direct sandbox connection",
+            ),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Get sandbox connection token",
+        description="Generate a JWT token for direct connection to the sandbox. Valid for 24 hours.",
+    )
+    @action(detail=True, methods=["get"], url_path="connection_token", required_scopes=["task:read"])
+    def connection_token(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+        user = request.user
+
+        token = create_sandbox_connection_token(
+            task_run=task_run,
+            user_id=user.id,
+            distinct_id=user.distinct_id,
+        )
+
+        return Response(ConnectionTokenResponseSerializer({"token": token}).data)
 
     @validated_request(
         query_serializer=TaskRunSessionLogsQuerySerializer,
