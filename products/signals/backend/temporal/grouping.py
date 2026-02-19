@@ -407,11 +407,9 @@ You will receive:
 1. A new signal with its description and source information
 2. Results from multiple search queries, each containing candidate signals with their IDs, descriptions, sources, and cosine distances
 
-IMPORTANT: The "reason" field MUST be the first key in your JSON response. Write your reasoning BEFORE making the match decision.
-
 If a candidate signal from ANY query is related to the new signal, respond with:
 {
-  "reason": "<one sentence explaining the specific relationship between the new signal and the matched signal — what root cause, feature, or user journey connects them>",
+  "reason": "<Brief, less than 100 character sentence explaining the specific relationship between the new signal and the matched signal — what root cause, feature, or user journey connects them>",
   "match_type": "existing",
   "signal_id": "<the signal_id of the matching candidate>",
   "query_index": <0-based index of the query that surfaced this candidate>
@@ -419,11 +417,13 @@ If a candidate signal from ANY query is related to the new signal, respond with:
 
 If no candidate is related (or all queries returned no results), respond with:
 {
-  "reason": "<one sentence explaining why none of the candidates are related>",
+  "reason": "<Brief, less than 100 character sentence explaining why none of the candidates are related>",
   "match_type": "new",
   "title": "<short title for a new report>",
   "summary": "<1-2 sentence summary of what this signal group is about>"
 }
+
+IMPORTANT: The "reason" field MUST be the first key in your JSON response. Write your reasoning BEFORE making the match decision.
 
 You must respond with valid JSON only, no other text."""
 
