@@ -16,7 +16,7 @@ import {
 } from 'react'
 import { TextMorph } from 'torph/react'
 
-import { IconSearch, IconX } from '@posthog/icons'
+import { IconInfo, IconSearch, IconX } from '@posthog/icons'
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 import { LemonSwitch } from '@posthog/lemon-ui'
 
@@ -552,11 +552,23 @@ function SearchStatus(): JSX.Element {
         <Autocomplete.Status className="px-3 pt-1 pb-2 text-xs text-muted flex items-center">
             <span>{statusMessage}</span>
             {showSearchDebug && (
-                <span className="ml-auto flex items-center gap-2 text-xs text-muted">
+                <span className="ml-auto flex items-center gap-2 text-xs text-muted border border-dashed border-[#0cb762] rounded group">
                     <LemonSwitch checked={includeCounts} onChange={toggleIncludeCounts} label="Counts" size="small" />
                     <span>
                         elapsed: {searchElapsedMs.toFixed(2)}ms, found: {searchResultCount} items
                     </span>
+                    <ButtonPrimitive
+                        iconOnly
+                        size="sm"
+                        tooltip={
+                            <>
+                                Posthog ONLY: This is a flagged feature that shows the search debug information as we
+                                optimize search.
+                            </>
+                        }
+                    >
+                        <IconInfo className="size-4 text-tertiary group-hover:text-primary" />
+                    </ButtonPrimitive>
                 </span>
             )}
         </Autocomplete.Status>
