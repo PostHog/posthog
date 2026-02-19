@@ -150,9 +150,9 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
                     text="Sorry, I couldn't find your email address in Slack. Please make sure your email is visible in your Slack profile.",
                 )
                 return
-            if get_instance_region() == "DEV":
+            if get_instance_region() == "DEV" and not slack_email.endswith("@posthog.com"):
                 # In dev deployment, always go to the test account - this is to let the Slack folks test on the test account
-                slack_email = "michael+slacktest@posthog.com"
+                slack_email = "twixes3d+slacktest@gmail.com"
             # Find PostHog user by email
             membership = (
                 OrganizationMembership.objects.filter(
