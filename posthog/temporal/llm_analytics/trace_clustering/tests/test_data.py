@@ -10,6 +10,7 @@ from parameterized import parameterized
 from posthog.temporal.llm_analytics.trace_clustering.data import (
     AI_EVENT_TYPES,
     fetch_eligible_trace_ids,
+    fetch_generation_ids_for_traces,
     fetch_item_embeddings_for_clustering,
     fetch_item_summaries,
 )
@@ -35,7 +36,7 @@ class TestFetchEligibleTraceIds:
             team=mock_team,
             window_start=datetime(2025, 1, 1, tzinfo=UTC),
             window_end=datetime(2025, 1, 8, tzinfo=UTC),
-            trace_filters=[],
+            event_filters=[],
             max_samples=100,
         )
 
@@ -47,7 +48,7 @@ class TestFetchEligibleTraceIds:
         mock_result.results = [("trace_1",), ("trace_2",), ("trace_3",)]
         mock_execute.return_value = mock_result
 
-        trace_filters = [
+        event_filters = [
             {"key": "$ai_model", "value": "gpt-4", "operator": "exact"},
         ]
 
@@ -55,7 +56,7 @@ class TestFetchEligibleTraceIds:
             team=mock_team,
             window_start=datetime(2025, 1, 1, tzinfo=UTC),
             window_end=datetime(2025, 1, 8, tzinfo=UTC),
-            trace_filters=trace_filters,
+            event_filters=event_filters,
             max_samples=100,
         )
 
@@ -71,7 +72,7 @@ class TestFetchEligibleTraceIds:
         mock_result.results = [("trace_1",)]
         mock_execute.return_value = mock_result
 
-        trace_filters = [
+        event_filters = [
             {"key": "$ai_model", "value": "gpt-4", "operator": "exact"},
             {"key": "environment", "value": "production", "operator": "exact"},
         ]
@@ -80,7 +81,7 @@ class TestFetchEligibleTraceIds:
             team=mock_team,
             window_start=datetime(2025, 1, 1, tzinfo=UTC),
             window_end=datetime(2025, 1, 8, tzinfo=UTC),
-            trace_filters=trace_filters,
+            event_filters=event_filters,
             max_samples=100,
         )
 
@@ -92,14 +93,59 @@ class TestFetchEligibleTraceIds:
         mock_result.results = []
         mock_execute.return_value = mock_result
 
-        trace_filters = [{"key": "$ai_model", "value": "nonexistent", "operator": "exact"}]
+        event_filters = [{"key": "$ai_model", "value": "nonexistent", "operator": "exact"}]
 
         result = fetch_eligible_trace_ids(
             team=mock_team,
             window_start=datetime(2025, 1, 1, tzinfo=UTC),
             window_end=datetime(2025, 1, 8, tzinfo=UTC),
-            trace_filters=trace_filters,
+            event_filters=event_filters,
             max_samples=100,
+        )
+
+        assert result == []
+
+
+class TestFetchGenerationIdsForTraces:
+    def test_returns_empty_list_when_no_trace_ids(self, mock_team):
+        result = fetch_generation_ids_for_traces(
+            team=mock_team,
+            trace_ids=[],
+            window_start=datetime(2025, 1, 1, tzinfo=UTC),
+            window_end=datetime(2025, 1, 8, tzinfo=UTC),
+        )
+
+        assert result == []
+
+    @patch("posthog.temporal.llm_analytics.trace_clustering.data.execute_hogql_query")
+    def test_maps_trace_ids_to_generation_ids(self, mock_execute, mock_team):
+        mock_result = MagicMock()
+        mock_result.results = [("gen_1",), ("gen_2",), ("gen_3",)]
+        mock_execute.return_value = mock_result
+
+        result = fetch_generation_ids_for_traces(
+            team=mock_team,
+            trace_ids=["trace_1", "trace_2"],
+            window_start=datetime(2025, 1, 1, tzinfo=UTC),
+            window_end=datetime(2025, 1, 8, tzinfo=UTC),
+        )
+
+        assert result == ["gen_1", "gen_2", "gen_3"]
+        mock_execute.assert_called_once()
+        call_kwargs = mock_execute.call_args.kwargs
+        assert call_kwargs["query_type"] == "GenerationIdsForTraces"
+
+    @patch("posthog.temporal.llm_analytics.trace_clustering.data.execute_hogql_query")
+    def test_handles_empty_results(self, mock_execute, mock_team):
+        mock_result = MagicMock()
+        mock_result.results = []
+        mock_execute.return_value = mock_result
+
+        result = fetch_generation_ids_for_traces(
+            team=mock_team,
+            trace_ids=["trace_1"],
+            window_start=datetime(2025, 1, 1, tzinfo=UTC),
+            window_end=datetime(2025, 1, 8, tzinfo=UTC),
         )
 
         assert result == []
@@ -154,7 +200,7 @@ class TestFetchItemEmbeddingsForClustering:
 
     @patch("posthog.temporal.llm_analytics.trace_clustering.data.fetch_eligible_trace_ids")
     @patch("posthog.temporal.llm_analytics.trace_clustering.data.execute_hogql_query")
-    def test_with_trace_filters_fetches_eligible_ids_first(self, mock_execute, mock_fetch_eligible, mock_team):
+    def test_with_event_filters_fetches_eligible_ids_first(self, mock_execute, mock_fetch_eligible, mock_team):
         mock_fetch_eligible.return_value = ["trace_1", "trace_2"]
         mock_result = MagicMock()
         mock_result.results = [
@@ -162,14 +208,14 @@ class TestFetchItemEmbeddingsForClustering:
         ]
         mock_execute.return_value = mock_result
 
-        trace_filters = [{"key": "$ai_model", "value": "gpt-4", "operator": "exact"}]
+        event_filters = [{"key": "$ai_model", "value": "gpt-4", "operator": "exact"}]
 
         trace_ids, embeddings_map, batch_run_ids = fetch_item_embeddings_for_clustering(
             team=mock_team,
             window_start=datetime(2025, 1, 1, tzinfo=UTC),
             window_end=datetime(2025, 1, 8, tzinfo=UTC),
             max_samples=100,
-            trace_filters=trace_filters,
+            event_filters=event_filters,
         )
 
         mock_fetch_eligible.assert_called_once()
@@ -179,17 +225,75 @@ class TestFetchItemEmbeddingsForClustering:
     def test_with_filters_returns_empty_when_no_eligible_traces(self, mock_fetch_eligible, mock_team):
         mock_fetch_eligible.return_value = []
 
-        trace_filters = [{"key": "$ai_model", "value": "nonexistent", "operator": "exact"}]
+        event_filters = [{"key": "$ai_model", "value": "nonexistent", "operator": "exact"}]
 
         trace_ids, embeddings_map, batch_run_ids = fetch_item_embeddings_for_clustering(
             team=mock_team,
             window_start=datetime(2025, 1, 1, tzinfo=UTC),
             window_end=datetime(2025, 1, 8, tzinfo=UTC),
             max_samples=100,
-            trace_filters=trace_filters,
+            event_filters=event_filters,
         )
 
         assert trace_ids == []
+        assert embeddings_map == {}
+        assert batch_run_ids == {}
+
+    @patch("posthog.temporal.llm_analytics.trace_clustering.data.fetch_generation_ids_for_traces")
+    @patch("posthog.temporal.llm_analytics.trace_clustering.data.fetch_eligible_trace_ids")
+    @patch("posthog.temporal.llm_analytics.trace_clustering.data.execute_hogql_query")
+    def test_generation_level_with_filters_maps_trace_ids_to_generation_ids(
+        self, mock_execute, mock_fetch_eligible, mock_fetch_gen_ids, mock_team
+    ):
+        mock_fetch_eligible.return_value = ["trace_1", "trace_2"]
+        mock_fetch_gen_ids.return_value = ["gen_1", "gen_2", "gen_3"]
+        mock_result = MagicMock()
+        mock_result.results = [
+            ("gen_1", [0.1, 0.2], "batch_123"),
+            ("gen_2", [0.3, 0.4], "batch_123"),
+        ]
+        mock_execute.return_value = mock_result
+
+        event_filters = [{"key": "ai_product", "value": "posthog_ai", "operator": "exact"}]
+
+        item_ids, embeddings_map, batch_run_ids = fetch_item_embeddings_for_clustering(
+            team=mock_team,
+            window_start=datetime(2025, 1, 1, tzinfo=UTC),
+            window_end=datetime(2025, 1, 8, tzinfo=UTC),
+            max_samples=100,
+            analysis_level="generation",
+            event_filters=event_filters,
+        )
+
+        mock_fetch_eligible.assert_called_once()
+        mock_fetch_gen_ids.assert_called_once_with(
+            team=mock_team,
+            trace_ids=["trace_1", "trace_2"],
+            window_start=datetime(2025, 1, 1, tzinfo=UTC),
+            window_end=datetime(2025, 1, 8, tzinfo=UTC),
+        )
+        assert item_ids == ["gen_1", "gen_2"]
+
+    @patch("posthog.temporal.llm_analytics.trace_clustering.data.fetch_generation_ids_for_traces")
+    @patch("posthog.temporal.llm_analytics.trace_clustering.data.fetch_eligible_trace_ids")
+    def test_generation_level_with_filters_returns_empty_when_no_generation_ids(
+        self, mock_fetch_eligible, mock_fetch_gen_ids, mock_team
+    ):
+        mock_fetch_eligible.return_value = ["trace_1"]
+        mock_fetch_gen_ids.return_value = []
+
+        event_filters = [{"key": "ai_product", "value": "posthog_ai", "operator": "exact"}]
+
+        item_ids, embeddings_map, batch_run_ids = fetch_item_embeddings_for_clustering(
+            team=mock_team,
+            window_start=datetime(2025, 1, 1, tzinfo=UTC),
+            window_end=datetime(2025, 1, 8, tzinfo=UTC),
+            max_samples=100,
+            analysis_level="generation",
+            event_filters=event_filters,
+        )
+
+        assert item_ids == []
         assert embeddings_map == {}
         assert batch_run_ids == {}
 

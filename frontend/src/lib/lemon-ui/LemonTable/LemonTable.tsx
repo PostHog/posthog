@@ -365,6 +365,7 @@ export function LemonTable<T extends Record<string, any>>({
 
                                                                           // Check if the click happened on the checkbox input, label, or its specific SVG (LemonCheckbox__box)
                                                                           if (
+                                                                              target.closest('.LemonCheckbox') ||
                                                                               target.classList.contains(
                                                                                   'LemonCheckbox__box'
                                                                               ) ||

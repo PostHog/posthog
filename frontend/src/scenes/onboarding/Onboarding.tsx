@@ -5,6 +5,7 @@ import { LemonBanner, Spinner } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { ProductSelection } from 'scenes/onboarding/productSelection/ProductSelection'
@@ -20,6 +21,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, type SessionRecordingMaskingLevel, TeamPublicType, TeamType } from '~/types'
 
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
+import { OnboardingMax } from './OnboardingMax'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { OnboardingReverseProxy } from './OnboardingReverseProxy'
 import { OnboardingSessionReplayConfiguration } from './OnboardingSessionReplayConfiguration'
@@ -33,8 +35,14 @@ import { OnboardingInstallStep } from './sdks/OnboardingInstallStep'
 import { ErrorTrackingSDKInstructions } from './sdks/error-tracking/ErrorTrackingSDKInstructions'
 import { ExperimentsSDKInstructions } from './sdks/experiments/ExperimentsSDKInstructions'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
-import { LLMAnalyticsSDKInstructions } from './sdks/llm-analytics/LLMAnalyticsSDKInstructions'
-import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
+import {
+    LLMAnalyticsSDKInstructions,
+    LLMAnalyticsSDKTagOverrides,
+} from './sdks/llm-analytics/LLMAnalyticsSDKInstructions'
+import {
+    ProductAnalyticsSDKInstructions,
+    ProductAnalyticsSDKTagOverrides,
+} from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
 import { SurveysSDKInstructions } from './sdks/surveys/SurveysSDKInstructions'
 import { OnboardingWebAnalyticsAuthorizedDomainsStep } from './web-analytics/OnboardingWebAnalyticsAuthorizedDomainsStep'
@@ -203,7 +211,10 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
 
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep sdkInstructionMap={ProductAnalyticsSDKInstructions} />
+            <OnboardingInstallStep
+                sdkInstructionMap={ProductAnalyticsSDKInstructions}
+                sdkTagOverrides={ProductAnalyticsSDKTagOverrides}
+            />
             <OnboardingProductConfiguration options={filteredOptions} />
 
             <OnboardingSessionReplayConfiguration />
@@ -390,7 +401,11 @@ const ErrorTrackingOnboarding = (): JSX.Element => {
 const LLMAnalyticsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep sdkInstructionMap={LLMAnalyticsSDKInstructions} listeningForName="LLM generation" />
+            <OnboardingInstallStep
+                sdkInstructionMap={LLMAnalyticsSDKInstructions}
+                sdkTagOverrides={LLMAnalyticsSDKTagOverrides}
+                listeningForName="LLM generation"
+            />
         </OnboardingWrapper>
     )
 }
@@ -402,6 +417,7 @@ const WorkflowsOnboarding = (): JSX.Element => {
             {/* Show Product Analytics instructions by default to allow events from any source but display warning showing it's not neccessary */}
             <OnboardingInstallStep
                 sdkInstructionMap={ProductAnalyticsSDKInstructions}
+                sdkTagOverrides={ProductAnalyticsSDKTagOverrides}
                 header={
                     <LemonBanner type="warning" className="mb-4">
                         Setting up events is <strong>not</strong> necessary for workflows but it means you'll be able to
@@ -429,9 +445,14 @@ export const onboardingViews = {
 
 export function Onboarding(): JSX.Element | null {
     const { product, productKey } = useValues(onboardingLogic)
+    const isAIChatOnboarding = useFeatureFlag('ONBOARDING_AI_PRODUCT_RECOMMENDATIONS', 'chat')
 
-    // Show product selection when no product is selected
+    // Show AI chat for product discovery if 'chat' variant is enabled and no product selected yet
+    // Once a product is selected, fall through to the normal onboarding steps
     if (!productKey) {
+        if (isAIChatOnboarding) {
+            return <OnboardingMax />
+        }
         return <ProductSelection />
     }
 

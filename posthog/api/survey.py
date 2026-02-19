@@ -412,6 +412,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             except FeatureFlag.DoesNotExist:
                 raise serializers.ValidationError("Feature Flag with this ID does not exist")
 
+        targeting_flag_id = data.get("targeting_flag_id")
+        if targeting_flag_id:
+            try:
+                FeatureFlag.objects.get(pk=targeting_flag_id, team_id=self.context["team_id"])
+            except FeatureFlag.DoesNotExist:
+                raise serializers.ValidationError("Targeting Feature Flag with this ID does not exist")
+
         # Validate linkedFlagVariant if provided
         conditions = data.get("conditions") or {}
         linked_flag_variant = conditions.get("linkedFlagVariant")
@@ -2070,6 +2077,7 @@ def public_survey_page(request, survey_id: str):
 
     # Database query with minimal fields and timeout protection
     try:
+        # nosemgrep: idor-lookup-without-team (public survey page, intentionally unauthenticated)
         survey = Survey.objects.select_related("team").get(id=survey_id)
     except Survey.DoesNotExist:
         logger.info("survey_page_not_found", survey_id=survey_id)

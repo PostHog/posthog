@@ -76,8 +76,21 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                         return await api.externalDataSources.jobs(values.sourceId, null, null)
                     }
 
-                    const newJobs = await api.externalDataSources.jobs(values.sourceId, null, values.jobs[0].created_at)
-                    return [...newJobs, ...values.jobs]
+                    // Re-fetch recent jobs without an `after` filter to get updated statuses.
+                    // The API returns up to 50 jobs sorted by created_at desc, so this
+                    // will refresh the status of recent jobs (e.g. Running -> Completed).
+                    const freshJobs = await api.externalDataSources.jobs(values.sourceId, null, null)
+
+                    // Merge fresh jobs with existing jobs, preferring the fresh data
+                    const jobsById = new Map(values.jobs.map((job) => [job.id, job]))
+                    for (const job of freshJobs) {
+                        jobsById.set(job.id, job)
+                    }
+
+                    // Sort by created_at descending (newest first)
+                    return Array.from(jobsById.values()).sort(
+                        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                    )
                 },
                 loadMoreJobs: async () => {
                     const hasJobs = values.jobs.length >= 0

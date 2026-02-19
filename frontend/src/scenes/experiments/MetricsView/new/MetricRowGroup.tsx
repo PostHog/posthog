@@ -19,6 +19,7 @@ import {
     ExperimentStatsBaseValidated,
     NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { Experiment, InsightType } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'
@@ -36,7 +37,6 @@ import {
     getDelta,
     getMetricSubtitleValues,
     getNiceTickValues,
-    hasValidationFailures,
     isBayesianResult,
     isDeltaPositive,
     isSignificant,
@@ -97,6 +97,8 @@ interface CollapsibleBreakdownSectionProps {
     colors: ReturnType<typeof useChartColors>
     scale: ReturnType<typeof useAxisScale>
     onRemoveBreakdown: (index: number) => void
+    onRetry: () => void
+    query?: Record<string, any>
     handleTooltipMouseEnter: (e: React.MouseEvent, variantResult: ExperimentVariantResult) => void
     handleTooltipMouseLeave: () => void
     handleTooltipMouseMove: (e: React.MouseEvent, variantResult: ExperimentVariantResult) => void
@@ -113,6 +115,8 @@ function CollapsibleBreakdownSection({
     colors,
     scale,
     onRemoveBreakdown,
+    onRetry,
+    query,
     handleTooltipMouseEnter,
     handleTooltipMouseLeave,
     handleTooltipMouseMove,
@@ -215,6 +219,8 @@ function CollapsibleBreakdownSection({
                                                                         height={CELL_HEIGHT}
                                                                         experimentStarted={!!experiment.start_date}
                                                                         metric={metric}
+                                                                        query={query}
+                                                                        onRetry={onRetry}
                                                                     />
                                                                 )}
                                                             </td>
@@ -488,6 +494,7 @@ interface MetricRowGroupProps {
     result: NewExperimentQueryResponse | null
     experiment: Experiment
     metricType: InsightType
+    metricIndex: number
     displayOrder: number
     axisRange: number
     isSecondary: boolean
@@ -498,7 +505,6 @@ interface MetricRowGroupProps {
     onRemoveBreakdown: (index: number) => void
     error?: any
     isLoading?: boolean
-    hasMinimumExposureForResults?: boolean
     exposuresLoading?: boolean
     showDetailsModal: boolean
 }
@@ -508,6 +514,7 @@ export function MetricRowGroup({
     result,
     experiment,
     metricType,
+    metricIndex,
     displayOrder,
     axisRange,
     isSecondary,
@@ -518,7 +525,6 @@ export function MetricRowGroup({
     onRemoveBreakdown,
     error,
     isLoading,
-    hasMinimumExposureForResults = true,
     exposuresLoading = false,
     showDetailsModal,
 }: MetricRowGroupProps): JSX.Element {
@@ -545,7 +551,25 @@ export function MetricRowGroup({
     const colors = useChartColors()
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
-    const { reportExperimentTimeseriesViewed } = useActions(experimentLogic)
+    const { reportExperimentTimeseriesViewed, retryPrimaryMetric, retrySecondaryMetric } = useActions(experimentLogic)
+
+    // Build retry callback for this metric
+    const handleRetry = (): void => {
+        if (isSecondary) {
+            retrySecondaryMetric(metricIndex)
+        } else {
+            retryPrimaryMetric(metricIndex)
+        }
+    }
+
+    // Build query for debugger link
+    const debugQuery = metric
+        ? {
+              kind: NodeKind.ExperimentQuery,
+              metric: metric,
+              experiment_id: experiment.id,
+          }
+        : undefined
 
     const timeseriesEnabled = experiment.scheduling_config?.timeseries
 
@@ -642,26 +666,32 @@ export function MetricRowGroup({
         })
     }
 
-    // Handle loading, API errors, or missing result
-    // Note: If result has validation_failures but no API error, we'll show the data with inline warnings
-    const hasResultWithValidationFailures = result && hasValidationFailures(result)
+    if (isLoading || error || !result) {
+        const hasError = !!error
 
-    if (isLoading || error || !result || (!hasMinimumExposureForResults && !hasResultWithValidationFailures)) {
         return (
             <>
                 <tr
                     className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
-                    style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+                    style={
+                        hasError
+                            ? { minHeight: `${CELL_HEIGHT}px` }
+                            : { height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }
+                    }
                 >
                     {/* Metric column - always visible */}
                     <td
                         className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${
                             !isLastMetric ? 'border-b' : ''
                         } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
-                        style={{
-                            height: `${CELL_HEIGHT}px`,
-                            maxHeight: `${CELL_HEIGHT}px`,
-                        }}
+                        style={
+                            hasError
+                                ? { minHeight: `${CELL_HEIGHT}px` }
+                                : {
+                                      height: `${CELL_HEIGHT}px`,
+                                      maxHeight: `${CELL_HEIGHT}px`,
+                                  }
+                        }
                     >
                         <MetricHeader
                             displayOrder={displayOrder}
@@ -680,7 +710,11 @@ export function MetricRowGroup({
                         className={`p-3 text-center ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
                             !isLastMetric ? 'border-b' : ''
                         }`}
-                        style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+                        style={
+                            hasError
+                                ? { minHeight: `${CELL_HEIGHT}px` }
+                                : { height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }
+                        }
                     >
                         {isLoading || exposuresLoading ? (
                             <ChartLoadingState height={CELL_HEIGHT} />
@@ -690,6 +724,8 @@ export function MetricRowGroup({
                                 experimentStarted={!!experiment.start_date}
                                 metric={metric}
                                 error={error}
+                                query={debugQuery}
+                                onRetry={handleRetry}
                             />
                         )}
                     </td>
@@ -990,6 +1026,8 @@ export function MetricRowGroup({
                     colors={colors}
                     scale={scale}
                     onRemoveBreakdown={onRemoveBreakdown}
+                    onRetry={handleRetry}
+                    query={debugQuery}
                     handleTooltipMouseEnter={handleTooltipMouseEnter}
                     handleTooltipMouseLeave={handleTooltipMouseLeave}
                     handleTooltipMouseMove={handleTooltipMouseMove}

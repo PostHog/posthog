@@ -1181,8 +1181,9 @@ class SnowflakeConsumer(Consumer):
         self,
         snowflake_client: SnowflakeClient,
         snowflake_table: SnowflakeTable,
+        model: str = "events",
     ):
-        super().__init__()
+        super().__init__(model=model)
 
         self.snowflake_client = snowflake_client
         self.snowflake_table = snowflake_table
@@ -1375,6 +1376,7 @@ async def insert_into_snowflake_activity_from_stage(
                 consumer = SnowflakeConsumer(
                     snowflake_client=snow_client,
                     snowflake_table=snow_consumer_table,
+                    model=model.name if isinstance(model, BatchExportModel) else "events",
                 )
 
                 transformer = PipelineTransformer(

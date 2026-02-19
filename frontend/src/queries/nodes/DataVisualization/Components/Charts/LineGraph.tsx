@@ -138,7 +138,7 @@ export const LineGraph = ({
         if (!isShiftPressed) {
             setHoveredDatasetIndex(null)
         }
-    }, [isShiftPressed])
+    }, [isShiftPressed, setHoveredDatasetIndex])
 
     const isBarChart =
         visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar
@@ -441,9 +441,11 @@ export const LineGraph = ({
                                         return acc
                                     }, 0)
 
+                                    const firstSeriesSettings = tooltipTotalData[0]?.settings
+
                                     tooltipData.push({
                                         series: '',
-                                        data: totalRawData.toLocaleString(),
+                                        data: formatDataWithSettings(totalRawData, firstSeriesSettings),
                                         rawData: totalRawData,
                                         dataIndex: referenceDataPoint.dataIndex,
                                         isTotalRow: true,

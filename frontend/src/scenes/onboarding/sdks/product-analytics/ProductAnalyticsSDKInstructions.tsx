@@ -32,6 +32,7 @@ import {
     RemixInstallation,
     RetoolInstallation,
     RubyInstallation,
+    RubyOnRailsInstallation,
     RudderstackInstallation,
     SegmentInstallation,
     SentryInstallation,
@@ -45,7 +46,7 @@ import {
     ZapierInstallation,
 } from '@posthog/shared-onboarding/product-analytics'
 
-import { SDKInstructionsMap, SDKKey } from '~/types'
+import { SDKInstructionsMap, SDKKey, SDKTag, SDKTagOverrides } from '~/types'
 
 import { withMobileReplay, withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
@@ -174,6 +175,9 @@ const ProductAnalyticsGoInstructionsWrapper = withOnboardingDocsWrapper({ Instal
 const ProductAnalyticsPHPInstructionsWrapper = withOnboardingDocsWrapper({ Installation: PHPInstallation })
 const ProductAnalyticsLaravelInstructionsWrapper = withOnboardingDocsWrapper({ Installation: LaravelInstallation })
 const ProductAnalyticsRubyInstructionsWrapper = withOnboardingDocsWrapper({ Installation: RubyInstallation })
+const ProductAnalyticsRubyOnRailsInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: RubyOnRailsInstallation,
+})
 const ProductAnalyticsElixirInstructionsWrapper = withOnboardingDocsWrapper({ Installation: ElixirInstallation })
 
 // API
@@ -196,6 +200,10 @@ const ProductAnalyticsMoEngageInstructionsWrapper = withOnboardingDocsWrapper({ 
 const ProductAnalyticsHeliconeInstructionsWrapper = withOnboardingDocsWrapper({ Installation: HeliconeInstallation })
 const ProductAnalyticsLangfuseInstructionsWrapper = withOnboardingDocsWrapper({ Installation: LangfuseInstallation })
 const ProductAnalyticsTraceloopInstructionsWrapper = withOnboardingDocsWrapper({ Installation: TraceloopInstallation })
+
+export const ProductAnalyticsSDKTagOverrides: SDKTagOverrides = {
+    [SDKKey.HELICONE]: [SDKTag.LLM],
+}
 
 export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: ProductAnalyticsJSWebInstructionsWrapper,
@@ -228,6 +236,7 @@ export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.REMIX]: ProductAnalyticsRemixJSInstructionsWrapper,
     [SDKKey.RETOOL]: ProductAnalyticsRetoolInstructionsWrapper,
     [SDKKey.RUBY]: ProductAnalyticsRubyInstructionsWrapper,
+    [SDKKey.RUBY_ON_RAILS]: ProductAnalyticsRubyOnRailsInstructionsWrapper,
     [SDKKey.RUDDERSTACK]: ProductAnalyticsRudderstackInstructionsWrapper,
     [SDKKey.SEGMENT]: ProductAnalyticsSegmentInstructionsWrapper,
     [SDKKey.SENTRY]: ProductAnalyticsSentryInstructionsWrapper,

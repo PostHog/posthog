@@ -1,0 +1,409 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`Session Recording Consumer Integration end-to-end message processing click and keypress events 1`] = `
+{
+  "outcome": "written",
+  "sessionCount": 1,
+  "sessions": [
+    {
+      "blockUrlCount": 1,
+      "clickCount": 3,
+      "consoleErrorCount": 0,
+      "consoleLogCount": 0,
+      "consoleWarnCount": 0,
+      "eventCount": 6,
+      "events": [
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 4,
+          "windowId": "window-1",
+        },
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 3,
+          "windowId": "window-1",
+        },
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 3,
+          "windowId": "window-1",
+        },
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 3,
+          "windowId": "window-1",
+        },
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 3,
+          "windowId": "window-1",
+        },
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 3,
+          "windowId": "window-1",
+        },
+      ],
+      "hasDistinctId": true,
+      "hasFirstUrl": true,
+      "hasSessionId": true,
+      "keypressCount": 2,
+      "mouseActivityCount": 3,
+      "urlCount": 1,
+      "windowIds": [
+        "window-1",
+      ],
+    },
+  ],
+}
+`;
+
+exports[`Session Recording Consumer Integration end-to-end message processing console log events 1`] = `
+{
+  "outcome": "written",
+  "sessionCount": 1,
+  "sessions": [
+    {
+      "blockUrlCount": 1,
+      "clickCount": 0,
+      "consoleErrorCount": 2,
+      "consoleLogCount": 2,
+      "consoleWarnCount": 1,
+      "eventCount": 6,
+      "events": [
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 4,
+          "windowId": "window-1",
+        },
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 6,
+          "windowId": "window-1",
+        },
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 6,
+          "windowId": "window-1",
+        },
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 6,
+          "windowId": "window-1",
+        },
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 6,
+          "windowId": "window-1",
+        },
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 6,
+          "windowId": "window-1",
+        },
+      ],
+      "hasDistinctId": true,
+      "hasFirstUrl": true,
+      "hasSessionId": true,
+      "keypressCount": 0,
+      "mouseActivityCount": 0,
+      "urlCount": 1,
+      "windowIds": [
+        "window-1",
+      ],
+    },
+  ],
+}
+`;
+
+exports[`Session Recording Consumer Integration end-to-end message processing empty events array 1`] = `
+{
+  "outcome": "dropped",
+  "sessionCount": 0,
+  "sessions": [],
+}
+`;
+
+exports[`Session Recording Consumer Integration end-to-end message processing invalid team token 1`] = `
+{
+  "outcome": "dropped",
+  "sessionCount": 0,
+  "sessions": [],
+}
+`;
+
+exports[`Session Recording Consumer Integration end-to-end message processing multiple sessions in same batch 1`] = `
+{
+  "outcome": "written",
+  "sessionCount": 2,
+  "sessions": [
+    {
+      "blockUrlCount": 1,
+      "clickCount": 0,
+      "consoleErrorCount": 0,
+      "consoleLogCount": 0,
+      "consoleWarnCount": 0,
+      "eventCount": 2,
+      "events": [
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 4,
+          "windowId": "window-1",
+        },
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 2,
+          "windowId": "window-1",
+        },
+      ],
+      "hasDistinctId": true,
+      "hasFirstUrl": true,
+      "hasSessionId": true,
+      "keypressCount": 0,
+      "mouseActivityCount": 0,
+      "urlCount": 1,
+      "windowIds": [
+        "window-1",
+      ],
+    },
+    {
+      "blockUrlCount": 1,
+      "clickCount": 0,
+      "consoleErrorCount": 0,
+      "consoleLogCount": 0,
+      "consoleWarnCount": 0,
+      "eventCount": 2,
+      "events": [
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 4,
+          "windowId": "window-1",
+        },
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 2,
+          "windowId": "window-1",
+        },
+      ],
+      "hasDistinctId": true,
+      "hasFirstUrl": true,
+      "hasSessionId": true,
+      "keypressCount": 0,
+      "mouseActivityCount": 0,
+      "urlCount": 1,
+      "windowIds": [
+        "window-1",
+      ],
+    },
+  ],
+}
+`;
+
+exports[`Session Recording Consumer Integration end-to-end message processing multiple windows in same session 1`] = `
+{
+  "outcome": "written",
+  "sessionCount": 1,
+  "sessions": [
+    {
+      "blockUrlCount": 1,
+      "clickCount": 0,
+      "consoleErrorCount": 0,
+      "consoleLogCount": 0,
+      "consoleWarnCount": 0,
+      "eventCount": 2,
+      "events": [
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 4,
+          "windowId": "window-main",
+        },
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 4,
+          "windowId": "window-popup",
+        },
+      ],
+      "hasDistinctId": true,
+      "hasFirstUrl": true,
+      "hasSessionId": true,
+      "keypressCount": 0,
+      "mouseActivityCount": 0,
+      "urlCount": 2,
+      "windowIds": [
+        "window-main",
+        "window-popup",
+      ],
+    },
+  ],
+}
+`;
+
+exports[`Session Recording Consumer Integration end-to-end message processing out of order events 1`] = `
+{
+  "outcome": "written",
+  "sessionCount": 1,
+  "sessions": [
+    {
+      "blockUrlCount": 1,
+      "clickCount": 0,
+      "consoleErrorCount": 0,
+      "consoleLogCount": 0,
+      "consoleWarnCount": 0,
+      "eventCount": 3,
+      "events": [
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 4,
+          "windowId": "window-1",
+        },
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 2,
+          "windowId": "window-1",
+        },
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 3,
+          "windowId": "window-1",
+        },
+      ],
+      "hasDistinctId": true,
+      "hasFirstUrl": true,
+      "hasSessionId": true,
+      "keypressCount": 0,
+      "mouseActivityCount": 1,
+      "urlCount": 1,
+      "windowIds": [
+        "window-1",
+      ],
+    },
+  ],
+}
+`;
+
+exports[`Session Recording Consumer Integration end-to-end message processing session continuity across batches 1`] = `
+{
+  "outcome": "written",
+  "sessionCount": 1,
+  "sessions": [
+    {
+      "blockUrlCount": 1,
+      "clickCount": 0,
+      "consoleErrorCount": 0,
+      "consoleLogCount": 0,
+      "consoleWarnCount": 0,
+      "eventCount": 4,
+      "events": [
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 4,
+          "windowId": "window-1",
+        },
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 2,
+          "windowId": "window-1",
+        },
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 3,
+          "windowId": "window-1",
+        },
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 3,
+          "windowId": "window-1",
+        },
+      ],
+      "hasDistinctId": true,
+      "hasFirstUrl": true,
+      "hasSessionId": true,
+      "keypressCount": 0,
+      "mouseActivityCount": 2,
+      "urlCount": 1,
+      "windowIds": [
+        "window-1",
+      ],
+    },
+  ],
+}
+`;
+
+exports[`Session Recording Consumer Integration end-to-end message processing single session with multiple event types 1`] = `
+{
+  "outcome": "written",
+  "sessionCount": 1,
+  "sessions": [
+    {
+      "blockUrlCount": 1,
+      "clickCount": 0,
+      "consoleErrorCount": 0,
+      "consoleLogCount": 0,
+      "consoleWarnCount": 0,
+      "eventCount": 3,
+      "events": [
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 4,
+          "windowId": "window-1",
+        },
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 2,
+          "windowId": "window-1",
+        },
+        {
+          "hasData": true,
+          "hasTimestamp": true,
+          "type": 3,
+          "windowId": "window-1",
+        },
+      ],
+      "hasDistinctId": true,
+      "hasFirstUrl": true,
+      "hasSessionId": true,
+      "keypressCount": 0,
+      "mouseActivityCount": 1,
+      "urlCount": 1,
+      "windowIds": [
+        "window-1",
+      ],
+    },
+  ],
+}
+`;
+
+exports[`Session Recording Consumer Integration end-to-end message processing token with DROP_EVENT restriction 1`] = `
+{
+  "outcome": "dropped",
+  "sessionCount": 0,
+  "sessions": [],
+}
+`;

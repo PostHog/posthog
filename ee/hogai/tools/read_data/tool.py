@@ -21,6 +21,7 @@ from posthog.sync import database_sync_to_async
 
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
+from ee.hogai.context.activity_log.context import ActivityLogContext
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.error_tracking import ErrorTrackingIssueContext
@@ -32,9 +33,11 @@ from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.read_billing_tool.tool import ReadBillingTool
 from ee.hogai.tools.read_data.prompts import (
+    ACTIVITY_LOG_INSUFFICIENT_ACCESS_PROMPT,
     BILLING_INSUFFICIENT_ACCESS_PROMPT,
     DASHBOARD_NOT_FOUND_PROMPT,
     INSIGHT_NOT_FOUND_PROMPT,
+    READ_DATA_ACTIVITY_LOG_PROMPT,
     READ_DATA_BILLING_PROMPT,
     READ_DATA_PROMPT,
     READ_DATA_WAREHOUSE_SCHEMA_PROMPT,
@@ -123,6 +126,39 @@ class ReadExperiment(BaseModel):
     feature_flag_key: str | None = Field(default=None, description="The key of the experiment's feature flag.")
 
 
+class ReadActivityLog(BaseModel):
+    """Retrieves recent activity log entries showing who changed what and when in this project."""
+
+    kind: Literal["activity_log"] = "activity_log"
+    scope: str | None = Field(
+        default=None,
+        description=(
+            "Filter by resource scope. Available scopes: "
+            "Action, AlertConfiguration, Annotation, BatchExport, BatchImport, Cohort, Comment, "
+            "Dashboard, DataManagement, EarlyAccessFeature, EventDefinition, Experiment, "
+            "ExternalDataSchema, ExternalDataSource, FeatureFlag, HogFlow, HogFunction, "
+            "Insight, Notebook, Organization, OrganizationDomain, OrganizationMembership, "
+            "Person, PersonalAPIKey, Plugin, PluginConfig, Project, PropertyDefinition, "
+            "Replay, SessionRecordingPlaylist, Survey, Tag, TaggedItem, Team, User, "
+            "WebAnalyticsFilterPreset."
+        ),
+    )
+    activity: str | None = Field(
+        default=None,
+        description="Filter by activity type (e.g. 'created', 'updated', 'deleted').",
+    )
+    item_id: str | None = Field(default=None, description="Filter by item ID.")
+    user_email: str | None = Field(default=None, description="Filter by user email.")
+    after: str | None = Field(
+        default=None, description="Only entries created after this ISO 8601 datetime (e.g. '2025-01-15T00:00:00Z')."
+    )
+    before: str | None = Field(
+        default=None, description="Only entries created before this ISO 8601 datetime (e.g. '2025-02-01T00:00:00Z')."
+    )
+    limit: int = Field(default=20, ge=1, le=50, description="Number of entries to return.")
+    offset: int = Field(default=0, ge=0, description="Number of entries to skip for pagination.")
+
+
 ReadDataQuery = (
     ReadDataWarehouseSchema
     | ReadDataWarehouseTableSchema
@@ -134,6 +170,7 @@ ReadDataQuery = (
     | ReadSurvey
     | ReadFeatureFlag
     | ReadExperiment
+    | ReadActivityLog
 )
 
 
@@ -176,6 +213,12 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         if has_billing_access:
             prompt_vars["billing_prompt"] = READ_DATA_BILLING_PROMPT
             kinds.append(ReadBillingInfo)
+
+        has_audit_logs_access = await context_manager.check_has_audit_logs_access()
+
+        if has_audit_logs_access:
+            prompt_vars["activity_log_prompt"] = READ_DATA_ACTIVITY_LOG_PROMPT
+            kinds.append(ReadActivityLog)
 
         base_kinds: tuple[type[BaseModel], ...] = (
             ReadDataWarehouseSchema,
@@ -246,6 +289,19 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return await self._read_feature_flag(schema.id, schema.key), None
             case ReadExperiment() as schema:
                 return await self._read_experiment(schema.id, schema.feature_flag_key), None
+            case ReadActivityLog() as schema:
+                if not await self._context_manager.check_has_audit_logs_access():
+                    raise MaxToolFatalError(ACTIVITY_LOG_INSUFFICIENT_ACCESS_PROMPT)
+                return await self._read_activity_log(
+                    schema.scope,
+                    schema.activity,
+                    schema.item_id,
+                    schema.user_email,
+                    schema.after,
+                    schema.before,
+                    schema.limit,
+                    schema.offset,
+                ), None
 
     async def _read_insight(
         self, artifact_or_insight_id: str, execute: bool
@@ -519,3 +575,26 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         await self.check_object_access(experiment, "viewer", resource="experiment", action="read")
         return await context.format_experiment(experiment)
+
+    async def _read_activity_log(
+        self,
+        scope: str | None,
+        activity: str | None,
+        item_id: str | None,
+        user_email: str | None,
+        after: str | None,
+        before: str | None,
+        limit: int,
+        offset: int,
+    ) -> str:
+        context = ActivityLogContext(team=self._team, user=self._user)
+        return await context.fetch_and_format(
+            scope=scope,
+            activity=activity,
+            item_id=item_id,
+            user_email=user_email,
+            after=after,
+            before=before,
+            limit=limit,
+            offset=offset,
+        )

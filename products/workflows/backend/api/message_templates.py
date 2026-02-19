@@ -41,6 +41,15 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "created_by", "updated_at"]
 
+    def validate(self, data: Any) -> Any:
+        template_type = data.get("type")
+        email = data.get("content", {}).get("email") if data.get("content") else None
+        if template_type == "email" and email and not email.get("subject"):
+            raise serializers.ValidationError(
+                {"content": {"email": {"subject": "Subject is required for email templates."}}}
+            )
+        return data
+
     def create(self, validated_data: Any) -> Any:
         request = self.context["request"]
         team_id = self.context["team_id"]

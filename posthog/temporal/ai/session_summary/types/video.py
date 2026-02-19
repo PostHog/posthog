@@ -21,6 +21,15 @@ class VideoSummarySingleSessionInputs(BaseModel):
     extra_summary_context: ExtraSummaryContext | None = None
 
 
+class PrepSessionVideoAssetResult(BaseModel):
+    """Result from preparing the session video ExportedAsset."""
+
+    model_config = ConfigDict(frozen=True)
+
+    asset_id: int
+    needs_export: bool
+
+
 class UploadedVideo(BaseModel):
     """Reference to a video uploaded to Gemini for analysis"""
 

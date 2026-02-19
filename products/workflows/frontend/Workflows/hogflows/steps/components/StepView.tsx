@@ -18,8 +18,14 @@ import { StepViewMetrics } from './StepViewMetrics'
 import { StepViewLogicProps, stepViewLogic } from './stepViewLogic'
 
 export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
-    const { selectedNode, mode, nodesById, selectedNodeCanBeDeleted, selectedNodeCanBeCopiedOrMoved } =
-        useValues(hogFlowEditorLogic)
+    const {
+        selectedNode,
+        mode,
+        nodesById,
+        selectedNodeCanBeDeleted,
+        selectedNodeCanBeCopiedOrMoved,
+        animatingEdgePair,
+    } = useValues(hogFlowEditorLogic)
     const { setSelectedNodeId, startCopyingNode, startMovingNode } = useActions(hogFlowEditorLogic)
     const { actionValidationErrorsById, logicProps } = useValues(workflowLogic)
     const { deleteElements } = useReactFlow()
@@ -61,15 +67,16 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
     }, [action, isSelected, Step])
 
     const hasValidationError = actionValidationErrorsById[action.id]?.valid === false
+    const isAnimationTarget = mode === 'test' && animatingEdgePair?.endsWith(`->${action.id}`)
 
     return (
         <div
-            className="relative flex flex-col cursor-pointer rounded user-select-none bg-surface-primary"
+            className="relative flex flex-col cursor-pointer rounded user-select-none bg-surface-primary transition-[border-color] duration-300"
             style={{
                 width: NODE_WIDTH,
                 height,
                 borderWidth: 1,
-                borderColor: selectedColor,
+                borderColor: isAnimationTarget ? 'var(--success)' : selectedColor,
                 boxShadow: `0px 2px 0px 0px ${colorLight}`,
                 zIndex: 0,
             }}

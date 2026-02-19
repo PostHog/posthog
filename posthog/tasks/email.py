@@ -1095,30 +1095,34 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
             last_editors[hog_function_id] = None
             last_edit_dates[hog_function_id] = None
 
-    # Build function metrics
+    # Build function metrics. Only include functions with at least one failure; per-user threshold
+    # (data_pipeline_error_threshold) then filters which functions each user sees in send_hog_functions_digest_email.
     function_metrics = []
     for hog_function in hog_functions:
         hog_function_id = str(hog_function["id"])
-        if hog_function_id in metrics_by_function:
-            metrics = metrics_by_function[hog_function_id]
-            total_runs = metrics["succeeded"] + metrics["failed"]
-            failure_rate = (metrics["failed"] / total_runs * 100) if total_runs > 0 else 0
+        if hog_function_id not in metrics_by_function:
+            continue
 
-            # Only include functions with failure rate > 1%
-            if failure_rate > 1.0:
-                function_info = {
-                    "id": hog_function_id,
-                    "name": hog_function["name"],
-                    "type": hog_function["type"],
-                    "created_by_email": hog_function["created_by__email"],
-                    "last_edited_by_email": last_editors.get(hog_function_id),
-                    "last_edit_date": last_edit_dates.get(hog_function_id),
-                    "succeeded": metrics["succeeded"],
-                    "failed": metrics["failed"],
-                    "failure_rate": round(failure_rate, 1),
-                    "url": f"{settings.SITE_URL}/project/{team_id}/pipeline/destinations/hog-{hog_function_id}",
-                }
-                function_metrics.append(function_info)
+        metrics = metrics_by_function[hog_function_id]
+        if metrics["failed"] <= 0:
+            continue
+
+        total_runs = metrics["succeeded"] + metrics["failed"]
+        failure_rate = (metrics["failed"] / total_runs * 100) if total_runs > 0 else 0
+
+        function_info = {
+            "id": hog_function_id,
+            "name": hog_function["name"],
+            "type": hog_function["type"],
+            "created_by_email": hog_function["created_by__email"],
+            "last_edited_by_email": last_editors.get(hog_function_id),
+            "last_edit_date": last_edit_dates.get(hog_function_id),
+            "succeeded": metrics["succeeded"],
+            "failed": metrics["failed"],
+            "failure_rate": round(failure_rate, 1),
+            "url": f"{settings.SITE_URL}/project/{team_id}/pipeline/destinations/hog-{hog_function_id}",
+        }
+        function_metrics.append(function_info)
 
     if not function_metrics:
         logger.info(f"No functions with failures found for team {team_id}")

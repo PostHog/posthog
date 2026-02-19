@@ -31,7 +31,7 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
-    "codex-5.3": {
+    "gpt-5.3-codex": {
         "litellm_provider": "openai",
         "max_input_tokens": 200000,
         "supports_vision": False,

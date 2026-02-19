@@ -10,7 +10,7 @@ use crate::metrics::MetricsHelper;
 use crate::rocksdb::store::{block_based_table_factory, RocksDbStore};
 
 use super::keys::TimestampKey;
-use super::metadata::TimestampMetadata;
+use crate::pipelines::ingestion_events::TimestampMetadata;
 
 #[derive(Debug, Clone)]
 pub struct DeduplicationStoreConfig {
@@ -39,8 +39,7 @@ impl DeduplicationStore {
 
     pub fn new(config: DeduplicationStoreConfig, topic: String, partition: i32) -> Result<Self> {
         // Create metrics helper for the RocksDB store
-        let metrics = MetricsHelper::with_partition(&topic, partition)
-            .with_label("service", "kafka-deduplicator");
+        let metrics = MetricsHelper::with_partition(&topic, partition);
 
         let cf_descriptors = Self::get_cf_descriptors();
         let store = RocksDbStore::new(&config.path, cf_descriptors, metrics)?;
