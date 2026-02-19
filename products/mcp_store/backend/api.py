@@ -3,6 +3,7 @@ import secrets
 from typing import Any
 from urllib.parse import quote, urlencode
 
+from django.conf import settings
 from django.http import HttpResponse
 
 import requests
@@ -24,6 +25,8 @@ from .models import RECOMMENDED_SERVERS, MCPServer, MCPServerInstallation, Sensi
 from .oauth import discover_oauth_metadata, generate_pkce, register_dcr_client
 
 logger = structlog.get_logger(__name__)
+
+_SECURE_COOKIES = settings.SITE_URL.startswith("https")
 
 
 @extend_schema(tags=["mcp_store"])
@@ -209,8 +212,6 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     def _authorize_for_custom(
         self, request: Request, *, name: str, mcp_url: str, description: str, oauth_provider_kind: str = ""
     ) -> HttpResponse:
-        from django.conf import settings
-
         redirect_uri = f"{settings.SITE_URL}/project/{self.team_id}/settings/mcp-servers"
 
         installation, _ = MCPServerInstallation.objects.get_or_create(
@@ -279,8 +280,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         authorize_url = f"{server.oauth_metadata['authorization_endpoint']}?{urlencode(query_params)}"
 
         response = Response({"redirect_url": authorize_url}, status=status.HTTP_200_OK)
-        response.set_cookie("ph_oauth_state", token, max_age=600, httponly=True, samesite="Lax")
-        response.set_cookie("ph_pkce_verifier", code_verifier, max_age=600, httponly=True, samesite="Lax")
+        response.set_cookie("ph_oauth_state", token, max_age=600, httponly=True, samesite="Lax", secure=_SECURE_COOKIES)
+        response.set_cookie(
+            "ph_pkce_verifier", code_verifier, max_age=600, httponly=True, samesite="Lax", secure=_SECURE_COOKIES
+        )
         return response
 
             return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
@@ -387,12 +390,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         response = HttpResponse(status=302)
         response["Location"] = authorize_url
-        response.set_cookie("ph_oauth_state", token, max_age=600, httponly=True, samesite="Lax")
+        response.set_cookie("ph_oauth_state", token, max_age=600, httponly=True, samesite="Lax", secure=_SECURE_COOKIES)
         return response
 
     def _authorize_dcr(self, server: MCPServer, server_id: str, *, mcp_url: str) -> HttpResponse:
-        from django.conf import settings
-
         redirect_uri = f"{settings.SITE_URL}/project/{self.team_id}/settings/mcp-servers"
 
         cached_redirect_uri = server.oauth_metadata.get("dcr_redirect_uri", "") if server.oauth_metadata else ""
@@ -406,9 +407,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 client_id = register_dcr_client(metadata, redirect_uri)
             except Exception as e:
                 logger.exception("DCR registration failed", server_url=server.url, error=str(e))
-                return Response(
-                    {"detail": f"OAuth discovery/registration failed: {e}"}, status=status.HTTP_400_BAD_REQUEST
-                )
+                return Response({"detail": f"OAuth discovery/registration failed"}, status=status.HTTP_400_BAD_REQUEST)
             metadata["dcr_redirect_uri"] = redirect_uri
             server.oauth_metadata = metadata
             server.oauth_client_id = client_id
@@ -433,8 +432,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         response = HttpResponse(status=302)
         response["Location"] = authorize_url
-        response.set_cookie("ph_oauth_state", token, max_age=600, httponly=True, samesite="Lax")
-        response.set_cookie("ph_pkce_verifier", code_verifier, max_age=600, httponly=True, samesite="Lax")
+        response.set_cookie("ph_oauth_state", token, max_age=600, httponly=True, samesite="Lax", secure=_SECURE_COOKIES)
+        response.set_cookie(
+            "ph_pkce_verifier", code_verifier, max_age=600, httponly=True, samesite="Lax", secure=_SECURE_COOKIES
+        )
         return response
 
     @validated_request(
@@ -532,8 +533,6 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         return token_response.json()
 
     def _exchange_dcr_token(self, request: Request, server: MCPServer, code: str) -> dict | Response:
-        from django.conf import settings
-
         code_verifier = request.COOKIES.get("ph_pkce_verifier")
         if not code_verifier:
             return Response({"detail": "Missing PKCE verifier"}, status=status.HTTP_400_BAD_REQUEST)
