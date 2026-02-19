@@ -1466,6 +1466,8 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertFalse(self.user.check_password("a12345678"))
 
     def test_e2e_test_special_handlers(self):
+        self.ensure_url_patterns_loaded()
+
         with self.settings(E2E_TESTING=True):
             response = self.client.get("/api/reset/e2e_test_user/?token=e2e_test_token")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
