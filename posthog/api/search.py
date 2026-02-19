@@ -135,7 +135,7 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
         response_data: dict[str, Any] = {"results": results}
-        if include_counts:
+        if counts is not None:
             response_data["counts"] = counts
         return Response(response_data)
 
@@ -149,9 +149,9 @@ def search_entities(
     limit: int = LIMIT,
     offset: int = 0,
     include_counts: bool = True,
-) -> tuple[list[dict[str, Any]], dict[str, int | None], int | None]:
+) -> tuple[list[dict[str, Any]], dict[str, int | None] | None, int | None]:
     # empty queryset to union things onto it
-    counts: dict[str, int | None] = dict.fromkeys(entity_map)
+    counts: dict[str, int | None] = dict.fromkeys(entity_map) if include_counts else {}
     qs = (
         Dashboard.objects.annotate(type=Value("empty", output_field=CharField()))
         .filter(team__project_id=project_id)
@@ -187,7 +187,7 @@ def search_entities(
     results = cast(list[dict[str, Any]], list(qs[offset : offset + limit]))
     for result in results:
         result.pop("_sort_name", None)
-    return results, counts, total_count
+    return results, counts or None, total_count
 
 
 def class_queryset(
