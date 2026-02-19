@@ -4,17 +4,23 @@ Test SnowflakeClient behavior.
 Note: This module uses a real Snowflake connection.
 """
 
+import os
 import asyncio
 import datetime as dt
 
 import pytest
 
+import pyarrow as pa
 import pytest_asyncio
 
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     SnowflakeClient,
+    SnowflakeField,
+    SnowflakeIncompatibleSchemaError,
     SnowflakeInsertInputs,
     SnowflakeQueryClientTimeoutError,
+    SnowflakeTable,
+    SnowflakeType,
     SnowflakeWarehouseUsageError,
 )
 from products.batch_exports.backend.tests.temporal.destinations.snowflake.utils import SKIP_IF_MISSING_REQUIRED_ENV_VARS
@@ -131,3 +137,67 @@ async def test_use_namespace_raises_error_if_warehouse_not_found_or_missing_usag
     snowflake_client.warehouse = "garbage"
     with pytest.raises(SnowflakeWarehouseUsageError):
         await snowflake_client.use_namespace()
+
+
+@pytest.fixture
+def table_name():
+    return f"test_table_{os.urandom(5).hex()}"
+
+
+@pytest_asyncio.fixture
+async def test_table(snowflake_client, database, schema, table_name):
+    """A table for testing."""
+    table = SnowflakeTable(
+        name=table_name,
+        fields=(
+            SnowflakeField("id", SnowflakeType("INTEGER", False), pa.int64(), True),
+            SnowflakeField("text", SnowflakeType("TEXT", False), pa.string(), True),
+        ),
+        parents=(database, schema),
+    )
+
+    await snowflake_client.create_table(table)
+
+    yield table
+
+    await snowflake_client.delete_table(table)
+
+
+async def test_get_table(snowflake_client, database, schema, test_table):
+    """Test getting a table."""
+    get_result = await snowflake_client.get_table(test_table)
+
+    assert test_table.name == get_result.name
+    assert test_table.fields == get_result.fields
+
+
+async def test_get_table_does_not_fail_with_additional_fields(snowflake_client, database, schema, test_table):
+    """Test getting a table when additional fields are present."""
+    _ = await snowflake_client.execute_async_query(
+        f'ALTER TABLE "{test_table.name}" ADD COLUMN "new" STRING;',
+        timeout=60.0,
+    )
+
+    get_result = await snowflake_client.get_table(test_table)
+
+    assert test_table.name == get_result.name
+    # Still equals as we only include fields present in the table request
+    assert test_table.fields == get_result.fields
+
+
+async def test_get_table_raises_incompatible_schema_on_missing_fields(snowflake_client, database, schema, test_table):
+    """Test attempting to get a table with an incompatible schema fails"""
+    table = SnowflakeTable(
+        name=test_table.name,
+        fields=test_table.fields
+        + [
+            SnowflakeField("missing_one", SnowflakeType("INTEGER", False), pa.int64(), True),
+            SnowflakeField("missing_two", SnowflakeType("INTEGER", False), pa.int64(), True),
+        ],
+        parents=test_table.parents,
+    )
+
+    with pytest.raises(SnowflakeIncompatibleSchemaError) as excinfo:
+        await snowflake_client.get_table(table)
+
+    assert "Missing required fields: 'missing_one', 'missing_two'" in str(excinfo.value)

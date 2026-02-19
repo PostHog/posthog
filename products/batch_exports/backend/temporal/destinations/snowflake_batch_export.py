@@ -785,6 +785,12 @@ class SnowflakeClient:
 
         Returns:
             A SnowflakeTable.
+
+        Raises:
+            SnowflakeTableNotFoundError: If the table we are trying to get doesn't exist.
+            SnowflakeIncompatibleSchemaError: If the table does exist, but it doesn't
+                contain all fields present in the provided table (we do allow additional
+                fields that are not present in provided table).
         """
         try:
             result = await self.execute_async_query(f"""
@@ -798,16 +804,22 @@ class SnowflakeClient:
             else:
                 raise
 
-        record_batch_field_names = [field.name.lower() for field in table.fields]
+        record_batch_field_names = {field.name.lower() for field in table.fields}
+        missing_field_names = record_batch_field_names - {field_metadata.name.lower() for field_metadata in metadata}
+
+        if missing_field_names:
+            raise SnowflakeIncompatibleSchemaError(
+                f"Missing required fields: {', '.join(f"'{name}'" for name in missing_field_names)}"
+            )
+
         fields = (
             SnowflakeDestinationField(
-                metadata.name,
-                FIELD_ID_TO_NAME[metadata.type_code],  # type: ignore[arg-type]
-                metadata.is_nullable,
+                field_metadata.name,
+                FIELD_ID_TO_NAME[field_metadata.type_code],  # type: ignore[arg-type]
+                field_metadata.is_nullable,
             )
-            for metadata in metadata
-            # Only include fields that are present in the record batch schema
-            if metadata.name.lower() in record_batch_field_names
+            for field_metadata in metadata
+            if field_metadata.name.lower() in record_batch_field_names
         )
 
         return SnowflakeTable.from_snowflake_table(
