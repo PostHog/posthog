@@ -253,6 +253,56 @@ describe('extractToolCallNames', () => {
         })
     })
 
+    describe('wrapped choices object (full API response)', () => {
+        it('unwraps {choices: [...]} with OpenAI tool_calls', () => {
+            const wrapped = {
+                choices: [
+                    {
+                        finish_reason: 'stop',
+                        index: 0,
+                        message: {
+                            tool_calls: [{ type: 'function', function: { name: 'get_weather' } }],
+                        },
+                    },
+                ],
+                created: 1234567890,
+                model: 'gpt-4',
+            }
+            expect(extractToolCallNames(wrapped)).toEqual(['get_weather'])
+        })
+
+        it('unwraps {choices: [...]} with multiple tool calls', () => {
+            const wrapped = {
+                choices: [
+                    {
+                        message: {
+                            tool_calls: [
+                                { type: 'function', function: { name: 'search' } },
+                                { type: 'function', function: { name: 'summarize' } },
+                            ],
+                        },
+                    },
+                ],
+            }
+            expect(extractToolCallNames(wrapped)).toEqual(['search', 'summarize'])
+        })
+
+        it('returns empty for wrapped response with no tool calls', () => {
+            const wrapped = {
+                choices: [
+                    {
+                        message: { content: 'Hello!', tool_calls: null },
+                    },
+                ],
+            }
+            expect(extractToolCallNames(wrapped)).toEqual([])
+        })
+
+        it('ignores non-array choices key', () => {
+            expect(extractToolCallNames({ choices: 'not an array' })).toEqual([])
+        })
+    })
+
     describe('no tool calls', () => {
         it('returns empty for text-only response', () => {
             const choices = [
@@ -442,6 +492,51 @@ describe('processAiToolCallExtraction', () => {
         const result = processAiToolCallExtraction(event)
 
         expect(result.properties!['$ai_tools_called']).toBe('get_weather')
+        expect(result.properties!['$ai_tool_call_count']).toBe(1)
+    })
+
+    it('extracts from wrapped {choices: [...]} full API response', () => {
+        const event = createEvent('$ai_generation', {
+            $ai_output_choices: {
+                choices: [
+                    {
+                        finish_reason: 'stop',
+                        index: 0,
+                        message: {
+                            tool_calls: [
+                                { type: 'function', function: { name: 'get_weather' } },
+                                { type: 'function', function: { name: 'search_docs' } },
+                            ],
+                        },
+                    },
+                ],
+                created: 1234567890,
+                model: 'gpt-4',
+            },
+        })
+
+        const result = processAiToolCallExtraction(event)
+
+        expect(result.properties!['$ai_tools_called']).toBe('get_weather,search_docs')
+        expect(result.properties!['$ai_tool_call_count']).toBe(2)
+    })
+
+    it('extracts from stringified wrapped {choices: [...]} response', () => {
+        const event = createEvent('$ai_generation', {
+            $ai_output_choices: JSON.stringify({
+                choices: [
+                    {
+                        message: {
+                            tool_calls: [{ type: 'function', function: { name: 'web_search' } }],
+                        },
+                    },
+                ],
+            }),
+        })
+
+        const result = processAiToolCallExtraction(event)
+
+        expect(result.properties!['$ai_tools_called']).toBe('web_search')
         expect(result.properties!['$ai_tool_call_count']).toBe(1)
     })
 
