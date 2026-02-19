@@ -120,7 +120,7 @@ def _chunk_date_range(start_date: str, end_date: str) -> list[tuple[str, str]]:
     wait=wait_exponential_jitter(initial=2, max=60),
     reraise=True,
 )
-def _make_request(session: requests.Session, url: str, params: Optional[dict] = None) -> dict:
+def _make_request(session: requests.Session, url: str, params: Optional[dict] = None) -> Any:
     response = session.get(url, params=params, timeout=30)
     _check_response(response)
     return response.json()

@@ -43,6 +43,7 @@ class TestPinterestAdsSource:
         is_valid, error_message = self.source.validate_credentials(invalid_config, self.team_id)
 
         assert is_valid is False
+        assert error_message is not None
         assert "Ad Account ID and Pinterest Ads integration are required" in error_message
 
     def test_validate_credentials_missing_integration_id(self):
@@ -50,6 +51,7 @@ class TestPinterestAdsSource:
         is_valid, error_message = self.source.validate_credentials(invalid_config, self.team_id)
 
         assert is_valid is False
+        assert error_message is not None
         assert "Ad Account ID and Pinterest Ads integration are required" in error_message
 
     @mock.patch("posthog.temporal.data_imports.sources.pinterest_ads.source.validate_ad_account")
@@ -73,6 +75,7 @@ class TestPinterestAdsSource:
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is False
+        assert error_message is not None
         assert "Failed to validate Pinterest Ads credentials" in error_message
         mock_capture.assert_called_once()
 

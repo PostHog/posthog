@@ -215,6 +215,7 @@ class TestValidateAdAccount:
 
         is_valid, error = validate_ad_account("token", "acc123")
         assert is_valid is False
+        assert error is not None
         assert "Access denied" in error
 
     @mock.patch("posthog.temporal.data_imports.sources.pinterest_ads.utils.build_session")
@@ -227,6 +228,7 @@ class TestValidateAdAccount:
 
         is_valid, error = validate_ad_account("token", "acc123")
         assert is_valid is False
+        assert error is not None
         assert "not found" in error
 
 
