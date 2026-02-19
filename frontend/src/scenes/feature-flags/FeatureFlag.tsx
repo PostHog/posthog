@@ -1442,18 +1442,12 @@ function FeatureFlagRollout({
                                                 </LemonButton>
                                             )}
                                         </div>
-                                        {featureFlag.is_remote_configuration && (
+                                        {featureFlag.is_remote_configuration && featureFlag.has_encrypted_payloads && (
                                             <div className="text-sm text-secondary mt-4">
-                                                Note: remote config flags must be accessed through payloads, e.g.{' '}
-                                                <span className="font-mono font-bold">
-                                                    {featureFlag.has_encrypted_payloads
-                                                        ? 'getRemoteConfigPayload'
-                                                        : 'getFeatureFlagPayload'}
-                                                </span>
-                                                . Using standard SDK methods such as{' '}
-                                                <span className="font-mono font-bold">getFeatureFlag</span> or{' '}
-                                                <span className="font-mono font-bold">isFeatureEnabled</span> will
-                                                always return <span className="font-mono font-bold">true</span>
+                                                Note: encrypted remote config flags must be accessed via{' '}
+                                                <span className="font-mono font-bold">getRemoteConfigPayload</span>. The{' '}
+                                                <span className="font-mono font-bold">enabled</span> property will
+                                                always be <span className="font-mono font-bold">true</span>
                                             </div>
                                         )}
                                     </div>
@@ -1637,17 +1631,11 @@ function FeatureFlagRollout({
                                         </LemonButton>
                                     )}
                                 </div>
-                                {featureFlag.is_remote_configuration && (
+                                {featureFlag.is_remote_configuration && featureFlag.has_encrypted_payloads && (
                                     <div className="text-sm text-secondary mt-4">
-                                        Note: remote config flags must be accessed through payloads, e.g.{' '}
-                                        <span className="font-mono font-bold">
-                                            {featureFlag.has_encrypted_payloads
-                                                ? 'getRemoteConfigPayload'
-                                                : 'getFeatureFlagPayload'}
-                                        </span>
-                                        . Using standard SDK methods such as{' '}
-                                        <span className="font-mono font-bold">getFeatureFlag</span> or{' '}
-                                        <span className="font-mono font-bold">isFeatureEnabled</span> will always return{' '}
+                                        Note: encrypted remote config flags must be accessed via{' '}
+                                        <span className="font-mono font-bold">getRemoteConfigPayload</span>. The{' '}
+                                        <span className="font-mono font-bold">enabled</span> property will always be{' '}
                                         <span className="font-mono font-bold">true</span>
                                     </div>
                                 )}
