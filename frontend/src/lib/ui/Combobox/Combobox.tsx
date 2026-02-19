@@ -160,7 +160,7 @@ const Search = ({
                 autoFocus={autoFocus}
                 role="combobox"
                 size="default"
-                aria-expanded={true}
+                aria-expanded={context.searchValue !== ''}
                 aria-controls="combobox-listbox"
                 showFocusPulse
             />
