@@ -1,5 +1,3 @@
-
-
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -2106,25 +2104,12 @@ export interface PatchedEnterpriseEventDefinitionApi {
     readonly media_preview_urls?: readonly string[]
 }
 
-/**
- * Serializer mixin that handles tags for objects.
- */
+export type EventDefinitionApiProperties = { [key: string]: unknown }
+
 export interface EventDefinitionApi {
-    readonly id: string
-    /** @maxLength 400 */
-    name: string
-    /** @nullable */
-    created_at?: string | null
-    /** @nullable */
-    last_seen_at?: string | null
-    readonly last_updated_at: string
-    tags?: unknown[]
-    readonly is_action: string
-    readonly action_id: number
-    readonly is_calculating: boolean
-    readonly last_calculated_at: string
-    readonly created_by: UserBasicApi
-    post_to_slack?: boolean
+    elements: unknown[]
+    event: string
+    properties: EventDefinitionApiProperties
 }
 
 /**

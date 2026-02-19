@@ -200,6 +200,10 @@ class FilterActionSerializer(serializers.Serializer):
 # Global mapping of (path, method) → product folder, populated during preprocessing
 _endpoint_product_mapping: dict[tuple[str, str], str] = {}
 
+# Prefix used to identify deprecated environment duplicates in postprocessing.
+# Only env paths that duplicate a /api/projects/ path get this prefix (via {environment_id}).
+_DEPRECATED_ENV_PREFIX = "/api/environments/{environment_id}/"
+
 
 def _get_product_from_module(module: str) -> str | None:
     """Extract product folder name from module path like 'products.batch_exports.backend.api'."""
@@ -223,9 +227,9 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
     preprocessing hook that filters out {format} suffixed paths, in case
     format_suffix_patterns is used and {format} path params are unwanted.
 
-    Also deduplicates endpoints registered under both /api/environments/ and
+    Also tracks endpoints registered under both /api/environments/ and
     /api/projects/ (via register_grandfathered_environment_nested_viewset),
-    keeping only the /api/projects/ version.
+    so that environment duplicates can be marked deprecated in postprocessing.
     """
     # For frontend type generation, include INTERNAL views if they have explicit tags
     include_internal = os.environ.get("OPENAPI_INCLUDE_INTERNAL", "").lower() in ("1", "true")
@@ -234,7 +238,7 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
     _endpoint_product_mapping.clear()
 
     # Pass 1: collect all included endpoints and build a set of suffixes that
-    # exist under /api/projects/ so we can drop /api/environments/ duplicates.
+    # exist under /api/projects/ so we can identify /api/environments/ duplicates.
     included: list[tuple[str, str, str, Any]] = []
     projects_suffixes: set[tuple[str, str]] = set()
     projects_prefix = "/api/projects/{parent_lookup_team_id}/"
@@ -253,14 +257,19 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
             suffix = path[len(projects_prefix) :]
             projects_suffixes.add((suffix, method))
 
-    # Pass 2: filter out /api/environments/ paths that also exist under /api/projects/.
+    # Pass 2: keep all endpoints, but mark env duplicates for deprecation in postprocessing.
+    # Env duplicates get {environment_id} param (matching _DEPRECATED_ENV_PREFIX), others get {project_id}.
+    # drf-spectacular may rewrite other params (e.g. {pk} → {id}) between pre- and postprocessing,
+    # so postprocessing identifies deprecated paths by the {environment_id} prefix, not exact match.
     result = []
     for path, path_regex, method, callback in included:
         env_suffix = _extract_env_suffix(path)
-        if env_suffix is not None and (env_suffix, method) in projects_suffixes:
-            continue
+        is_env_duplicate = env_suffix is not None and (env_suffix, method) in projects_suffixes
 
-        path = path.replace("{parent_lookup_team_id}", "{project_id}")
+        if is_env_duplicate:
+            path = path.replace("{parent_lookup_team_id}", "{environment_id}")
+        else:
+            path = path.replace("{parent_lookup_team_id}", "{project_id}")
         path = path.replace("{parent_lookup_", "{")
 
         # Track product folder for auto-tagging
@@ -342,7 +351,12 @@ def custom_postprocessing_hook(result, generator, request, public):
 
     for path, methods in result["paths"].items():
         paths[path] = {}
+        is_deprecated_env = path.startswith(_DEPRECATED_ENV_PREFIX)
+
         for method, definition in methods.items():
+            if is_deprecated_env:
+                definition["deprecated"] = True
+
             # Preserve explicit tags from @extend_schema before filtering/adding auto-derived ones
             # Exclude auto-derived URL structure tags (projects, environments) - these aren't real product tags
             explicit_tags = [d for d in definition.get("tags", []) if d not in ["projects", "environments"]]
@@ -363,12 +377,15 @@ def custom_postprocessing_hook(result, generator, request, public):
                 definition["tags"].append(match.group("one"))
             for tag in definition["tags"]:
                 all_tags.append(tag)
-            definition["operationId"] = (
-                definition["operationId"]
-                .replace("organizations_", "", 1)
-                .replace("projects_", "", 1)
-                .replace("environments_", "", 1)
-            )
+
+            # Strip router-derived prefixes from operationIds.
+            # Keep environments_ on deprecated env paths to avoid collisions with projects_ versions.
+            definition["operationId"] = definition["operationId"].replace("organizations_", "", 1)
+            if not is_deprecated_env:
+                definition["operationId"] = (
+                    definition["operationId"].replace("projects_", "", 1).replace("environments_", "", 1)
+                )
+
             if "parameters" in definition:
                 definition["parameters"] = [
                     {
@@ -379,6 +396,14 @@ def custom_postprocessing_hook(result, generator, request, public):
                         "description": "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/.",
                     }
                     if param["name"] == "project_id"
+                    else {
+                        "in": "path",
+                        "name": "environment_id",
+                        "required": True,
+                        "schema": {"type": "string"},
+                        "description": "Deprecated. Use /api/projects/{project_id}/ instead.",
+                    }
+                    if param["name"] == "environment_id"
                     else param
                     for param in definition["parameters"]
                 ]
