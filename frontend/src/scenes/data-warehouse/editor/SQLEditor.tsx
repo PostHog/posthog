@@ -3,10 +3,16 @@ import { BindLogic, useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { IconBook, IconChevronDown, IconDownload } from '@posthog/icons'
+import { Spinner } from '@posthog/lemon-ui'
+
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
 import { DatabaseTree } from '~/layout/panel-layout/DatabaseTree/DatabaseTree'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { variableModalLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableModalLogic'
 import {
@@ -20,6 +26,8 @@ import {
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 
 import { ViewLinkModal } from '../ViewLinkModal'
+import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
+import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryWindow } from './QueryWindow'
 import { editorSizingLogic } from './editorSizingLogic'
 import { outputPaneLogic } from './outputPaneLogic'
@@ -67,6 +75,7 @@ export function SQLEditor({ tabId, mode = SQLEditorMode.FullScene, showDatabaseT
                 logicKey: 'database-tree',
                 placement: 'right' as const,
                 persistent: true,
+                marginTop: 8,
             },
         }),
         []
@@ -151,6 +160,7 @@ export function SQLEditor({ tabId, mode = SQLEditorMode.FullScene, showDatabaseT
                                 <BindLogic logic={outputPaneLogic} props={{ tabId }}>
                                     <BindLogic logic={sqlEditorLogic} props={{ tabId, mode, monaco, editor }}>
                                         <VariablesQuerySync />
+                                        <SQLEditorSceneTitle />
                                         <div className="flex grow h-full">
                                             {shouldShowDatabaseTree && (
                                                 <DatabaseTree databaseTreeRef={databaseTreeRef} />
@@ -177,6 +187,138 @@ export function SQLEditor({ tabId, mode = SQLEditorMode.FullScene, showDatabaseT
                 </BindLogic>
             </BindLogic>
         </BindLogic>
+    )
+}
+
+function SQLEditorSceneTitle(): JSX.Element | null {
+    const {
+        queryInput,
+        editingView,
+        editingInsight,
+        editingEndpoint,
+        insightLoading,
+        sourceQuery,
+        changesToSave,
+        inProgressViewEdits,
+        isEmbeddedMode,
+        titleSectionProps,
+        updateInsightButtonEnabled,
+    } = useValues(sqlEditorLogic)
+    const { updateView, updateInsight, updateEndpoint, saveAsInsight, saveAsView, saveAsEndpoint, openHistoryModal } =
+        useActions(sqlEditorLogic)
+    const { response } = useValues(dataNodeLogic)
+    const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
+
+    const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
+        if (updatingDataWarehouseSavedQuery) {
+            return ['Saving...', Spinner]
+        }
+
+        if (!response) {
+            return ['Run query to update', IconDownload]
+        }
+
+        if (!changesToSave) {
+            return ['No changes to save', IconDownload]
+        }
+
+        return [undefined, IconDownload]
+    }, [updatingDataWarehouseSavedQuery, changesToSave, response])
+
+    if (isEmbeddedMode) {
+        return null
+    }
+
+    const isMaterializedView = editingView?.is_materialized === true
+
+    return (
+        <>
+            <SceneTitleSection
+                className="p-1 pl-3 pr-2"
+                noBorder
+                noPadding
+                {...titleSectionProps}
+                actions={
+                    <div className="flex items-center gap-2">
+                        {editingView ? (
+                            <>
+                                <LemonButton
+                                    onClick={() => openHistoryModal()}
+                                    icon={<IconBook />}
+                                    type="secondary"
+                                    size="small"
+                                >
+                                    History
+                                </LemonButton>
+                                <LemonButton
+                                    onClick={() =>
+                                        updateView({
+                                            id: editingView.id,
+                                            query: {
+                                                ...sourceQuery.source,
+                                                query: queryInput ?? '',
+                                            },
+                                            types: response && 'types' in response ? (response?.types ?? []) : [],
+                                            shouldRematerialize: isMaterializedView,
+                                            edited_history_id: inProgressViewEdits[editingView.id],
+                                        })
+                                    }
+                                    disabledReason={editingViewDisabledReason}
+                                    icon={<EditingViewButtonIcon />}
+                                    type="primary"
+                                    size="small"
+                                >
+                                    {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
+                                </LemonButton>
+                            </>
+                        ) : editingInsight ? (
+                            <LemonButton
+                                disabledReason={!updateInsightButtonEnabled ? 'No updates to save' : undefined}
+                                loading={insightLoading}
+                                type="primary"
+                                size="small"
+                                onClick={() => updateInsight()}
+                            >
+                                Update insight
+                            </LemonButton>
+                        ) : editingEndpoint ? (
+                            <LemonButton type="primary" size="small" onClick={() => updateEndpoint()}>
+                                Update endpoint
+                            </LemonButton>
+                        ) : (
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={() => saveAsInsight()}
+                                sideIcon={<IconChevronDown />}
+                                sideAction={{
+                                    dropdown: {
+                                        placement: 'bottom-end',
+                                        overlay: (
+                                            <LemonMenuOverlay
+                                                items={[
+                                                    {
+                                                        label: 'Save as view',
+                                                        onClick: () => saveAsView(),
+                                                    },
+                                                    {
+                                                        label: 'Save as endpoint',
+                                                        onClick: () => saveAsEndpoint(),
+                                                    },
+                                                ]}
+                                            />
+                                        ),
+                                    },
+                                }}
+                            >
+                                Save as insight
+                            </LemonButton>
+                        )}
+                    </div>
+                }
+            />
+            <QueryHistoryModal />
+        </>
     )
 }
 
