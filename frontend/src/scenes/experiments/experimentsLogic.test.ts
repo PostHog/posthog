@@ -8,8 +8,7 @@ import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import { initKeaTests } from '~/test/init'
 import { Experiment, ExperimentProgressStatus, FeatureFlagType } from '~/types'
 
-import { hasEnded } from './experimentLogic'
-import { experimentsLogic, getExperimentStatus, getExperimentStatusColor } from './experimentsLogic'
+import { experimentsLogic, getExperimentStatus, getExperimentStatusColor, hasEnded } from './experimentsLogic'
 
 const createMockExperiment = (overrides: any = {}): Experiment =>
     ({

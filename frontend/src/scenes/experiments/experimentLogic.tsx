@@ -81,7 +81,13 @@ import {
 } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentSceneLogic } from './experimentSceneLogic'
-import { experimentsLogic, getShippedVariantKey, isSingleVariantShipped } from './experimentsLogic'
+import {
+    experimentsLogic,
+    getShippedVariantKey,
+    hasEnded,
+    isLaunched,
+    isSingleVariantShipped,
+} from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
 import {
     conversionRateForVariant,
@@ -178,10 +184,6 @@ interface MetricLoadingConfig {
     ) => void
     onSetResults: (results: CachedNewExperimentQueryResponse[]) => void
     onSetErrors: (errors: any[]) => void
-}
-
-export function hasEnded(experiment: Experiment): boolean {
-    return !!experiment?.end_date && dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day')
 }
 
 const OUT_OF_MEMORY_ERROR_CODES = new Set(['memory_limit_exceeded', 'query_memory_limit_exceeded'])
@@ -2049,7 +2051,7 @@ export const experimentLogic = kea<experimentLogicType>([
         isExperimentRunning: [
             (s) => [s.experiment],
             (experiment): boolean => {
-                return !!experiment?.start_date && !hasEnded(experiment)
+                return isLaunched(experiment) && !hasEnded(experiment)
             },
         ],
         isFlagActive: [
