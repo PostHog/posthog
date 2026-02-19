@@ -1,7 +1,9 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { experimentLogic } from '../experimentLogic'
@@ -70,6 +72,13 @@ function WarningDetail({
 
 export function ExperimentWarningBanner(): JSX.Element | null {
     const { experimentWarning, experiment } = useValues(experimentLogic)
+    const { reportExperimentInconsistencyWarningShown } = useActions(eventUsageLogic)
+
+    useEffect(() => {
+        if (experimentWarning) {
+            reportExperimentInconsistencyWarningShown(experiment, experimentWarning.key)
+        }
+    }, [experimentWarning?.key])
 
     if (!experimentWarning) {
         return null
