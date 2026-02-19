@@ -5,7 +5,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { TeamManager } from '~/utils/team-manager'
 
 import { eventDroppedCounter } from '../../common/metrics'
-import { EventHeaders, IncomingEvent, PipelineEvent, Team } from '../../types'
+import { EventHeaders, IncomingEvent, Team } from '../../types'
 import { tokenOrTeamPresentCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
@@ -20,16 +20,20 @@ type ResolveTeamError = { error: true; cause: 'no_token' | 'invalid_token' }
 type ResolveTeamSuccess = { error: false; team: Team }
 type ResolveTeamResult = ResolveTeamSuccess | ResolveTeamError
 
-async function resolveTeam(teamManager: TeamManager, event: PipelineEvent): Promise<ResolveTeamResult> {
+async function resolveTeam(
+    teamManager: TeamManager,
+    token: string | undefined,
+    teamId: number | null | undefined
+): Promise<ResolveTeamResult> {
     tokenOrTeamPresentCounter
         .labels({
-            team_id_present: event.team_id ? 'true' : 'false',
-            token_present: event.token ? 'true' : 'false',
+            team_id_present: teamId ? 'true' : 'false',
+            token_present: token ? 'true' : 'false',
         })
         .inc()
 
     // Events with no token are dropped, they should be blocked by capture
-    if (!event.token) {
+    if (!token) {
         eventDroppedCounter
             .labels({
                 event_type: 'analytics',
@@ -39,7 +43,7 @@ async function resolveTeam(teamManager: TeamManager, event: PipelineEvent): Prom
         return { error: true, cause: 'no_token' }
     }
 
-    const team = await teamManager.getTeamByToken(event.token)
+    const team = await teamManager.getTeamByToken(token)
     if (!team) {
         eventDroppedCounter
             .labels({
@@ -59,7 +63,7 @@ export function createResolveTeamStep<TInput extends ResolveTeamStepInput>(
     return async function resolveTeamStep(input) {
         const { event: incomingEvent, ...restInput } = input
 
-        const result = await resolveTeam(teamManager, incomingEvent.event)
+        const result = await resolveTeam(teamManager, input.headers.token, incomingEvent.event.team_id)
 
         if (result.error) {
             return drop(result.cause)

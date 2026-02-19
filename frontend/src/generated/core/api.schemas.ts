@@ -2161,7 +2161,7 @@ export const AnnotationScopeEnumApi = {
 export interface AnnotationApi {
     readonly id: number
     /**
-     * @maxLength 400
+     * @maxLength 8192
      * @nullable
      */
     content?: string | null
@@ -2200,7 +2200,7 @@ export interface PaginatedAnnotationListApi {
 export interface PatchedAnnotationApi {
     readonly id?: number
     /**
-     * @maxLength 400
+     * @maxLength 8192
      * @nullable
      */
     content?: string | null
@@ -2408,6 +2408,7 @@ export interface EnterpriseEventDefinitionApi {
     readonly created_by: UserBasicApi
     post_to_slack?: boolean
     default_columns?: string[]
+    readonly media_preview_urls: readonly string[]
 }
 
 export interface PaginatedEnterpriseEventDefinitionListApi {
@@ -2451,6 +2452,7 @@ export interface PatchedEnterpriseEventDefinitionApi {
     readonly created_by?: UserBasicApi
     post_to_slack?: boolean
     default_columns?: string[]
+    readonly media_preview_urls?: readonly string[]
 }
 
 export type EventDefinitionApiProperties = { [key: string]: unknown }

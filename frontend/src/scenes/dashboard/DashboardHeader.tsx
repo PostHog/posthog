@@ -21,8 +21,6 @@ import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
 import { FullScreen } from 'lib/components/FullScreen'
-import { InterProjectDuplicationModal } from 'lib/components/InterProjectDuplication/InterProjectDuplicationModal'
-import { interProjectDuplicationLogic } from 'lib/components/InterProjectDuplication/interProjectDuplicationLogic'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
@@ -39,6 +37,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { slugify } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
@@ -107,10 +106,10 @@ export function DashboardHeader(): JSX.Element | null {
 
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
-    const { openModal: openInterProjectDuplicationModal } = useActions(interProjectDuplicationLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
     const interProjectTransfersEnabled = useFeatureFlag('INTER_PROJECT_TRANSFERS')
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     const { tags } = useValues(tagsModel)
 
@@ -119,6 +118,7 @@ export function DashboardHeader(): JSX.Element | null {
     const [isPinned, setIsPinned] = useState(dashboard?.pinned)
 
     const [terraformModalOpen, setTerraformModalOpen] = useState(false)
+
     const isNewDashboard = useMemo(() => {
         if (!dashboard || dashboardLoading) {
             return false
@@ -197,7 +197,7 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
                     {canEditDashboard && <DeleteDashboardModal />}
                     {canEditDashboard && <DuplicateDashboardModal />}
-                    <InterProjectDuplicationModal />
+
                     {canEditDashboard && <DashboardInsightColorsModal />}
                     {user?.is_staff && <DashboardTemplateEditor />}
                     <TerraformExportModal
@@ -237,13 +237,7 @@ export function DashboardHeader(): JSX.Element | null {
                             {hasMultipleProjects && interProjectTransfersEnabled && (
                                 <ButtonPrimitive
                                     menuItem
-                                    onClick={() =>
-                                        openInterProjectDuplicationModal({
-                                            resourceKind: 'Dashboard',
-                                            resourceId: dashboard.id,
-                                            resourceName: dashboard.name,
-                                        })
-                                    }
+                                    onClick={() => push(urls.resourceTransfer('Dashboard', dashboard.id))}
                                     data-attr="dashboard-copy-to-project"
                                     tooltip="Copy this dashboard to another project"
                                 >
@@ -463,6 +457,26 @@ export function DashboardHeader(): JSX.Element | null {
                 isLoading={dashboardLoading}
                 forceEdit={dashboardMode === DashboardMode.Edit || isNewDashboard}
                 renameDebounceMs={1000}
+                maxToolProps={
+                    dashboard && canEditDashboard && isRemovingSidePanelFlag
+                        ? {
+                              identifier: 'upsert_dashboard',
+                              context: {
+                                  current_dashboard: {
+                                      id: dashboard.id,
+                                      name: dashboard.name,
+                                      description: dashboard.description,
+                                      tags: dashboard.tags,
+                                  },
+                              },
+                              contextDescription: {
+                                  text: dashboard.name,
+                                  icon: iconForType('dashboard'),
+                              },
+                              callback: () => loadDashboard({ action: DashboardLoadAction.Update }),
+                          }
+                        : undefined
+                }
                 actions={
                     <>
                         {dashboardMode === DashboardMode.Edit ? (
@@ -581,7 +595,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                       }
                                                     : undefined
                                             }
-                                            active={!!dashboard && canEditDashboard}
+                                            active={!isRemovingSidePanelFlag && !!dashboard && canEditDashboard}
                                             callback={() => loadDashboard({ action: DashboardLoadAction.Update })}
                                             position="top-right"
                                         >
@@ -596,7 +610,9 @@ export function DashboardHeader(): JSX.Element | null {
                                                     data-attr="dashboard-add-graph-header"
                                                     size="small"
                                                 >
-                                                    <span className="pr-3">Add insight</span>
+                                                    <span className={cn('pr-3', isRemovingSidePanelFlag && 'pr-0')}>
+                                                        Add insight
+                                                    </span>
                                                 </LemonButton>
                                             </AccessControlAction>
                                         </MaxTool>

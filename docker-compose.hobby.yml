@@ -121,6 +121,7 @@ services:
             USE_GRANIAN: 'true'
             GRANIAN_WORKERS: '2'
             OPT_OUT_CAPTURE: ${OPT_OUT_CAPTURE:-false}
+            DEPLOYMENT: 'hobby'
         depends_on:
             - db
             - redis7
@@ -133,7 +134,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: plugins
-        image: ${REGISTRY_URL}-node:${POSTHOG_APP_TAG}
+        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         environment:
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
