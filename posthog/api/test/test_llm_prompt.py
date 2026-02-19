@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from rest_framework import status
 
 from posthog.models.llm_prompt import LLMPrompt
@@ -220,6 +222,54 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.json()["id"] == str(prompt.id)
         assert response.json()["name"] == "test-prompt"
         assert response.json()["prompt"] == "You are a helpful assistant."
+
+    def test_resolve_prompt_by_name_succeeds_for_session_auth(self, mock_feature_enabled):
+        prompt = LLMPrompt.objects.create(
+            team=self.team,
+            name="test-prompt",
+            prompt="You are a helpful assistant.",
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/resolve/name/test-prompt/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == str(prompt.id)
+        assert response.json()["name"] == "test-prompt"
+        assert response.json()["prompt"] == "You are a helpful assistant."
+
+    def test_resolve_prompt_by_name_forbidden_for_personal_api_key_auth(self, mock_feature_enabled):
+        LLMPrompt.objects.create(
+            team=self.team,
+            name="test-prompt",
+            prompt="You are a helpful assistant.",
+            created_by=self.user,
+        )
+
+        api_key = self.create_personal_api_key_with_scopes(["llm_prompt:read"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/resolve/name/test-prompt/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "This endpoint is only available to web-authenticated users."
+
+    @override_settings(TEST=False)
+    @patch("posthog.api.llm_prompt.capture_internal")
+    def test_resolve_prompt_by_name_does_not_emit_prompt_fetched_event(
+        self, mock_capture_internal, mock_feature_enabled
+    ):
+        LLMPrompt.objects.create(
+            team=self.team,
+            name="test-prompt",
+            prompt="You are a helpful assistant.",
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/resolve/name/test-prompt/")
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_capture_internal.assert_not_called()
 
     def test_fetch_prompt_by_name_not_found(self, mock_feature_enabled):
         response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/non-existent/")

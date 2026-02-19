@@ -18,6 +18,7 @@ import {
     ExperimentMetricSource,
     ExperimentMetricType,
     ExperimentTrendsQuery,
+    GroupNode,
     NodeKind,
     TrendsQuery,
     isExperimentFunnelMetric,
@@ -112,7 +113,7 @@ export function transformFiltersForWinningVariant(
 }
 
 function seriesToFilterLegacy(
-    series: AnyEntityNode,
+    series: AnyEntityNode | GroupNode,
     featureFlagKey: string,
     variantKey: string
 ): UniversalFiltersGroupValue | null {

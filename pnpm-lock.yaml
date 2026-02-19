@@ -775,8 +775,8 @@ importers:
         specifier: ^2.2.0
         version: 2.2.0(chart.js@4.5.1)
       chartjs-plugin-stacked100:
-        specifier: ^1.7.0
-        version: 1.7.0(chart.js@4.5.1)
+        specifier: github:PostHog/chartjs-plugin-stacked100#built-1.7.1
+        version: https://codeload.github.com/PostHog/chartjs-plugin-stacked100/tar.gz/625b3bfcad93940da89d38a7402f1cb0eb7c8b13(chart.js@4.5.1)
       chartjs-plugin-trendline:
         specifier: ^3.2.0
         version: 3.2.0
@@ -1906,7 +1906,11 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
 
+  products/data_modeling: {}
+
   products/data_warehouse: {}
+
+  products/desktop_recordings: {}
 
   products/early_access_features:
     dependencies:
@@ -2160,6 +2164,8 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
 
+  products/growth: {}
+
   products/links:
     dependencies:
       '@posthog/icons':
@@ -2412,6 +2418,8 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
 
+  products/marketing_analytics: {}
+
   products/notebooks:
     dependencies:
       '@posthog/icons':
@@ -2465,6 +2473,8 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+
+  products/posthog_ai: {}
 
   products/product_analytics:
     dependencies:
@@ -11904,8 +11914,9 @@ packages:
     peerDependencies:
       chart.js: '>=3.0.0'
 
-  chartjs-plugin-stacked100@1.7.0:
-    resolution: {integrity: sha512-5X9kofKrZ4Ve8ya9Zbk1ORsMTm2YX10PwbtCry2ht3nOqbb4wl3rYKd9oC82NpQZHqdXXXKPdUIldTCr0NmQrg==}
+  chartjs-plugin-stacked100@https://codeload.github.com/PostHog/chartjs-plugin-stacked100/tar.gz/625b3bfcad93940da89d38a7402f1cb0eb7c8b13:
+    resolution: {tarball: https://codeload.github.com/PostHog/chartjs-plugin-stacked100/tar.gz/625b3bfcad93940da89d38a7402f1cb0eb7c8b13}
+    version: 1.7.1
     peerDependencies:
       chart.js: '>=3.8.0'
 
@@ -12458,9 +12469,6 @@ packages:
   cssstyle@2.3.0:
     resolution: {integrity: sha512-AZL67abkUzIuvcHqk7c09cezpGNcxUxU4Ioi/05xHk4DQeTkWmGYftIE6ctU6AEt+Gn4n1lDStOtj7FKycP71A==}
     engines: {node: '>=8'}
-
-  csstype@3.1.3:
-    resolution: {integrity: sha512-M1uQkMl8rQK/szD0LNhtqxIPLpimGm8sOBwU7lLnCpSbTyY3yeU1Vc7l4KT5zT4s/yOxHH5O7tIuuLOCnLADRw==}
 
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
@@ -33402,7 +33410,7 @@ snapshots:
     dependencies:
       chart.js: 4.5.1
 
-  chartjs-plugin-stacked100@1.7.0(chart.js@4.5.1):
+  chartjs-plugin-stacked100@https://codeload.github.com/PostHog/chartjs-plugin-stacked100/tar.gz/625b3bfcad93940da89d38a7402f1cb0eb7c8b13(chart.js@4.5.1):
     dependencies:
       chart.js: 4.5.1
 
@@ -34070,8 +34078,6 @@ snapshots:
     dependencies:
       cssom: 0.3.8
 
-  csstype@3.1.3: {}
-
   csstype@3.2.3: {}
 
   cva@1.0.0-beta.3(typescript@5.4.5):
@@ -34506,8 +34512,8 @@ snapshots:
 
   dom-helpers@5.2.1:
     dependencies:
-      '@babel/runtime': 7.28.4
-      csstype: 3.1.3
+      '@babel/runtime': 7.28.6
+      csstype: 3.2.3
 
   dom-serializer@0.2.2:
     dependencies:
@@ -41058,7 +41064,7 @@ snapshots:
 
   rc-align@4.0.12(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
-      '@babel/runtime': 7.28.4
+      '@babel/runtime': 7.28.6
       classnames: 2.5.1
       dom-align: 1.12.3
       lodash: 4.17.23
@@ -41185,7 +41191,7 @@ snapshots:
 
   rc-motion@2.6.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
-      '@babel/runtime': 7.28.4
+      '@babel/runtime': 7.28.6
       classnames: 2.5.1
       rc-util: 5.24.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react: 18.3.1
@@ -41393,7 +41399,7 @@ snapshots:
 
   rc-util@5.24.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
-      '@babel/runtime': 7.28.4
+      '@babel/runtime': 7.28.6
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
       react-is: 16.13.1
@@ -41440,7 +41446,7 @@ snapshots:
       '@types/lodash': 4.17.16
       base16: 1.0.0
       color: 3.2.1
-      csstype: 3.1.3
+      csstype: 3.2.3
       lodash.curry: 4.1.1
 
   react-colorful@5.6.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
@@ -41513,7 +41519,7 @@ snapshots:
 
   react-instantsearch-core@7.6.0(algoliasearch@4.22.1)(react@18.3.1):
     dependencies:
-      '@babel/runtime': 7.28.4
+      '@babel/runtime': 7.28.6
       algoliasearch: 4.22.1
       algoliasearch-helper: 3.16.2(algoliasearch@4.22.1)
       instantsearch.js: 4.65.0(algoliasearch@4.22.1)

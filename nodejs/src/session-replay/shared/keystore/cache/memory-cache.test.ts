@@ -16,7 +16,7 @@ describe('MemoryCachedKeyStore', () => {
             start: jest.fn().mockResolvedValue(undefined),
             generateKey: jest.fn().mockResolvedValue(mockSessionKey),
             getKey: jest.fn().mockResolvedValue(mockSessionKey),
-            deleteKey: jest.fn().mockResolvedValue({ deleted: true }),
+            deleteKey: jest.fn().mockResolvedValue({ deleted: true, deletedAt: 1700000000 }),
             stop: jest.fn(),
         } as unknown as jest.Mocked<KeyStore>
 
@@ -127,23 +127,27 @@ describe('MemoryCachedKeyStore', () => {
             const result = await cachedKeyStore.deleteKey('session-123', 1)
 
             expect(mockDelegate.deleteKey).toHaveBeenCalledWith('session-123', 1)
-            expect(result).toEqual({ deleted: true })
+            expect(result).toEqual({ deleted: true, deletedAt: 1700000000 })
 
             // Cache should be cleared, so next getKey should call delegate
             await cachedKeyStore.getKey('session-123', 1)
             expect(mockDelegate.getKey).toHaveBeenCalledWith('session-123', 1)
         })
 
-        it('should clear cache even if delegate returns false', async () => {
+        it('should clear cache even if delegate returns already_deleted', async () => {
             // First, populate the cache
             await cachedKeyStore.getKey('session-123', 1)
             mockDelegate.getKey.mockClear()
 
-            mockDelegate.deleteKey.mockResolvedValue({ deleted: false, reason: 'not_found' })
+            mockDelegate.deleteKey.mockResolvedValue({
+                deleted: false,
+                reason: 'already_deleted',
+                deletedAt: 1700000000,
+            })
 
             const result = await cachedKeyStore.deleteKey('session-123', 1)
 
-            expect(result).toEqual({ deleted: false, reason: 'not_found' })
+            expect(result).toEqual({ deleted: false, reason: 'already_deleted', deletedAt: 1700000000 })
 
             // Cache should still be cleared
             await cachedKeyStore.getKey('session-123', 1)
