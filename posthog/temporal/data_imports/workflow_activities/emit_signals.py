@@ -33,6 +33,8 @@ GEMINI_MODEL = "models/gemini-3-flash-preview"
 LLM_CONCURRENCY_LIMIT = 20
 # Concurrent workflow spawns for signal emission
 EMIT_CONCURRENCY_LIMIT = 50
+# Temporal gRPC payload size limit (2 MB); we apply a conservative margin
+TEMPORAL_PAYLOAD_MAX_BYTES = 2 * 1024 * 1024
 # Maximum number of attempts to summarize a description, if it exceeds the threshold
 SUMMARIZATION_MAX_ATTEMPTS = 3
 # Per-call timeout for LLM requests (seconds)
@@ -351,6 +353,21 @@ async def _filter_actionable(
     return actionable
 
 
+def _estimate_output_payload_bytes(output: SignalEmitterOutput) -> int:
+    """Estimate the JSON-serialized size of the signal payload sent to Temporal."""
+    return len(
+        json.dumps(
+            {
+                "source_type": output.source_type,
+                "source_id": output.source_id,
+                "description": output.description,
+                "weight": output.weight,
+                "extra": output.extra,
+            }
+        ).encode("utf-8")
+    )
+
+
 async def _emit_signals(
     team: Team,
     outputs: list[SignalEmitterOutput],
@@ -364,6 +381,23 @@ async def _emit_signals(
         nonlocal completed_count
         async with semaphore:
             try:
+                payload_bytes = _estimate_output_payload_bytes(output)
+                if payload_bytes > TEMPORAL_PAYLOAD_MAX_BYTES:
+                    without_extra = dataclasses.replace(output, extra={})
+                    if _estimate_output_payload_bytes(without_extra) > TEMPORAL_PAYLOAD_MAX_BYTES:
+                        msg = "Signal payload exceeds Temporal limit even without extra metadata"
+                        activity.logger.error(
+                            msg,
+                            extra={**extra, "source_type": output.source_type, "source_id": output.source_id},
+                        )
+                        # Avoid emitting signal if know that it will break the workflow anyway
+                        raise ValueError(msg)
+                    # Logging error, as it should not happen, but allowing to pass, to not lose the signal completely
+                    activity.logger.error(
+                        f"Signal extra metadata too large ({payload_bytes} bytes), emitting without extra",
+                        extra={**extra, "source_type": output.source_type, "source_id": output.source_id},
+                    )
+                    output = without_extra
                 await emit_signal(
                     team=team,
                     source_product="data_imports",
@@ -371,7 +405,6 @@ async def _emit_signals(
                     source_id=output.source_id,
                     description=output.description,
                     weight=output.weight,
-                    # TODO: Add limits on extra to avoid hitting Temporal limits
                     extra=output.extra,
                 )
                 return True

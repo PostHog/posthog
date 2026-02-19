@@ -17,6 +17,7 @@ from posthog.hogql import ast
 from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput, SignalSourceTableConfig
 from posthog.temporal.data_imports.workflow_activities.emit_signals import (
     SUMMARIZATION_MAX_ATTEMPTS,
+    TEMPORAL_PAYLOAD_MAX_BYTES,
     EmitDataImportSignalsWorkflow,
     EmitSignalsActivityInputs,
     _build_emitter_outputs,
@@ -345,6 +346,41 @@ class TestEmitSignals:
 
         assert count == 2
         assert call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_emits_without_extra_when_payload_exceeds_limit(self):
+        oversized_extra = {"data": "x" * (TEMPORAL_PAYLOAD_MAX_BYTES + 1)}
+        output = SignalEmitterOutput(
+            source_type="test",
+            source_id="1",
+            description="small",
+            weight=0.5,
+            extra=oversized_extra,
+        )
+
+        with (
+            patch(f"{MODULE_PATH}.emit_signal", new_callable=AsyncMock) as mock_emit,
+            patch(f"{MODULE_PATH}.activity"),
+        ):
+            count = await _emit_signals(team=MagicMock(), outputs=[output], extra={})
+
+        assert count == 1
+        mock_emit.assert_called_once()
+        assert mock_emit.call_args.kwargs["extra"] == {}
+
+    @pytest.mark.asyncio
+    async def test_fails_when_payload_exceeds_limit_even_without_extra(self):
+        huge_description = "x" * (TEMPORAL_PAYLOAD_MAX_BYTES + 1)
+        output = _make_output(source_id="1", description=huge_description)
+
+        with (
+            patch(f"{MODULE_PATH}.emit_signal", new_callable=AsyncMock) as mock_emit,
+            patch(f"{MODULE_PATH}.activity"),
+        ):
+            count = await _emit_signals(team=MagicMock(), outputs=[output], extra={})
+
+        assert count == 0
+        mock_emit.assert_not_called()
 
 
 class TestEmitDataImportSignalsWorkflow:
