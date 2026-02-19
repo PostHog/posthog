@@ -51,23 +51,22 @@ export interface LemonSelectSection<T> {
 
 export type LemonSelectOptions<T> = LemonSelectSection<T>[] | LemonSelectOption<T>[]
 
-export interface LemonSelectPropsBase<T>
-    extends Pick<
-        LemonButtonProps,
-        | 'id'
-        | 'className'
-        | 'loading'
-        | 'fullWidth'
-        | 'disabled'
-        | 'disabledReason'
-        | 'data-attr'
-        | 'aria-label'
-        | 'onClick'
-        | 'tabIndex'
-        | 'type'
-        | 'tooltip'
-        | 'icon'
-    > {
+export interface LemonSelectPropsBase<T> extends Pick<
+    LemonButtonProps,
+    | 'id'
+    | 'className'
+    | 'loading'
+    | 'fullWidth'
+    | 'disabled'
+    | 'disabledReason'
+    | 'data-attr'
+    | 'aria-label'
+    | 'onClick'
+    | 'tabIndex'
+    | 'type'
+    | 'tooltip'
+    | 'icon'
+> {
     options: LemonSelectOptions<T>
     /** Callback fired when a value is selected, even if it already is set. */
     onSelect?: (newValue: T) => void

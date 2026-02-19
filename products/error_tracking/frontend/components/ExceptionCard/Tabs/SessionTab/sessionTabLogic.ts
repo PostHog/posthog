@@ -1,8 +1,8 @@
 import { actions, connect, defaults, events, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { SessionRecordingPlayerProps } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
+import { SessionRecordingPlayerProps } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import type { sessionTabLogicType } from './sessionTabLogicType'

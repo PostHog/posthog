@@ -13,7 +13,7 @@ import { HedgeboxFile } from '@/types'
 
 export default function FilesPage(): React.JSX.Element {
     const { user } = useAuth()
-    
+
     const [files, setFiles] = useState<HedgeboxFile[]>(sampleFiles)
     const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
@@ -21,7 +21,9 @@ export default function FilesPage(): React.JSX.Element {
 
     useAuthRedirect()
 
-    if (!user) {return null}
+    if (!user) {
+        return null
+    }
 
     const handleFileUpload = async (): Promise<void> => {
         setIsUploading(true)
@@ -56,7 +58,9 @@ export default function FilesPage(): React.JSX.Element {
 
     const handleFileDelete = (fileId: string): void => {
         const file = files.find((f) => f.id === fileId)
-        if (!file) {return}
+        if (!file) {
+            return
+        }
 
         trackFileAction('deleted', file)
         setFiles((prev) => prev.filter((f) => f.id !== fileId))
@@ -69,7 +73,9 @@ export default function FilesPage(): React.JSX.Element {
 
     const handleFileShare = (fileId: string): void => {
         const file = files.find((f) => f.id === fileId)
-        if (!file) {return}
+        if (!file) {
+            return
+        }
 
         trackFileAction('shared', file)
         setFiles((prev) =>
@@ -98,8 +104,12 @@ export default function FilesPage(): React.JSX.Element {
     const storagePercentage = (usedStorage / maxStorage) * 100
 
     const getStorageProgressClass = (): string => {
-        if (storagePercentage > 90) {return 'progress-error'}
-        if (storagePercentage > 70) {return 'progress-warning'}
+        if (storagePercentage > 90) {
+            return 'progress-error'
+        }
+        if (storagePercentage > 70) {
+            return 'progress-warning'
+        }
         return 'progress-primary'
     }
 

@@ -53,7 +53,9 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                     },
                                 ]}
                             />
-                            <Markdown>Update the minimum Android SDK version to **21** in `android/app/build.gradle`:</Markdown>
+                            <Markdown>
+                                Update the minimum Android SDK version to **21** in `android/app/build.gradle`:
+                            </Markdown>
                             <CodeBlock
                                 blocks={[
                                     {

@@ -8,15 +8,15 @@ import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { LogLevel } from '@posthog/rrweb-plugin-console-record'
 import { eventWithTime } from '@posthog/rrweb-types'
 
-import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { PaginatedResponse } from 'lib/api'
+import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { AlertType } from 'lib/components/Alerts/types'
+import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
 import { UrlTriggerConfig } from 'lib/components/IngestionControls/types'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import {
     BIN_COUNT_AUTO,
     ENTITY_MATCH_TYPE,
@@ -1632,8 +1632,7 @@ export interface RecordingTimeMixinType {
 }
 
 export interface RecordingEventType
-    extends Pick<EventType, 'id' | 'event' | 'properties' | 'timestamp' | 'elements'>,
-        RecordingTimeMixinType {
+    extends Pick<EventType, 'id' | 'event' | 'properties' | 'timestamp' | 'elements'>, RecordingTimeMixinType {
     fullyLoaded: boolean
     // allowing for absent distinct id which events don't
     distinct_id?: EventType['distinct_id']

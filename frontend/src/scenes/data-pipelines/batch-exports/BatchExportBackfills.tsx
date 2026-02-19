@@ -6,8 +6,8 @@ import { LemonButton, LemonDialog, LemonTable } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { IconCancel } from 'lib/lemon-ui/icons'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import { BatchExportBackfill } from '~/types'
 

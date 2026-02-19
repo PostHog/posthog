@@ -88,8 +88,8 @@ export const getPydanticAISteps = (ctx: OnboardingComponentsContext): StepDefini
                     <CalloutBox type="fyi" icon="IconInfo" title="How this works">
                         <Markdown>
                             PostHog's `AsyncOpenAI` wrapper is a proper subclass of `openai.AsyncOpenAI`, so it works
-                            directly as the client for Pydantic AI's `OpenAIProvider`. PostHog captures
-                            `$ai_generation` events automatically without proxying your calls.
+                            directly as the client for Pydantic AI's `OpenAIProvider`. PostHog captures `$ai_generation`
+                            events automatically without proxying your calls.
                         </Markdown>
                     </CalloutBox>
                 </>

@@ -5,8 +5,8 @@ import { LemonButton, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { BurningMoneyHog } from 'lib/components/hedgehogs'
 
-import { PurchaseCreditsModal } from './PurchaseCreditsModal'
 import { billingLogic } from './billingLogic'
+import { PurchaseCreditsModal } from './PurchaseCreditsModal'
 
 export const DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD = 500
 

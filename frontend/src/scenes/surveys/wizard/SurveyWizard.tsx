@@ -16,12 +16,11 @@ import { urls } from 'scenes/urls'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SurveyQuestionBranchingType } from '~/types'
 
-import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
 import { NewSurvey } from '../constants'
+import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
 import { surveyLogic } from '../surveyLogic'
 import { doesSurveyHaveDisplayConditions } from '../utils'
 import { MaxTip } from './MaxTip'
-import { WizardStepper } from './WizardStepper'
 import { AppearanceStep } from './steps/AppearanceStep'
 import { QuestionsStep } from './steps/QuestionsStep'
 import { SuccessStep } from './steps/SuccessStep'
@@ -29,6 +28,7 @@ import { TemplateStep } from './steps/TemplateStep'
 import { WhenStep } from './steps/WhenStep'
 import { WhereStep } from './steps/WhereStep'
 import { SurveyWizardLogicProps, surveyWizardLogic } from './surveyWizardLogic'
+import { WizardStepper } from './WizardStepper'
 
 export const scene: SceneExport<SurveyWizardLogicProps> = {
     component: SurveyWizardComponent,

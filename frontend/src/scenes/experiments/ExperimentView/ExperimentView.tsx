@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 import { LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from 'scenes/experiments/constants'
+import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
@@ -12,19 +12,6 @@ import { ExperimentForm } from '~/scenes/experiments/ExperimentForm'
 import { LegacyExperimentInfo } from '~/scenes/experiments/legacy/LegacyExperimentInfo'
 import { ActivityScope, ExperimentProgressStatus } from '~/types'
 
-import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
-import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
-import { LegacyMetricModal } from '../Metrics/LegacyMetricModal'
-import { LegacyMetricSourceModal } from '../Metrics/LegacyMetricSourceModal'
-import { LegacySharedMetricModal } from '../Metrics/LegacySharedMetricModal'
-import { MetricSourceModal } from '../Metrics/MetricSourceModal'
-import { SharedMetricModal } from '../Metrics/SharedMetricModal'
-import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
-import { sharedMetricModalLogic } from '../Metrics/sharedMetricModalLogic'
-import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
-import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
-import { Metrics } from '../MetricsView/new/Metrics'
-import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
 import {
     ExploreAsInsightButton,
     ResultsBreakdown,
@@ -34,11 +21,32 @@ import {
 } from '../components/ResultsBreakdown'
 import { SummarizeExperimentButton } from '../components/SummarizeExperimentButton'
 import { SummarizeSessionReplaysButton } from '../components/SummarizeSessionReplaysButton'
+import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
 import { getExperimentStatus } from '../experimentsLogic'
+import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
+import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
+import { LegacyMetricModal } from '../Metrics/LegacyMetricModal'
+import { LegacyMetricSourceModal } from '../Metrics/LegacyMetricSourceModal'
+import { LegacySharedMetricModal } from '../Metrics/LegacySharedMetricModal'
+import { MetricSourceModal } from '../Metrics/MetricSourceModal'
+import { SharedMetricModal } from '../Metrics/SharedMetricModal'
+import { sharedMetricModalLogic } from '../Metrics/sharedMetricModalLogic'
+import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
+import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
+import { Metrics } from '../MetricsView/new/Metrics'
+import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
 import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
+import {
+    EditConclusionModal,
+    LegacyExploreButton,
+    LegacyResultsQuery,
+    LoadingState,
+    PageHeaderCustom,
+    StopExperimentModal,
+} from './components'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
 import { ExperimentHeader } from './ExperimentHeader'
@@ -49,14 +57,6 @@ import { LegacyExperimentHeader } from './LegacyExperimentHeader'
 import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { SummaryTable } from './SummaryTable'
-import {
-    EditConclusionModal,
-    LegacyExploreButton,
-    LegacyResultsQuery,
-    LoadingState,
-    PageHeaderCustom,
-    StopExperimentModal,
-} from './components'
 
 const MetricsTab = (): JSX.Element => {
     const {

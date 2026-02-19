@@ -1,8 +1,8 @@
 import { BindLogic } from 'kea'
 import { PropsWithChildren } from 'react'
 
-import { MatchTypeSelect, MatchTypeTag } from './TriggerMatchChoice'
 import { IngestionControlsLogicProps, ingestionControlsLogic } from './ingestionControlsLogic'
+import { MatchTypeSelect, MatchTypeTag } from './TriggerMatchChoice'
 import { EventTrigger, EventTriggerSelect } from './triggers/EventTrigger'
 import FlagTrigger from './triggers/FlagTrigger'
 import { FlagTriggerSelector } from './triggers/FlagTrigger/Selector'

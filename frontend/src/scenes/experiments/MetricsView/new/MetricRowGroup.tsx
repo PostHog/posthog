@@ -6,8 +6,8 @@ import { createPortal } from 'react-dom'
 
 import { IconTrending } from '@posthog/icons'
 
-import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
+import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { VariantTag } from 'scenes/experiments/ExperimentView/components'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
@@ -26,8 +26,8 @@ import { experimentLogic } from '../../experimentLogic'
 import { useColumnWidthSync } from '../hooks/useColumnWidthSync'
 import { ChartEmptyState } from '../shared/ChartEmptyState'
 import { ChartLoadingState } from '../shared/ChartLoadingState'
-import { MetricHeader } from '../shared/MetricHeader'
 import { useChartColors } from '../shared/colors'
+import { MetricHeader } from '../shared/MetricHeader'
 import {
     type ExperimentVariantResult,
     formatChanceToWinForGoal,
@@ -43,11 +43,6 @@ import {
     isWinning,
 } from '../shared/utils'
 import { ChartCell } from './ChartCell'
-import { DetailsButton } from './DetailsButton'
-import { DetailsModal } from './DetailsModal'
-import { GridLines } from './GridLines'
-import { renderTooltipContent } from './MetricRowGroupTooltip'
-import { TimeseriesModal } from './TimeseriesModal'
 import {
     CELL_HEIGHT,
     CHART_CELL_VIEW_BOX_HEIGHT,
@@ -55,6 +50,11 @@ import {
     SVG_EDGE_MARGIN,
     VIEW_BOX_WIDTH,
 } from './constants'
+import { DetailsButton } from './DetailsButton'
+import { DetailsModal } from './DetailsModal'
+import { GridLines } from './GridLines'
+import { renderTooltipContent } from './MetricRowGroupTooltip'
+import { TimeseriesModal } from './TimeseriesModal'
 import { useAxisScale } from './useAxisScale'
 
 interface BreakdownErrorStateProps {

@@ -10,8 +10,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, InsightLogicProps } from '~/types'
 
-import { PathNodeData, pageUrl } from './pathUtils'
 import { pathsDataLogic } from './pathsDataLogic'
+import { PathNodeData, pageUrl } from './pathUtils'
 import { NODE_LABEL_HEIGHT, NODE_LABEL_LEFT_OFFSET, NODE_LABEL_TOP_OFFSET, NODE_LABEL_WIDTH } from './renderPaths'
 
 export type PathNodeLabelProps = {

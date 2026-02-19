@@ -22,10 +22,10 @@ import { urls } from 'scenes/urls'
 import { LoginMethod } from '~/types'
 
 import { AuthShell } from './AuthShell'
+import { loginLogic } from './loginLogic'
 import { RedirectIfLoggedInOtherInstance } from './RedirectToLoggedInInstance'
 import RegionSelect from './RegionSelect'
 import { SupportModalButton } from './SupportModalButton'
-import { loginLogic } from './loginLogic'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     no_new_organizations:

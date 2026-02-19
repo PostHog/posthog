@@ -15,7 +15,6 @@ import {
     isSignificant,
 } from '../shared/utils'
 import { ChartGradients } from './ChartGradients'
-import { GridLines } from './GridLines'
 import {
     CELL_HEIGHT,
     CHART_BAR_OPACITY,
@@ -25,6 +24,7 @@ import {
     SVG_EDGE_MARGIN,
     VIEW_BOX_WIDTH,
 } from './constants'
+import { GridLines } from './GridLines'
 import { useAxisScale } from './useAxisScale'
 
 interface ChartCellProps {

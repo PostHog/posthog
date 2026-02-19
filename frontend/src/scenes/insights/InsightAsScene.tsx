@@ -18,9 +18,9 @@ import { containsHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId, ItemMode } from '~/types'
 
 import { teamLogic } from '../teamLogic'
-import { InsightsNav } from './InsightNav/InsightsNav'
 import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
+import { InsightsNav } from './InsightNav/InsightsNav'
 
 export interface InsightAsSceneProps {
     insightId: InsightShortId | 'new'

@@ -1,6 +1,6 @@
-import { ProfilePicture } from '.'
 import clsx from 'clsx'
 
+import { ProfilePicture } from '.'
 import { Tooltip } from '../Tooltip'
 
 export interface ProfileBubblesProps extends React.HTMLProps<HTMLDivElement> {

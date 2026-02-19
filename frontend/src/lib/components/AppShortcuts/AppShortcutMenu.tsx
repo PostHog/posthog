@@ -4,8 +4,8 @@ import { createPortal } from 'react-dom'
 
 import { IconArrowRight } from '@posthog/icons'
 
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { IconAction } from 'lib/lemon-ui/icons'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'

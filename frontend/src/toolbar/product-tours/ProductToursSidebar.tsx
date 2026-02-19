@@ -9,13 +9,13 @@ import { hasIncompleteTargeting } from 'scenes/product-tours/stepUtils'
 
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 
-import { StepCard } from './StepCard'
 import {
     PRODUCT_TOURS_MIN_JS_VERSION,
     TourStep,
     hasMinProductToursVersion,
     productToursLogic,
 } from './productToursLogic'
+import { StepCard } from './StepCard'
 import { PRODUCT_TOURS_SIDEBAR_TRANSITION_MS } from './utils'
 
 const SIDEBAR_WIDTH = 320

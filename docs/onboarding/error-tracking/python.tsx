@@ -189,14 +189,7 @@ export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition
         ),
     }
 
-    return [
-        ...installSteps,
-        verifyInitStep,
-        exceptionAutocaptureStep,
-        manualCaptureStep,
-        verifyStep,
-        frameworkStep,
-    ]
+    return [...installSteps, verifyInitStep, exceptionAutocaptureStep, manualCaptureStep, verifyStep, frameworkStep]
 }
 
 export const PythonInstallation = createInstallation(getPythonSteps)

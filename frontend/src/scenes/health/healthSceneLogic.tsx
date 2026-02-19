@@ -1,8 +1,8 @@
 import { kea, path, selectors } from 'kea'
 
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 
 import { Breadcrumb } from '~/types'
 

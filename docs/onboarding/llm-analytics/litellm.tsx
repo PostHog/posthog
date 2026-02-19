@@ -13,8 +13,8 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
             content: (
                 <Blockquote>
                     <Markdown>
-                        **Note:** LiteLLM can be used as a Python SDK or as a proxy server. PostHog observability requires
-                        LiteLLM version 1.77.3 or higher.
+                        **Note:** LiteLLM can be used as a Python SDK or as a proxy server. PostHog observability
+                        requires LiteLLM version 1.77.3 or higher.
                     </Markdown>
                 </Blockquote>
             ),

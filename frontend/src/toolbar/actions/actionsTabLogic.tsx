@@ -19,8 +19,8 @@ import {
 } from '~/toolbar/utils'
 import { AccessControlLevel, ActionType, ElementType } from '~/types'
 
-import { ActionStepPropertyKey } from './ActionStep'
 import type { actionsTabLogicType } from './actionsTabLogicType'
+import { ActionStepPropertyKey } from './ActionStep'
 
 function newAction(
     element: HTMLElement | null,

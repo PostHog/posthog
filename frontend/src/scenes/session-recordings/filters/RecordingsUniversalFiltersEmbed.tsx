@@ -37,8 +37,8 @@ import { isCommentTextFilter, isUniversalGroupFilterLike } from 'lib/components/
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
@@ -70,8 +70,8 @@ import {
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { CurrentFilterIndicator } from './CurrentFilterIndicator'
 import { DurationFilter } from './DurationFilter'
-import { SavedFilters } from './SavedFilters'
 import { recordingsUniversalFiltersEmbedLogic } from './recordingsUniversalFiltersEmbedLogic'
+import { SavedFilters } from './SavedFilters'
 
 function QuickFilterButton({
     filterKey,

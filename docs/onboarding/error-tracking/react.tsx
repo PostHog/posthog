@@ -103,13 +103,7 @@ export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[
         ),
     }
 
-    return [
-        ...installSteps,
-        exceptionAutocaptureStep,
-        errorBoundaryStep,
-        manualCaptureStep,
-        verifyStep,
-    ]
+    return [...installSteps, exceptionAutocaptureStep, errorBoundaryStep, manualCaptureStep, verifyStep]
 }
 
 export const ReactInstallation = createInstallation(getReactSteps)

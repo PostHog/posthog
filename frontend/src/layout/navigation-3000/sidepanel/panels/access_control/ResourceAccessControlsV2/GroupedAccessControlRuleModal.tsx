@@ -8,8 +8,8 @@ import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
 
 import { APIScopeObject, AccessControlLevel } from '~/types'
 
-import { ScopeIcon } from './ScopeIcon'
 import { AccessControlLevelMapping, GroupedAccessControlRulesForm, accessControlsLogic } from './accessControlsLogic'
+import { ScopeIcon } from './ScopeIcon'
 import { RuleModalState, ScopeType } from './types'
 
 export function GroupedAccessControlRuleModal(props: {

@@ -8,9 +8,9 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { humanFriendlyNumber } from 'lib/utils'
-import { VariantTag } from 'scenes/experiments/ExperimentView/components'
 import { FunnelChart } from 'scenes/experiments/charts/funnel/FunnelChart'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { VariantTag } from 'scenes/experiments/ExperimentView/components'
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
 
 import {

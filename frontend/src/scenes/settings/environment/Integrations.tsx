@@ -4,8 +4,8 @@ import { PropsWithChildren, useMemo, useState } from 'react'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
 import { urls } from 'scenes/urls'
 

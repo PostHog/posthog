@@ -5,8 +5,8 @@ import { IconInfo } from '@posthog/icons'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 
-import { SidePanelContentContainer } from '../SidePanelContentContainer'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
+import { SidePanelContentContainer } from '../SidePanelContentContainer'
 
 export const SidePanelInfoIcon = IconInfo
 

@@ -9,8 +9,8 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { LogsOrderBy } from 'products/logs/frontend/types'
 
 import { LogsExportMenu } from './LogsExportMenu'
-import { TimezoneSelect } from './TimezoneSelect'
 import { logsViewerLogic } from './logsViewerLogic'
+import { TimezoneSelect } from './TimezoneSelect'
 
 export interface LogsViewerToolbarProps {
     totalLogsCount?: number

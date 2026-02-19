@@ -10,9 +10,9 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { Experiment, FeatureFlagType, MultivariateFlagVariant } from '~/types'
 
 import { SelectExistingFeatureFlagModal } from './SelectExistingFeatureFlagModal'
+import { selectExistingFeatureFlagModalLogic } from './selectExistingFeatureFlagModalLogic'
 import { VariantsPanelCreateFeatureFlag } from './VariantsPanelCreateFeatureFlag'
 import { VariantsPanelLinkFeatureFlag } from './VariantsPanelLinkFeatureFlag'
-import { selectExistingFeatureFlagModalLogic } from './selectExistingFeatureFlagModalLogic'
 import { variantsPanelLogic } from './variantsPanelLogic'
 
 interface VariantsPanelProps {

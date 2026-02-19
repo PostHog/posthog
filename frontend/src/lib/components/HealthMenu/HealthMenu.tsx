@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 
 import { IconCloud, IconCode, IconDatabase, IconStethoscope, IconWarning } from '@posthog/icons'
 
-import { Link } from 'lib/lemon-ui/Link/Link'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { urls } from 'scenes/urls'

@@ -20,18 +20,17 @@ import { userLogic } from 'scenes/userLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, type SessionRecordingMaskingLevel, TeamPublicType, TeamType } from '~/types'
 
-import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
-import { OnboardingMax } from './OnboardingMax'
-import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
-import { OnboardingReverseProxy } from './OnboardingReverseProxy'
-import { OnboardingSessionReplayConfiguration } from './OnboardingSessionReplayConfiguration'
 import { OnboardingUpgradeStep } from './billing/OnboardingUpgradeStep'
 import { OnboardingDataWarehouseSourcesStep } from './data-warehouse/OnboardingDataWarehouseSourcesStep'
 import { OnboardingErrorTrackingAlertsStep } from './error-tracking/OnboardingErrorTrackingAlertsStep'
 import { OnboardingErrorTrackingSourceMapsStep } from './error-tracking/OnboardingErrorTrackingSourceMapsStep'
+import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { OnboardingLogicProps, OnboardingStepElement, onboardingLogic } from './onboardingLogic'
+import { OnboardingMax } from './OnboardingMax'
+import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { ProductConfigOption } from './onboardingProductConfigurationLogic'
-import { OnboardingInstallStep } from './sdks/OnboardingInstallStep'
+import { OnboardingReverseProxy } from './OnboardingReverseProxy'
+import { OnboardingSessionReplayConfiguration } from './OnboardingSessionReplayConfiguration'
 import { ErrorTrackingSDKInstructions } from './sdks/error-tracking/ErrorTrackingSDKInstructions'
 import { ExperimentsSDKInstructions } from './sdks/experiments/ExperimentsSDKInstructions'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
@@ -39,6 +38,7 @@ import {
     LLMAnalyticsSDKInstructions,
     LLMAnalyticsSDKTagOverrides,
 } from './sdks/llm-analytics/LLMAnalyticsSDKInstructions'
+import { OnboardingInstallStep } from './sdks/OnboardingInstallStep'
 import {
     ProductAnalyticsSDKInstructions,
     ProductAnalyticsSDKTagOverrides,

@@ -1,5 +1,5 @@
-import { Scene } from 'scenes/sceneTypes'
 import { preloadedScenes } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 
 import { productScenes } from '~/products'
 

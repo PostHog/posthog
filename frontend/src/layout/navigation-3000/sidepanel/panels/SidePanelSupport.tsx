@@ -11,10 +11,10 @@ import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { useOpenAi } from 'scenes/max/useOpenAi'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -23,8 +23,8 @@ import { AvailableFeature, BillingFeatureType, BillingPlan, BillingType, SidePan
 
 import { SidePanelTickets } from 'products/conversations/frontend/components/SidePanel/SidePanelTickets'
 
-import { SidePanelContentContainer } from '../SidePanelContentContainer'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
+import { SidePanelContentContainer } from '../SidePanelContentContainer'
 import { sidePanelLogic } from '../sidePanelLogic'
 import { sidePanelStatusIncidentIoLogic } from './sidePanelStatusIncidentIoLogic'
 import { sidePanelStatusLogic } from './sidePanelStatusLogic'

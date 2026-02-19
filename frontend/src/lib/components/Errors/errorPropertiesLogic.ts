@@ -21,8 +21,8 @@ import {
 import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { KeyedStackFrameRecords, stackFrameLogic } from './Frame/stackFrameLogic'
 import type { errorPropertiesLogicType } from './errorPropertiesLogicType'
+import { KeyedStackFrameRecords, stackFrameLogic } from './Frame/stackFrameLogic'
 
 export interface ErrorPropertiesLogicProps {
     properties?: ErrorEventProperties

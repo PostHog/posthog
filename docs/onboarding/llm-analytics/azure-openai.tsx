@@ -1,4 +1,5 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
 export const getAzureOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
@@ -12,9 +13,7 @@ export const getAzureOpenAISteps = (ctx: OnboardingComponentsContext): StepDefin
             badge: 'required',
             content: (
                 <>
-                    <Markdown>
-                        Setting up analytics starts with installing the PostHog and OpenAI SDKs.
-                    </Markdown>
+                    <Markdown>Setting up analytics starts with installing the PostHog and OpenAI SDKs.</Markdown>
 
                     <CodeBlock
                         blocks={[
@@ -43,10 +42,10 @@ export const getAzureOpenAISteps = (ctx: OnboardingComponentsContext): StepDefin
             content: (
                 <>
                     <Markdown>
-                        We call Azure OpenAI through PostHog's AzureOpenAI wrapper to capture all the details of the call.
-                        Initialize PostHog with your PostHog project API key and host from
-                        [your project settings](https://app.posthog.com/settings/project), then pass the PostHog client
-                        along with your Azure OpenAI config (the API key, API version, and endpoint) to our AzureOpenAI wrapper.
+                        We call Azure OpenAI through PostHog's AzureOpenAI wrapper to capture all the details of the
+                        call. Initialize PostHog with your PostHog project API key and host from [your project
+                        settings](https://app.posthog.com/settings/project), then pass the PostHog client along with
+                        your Azure OpenAI config (the API key, API version, and endpoint) to our AzureOpenAI wrapper.
                     </Markdown>
 
                     <CodeBlock
@@ -106,9 +105,10 @@ export const getAzureOpenAISteps = (ctx: OnboardingComponentsContext): StepDefin
                     <CalloutBox type="fyi" icon="IconInfo" title="Proxy note">
                         <Markdown>
                             These SDKs **do not** proxy your calls. They only fire off an async call to PostHog in the
-                            background to send the data. You can also use LLM analytics with other SDKs or our API, but you
-                            will need to capture the data in the right format. See the schema in the [manual capture
-                            section](https://posthog.com/docs/llm-analytics/installation/manual-capture) for more details.
+                            background to send the data. You can also use LLM analytics with other SDKs or our API, but
+                            you will need to capture the data in the right format. See the schema in the [manual capture
+                            section](https://posthog.com/docs/llm-analytics/installation/manual-capture) for more
+                            details.
                         </Markdown>
                     </CalloutBox>
                 </>
@@ -120,9 +120,9 @@ export const getAzureOpenAISteps = (ctx: OnboardingComponentsContext): StepDefin
             content: (
                 <>
                     <Markdown>
-                        Now, when you call Azure OpenAI, PostHog automatically captures an
-                        `$ai_generation` event. You can also capture or modify additional properties with the distinct ID,
-                        trace ID, properties, groups, and privacy mode parameters.
+                        Now, when you call Azure OpenAI, PostHog automatically captures an `$ai_generation` event. You
+                        can also capture or modify additional properties with the distinct ID, trace ID, properties,
+                        groups, and privacy mode parameters.
                     </Markdown>
 
                     <CodeBlock

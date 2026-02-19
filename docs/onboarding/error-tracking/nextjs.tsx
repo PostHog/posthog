@@ -33,9 +33,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                         },
                     ]}
                 />
-
                 Manual capture is very useful if you already use error boundaries to handle errors in your app:
-
                 <Tab.Group tabs={['App router', 'Pages router']}>
                     <Tab.List>
                         <Tab>App router</Tab>

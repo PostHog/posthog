@@ -12,9 +12,7 @@ build = [ # Build CPython wheels on Linux and macOS, for x86 as well as ARM
 build-frontend = "build" # This is the successor to building with pip
 
 [tool.cibuildwheel.macos]
-before-build = [
-    "brew install antlr4-cpp-runtime",
-]
+before-build = ["brew install antlr4-cpp-runtime"]
 
 [tool.cibuildwheel.linux]
 before-all = [

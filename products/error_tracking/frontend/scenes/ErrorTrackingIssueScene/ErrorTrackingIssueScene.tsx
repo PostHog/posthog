@@ -42,9 +42,6 @@ import { IssueTasks } from '../../components/IssueTasks'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
-import { ErrorTrackingIssueScenePanel } from './ScenePanel'
-import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
-import { SimilarIssuesList } from './ScenePanel/SimilarIssuesList'
 import {
     ErrorTrackingIssueSceneCategory,
     errorTrackingIssueSceneConfigurationLogic,
@@ -54,6 +51,9 @@ import {
     ErrorTrackingIssueSceneLogicProps,
     errorTrackingIssueSceneLogic,
 } from './errorTrackingIssueSceneLogic'
+import { ErrorTrackingIssueScenePanel } from './ScenePanel'
+import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
+import { SimilarIssuesList } from './ScenePanel/SimilarIssuesList'
 
 export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
     component: ErrorTrackingIssueScene,

@@ -44,7 +44,9 @@ export default function FilePage({ params }: FilePageProps): React.JSX.Element |
         }
     }, [params.id])
 
-    if (!user) {return null}
+    if (!user) {
+        return null
+    }
 
     if (isLoading) {
         return (
@@ -145,13 +147,12 @@ export default function FilePage({ params }: FilePageProps): React.JSX.Element |
                 </div>
             )
         }
-            return (
-                <div className="bg-base-200 rounded-lg p-8 text-center">
-                    <div className="text-8xl mb-4">{getFileIcon(file.type)}</div>
-                    <p className="text-base-content/70">No preview available for this file type</p>
-                </div>
-            )
-        
+        return (
+            <div className="bg-base-200 rounded-lg p-8 text-center">
+                <div className="text-8xl mb-4">{getFileIcon(file.type)}</div>
+                <p className="text-base-content/70">No preview available for this file type</p>
+            </div>
+        )
     }
 
     return (
@@ -304,7 +305,7 @@ export default function FilePage({ params }: FilePageProps): React.JSX.Element |
                                     strokeLinejoin="round"
                                     strokeWidth="2"
                                     d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                                 />
+                                />
                             </svg>
                             <span>Anyone with this link can view and download this file.</span>
                         </div>

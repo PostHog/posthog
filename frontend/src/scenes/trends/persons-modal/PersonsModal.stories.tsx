@@ -4,8 +4,8 @@ import { RawPropertiesTimelineResult } from 'lib/components/PropertiesTimeline/p
 
 import { useStorybookMocks } from '~/mocks/browser'
 
-import { PersonsModal as PersonsModalComponent } from './PersonsModal'
 import EXAMPLE_PERSONS_RESPONSE from './__mocks__/examplePersonsResponse.json'
+import { PersonsModal as PersonsModalComponent } from './PersonsModal'
 import { ListActorsResponse } from './personsModalLogic'
 
 const meta: Meta = {

@@ -18,10 +18,10 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
@@ -36,8 +36,8 @@ import {
 } from '~/types'
 
 import { HogQLDropdown } from '../HogQLDropdown/HogQLDropdown'
-import { TZLabel } from '../TZLabel'
 import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
+import { TZLabel } from '../TZLabel'
 
 export function PropertyStatusControl({
     verified,

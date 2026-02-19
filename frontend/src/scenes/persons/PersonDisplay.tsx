@@ -12,8 +12,8 @@ import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 
-import { PersonPreview } from './PersonPreview'
 import { PersonPropType, asDisplay, asLink, getPersonColorIndex } from './person-utils'
+import { PersonPreview } from './PersonPreview'
 
 export interface PersonDisplayProps {
     person?: PersonPropType | null

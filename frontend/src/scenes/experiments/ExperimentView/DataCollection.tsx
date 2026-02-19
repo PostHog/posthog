@@ -12,8 +12,8 @@ import { Experiment, InsightType } from '~/types'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { formatUnitByQuantity } from '../utils'
-import { DataCollectionCalculator } from './DataCollectionCalculator'
 import { EllipsisAnimation } from './components'
+import { DataCollectionCalculator } from './DataCollectionCalculator'
 
 export function DataCollection(): JSX.Element {
     const {

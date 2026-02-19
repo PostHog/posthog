@@ -12,9 +12,9 @@ import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { DataWarehouseViewLink } from '~/types'
 
-import { ViewLinkKeyLabel } from './ViewLinkModal'
 import { dataWarehouseJoinsLogic } from './external/dataWarehouseJoinsLogic'
 import type { viewLinkLogicType } from './viewLinkLogicType'
+import { ViewLinkKeyLabel } from './ViewLinkModal'
 
 const NEW_VIEW_LINK: DataWarehouseViewLink = {
     id: 'new',

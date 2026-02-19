@@ -1,3 +1,5 @@
+import '../../panel-layout/ProjectTree/defaultTree'
+
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
@@ -23,7 +25,6 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { Breadcrumb, FileSystemIconColor, SidePanelTab } from '~/types'
 
-import '../../panel-layout/ProjectTree/defaultTree'
 import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/defaultTree'
 import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'

@@ -1,9 +1,10 @@
 import '@testing-library/jest-dom'
+
 import { cleanup, render, screen } from '@testing-library/react'
 import { expectLogic, partial } from 'kea-test-utils'
 
-import { NEW_COHORT } from 'scenes/cohorts/CohortFilters/constants'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { NEW_COHORT } from 'scenes/cohorts/CohortFilters/constants'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'

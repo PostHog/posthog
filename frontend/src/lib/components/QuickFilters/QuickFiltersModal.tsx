@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 import { LemonModal } from '@posthog/lemon-ui'
 
 import { QuickFilterForm } from './QuickFilterForm'
-import { QuickFiltersModalContent } from './QuickFiltersModalContent'
 import { QuickFiltersLogicProps } from './quickFiltersLogic'
+import { QuickFiltersModalContent } from './QuickFiltersModalContent'
 import { quickFiltersModalLogic } from './quickFiltersModalLogic'
 
 export function QuickFiltersModal({ context }: QuickFiltersLogicProps): JSX.Element {

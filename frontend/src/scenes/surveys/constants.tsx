@@ -170,37 +170,36 @@ export const defaultSurveyFieldValues = {
     },
 }
 
-export interface NewSurvey
-    extends Pick<
-        Survey,
-        | 'name'
-        | 'description'
-        | 'type'
-        | 'conditions'
-        | 'questions'
-        | 'start_date'
-        | 'end_date'
-        | 'linked_flag'
-        | 'targeting_flag'
-        | 'archived'
-        | 'appearance'
-        | 'targeting_flag_filters'
-        | 'responses_limit'
-        | 'iteration_count'
-        | 'iteration_frequency_days'
-        | 'iteration_start_dates'
-        | 'current_iteration'
-        | 'response_sampling_start_date'
-        | 'response_sampling_interval_type'
-        | 'response_sampling_interval'
-        | 'response_sampling_limit'
-        | 'schedule'
-        | 'enable_partial_responses'
-        | 'enable_iframe_embedding'
-        | 'user_access_level'
-        | 'headline_summary'
-        | 'headline_response_count'
-    > {
+export interface NewSurvey extends Pick<
+    Survey,
+    | 'name'
+    | 'description'
+    | 'type'
+    | 'conditions'
+    | 'questions'
+    | 'start_date'
+    | 'end_date'
+    | 'linked_flag'
+    | 'targeting_flag'
+    | 'archived'
+    | 'appearance'
+    | 'targeting_flag_filters'
+    | 'responses_limit'
+    | 'iteration_count'
+    | 'iteration_frequency_days'
+    | 'iteration_start_dates'
+    | 'current_iteration'
+    | 'response_sampling_start_date'
+    | 'response_sampling_interval_type'
+    | 'response_sampling_interval'
+    | 'response_sampling_limit'
+    | 'schedule'
+    | 'enable_partial_responses'
+    | 'enable_iframe_embedding'
+    | 'user_access_level'
+    | 'headline_summary'
+    | 'headline_response_count'
+> {
     id: 'new'
     linked_flag_id: number | null
 }

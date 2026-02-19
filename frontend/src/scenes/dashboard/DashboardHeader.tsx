@@ -39,37 +39,37 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { slugify } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
-import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
+import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
+import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
     ScenePanelActionsSection,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterFormat } from '~/types'
 
-import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
-import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
+import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
+import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 
 const RESOURCE_TYPE = 'dashboard'

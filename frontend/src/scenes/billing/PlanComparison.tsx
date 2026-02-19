@@ -15,10 +15,10 @@ import { getProductIcon } from 'scenes/onboarding/productSelection/ProductSelect
 
 import { BillingFeatureType, BillingPlanType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
-import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 import { convertLargeNumberToWords, getProration } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
+import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 export function PlanIcon({
     feature,
@@ -366,7 +366,7 @@ export const PlanComparison = ({
                                                     </th>
                                                     {includedPlans?.map((plan) => (
                                                         <React.Fragment key={`${plan.plan_key}-${feature.key}`}>
-                                                            {/* Some products don't have a free plan, so we need to pretend there is one 
+                                                            {/* Some products don't have a free plan, so we need to pretend there is one
                                                                         so the features line up in the correct columns in the UI. This is kind of 
                                                                         hacky because it assumes we only have 2 plans total, but it works for now.
                                                                     */}

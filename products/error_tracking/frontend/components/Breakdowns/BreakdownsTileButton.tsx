@@ -7,8 +7,8 @@ import { cn } from 'lib/utils/css-classes'
 import { BREAKDOWN_NULL_STRING_LABEL } from 'scenes/insights/utils'
 
 import { errorTrackingIssueSceneConfigurationLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneConfigurationLogic'
-import { BreakdownsStackedBar } from './BreakdownsStackedBar'
 import { breakdownFiltersLogic } from './breakdownFiltersLogic'
+import { BreakdownsStackedBar } from './BreakdownsStackedBar'
 import { BreakdownPreset, BreakdownsEvents } from './consts'
 import { miniBreakdownsLogic } from './miniBreakdownsLogic'
 

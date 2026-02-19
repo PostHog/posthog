@@ -8,9 +8,9 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { LogEntry, parseLogs } from '../lib/parse-logs'
 import { TaskRun } from '../types'
-import { TaskRunStatusBadge } from './TaskRunStatusBadge'
 import { ConsoleLogEntry } from './session/ConsoleLogEntry'
 import { ToolCallEntry } from './session/ToolCallEntry'
+import { TaskRunStatusBadge } from './TaskRunStatusBadge'
 
 const HEDGEHOG_STATUSES = [
     'Spiking...',

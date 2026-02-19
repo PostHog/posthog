@@ -4,8 +4,6 @@ import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
-import { SessionManager } from '@/lib/SessionManager'
-import { StateManager } from '@/lib/StateManager'
 import { AnalyticsEvent, getPostHogClient } from '@/lib/analytics'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import {
@@ -17,6 +15,8 @@ import {
 } from '@/lib/constants'
 import { handleToolError } from '@/lib/errors'
 import { formatResponse } from '@/lib/response'
+import { SessionManager } from '@/lib/SessionManager'
+import { StateManager } from '@/lib/StateManager'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'

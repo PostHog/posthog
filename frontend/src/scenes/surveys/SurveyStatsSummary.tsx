@@ -7,8 +7,8 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber, percentage, pluralize } from 'lib/utils'
-import { CopySurveyLink } from 'scenes/surveys/CopySurveyLink'
 import { StackedBar, StackedBarSegment, StackedBarSkeleton } from 'scenes/surveys/components/StackedBar'
+import { CopySurveyLink } from 'scenes/surveys/CopySurveyLink'
 
 import { SurveyEventName, SurveyRates, SurveyStats, SurveyType } from '~/types'
 

@@ -21,8 +21,8 @@ import { colonDelimitedDuration } from 'lib/utils'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { CommentType } from '~/types'
 
-import { getRecordingLinkInfo, isViewingRecording } from './commentUtils'
 import { CommentWithRepliesType, commentsLogic } from './commentsLogic'
+import { getRecordingLinkInfo, isViewingRecording } from './commentUtils'
 
 export type CommentProps = {
     commentWithReplies: CommentWithRepliesType

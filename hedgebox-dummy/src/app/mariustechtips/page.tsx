@@ -1,9 +1,10 @@
 'use client'
 
-import Header from '@/components/Header'
-import { posthog } from '@/lib/posthog'
 import Link from 'next/link'
 import { useEffect } from 'react'
+
+import Header from '@/components/Header'
+import { posthog } from '@/lib/posthog'
 
 export default function MariusTechTipsPage(): React.JSX.Element {
     useEffect(() => {
@@ -79,7 +80,7 @@ export default function MariusTechTipsPage(): React.JSX.Element {
                                         strokeLinejoin="round"
                                         strokeWidth="2"
                                         d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                                     />
+                                    />
                                 </svg>
                                 <div>
                                     <h4 className="font-bold">Pro Tip from Marius:</h4>

@@ -5,11 +5,11 @@ import { LemonDropdown } from '@posthog/lemon-ui'
 import { FunnelPathsFilter } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
+import { PATH_NODE_CARD_LEFT_OFFSET, PATH_NODE_CARD_WIDTH } from './constants'
 import { PathNodeCardButton } from './PathNodeCardButton'
 import { PathNodeCardMenu } from './PathNodeCardMenu'
-import { PATH_NODE_CARD_LEFT_OFFSET, PATH_NODE_CARD_WIDTH } from './constants'
-import { PathNodeData, calculatePathNodeCardTop, isSelectedPathStartOrEnd, pageUrl } from './pathUtils'
 import { pathsDataLogic } from './pathsDataLogic'
+import { PathNodeData, calculatePathNodeCardTop, isSelectedPathStartOrEnd, pageUrl } from './pathUtils'
 
 export type PathNodeCardProps = {
     insightProps: InsightLogicProps

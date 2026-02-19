@@ -11,8 +11,8 @@ import { EventDefinition } from '~/types'
 
 import { PropertyGroupModal } from '../schema/PropertyGroupModal'
 import { PropertyTypeTag } from '../schema/PropertyTypeTag'
-import { SelectPropertyGroupModal } from '../schema/SelectPropertyGroupModal'
 import { SchemaPropertyGroupProperty, schemaManagementLogic } from '../schema/schemaManagementLogic'
+import { SelectPropertyGroupModal } from '../schema/SelectPropertyGroupModal'
 import { EventSchema, eventDefinitionSchemaLogic } from './eventDefinitionSchemaLogic'
 import { buildPropertyGroupTrendsQuery } from './propertyGroupTrendsQuery'
 

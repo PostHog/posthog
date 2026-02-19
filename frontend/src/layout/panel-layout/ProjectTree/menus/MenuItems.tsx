@@ -29,9 +29,9 @@ import { groupAnalyticsConfigLogic } from 'scenes/settings/environment/groupAnal
 
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
-import { editCustomProductsModalLogic } from '../../PinnedFolder/editCustomProductsModalLogic'
 import { NewMenu } from '../../menus/NewMenu'
 import { panelLayoutLogic } from '../../panelLayoutLogic'
+import { editCustomProductsModalLogic } from '../../PinnedFolder/editCustomProductsModalLogic'
 import { projectTreeDataLogic } from '../projectTreeDataLogic'
 import { projectTreeLogic } from '../projectTreeLogic'
 import { joinPath, splitPath } from '../utils'

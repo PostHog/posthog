@@ -9,10 +9,8 @@ import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils'
 import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
-import { CopySurveyLink } from 'scenes/surveys/CopySurveyLink'
-import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
-import { SurveyConditionsList } from 'scenes/surveys/components/SurveyConditions'
 import { SURVEY_TYPE_LABEL_MAP } from 'scenes/surveys/constants'
+import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import {
     getSurveyCollectionLimitSummary,
@@ -29,6 +27,9 @@ import {
     SurveySchedule as SurveyScheduleEnum,
     SurveyType,
 } from '~/types'
+
+import { SurveyConditionsList } from '../components/SurveyConditions'
+import { CopySurveyLink } from '../CopySurveyLink'
 
 // ============================================================================
 // Panel Section - Wrapper for consistent panel styling
