@@ -13,10 +13,10 @@ Capture the core problem or request, the product area affected, and key context 
 Strip raw logs, full stack traces, and large code blocks — but keep specific error messages and high-level reproduction context if they clarify the issue.
 Keep the summary under {max_length} characters. Respond with only the summary text.
 
-Issue:
-```
+<issue>
 {description}
-```"""
+</issue>
+"""
 
 GITHUB_ACTIONABILITY_PROMPT = """You are a product feedback analyst. Given a GitHub issue, determine if it contains actionable product feedback.
 
@@ -32,10 +32,9 @@ An issue is NOT_ACTIONABLE if it is:
 - A "works for me" report with no actionable detail
 - A stale issue with no meaningful content
 
-Issue:
-```
+<issue>
 {description}
-```
+</issue>
 
 Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE"""
 

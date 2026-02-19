@@ -14,10 +14,10 @@ Capture the core problem or request, the product area affected, and any relevant
 Strip email signatures, legal disclaimers, and system-generated footers — but keep quoted replies or conversation fragments if they add context about the issue.
 Keep the summary under {max_length} characters. Respond with only the summary text.
 
-Ticket:
-```
+<ticket>
 {description}
-```"""
+</ticket>
+"""
 
 ZENDESK_ACTIONABILITY_PROMPT = """You are a product feedback analyst. Given a customer support ticket, determine if it contains actionable product feedback.
 
@@ -33,10 +33,9 @@ A ticket is NOT_ACTIONABLE if it is:
 - A generic "thank you" or "how do I" question answerable by docs
 - An auto-generated or bot message
 
-Ticket:
-```
+<ticket>
 {description}
-```
+</ticket>
 
 Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE"""
 
