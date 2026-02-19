@@ -206,7 +206,8 @@ export function InsightVizDisplay({
             timedOutQueryId === null &&
             isFunnelWithEnoughSteps &&
             hasFunnelResults &&
-            funnelsFilter?.funnelVizType === FunnelVizType.Steps &&
+            (funnelsFilter?.funnelVizType === FunnelVizType.Steps ||
+                funnelsFilter?.funnelVizType === FunnelVizType.Flow) &&
             !disableTable
         ) {
             return (

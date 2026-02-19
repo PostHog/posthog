@@ -1,0 +1,129 @@
+import { Handle, Position } from '@xyflow/react'
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import React from 'react'
+
+import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
+
+import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
+
+import { FunnelStepMore } from '../FunnelStepMore'
+import { ValueInspectorButton } from '../ValueInspectorButton'
+import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
+import {
+    formatConvertedCount,
+    formatConvertedPercentage,
+    formatDroppedOffCount,
+    formatDroppedOffPercentage,
+    formatMedianConversionTime,
+} from '../funnelUtils'
+import { FunnelFlowNodeData, NODE_HEIGHT, NODE_WIDTH } from './funnelFlowGraphLogic'
+
+function OptionalChip(): JSX.Element {
+    return (
+        <span className="ml-8 text-xxs lowercase tracking-wide px-1 rounded text-muted bg-fill-highlight-100 border border-primary-highlight">
+            Optional
+        </span>
+    )
+}
+
+export const FunnelFlowNode = React.memo(function FunnelFlowNode({ data }: { data: FunnelFlowNodeData }): JSX.Element {
+    const { step, stepIndex, isOptional } = data
+    const isFirstStep = stepIndex === 0
+    const { insightProps } = useValues(insightLogic)
+    const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
+    const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
+    const { openPersonsModalForStep } = useActions(funnelPersonsModalLogic(insightProps))
+    const convertedPercentage = step.conversionRates.fromBasisStep * 100
+    const progressColor =
+        convertedPercentage >= 67
+            ? 'var(--success)'
+            : convertedPercentage >= 33
+              ? 'var(--warning)'
+              : 'var(--color-text-error)'
+
+    return (
+        <div
+            className={clsx(
+                'relative rounded-lg border p-1',
+                isOptional ? 'border-dashed border-border bg-fill-highlight-50' : 'border-border bg-bg-light'
+            )}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ width: NODE_WIDTH, height: NODE_HEIGHT }}
+        >
+            <Handle type="target" position={Position.Left} id={`step-${stepIndex}-target`} className="opacity-0" />
+            <Handle type="source" position={Position.Right} id={`step-${stepIndex}-source`} className="opacity-0" />
+
+            <div className="flex flex-col justify-between px-2.5 py-2 h-full">
+                {/* Header */}
+                <div>
+                    <div className="flex justify-between min-h-10">
+                        <div className="flex flex-col items-start">
+                            <div className="flex items-center gap-1.5">
+                                <Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />
+                                <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} allowWrap />
+                            </div>
+                            {isOptional && <OptionalChip />}
+                        </div>
+                        <FunnelStepMore stepIndex={stepIndex} />
+                    </div>
+                    {isFirstStep ? (
+                        <LemonDivider />
+                    ) : (
+                        <Tooltip title={`${formatConvertedPercentage(step)} converted from first step`}>
+                            <LemonProgress strokeColor={progressColor} percent={convertedPercentage} />
+                        </Tooltip>
+                    )}
+                </div>
+
+                {/* Stats */}
+                <div className="flex flex-col gap-0.5">
+                    <span className="text-xs text-muted">
+                        <ValueInspectorButton
+                            onClick={
+                                canOpenPersonModal
+                                    ? () => openPersonsModalForStep({ step, stepIndex, converted: true })
+                                    : undefined
+                            }
+                        >
+                            {formatConvertedCount(step, aggregationTargetLabel)}
+                        </ValueInspectorButton>{' '}
+                        entered
+                    </span>
+                    {!isFirstStep && (
+                        <>
+                            <span className="text-xs text-muted">
+                                <ValueInspectorButton
+                                    onClick={
+                                        canOpenPersonModal
+                                            ? () => openPersonsModalForStep({ step, stepIndex, converted: false })
+                                            : undefined
+                                    }
+                                >
+                                    {formatDroppedOffCount(step, aggregationTargetLabel)}
+                                </ValueInspectorButton>{' '}
+                                dropped off ({formatDroppedOffPercentage(step)})
+                            </span>
+                            <span className="text-xs font-semibold">{formatConvertedPercentage(step)} converted</span>
+                            {step.median_conversion_time != null && (
+                                <span className="text-xs text-muted">
+                                    <Tooltip
+                                        title="Median time of conversion from previous step"
+                                        placement="bottom-start"
+                                    >
+                                        Median time: {formatMedianConversionTime(step)}
+                                    </Tooltip>
+                                </span>
+                            )}
+                        </>
+                    )}
+                </div>
+            </div>
+        </div>
+    )
+})

@@ -101,7 +101,7 @@ class FunnelBase(ABC):
         if has_optional_steps:
             # validate that optional steps are only allowed in Ordered Steps funnels
             allows_optional_steps = (
-                self.context.funnelsFilter.funnelVizType in (FunnelVizType.STEPS, None)
+                self.context.funnelsFilter.funnelVizType in (FunnelVizType.STEPS, FunnelVizType.FLOW, None)
                 and self.context.funnelsFilter.funnelOrderType != StepOrderValue.UNORDERED
             )
             if not allows_optional_steps:
