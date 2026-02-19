@@ -8,6 +8,7 @@ import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import { initKeaTests } from '~/test/init'
 import { Experiment, ExperimentProgressStatus, FeatureFlagType } from '~/types'
 
+import { hasEnded } from './experimentLogic'
 import { experimentsLogic, getExperimentStatus, getExperimentStatusColor } from './experimentsLogic'
 
 const createMockExperiment = (overrides: any = {}): Experiment =>
@@ -424,6 +425,28 @@ describe('utility functions', () => {
             expect(getExperimentStatusColor(ExperimentProgressStatus.Running)).toBe('success')
             expect(getExperimentStatusColor(ExperimentProgressStatus.Paused)).toBe('warning')
             expect(getExperimentStatusColor(ExperimentProgressStatus.Complete)).toBe('completion')
+        })
+    })
+
+    describe('hasEnded', () => {
+        it.each([
+            { end_date: null, expected: false, desc: 'no end date' },
+            { end_date: undefined, expected: false, desc: 'undefined end date' },
+            { end_date: '2020-01-01T00:00:00Z', expected: true, desc: 'end date in the past' },
+            {
+                end_date: '2099-01-01T00:00:00Z',
+                expected: false,
+                desc: 'end date in the future (not possible yet, but just to cover it already)',
+            },
+            {
+                end_date: '2020-01-01T00:00:00Z',
+                archived: true,
+                expected: true,
+                desc: 'archived with end date in the past',
+            },
+            { end_date: null, archived: true, expected: false, desc: 'archived without end date' },
+        ])('returns $expected when $desc', ({ end_date, archived, expected }) => {
+            expect(hasEnded(createMockExperiment({ end_date, archived }))).toBe(expected)
         })
     })
 })
