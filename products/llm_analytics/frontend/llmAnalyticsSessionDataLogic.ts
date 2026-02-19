@@ -53,6 +53,7 @@ function getDataNodeLogicProps({ sessionId, query, cachedResults }: SessionDataL
 export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsSessionDataLogic']),
     props({} as SessionDataLogicProps),
+    key((props) => `${props.sessionId}:${props.tabId ?? 'default'}`),
     connect((props: SessionDataLogicProps) => ({
         values: [
             llmAnalyticsSessionLogic({ tabId: props.tabId }),

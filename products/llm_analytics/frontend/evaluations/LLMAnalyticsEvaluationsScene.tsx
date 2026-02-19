@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
@@ -17,6 +17,7 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -44,12 +45,14 @@ export const scene: SceneExport = {
     productKey: ProductKey.LLM_ANALYTICS,
 }
 
-function LLMAnalyticsEvaluationsContent(): JSX.Element {
+function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Element {
+    const evaluationsLogic = llmEvaluationsLogic({ tabId })
+    const metricsLogic = evaluationMetricsLogic({ tabId })
     const { evaluations, filteredEvaluations, evaluationsLoading, evaluationsFilter, dateFilter } =
-        useValues(llmEvaluationsLogic)
+        useValues(evaluationsLogic)
     const { setEvaluationsFilter, toggleEvaluationEnabled, duplicateEvaluation, loadEvaluations, setDates } =
-        useActions(llmEvaluationsLogic)
-    const { evaluationsWithMetrics } = useValues(evaluationMetricsLogic)
+        useActions(evaluationsLogic)
+    const { evaluationsWithMetrics } = useValues(metricsLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
@@ -266,20 +269,18 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
     )
 }
 
-export function LLMAnalyticsEvaluationsScene(): JSX.Element {
+export function LLMAnalyticsEvaluationsScene({ tabId }: { tabId?: string }): JSX.Element {
     const { searchParams } = useValues(router)
+    const evaluationsLogic = useMountedLogic(llmEvaluationsLogic({ tabId }))
+    const metricsLogic = evaluationMetricsLogic({ tabId })
+
+    useAttachedLogic(metricsLogic, evaluationsLogic)
 
     const tabs: LemonTab<string>[] = [
         {
             key: 'evaluations',
             label: 'Evaluations',
-            content: (
-                <BindLogic logic={llmEvaluationsLogic} props={{}}>
-                    <BindLogic logic={evaluationMetricsLogic} props={{}}>
-                        <LLMAnalyticsEvaluationsContent />
-                    </BindLogic>
-                </BindLogic>
-            ),
+            content: <LLMAnalyticsEvaluationsContent tabId={tabId} />,
             link: combineUrl(urls.llmAnalyticsEvaluations(), { ...searchParams, tab: undefined }).url,
             'data-attr': 'evaluations-tab',
         },
@@ -293,25 +294,29 @@ export function LLMAnalyticsEvaluationsScene(): JSX.Element {
     ]
 
     return (
-        <SceneContent>
-            <SceneTitleSection
-                name="Evaluations"
-                description="Configure and monitor automated LLM output evaluations."
-                resourceType={{
-                    type: 'llm_evaluations',
-                }}
-                actions={
-                    <LemonButton
-                        to="https://posthog.com/docs/llm-analytics/evaluations"
-                        type="secondary"
-                        targetBlank
-                        size="small"
-                    >
-                        Documentation
-                    </LemonButton>
-                }
-            />
-            <LemonTabs activeKey="evaluations" data-attr="evaluations-tabs" tabs={tabs} sceneInset />
-        </SceneContent>
+        <BindLogic logic={llmEvaluationsLogic} props={{ tabId }}>
+            <BindLogic logic={evaluationMetricsLogic} props={{ tabId }}>
+                <SceneContent>
+                    <SceneTitleSection
+                        name="Evaluations"
+                        description="Configure and monitor automated LLM output evaluations."
+                        resourceType={{
+                            type: 'llm_evaluations',
+                        }}
+                        actions={
+                            <LemonButton
+                                to="https://posthog.com/docs/llm-analytics/evaluations"
+                                type="secondary"
+                                targetBlank
+                                size="small"
+                            >
+                                Documentation
+                            </LemonButton>
+                        }
+                    />
+                    <LemonTabs activeKey="evaluations" data-attr="evaluations-tabs" tabs={tabs} sceneInset />
+                </SceneContent>
+            </BindLogic>
+        </BindLogic>
     )
 }
