@@ -17,7 +17,7 @@ SELECT
     min(timestamp) as first_seen,
     max(timestamp) as last_seen
 FROM events
-ARRAY JOIN JSONExtractArrayRaw(properties.$ai_tools_called) as tool_name
+ARRAY JOIN JSONExtractArrayRaw(ifNull(properties.$ai_tools_called, '[]')) as tool_name
 WHERE event = '$ai_generation'
     AND properties.$ai_tool_call_count > 0
     AND {filters}

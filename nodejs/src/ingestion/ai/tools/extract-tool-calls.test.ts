@@ -4,7 +4,7 @@ import { extractToolCallNames } from './extract-tool-calls'
 import { processAiToolCallExtraction } from './index'
 
 describe('extractToolCallNames', () => {
-    describe('OpenAI format', () => {
+    describe('OpenAI format (message.tool_calls)', () => {
         it.each([
             [
                 'single tool call',
@@ -66,7 +66,37 @@ describe('extractToolCallNames', () => {
         })
     })
 
-    describe('Anthropic format', () => {
+    describe('normalized format (content with type=function)', () => {
+        it.each([
+            [
+                'single function content block',
+                [
+                    {
+                        content: [{ type: 'function', function: { name: 'get_weather' }, id: 'call_abc' }],
+                        role: 'assistant',
+                    },
+                ],
+                ['get_weather'],
+            ],
+            [
+                'multiple function content blocks',
+                [
+                    {
+                        content: [
+                            { type: 'function', function: { name: 'get_weather' }, id: 'call_1' },
+                            { type: 'function', function: { name: 'search_docs' }, id: 'call_2' },
+                        ],
+                        role: 'assistant',
+                    },
+                ],
+                ['get_weather', 'search_docs'],
+            ],
+        ])('%s', (_description, input, expected) => {
+            expect(extractToolCallNames(input)).toEqual(expected)
+        })
+    })
+
+    describe('Anthropic format (message.content with tool_use)', () => {
         it.each([
             [
                 'single tool_use block',
@@ -110,6 +140,29 @@ describe('extractToolCallNames', () => {
             ],
         ])('%s', (_description, input, expected) => {
             expect(extractToolCallNames(input)).toEqual(expected)
+        })
+    })
+
+    describe('Python repr format (OpenAI Agents SDK)', () => {
+        it.each([
+            [
+                'single ResponseFunctionToolCall',
+                "ResponseFunctionToolCall(arguments='{\"city\":\"Montreal\"}', call_id='call_abc', name='get_weather', type='function_call')",
+                ['get_weather'],
+            ],
+            [
+                'multiple ResponseFunctionToolCalls in array',
+                "[ResponseFunctionToolCall(name='get_weather', type='function_call'), ResponseFunctionToolCall(name='search_docs', type='function_call')]",
+                ['get_weather', 'search_docs'],
+            ],
+            [
+                'mixed with non-tool content',
+                "[ResponseOutputMessage(content=[ResponseOutputText(text='hello')]), ResponseFunctionToolCall(name='transfer_to_agent', type='function_call')]",
+                ['transfer_to_agent'],
+            ],
+        ])('%s', (_description, rawString, expected) => {
+            // Python repr strings fail JSON parse, so pass as rawString fallback
+            expect(extractToolCallNames(undefined, rawString)).toEqual(expected)
         })
     })
 
@@ -202,7 +255,35 @@ describe('processAiToolCallExtraction', () => {
         expect(result.properties!['$ai_tool_call_count']).toBe(1)
     })
 
-    it('parses string $ai_output_choices', () => {
+    it('extracts normalized format with content.type=function', () => {
+        const event = createEvent('$ai_generation', {
+            $ai_output_choices: [
+                {
+                    content: [{ type: 'function', function: { name: 'get_weather' }, id: 'call_abc' }],
+                    role: 'assistant',
+                },
+            ],
+        })
+
+        const result = processAiToolCallExtraction(event)
+
+        expect(result.properties!['$ai_tools_called']).toBe('["get_weather"]')
+        expect(result.properties!['$ai_tool_call_count']).toBe(1)
+    })
+
+    it('extracts from Python repr string (OpenAI Agents SDK)', () => {
+        const event = createEvent('$ai_generation', {
+            $ai_output_choices:
+                "[ResponseFunctionToolCall(arguments='{\"city\":\"Montreal\"}', call_id='call_V2E', name='get_weather', type='function_call')]",
+        })
+
+        const result = processAiToolCallExtraction(event)
+
+        expect(result.properties!['$ai_tools_called']).toBe('["get_weather"]')
+        expect(result.properties!['$ai_tool_call_count']).toBe(1)
+    })
+
+    it('parses string $ai_output_choices (valid JSON)', () => {
         const event = createEvent('$ai_generation', {
             $ai_output_choices: JSON.stringify([
                 {
@@ -297,9 +378,10 @@ describe('processAiToolCallExtraction', () => {
         expect(result).toBe(event)
     })
 
-    it('handles invalid JSON string in $ai_output_choices', () => {
+    it('does not set properties for non-tool Python repr strings', () => {
         const event = createEvent('$ai_generation', {
-            $ai_output_choices: 'not valid json',
+            $ai_output_choices:
+                "[ResponseOutputMessage(id='msg_abc', content=[ResponseOutputText(text='Hello')], role='assistant')]",
         })
 
         const result = processAiToolCallExtraction(event)
