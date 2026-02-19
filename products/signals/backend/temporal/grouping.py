@@ -2,7 +2,7 @@ import os
 import json
 import uuid
 import asyncio
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from typing import Literal, Optional
 
@@ -33,8 +33,10 @@ from products.signals.backend.temporal.summary import SignalReportSummaryWorkflo
 from products.signals.backend.temporal.types import (
     EmitSignalInputs,
     ExistingReportMatch,
+    MatchedMetadata,
     MatchResult,
     NewReportMatch,
+    NoMatchMetadata,
     SignalCandidate,
     SignalReportSummaryWorkflowInputs,
     SignalTypeExample,
@@ -362,11 +364,14 @@ async def run_signal_semantic_search_activity(input: RunSignalSemanticSearchInpu
 
 
 class MatchFound(BaseModel):
+    reason: str
     match_type: Literal["existing"]
     signal_id: str
+    query_index: int
 
 
 class NewGroup(BaseModel):
+    reason: str
     match_type: Literal["new"]
     title: str
     summary: str
@@ -402,11 +407,23 @@ You will receive:
 1. A new signal with its description and source information
 2. Results from multiple search queries, each containing candidate signals with their IDs, descriptions, sources, and cosine distances
 
-If a candidate signal from ANY query is related to the new signal, respond with the signal's ID:
-{"match_type": "existing", "signal_id": "<the signal_id of the matching candidate>"}
+IMPORTANT: The "reason" field MUST be the first key in your JSON response. Write your reasoning BEFORE making the match decision.
+
+If a candidate signal from ANY query is related to the new signal, respond with:
+{
+  "reason": "<one sentence explaining the specific relationship between the new signal and the matched signal — what root cause, feature, or user journey connects them>",
+  "match_type": "existing",
+  "signal_id": "<the signal_id of the matching candidate>",
+  "query_index": <0-based index of the query that surfaced this candidate>
+}
 
 If no candidate is related (or all queries returned no results), respond with:
-{"match_type": "new", "title": "<short title for a new report>", "summary": "<1-2 sentence summary of what this signal group is about>"}
+{
+  "reason": "<one sentence explaining why none of the candidates are related>",
+  "match_type": "new",
+  "title": "<short title for a new report>",
+  "summary": "<1-2 sentence summary of what this signal group is about>"
+}
 
 You must respond with valid JSON only, no other text."""
 
@@ -470,9 +487,25 @@ async def match_signal_to_report(
             matched = candidates_by_id.get(result.signal_id)
             if matched is None:
                 raise ValueError(f"signal_id {result.signal_id} not found in candidates")
-            return ExistingReportMatch(report_id=matched.report_id)
+            if result.query_index < 0 or result.query_index >= len(queries):
+                raise ValueError(f"query_index {result.query_index} out of range (0-{len(queries) - 1})")
+            return ExistingReportMatch(
+                report_id=matched.report_id,
+                match_metadata=MatchedMetadata(
+                    parent_signal_id=result.signal_id,
+                    match_query=queries[result.query_index],
+                    reason=result.reason,
+                ),
+            )
 
-        return NewReportMatch(title=result.title, summary=result.summary)
+        return NewReportMatch(
+            title=result.title,
+            summary=result.summary,
+            match_metadata=NoMatchMetadata(
+                reason=result.reason,
+                rejected_signal_ids=list(candidates_by_id.keys()),
+            ),
+        )
 
     return await call_llm(
         system_prompt=MATCHING_SYSTEM_PROMPT,
@@ -578,6 +611,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 "report_id": report_id,
                 "extra": input.extra,
             }
+
+            metadata["match_metadata"] = asdict(match_result.match_metadata)
 
             emit_embedding_request(
                 content=input.description,
