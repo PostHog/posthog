@@ -10,7 +10,7 @@ from django.core.cache import caches
 
 import httpx
 import structlog
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from posthog.schema import AssistantTool
 
@@ -32,6 +32,39 @@ SESSION_CACHE_TTL = 3600  # 1 hour
 
 def _session_cache_key(conversation_id: str, server_url: str) -> str:
     return f"mcp_session:{conversation_id}:{server_url}"
+
+
+class MCPToolProperty(BaseModel, extra="ignore"):
+    type: str | list[str] = "any"
+    description: str = ""
+
+    @property
+    def type_display(self) -> str:
+        if isinstance(self.type, list):
+            return " | ".join(self.type)
+        return self.type
+
+
+class MCPToolInputSchema(BaseModel, extra="ignore"):
+    properties: dict[str, MCPToolProperty] = Field(default_factory=dict)
+    required: list[str] = Field(default_factory=list)
+
+
+class MCPToolDefinition(BaseModel, extra="ignore"):
+    name: str
+    description: str = "No description"
+    inputSchema: MCPToolInputSchema = Field(default_factory=MCPToolInputSchema)
+
+    def format_for_llm(self) -> str:
+        if not self.inputSchema.properties:
+            params_str = "    (no parameters)"
+        else:
+            parts = []
+            for param_name, param_info in self.inputSchema.properties.items():
+                req = " (required)" if param_name in self.inputSchema.required else ""
+                parts.append(f"    - {param_name}: {param_info.type_display}{req} — {param_info.description}")
+            params_str = "\n".join(parts)
+        return f"- **{self.name}**: {self.description}\n  Parameters:\n{params_str}"
 
 
 class CallMCPServerToolArgs(BaseModel):
@@ -223,29 +256,22 @@ class CallMCPServerTool(MaxTool):
         self, client: MCPClient, server_url: str, tool_name: str, arguments: dict | None
     ) -> str:
         if tool_name == "__list_tools__":
-            tools = await client.list_tools()
+            raw_tools = await client.list_tools()
+            if not raw_tools:
+                return "This MCP server has no tools available."
+
+            tools: list[MCPToolDefinition] = []
+            for raw in raw_tools:
+                try:
+                    tools.append(MCPToolDefinition.model_validate(raw))
+                except ValidationError:
+                    logger.warning("Skipping malformed tool definition from MCP server", server_url=server_url, raw=raw)
+
             if not tools:
                 return "This MCP server has no tools available."
 
-            lines = []
-            for tool in tools:
-                name = tool.get("name", "unknown")
-                desc = tool.get("description", "No description")
-                schema = tool.get("inputSchema", {})
-                props = schema.get("properties", {})
-                required = schema.get("required", [])
-
-                param_parts = []
-                for param_name, param_info in props.items():
-                    param_type = param_info.get("type", "any")
-                    param_desc = param_info.get("description", "")
-                    req = " (required)" if param_name in required else ""
-                    param_parts.append(f"    - {param_name}: {param_type}{req} — {param_desc}")
-
-                params_str = "\n".join(param_parts) if param_parts else "    (no parameters)"
-                lines.append(f"- **{name}**: {desc}\n  Parameters:\n{params_str}")
-
-            return f"Tools available on {server_url}:\n\n" + "\n\n".join(lines)
+            formatted = "\n\n".join(t.format_for_llm() for t in tools)
+            return f"Tools available on {server_url}:\n\n{formatted}"
 
         return await client.call_tool(tool_name, arguments or {})
 
