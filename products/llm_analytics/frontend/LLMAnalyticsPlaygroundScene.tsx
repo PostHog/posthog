@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     IconChevronDown,
@@ -15,9 +15,9 @@ import {
 import {
     LemonBanner,
     LemonButton,
-    LemonDivider,
     LemonInput,
     LemonModal,
+    LemonSearchableSelect,
     LemonSelect,
     LemonSkeleton,
     LemonSwitch,
@@ -34,6 +34,7 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { JSONEditor } from './components/JSONEditor'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { ComparisonItem, Message, MessageRole, ModelOption } from './llmAnalyticsPlaygroundLogic'
 import { formatTokens } from './utils'
@@ -46,12 +47,6 @@ const formatMs = (ms: number | null | undefined): string => {
         return `${ms.toFixed(0)} ms`
     }
     return `${(ms / 1000).toFixed(2)} s`
-}
-
-function scrollToOutput(): void {
-    setTimeout(() => {
-        document.querySelector('[data-attr="output-section"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }, 100)
 }
 
 export const scene: SceneExport = {
@@ -76,9 +71,9 @@ function RateLimitBanner(): JSX.Element | null {
 
     return (
         <LemonBanner type="warning" className="mb-4">
-            You've hit our playground request limit. You can make another request in{' '}
+            You've hit the playground request limit for shared keys. You can make another request in{' '}
             <strong>{humanFriendlyDuration(Math.ceil((rateLimitedUntil - Date.now()) / 1000), { maxUnits: 1 })}</strong>
-            . We're working on bring-your-own-key and other improvements to remove this limit.
+            .
         </LemonBanner>
     )
 }
@@ -113,25 +108,82 @@ function PlaygroundLayout(): JSX.Element {
         if (wasSubmitting && !submitting && currentResponse && currentResponse.trim() && !responseHasError) {
             addResponseToHistory(currentResponse)
             addMessage()
-            setTimeout(() => {
-                document.querySelector('[data-attr="messages-end"]')?.scrollIntoView({ behavior: 'smooth' })
-            }, 150)
         }
     }, [submitting])
 
     return (
-        <div className="flex flex-col min-h-[calc(100vh-120px)] relative">
+        <div className="flex flex-col min-h-[calc(100vh-120px)] gap-4 pb-6">
             <RateLimitBanner />
             <SubscriptionRequiredBanner />
 
-            <ModelConfigBar />
+            <section className="border rounded overflow-hidden min-h-0 flex flex-col max-h-[55vh] lg:max-h-[60vh]">
+                <ComposerHeader />
+                <div className="p-4 space-y-4 min-h-0 overflow-y-auto">
+                    <ModelConfigBar />
+                    <MessagesSection />
+                </div>
+            </section>
 
-            <MessagesSection />
-            <LemonDivider label="Response" className="my-4" />
-            <OutputSection />
-
+            <section className="border rounded p-4">
+                <OutputSection />
+            </section>
             <ComparisonTablePanel />
-            <StickyActionBar />
+        </div>
+    )
+}
+
+function ComposerHeader(): JSX.Element {
+    const { messages, submitting } = useValues(llmAnalyticsPlaygroundLogic)
+    const { addMessage, clearConversation, submitPrompt } = useActions(llmAnalyticsPlaygroundLogic)
+
+    return (
+        <div className="px-4 py-3 border-b">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                    <h3 className="text-lg font-semibold">Playground</h3>
+                    <p className="text-xs text-muted">Build a task, run it, and compare results.</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconPlus />}
+                        onClick={() => addMessage()}
+                        disabledReason={submitting ? 'Generating...' : undefined}
+                        data-attr="ai-playground-run-button"
+                    >
+                        Add message
+                    </LemonButton>
+                    <LemonButton
+                        type="secondary"
+                        status="danger"
+                        icon={<IconTrash />}
+                        onClick={clearConversation}
+                        disabledReason={
+                            messages.length === 0 ? 'No messages to clear' : submitting ? 'Generating...' : undefined
+                        }
+                        tooltip="Clear all messages"
+                    >
+                        Clear all
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        icon={<IconPlay />}
+                        onClick={() => submitPrompt()}
+                        loading={submitting}
+                        tooltip="Run prompt (⌘↵)"
+                        disabledReason={
+                            submitting
+                                ? 'Generating...'
+                                : messages.length === 0
+                                  ? 'Add messages to start the conversation'
+                                  : undefined
+                        }
+                        data-attr="playground-run"
+                    >
+                        Run
+                    </LemonButton>
+                </div>
+            </div>
         </div>
     )
 }
@@ -164,24 +216,50 @@ function ModelConfigBar(): JSX.Element {
     const options = Array.isArray(modelOptions) ? modelOptions : []
     const errorMessage = getModelOptionsErrorMessage(modelOptionsErrorStatus)
     const hasNonDefaultSettings = maxTokens !== null || thinking || reasoningLevel !== null
+    const groupedModelOptions = useMemo(() => {
+        const modelsByProvider = options.reduce(
+            (acc, option) => {
+                const provider = option.provider || 'Unknown'
+                if (!acc[provider]) {
+                    acc[provider] = []
+                }
+                acc[provider].push(option)
+                return acc
+            },
+            {} as Record<string, ModelOption[]>
+        )
+
+        return Object.entries(modelsByProvider)
+            .sort(([providerA], [providerB]) => providerA.localeCompare(providerB))
+            .map(([provider, providerModels]) => ({
+                title: provider,
+                options: providerModels
+                    .slice()
+                    .sort((a, b) => b.name.localeCompare(a.name))
+                    .map((option) => ({
+                        label: option.name,
+                        value: option.id,
+                        provider: option.provider,
+                        tooltip: option.description || `Provider: ${option.provider}`,
+                    })),
+            }))
+    }, [options])
 
     return (
-        <div className="mb-4 space-y-3">
-            <div className="flex items-center gap-3">
-                <div className="flex-1 max-w-sm">
+        <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+                <div className="flex-1 min-w-[260px] max-w-lg">
                     {modelOptionsLoading && !options.length ? (
                         <LemonSkeleton className="h-10" />
                     ) : (
-                        <LemonSelect
+                        <LemonSearchableSelect
                             className="w-full"
                             placeholder="Select model"
                             value={model}
                             onChange={(value) => setModel(value)}
-                            options={options.map((option: ModelOption) => ({
-                                label: `${option.name} (${option.provider})`,
-                                value: option.id,
-                                tooltip: option.description || `Provider: ${option.provider}`,
-                            }))}
+                            options={groupedModelOptions}
+                            searchPlaceholder="Search models..."
+                            searchKeys={['label', 'value', 'provider']}
                             loading={modelOptionsLoading}
                             disabledReason={
                                 modelOptionsLoading
@@ -235,7 +313,7 @@ function ModelConfigBar(): JSX.Element {
             </div>
 
             {showSettings && (
-                <div className="flex items-end gap-4 p-3 border rounded bg-bg-light">
+                <div className="flex flex-wrap items-end gap-4 p-3 border rounded">
                     <div className="max-w-[180px]">
                         <label className="text-xs font-medium mb-1 block">Max tokens</label>
                         <LemonInput
@@ -287,14 +365,14 @@ function MessagesSection(): JSX.Element {
     const [expandTextAreas, setExpandTextAreas] = useState(false)
 
     return (
-        <div>
-            <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold">Messages</h3>
+        <div className="border rounded p-3">
+            <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-semibold uppercase tracking-wide text-muted">Conversation</h4>
                 <LemonSwitch
                     bordered
                     checked={expandTextAreas}
                     onChange={setExpandTextAreas}
-                    label="Expand"
+                    label="Expand editors"
                     size="small"
                     tooltip="Expand all text areas to show full content"
                 />
@@ -391,18 +469,15 @@ function ToolsDisplay({ expandTextAreas }: { expandTextAreas: boolean }): JSX.El
                 </div>
 
                 <AnimatedCollapsible collapsed={collapsed}>
-                    <LemonTextArea
-                        className="text-sm w-full font-mono"
-                        placeholder="Tools available to the AI assistant (JSON format)..."
-                        value={toolsJsonString}
-                        onChange={handleToolsChange}
-                        minRows={2}
-                        maxRows={expandTextAreas ? undefined : 6}
-                        onPressCmdEnter={() => {
-                            submitPrompt()
-                            scrollToOutput()
-                        }}
-                    />
+                    <div className="border rounded">
+                        <JSONEditor
+                            value={toolsJsonString}
+                            onChange={handleToolsChange}
+                            defaultNumberOfLines={2}
+                            maxNumberOfLines={expandTextAreas ? 60 : 6}
+                            onPressCmdEnter={() => submitPrompt()}
+                        />
+                    </div>
                 </AnimatedCollapsible>
             </div>
 
@@ -416,13 +491,18 @@ function ToolsDisplay({ expandTextAreas }: { expandTextAreas: boolean }): JSX.El
                 <div className="space-y-4">
                     <div>
                         <label className="font-semibold mb-1 block text-sm">Tools (JSON)</label>
-                        <LemonTextArea
-                            className="text-sm w-full font-mono"
-                            placeholder="Tools available to the AI assistant (JSON format)..."
-                            value={toolsJsonString}
-                            onChange={handleToolsChange}
-                            minRows={12}
-                        />
+                        <div className="border rounded">
+                            <JSONEditor
+                                value={toolsJsonString}
+                                onChange={handleToolsChange}
+                                defaultNumberOfLines={12}
+                                maxNumberOfLines={40}
+                                autoFocus
+                            />
+                        </div>
+                        <div className="mt-2 text-xs text-muted">
+                            Paste or edit valid JSON tool definitions.
+                        </div>
                     </div>
                     <div className="flex justify-end gap-2">
                         <LemonButton type="secondary" onClick={() => setShowEditModal(false)}>
@@ -479,11 +559,8 @@ function SystemMessageDisplay({ expandTextAreas }: { expandTextAreas: boolean })
                         value={systemPrompt}
                         onChange={setSystemPrompt}
                         minRows={2}
-                        maxRows={expandTextAreas ? undefined : 8}
-                        onPressCmdEnter={() => {
-                            submitPrompt()
-                            scrollToOutput()
-                        }}
+                        maxRows={expandTextAreas ? 16 : 8}
+                        onPressCmdEnter={() => submitPrompt()}
                     />
                 </AnimatedCollapsible>
             </div>
@@ -611,11 +688,8 @@ function MessageDisplay({
                     value={message.content}
                     onChange={handleContentChange}
                     minRows={2}
-                    maxRows={expandTextAreas ? undefined : 8}
-                    onPressCmdEnter={() => {
-                        submitPrompt()
-                        scrollToOutput()
-                    }}
+                    maxRows={expandTextAreas ? 16 : 8}
+                    onPressCmdEnter={() => submitPrompt()}
                 />
             )}
         </div>
@@ -629,7 +703,7 @@ function OutputSection(): JSX.Element {
     return (
         <div data-attr="output-section">
             <div className="flex items-center justify-between mb-3">
-                <h3 className="text-lg font-semibold">Response</h3>
+                <h3 className="text-lg font-semibold">Latest run</h3>
                 <div className="flex gap-2">
                     {!submitting && currentResponse && currentResponse.trim() && !responseHasError && (
                         <LemonButton
@@ -718,7 +792,7 @@ function ComparisonTablePanel(): JSX.Element {
             title: 'Response',
             dataIndex: 'response',
             render: (response) => (
-                <div className="max-h-40 overflow-y-auto whitespace-pre-wrap text-xs break-words p-1 border rounded bg-bg-light dark:bg-[var(--color-bg-surface-primary)]">
+                <div className="max-h-40 overflow-y-auto whitespace-pre-wrap text-xs break-words p-1 border rounded">
                     {typeof response === 'string' && response ? (
                         response
                     ) : (
@@ -761,91 +835,34 @@ function ComparisonTablePanel(): JSX.Element {
         },
     ]
 
-    if (comparisonItems.length === 0) {
-        return <></>
-    }
-
     return (
-        <div className="border rounded p-4 min-h-0 flex flex-col mt-4">
+        <div className="border rounded p-4 min-h-0 flex flex-col">
             <div className="flex justify-between items-center mb-4 shrink-0">
                 <h3 className="text-lg font-semibold">Comparison</h3>
-                <LemonButton
-                    type="secondary"
-                    status="danger"
-                    size="small"
-                    icon={<IconTrash />}
-                    onClick={clearComparison}
-                    tooltip="Clear all comparison items"
-                >
-                    Clear all
-                </LemonButton>
-            </div>
-            <div className="flex-1 overflow-hidden">
-                <LemonTable dataSource={comparisonItems} columns={columns} rowKey="id" loading={false} embedded />
-            </div>
-        </div>
-    )
-}
-
-function StickyActionBar(): JSX.Element {
-    const { messages, submitting } = useValues(llmAnalyticsPlaygroundLogic)
-    const { addMessage, clearConversation, submitPrompt } = useActions(llmAnalyticsPlaygroundLogic)
-
-    const scrollToBottom = (): void => {
-        const element = document.querySelector('[data-attr="messages-end"]') as HTMLElement
-        element?.scrollIntoView({ behavior: 'smooth' })
-    }
-
-    return (
-        <div className="sticky bottom-0 bg-bg-light dark:bg-[var(--color-bg-surface-primary)] border-t border-border z-10 ml-[calc(var(--scene-padding)*-1)] mr-[calc(var(--scene-padding)*-1)] mb-[calc(var(--scene-padding-bottom)*-1)]">
-            <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-                <div className="flex gap-2 items-center">
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconPlus />}
-                        onClick={() => {
-                            addMessage()
-                            scrollToBottom()
-                        }}
-                        disabledReason={submitting ? 'Generating...' : undefined}
-                        data-attr="ai-playground-run-button"
-                    >
-                        Add message
-                    </LemonButton>
+                {comparisonItems.length > 0 && (
                     <LemonButton
                         type="secondary"
                         status="danger"
+                        size="small"
                         icon={<IconTrash />}
-                        onClick={clearConversation}
-                        disabledReason={
-                            messages.length === 0 ? 'No messages to clear' : submitting ? 'Generating...' : undefined
-                        }
-                        tooltip="Clear all messages"
+                        onClick={clearComparison}
+                        tooltip="Clear all comparison items"
                     >
                         Clear all
                     </LemonButton>
-                </div>
-
-                <LemonButton
-                    type="primary"
-                    icon={<IconPlay />}
-                    onClick={() => {
-                        submitPrompt()
-                        scrollToOutput()
-                    }}
-                    loading={submitting}
-                    tooltip="Run prompt (⌘↵)"
-                    disabledReason={
-                        submitting
-                            ? 'Generating...'
-                            : messages.length === 0
-                              ? 'Add messages to start the conversation'
-                              : undefined
-                    }
-                    data-attr="playground-run"
-                >
-                    Run
-                </LemonButton>
+                )}
+            </div>
+            <div className="flex-1 overflow-hidden">
+                {comparisonItems.length > 0 ? (
+                    <LemonTable dataSource={comparisonItems} columns={columns} rowKey="id" loading={false} embedded />
+                ) : (
+                    <div className="flex flex-col items-center justify-center h-24 text-muted border border-dashed rounded">
+                        <p className="text-sm">No runs in comparison yet.</p>
+                        <p className="text-xs opacity-70">
+                            Run a prompt, then use <span className="font-medium">Add to compare</span>.
+                        </p>
+                    </div>
+                )}
             </div>
         </div>
     )

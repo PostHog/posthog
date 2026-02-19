@@ -75,9 +75,29 @@ class LLMProxyViewSet(viewsets.ViewSet):
         if self.action == "models":
             return []
 
+        # BYOK requests should not count against shared playground trial limits.
+        if self.action == "completion":
+            serializer = LLMProxyCompletionSerializer(data=getattr(self.request, "data", {}))
+            if serializer.is_valid():
+                provider_key_id = serializer.validated_data.get("provider_key_id")
+                if provider_key_id and self._has_valid_provider_key(str(provider_key_id), self.request.user):
+                    return []
+
         return [LLMProxyBurstRateThrottle(), LLMProxySustainedRateThrottle(), LLMProxyDailyRateThrottle()]
 
-    def _get_provider_key(self, provider_key_id: str | None, user) -> LLMProviderKey | None:
+    def _has_valid_provider_key(self, provider_key_id: str, user) -> bool:
+        team = getattr(user, "current_team", None)
+        if not team:
+            return False
+
+        key = LLMProviderKey.objects.filter(id=provider_key_id, team=team).first()
+        if not key:
+            return False
+
+        api_key = key.encrypted_config.get("api_key")
+        return bool(api_key)
+
+    def _get_provider_key(self, provider_key_id: str | None, user, *, touch_last_used: bool = True) -> LLMProviderKey | None:
         """
         Fetch provider key by ID.
         Returns LLMProviderKey or None if no key ID provided.
@@ -99,8 +119,9 @@ class LLMProxyViewSet(viewsets.ViewSet):
         if not api_key:
             raise ValueError("No API key configured for this provider key")
 
-        key.last_used_at = timezone.now()
-        key.save(update_fields=["last_used_at"])
+        if touch_last_used:
+            key.last_used_at = timezone.now()
+            key.save(update_fields=["last_used_at"])
 
         return key
 

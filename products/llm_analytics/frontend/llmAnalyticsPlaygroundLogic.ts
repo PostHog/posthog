@@ -9,6 +9,7 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { uuid } from 'lib/utils'
 import { isObject } from 'lib/utils'
 import { urls } from 'scenes/urls'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { llmAnalyticsPlaygroundLogicType } from './llmAnalyticsPlaygroundLogicType'
 import { normalizeRole } from './utils'
@@ -18,6 +19,7 @@ export interface ModelOption {
     name: string
     provider: string
     description: string
+    providerKeyId?: string
 }
 
 export interface PlaygroundResponse {
@@ -46,6 +48,20 @@ export interface Message {
 interface RawMessage {
     role: string
     content: unknown
+}
+
+interface EvaluationConfigResponse {
+    active_provider_key: {
+        id: string
+    } | null
+}
+
+interface ProviderKeyResponse {
+    results: Array<{
+        id: string
+        provider: 'openai' | 'anthropic' | 'gemini' | 'openrouter' | string
+        state: 'unknown' | 'ok' | 'invalid' | 'error'
+    }>
 }
 
 enum InputMessageRole {
@@ -116,6 +132,22 @@ function matchClosestModel(targetModel: string, availableModels: ModelOption[]):
         return match
     }
     return DEFAULT_MODEL
+}
+
+async function loadActiveProviderKeyId(): Promise<string | null> {
+    const teamId = teamLogic.values.currentTeamId
+    if (!teamId) {
+        return null
+    }
+
+    try {
+        const response = (await api.get(
+            `/api/environments/${teamId}/llm_analytics/evaluation_config/`
+        )) as EvaluationConfigResponse
+        return response?.active_provider_key?.id ?? null
+    } catch {
+        return null
+    }
 }
 
 export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>([
@@ -313,13 +345,60 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         modelOptions: {
             __default: [] as ModelOption[],
             loadModelOptions: async () => {
-                const response = await api.get('/api/llm_proxy/models/')
+                const teamId = teamLogic.values.currentTeamId
+                const activeProviderKeyId = await loadActiveProviderKeyId()
 
-                if (!response) {
-                    return []
+                if (teamId) {
+                    try {
+                        const providerKeysResponse = (await api.get(
+                            `/api/environments/${teamId}/llm_analytics/provider_keys/`
+                        )) as ProviderKeyResponse
+                        const validProviderKeys = (providerKeysResponse.results || []).filter((key) => key.state === 'ok')
+                        const sortedProviderKeys = validProviderKeys.sort((a, b) =>
+                            a.id === activeProviderKeyId ? -1 : b.id === activeProviderKeyId ? 1 : 0
+                        )
+
+                        if (sortedProviderKeys.length > 0) {
+                            const modelResponses = await Promise.all(
+                                sortedProviderKeys.map(async (key) => {
+                                    try {
+                                        const models = (await api.get(
+                                            `/api/llm_proxy/models/?provider_key_id=${encodeURIComponent(key.id)}`
+                                        )) as Omit<ModelOption, 'providerKeyId'>[]
+                                        return models.map((model) => ({ ...model, providerKeyId: key.id }))
+                                    } catch {
+                                        return []
+                                    }
+                                })
+                            )
+
+                            const dedupedModels = new Map<string, ModelOption>()
+                            for (const models of modelResponses) {
+                                for (const model of models) {
+                                    const dedupeKey = `${model.provider.toLowerCase()}::${model.id}`
+                                    if (!dedupedModels.has(dedupeKey)) {
+                                        dedupedModels.set(dedupeKey, model)
+                                    }
+                                }
+                            }
+
+                            const aggregatedModels = Array.from(dedupedModels.values())
+                            if (aggregatedModels.length > 0) {
+                                const closestMatch = matchClosestModel(values.model, aggregatedModels)
+                                if (values.model !== closestMatch) {
+                                    llmAnalyticsPlaygroundLogic.actions.setModel(closestMatch)
+                                }
+                                return aggregatedModels
+                            }
+                        }
+                    } catch {
+                        // Fall back to default model list if provider key loading fails.
+                    }
                 }
 
-                const options = response as ModelOption[]
+                const fallbackResponse = (await api.get('/api/llm_proxy/models/')) as ModelOption[]
+
+                const options = fallbackResponse ?? []
                 const closestMatch = matchClosestModel(values.model, options)
 
                 if (values.model !== closestMatch) {
@@ -389,9 +468,14 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 const requestData: any = {
                     system: requestSystemPrompt,
                     messages: messagesToSend.filter((m) => m.role === 'user' || m.role === 'assistant'),
-                    model: requestModel,
+                    model: selectedModel.id,
                     provider: selectedModel.provider.toLowerCase(),
                     thinking: values.thinking,
+                }
+
+                const providerKeyId = selectedModel.providerKeyId ?? (await loadActiveProviderKeyId())
+                if (providerKeyId) {
+                    requestData.provider_key_id = providerKeyId
                 }
 
                 // Include tools if available
