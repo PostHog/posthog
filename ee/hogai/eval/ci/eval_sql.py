@@ -458,66 +458,13 @@ user_pageview_counts AS (
     GROUP BY person_id
     HAVING pageview_count > 1
 )
-
 SELECT
-    'uploads' AS feature,
-    AVG(CASE WHEN churned = 1 THEN uploads_30d ELSE 0 END) AS avg_usage_churned,
-    AVG(CASE WHEN churned = 0 THEN uploads_30d ELSE 0 END) AS avg_usage_retained,
-    AVG(churned) AS overall_churn_rate,
-    AVG(CASE WHEN uploads_30d > 0 THEN churned ELSE NULL END) AS churn_rate_with_feature,
-    AVG(CASE WHEN uploads_30d = 0 THEN churned ELSE NULL END) AS churn_rate_without_feature,
-    corr(toFloat(uploads_30d), toFloat(churned)) AS correlation_coefficient
-FROM user_metrics
-
-UNION ALL
-
-SELECT
-    'downloads' AS feature,
-    AVG(CASE WHEN churned = 1 THEN downloads_30d ELSE 0 END),
-    AVG(CASE WHEN churned = 0 THEN downloads_30d ELSE 0 END),
-    AVG(churned),
-    AVG(CASE WHEN downloads_30d > 0 THEN churned ELSE NULL END),
-    AVG(CASE WHEN downloads_30d = 0 THEN churned ELSE NULL END),
-    corr(toFloat(downloads_30d), toFloat(churned))
-FROM user_metrics
-
-UNION ALL
-
-SELECT
-    'shares' AS feature,
-    AVG(CASE WHEN churned = 1 THEN shares_30d ELSE 0 END),
-    AVG(CASE WHEN churned = 0 THEN shares_30d ELSE 0 END),
-    AVG(churned),
-    AVG(CASE WHEN shares_30d > 0 THEN churned ELSE NULL END),
-    AVG(CASE WHEN shares_30d = 0 THEN churned ELSE NULL END),
-    corr(toFloat(shares_30d), toFloat(churned))
-FROM user_metrics
-
-UNION ALL
-
-SELECT
-    'invites' AS feature,
-    AVG(CASE WHEN churned = 1 THEN invites_30d ELSE 0 END),
-    AVG(CASE WHEN churned = 0 THEN invites_30d ELSE 0 END),
-    AVG(churned),
-    AVG(CASE WHEN invites_30d > 0 THEN churned ELSE NULL END),
-    AVG(CASE WHEN invites_30d = 0 THEN churned ELSE NULL END),
-    corr(toFloat(invites_30d), toFloat(churned))
-FROM user_metrics
-
-UNION ALL
-
-SELECT
-    'upgrades' AS feature,
-    AVG(CASE WHEN churned = 1 THEN upgrades_30d ELSE 0 END),
-    AVG(CASE WHEN churned = 0 THEN upgrades_30d ELSE 0 END),
-    AVG(churned),
-    AVG(CASE WHEN upgrades_30d > 0 THEN churned ELSE NULL END),
-    AVG(CASE WHEN upgrades_30d = 0 THEN churned ELSE NULL END),
-    corr(toFloat(upgrades_30d), toFloat(churned))
-FROM user_metrics
-
-ORDER BY ABS(corr(toFloat(uploads_30d), toFloat(churned))) DESC
+    browser_type,
+    median(seconds_between_views) as median_seconds_between_views
+FROM time_diffs
+WHERE person_id IN (SELECT person_id FROM user_pageview_counts)
+GROUP BY browser_type
+ORDER BY median_seconds_between_views DESC
 """
                 ),
             ),
