@@ -2,8 +2,9 @@ import './InsightsTable.scss'
 
 import { useActions, useValues } from 'kea'
 import { compare as compareFn } from 'natural-orderby'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -31,13 +32,7 @@ import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogi
 
 export type CalcColumnState = 'total' | 'average' | 'median'
 
-export const MAX_VALUE_COLUMNS = 200
-
-/** When there are too many data points (e.g. 90 days grouped by hour = 2160),
- *  only show the most recent columns to avoid freezing the browser. */
-export function getValueColumnStartIndex(dataLength: number): number {
-    return Math.max(0, dataLength - MAX_VALUE_COLUMNS)
-}
+export const MAX_VALUE_COLUMNS = 100
 
 export interface InsightsTableProps {
     /** Key for the entityFilterLogic */
@@ -102,6 +97,7 @@ export function InsightsTable({
     )
     const { setDetailedResultsAggregationType, toggleColumnPin } = useActions(insightsTableDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
+    const [maxVisibleColumns, setMaxVisibleColumns] = useState(MAX_VALUE_COLUMNS)
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
         const entityFilter = entityFilterLogic.findMounted({
@@ -370,9 +366,7 @@ export function InsightsTable({
             return aValue - bValue
         }
 
-        // Only show the most recent MAX_VALUE_COLUMNS columns to avoid
-        // freezing the browser on large date ranges (e.g. 90 days by hour = 2160 columns)
-        const visibleStartIndex = getValueColumnStartIndex(results.length)
+        const visibleStartIndex = Math.max(0, results.length - maxVisibleColumns)
         const visibleDataIndices = Array.from(
             { length: results.length - visibleStartIndex },
             (_, i) => visibleStartIndex + i
@@ -405,9 +399,36 @@ export function InsightsTable({
             sorter: (a: IndexedTrendResult, b: IndexedTrendResult) => dataSorter(a, b, index),
             align: 'right',
         }))
-    }, [indexedResults, renderCount, formatPropertyValueForDisplay, isStickiness, compareFilter?.compare, interval]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [
+        indexedResults,
+        renderCount,
+        formatPropertyValueForDisplay,
+        isStickiness,
+        compareFilter?.compare,
+        interval,
+        maxVisibleColumns,
+    ]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    const totalValueColumns = indexedResults?.[0]?.data?.length ?? 0
+    const hiddenColumns = totalValueColumns - valueColumns.length
 
     columns.push(...valueColumns)
+
+    if (hiddenColumns > 0) {
+        columns.push({
+            title: (
+                <LemonButton
+                    type="secondary"
+                    size="xsmall"
+                    onClick={() => setMaxVisibleColumns((prev) => prev + MAX_VALUE_COLUMNS)}
+                >
+                    +{Math.min(hiddenColumns, MAX_VALUE_COLUMNS).toLocaleString()} columns
+                </LemonButton>
+            ),
+            render: () => null,
+            key: 'load-more-columns',
+        })
+    }
 
     return (
         <LemonTable
