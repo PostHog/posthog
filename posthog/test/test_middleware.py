@@ -1124,7 +1124,7 @@ class TestUpgradeImpersonation(ImpersonationLoginMixin, APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
-        self.client = DjangoClient()  # type: ignore[assignment]
+        self.client = DjangoClient()
         self.client.force_login(self.user)
         self._impersonation_setUp()
 
@@ -1441,6 +1441,47 @@ class TestImpersonationFromTicket(APIBaseTest):
         )
 
         assert response.status_code == 404
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_ticket_from_other_region_returns_redirect(self):
+        ticket = self._create_ticket(anonymous_traits={"email": self.other_user.email, "region": "EU"})
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps({"ticket_id": str(ticket.id)}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["redirect_region"] == "EU"
+        assert data["redirect_url"] == f"https://eu.posthog.com/admin/posthog/user/?q={self.other_user.email}"
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_ticket_from_same_region_proceeds_normally(self):
+        ticket = self._create_ticket(anonymous_traits={"email": self.other_user.email, "region": "US"})
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps({"ticket_id": str(ticket.id)}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_ticket_with_no_region_proceeds_normally(self):
+        ticket = self._create_ticket(anonymous_traits={"email": self.other_user.email})
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps({"ticket_id": str(ticket.id)}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
 
 
 @override_settings(ADMIN_PORTAL_ENABLED=True)

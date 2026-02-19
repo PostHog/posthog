@@ -495,28 +495,19 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
 
             try {
-                await api.create('admin/impersonation/from-ticket/', {
+                const response = await api.create('admin/impersonation/from-ticket/', {
                     ticket_id: ticket.id,
                 })
+                if (response.redirect_url) {
+                    lemonToast.info(`This ticket is from ${response.redirect_region}. Opening in a new tab...`)
+                    window.open(response.redirect_url, '_blank')
+                    return
+                }
                 // Full page navigation to refresh user data with impersonation flags
                 window.location.replace('/')
             } catch (error: any) {
-                const status = error?.status
                 const detail = error?.data?.error || 'Failed to impersonate user'
-                if (status === 404 && detail === 'No user found for this email') {
-                    const email = ticket.anonymous_traits?.email
-                    const euAdminUrl = email
-                        ? `https://eu.posthog.com/admin/posthog/user/?q=${encodeURIComponent(email)}`
-                        : 'https://eu.posthog.com/admin/posthog/user/'
-                    lemonToast.error('User not found in this region. They may be on EU.', {
-                        button: {
-                            label: 'Search EU admin',
-                            action: () => window.open(euAdminUrl, '_blank'),
-                        },
-                    })
-                } else {
-                    lemonToast.error(detail)
-                }
+                lemonToast.error(detail)
             }
         },
     })),
