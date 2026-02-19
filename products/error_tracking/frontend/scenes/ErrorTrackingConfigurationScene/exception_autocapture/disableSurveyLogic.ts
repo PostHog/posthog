@@ -66,7 +66,7 @@ export const disableSurveyLogic = kea<disableSurveyLogicType>([
             posthog.getSurveys((surveys) => {
                 const survey = surveys.find((s) => s.id === SURVEY_ID)
                 if (survey) {
-                    actions.setSurveyQuestions(survey.questions)
+                    actions.setSurveyQuestions(survey.questions as unknown as SurveyQuestion[])
                 }
             })
             posthog.capture('survey shown', {
