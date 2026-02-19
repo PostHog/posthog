@@ -132,10 +132,7 @@ export const llmPersonsLazyLoaderLogic = kea<llmPersonsLazyLoaderLogicType>([
                 const teamId = values.currentTeamId
 
                 if (!teamId) {
-                    for (const distinctId of batch) {
-                        pendingDistinctIds.add(distinctId)
-                    }
-                    scheduleBatchLoad()
+                    actions.loadPersonsBatchFailure(batch)
                     return
                 }
 
