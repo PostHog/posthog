@@ -22,8 +22,10 @@ export type HogFunctionSourceWebhookTestResult = {
 
 export const hogFunctionSourceWebhookTestLogic = kea<hogFunctionSourceWebhookTestLogicType>([
     props({} as HogFunctionConfigurationLogicProps),
-    key(({ id, templateId }: HogFunctionConfigurationLogicProps) => {
-        return id ?? templateId ?? 'new'
+    key(({ id, templateId, userTemplateId, editUserTemplateId }: HogFunctionConfigurationLogicProps) => {
+        const base = id ?? templateId ?? 'new'
+        const utId = editUserTemplateId ?? userTemplateId
+        return utId ? `${base}_ut-${utId}` : base
     }),
 
     path((id) => ['scenes', 'pipeline', 'hogfunctions', 'hogFunctionSourceWebhookTestLogic', id]),

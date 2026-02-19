@@ -43,6 +43,7 @@ from posthog.models.hog_functions.hog_function import (
     HogFunctionState,
     HogFunctionType,
 )
+from posthog.models.hog_functions.hog_function_user_template import HogFunctionUserTemplate
 from posthog.models.hog_functions.utils import humanize_hog_function_type
 from posthog.models.plugin import TranspilerError
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
@@ -109,6 +110,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     mappings = serializers.ListField(child=MappingsSerializer(), required=False, allow_null=True)
     filters = HogFunctionFiltersSerializer(required=False)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    user_template_id = serializers.UUIDField(required=False, write_only=True, allow_null=True)
 
     class Meta:
         model = HogFunction
@@ -137,6 +139,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "execution_order",
             "_create_in_folder",
             "batch_export_id",
+            "user_template_id",
         ]
         read_only_fields = [
             "id",
@@ -196,6 +199,23 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             data["inputs_schema"] = data.get("inputs_schema") or []
             data["inputs"] = data.get("inputs") or {}
             data["mappings"] = data.get("mappings") or None
+
+            # Handle user template values (takes precedence over system template)
+            user_template_id = data.pop("user_template_id", None)
+            if user_template_id:
+                try:
+                    user_template = HogFunctionUserTemplate.objects.get(id=user_template_id)
+                    data["hog"] = data.get("hog") or user_template.hog
+                    data["inputs_schema"] = data.get("inputs_schema") or user_template.inputs_schema
+                    data["icon_url"] = data.get("icon_url") or user_template.icon_url
+                    data["description"] = data.get("description") or user_template.description
+                    data["name"] = data.get("name") or user_template.name
+                    data["filters"] = data.get("filters") or user_template.filters or {}
+                    data["masking"] = data.get("masking") or user_template.masking
+                except HogFunctionUserTemplate.DoesNotExist:
+                    raise serializers.ValidationError(
+                        {"user_template_id": f"No user template found for id '{user_template_id}'"}
+                    )
 
             # Handle template values
             template_id = data.get("template_id")

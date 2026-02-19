@@ -69,6 +69,10 @@ export interface HogFunctionConfigurationLogicProps {
     templateId?: string | null
     subTemplateId?: string | null
     id?: string | null
+    /** ID of a user-created template to load (for creating from or editing) */
+    userTemplateId?: string | null
+    /** When set, the scene is in "edit template" mode */
+    editUserTemplateId?: string | null
 }
 
 export const EVENT_VOLUME_DAILY_WARNING_THRESHOLD = 1000
@@ -298,13 +302,26 @@ export function mightDropEvents(code: string): boolean {
 export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
     props({} as HogFunctionConfigurationLogicProps),
-    key(({ id, templateId, subTemplateId, logicKey }: HogFunctionConfigurationLogicProps) => {
-        let baseKey = id ?? templateId ?? 'new'
-        if (subTemplateId) {
-            baseKey = `${subTemplateId}_${baseKey}`
+    key(
+        ({
+            id,
+            templateId,
+            subTemplateId,
+            logicKey,
+            userTemplateId,
+            editUserTemplateId,
+        }: HogFunctionConfigurationLogicProps) => {
+            let baseKey = id ?? templateId ?? 'new'
+            if (subTemplateId) {
+                baseKey = `${subTemplateId}_${baseKey}`
+            }
+            const utId = editUserTemplateId ?? userTemplateId
+            if (utId) {
+                baseKey = `${baseKey}_ut-${utId}`
+            }
+            return logicKey ? `${logicKey}_${baseKey}` : baseKey
         }
-        return logicKey ? `${logicKey}_${baseKey}` : baseKey
-    }),
+    ),
     connect(() => ({
         values: [
             projectLogic,
@@ -450,6 +467,31 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             {
                 loadTemplate: async () => {
                     cache.configFromUrl = router.values.hashParams.configuration
+
+                    // Load user template from API (for edit or create-from-template)
+                    const userTplId = props.editUserTemplateId ?? props.userTemplateId
+                    if (userTplId) {
+                        const ut = await api.hogFunctionUserTemplates.get(userTplId)
+                        const { bytecode, bytecode_error, ...cleanFilters } = (ut.filters as any) ?? {}
+                        // Store actual inputs as configFromUrl so resetForm applies them over schema defaults
+                        cache.configFromUrl = { inputs: ut.inputs ?? {} }
+                        return {
+                            id: `user-template-${ut.id}`,
+                            type: (ut.type as HogFunctionTypeType) ?? 'transformation',
+                            name: ut.name,
+                            description: ut.description,
+                            icon_url: ut.icon_url ?? undefined,
+                            inputs_schema: ut.inputs_schema,
+                            filters: ut.filters ? cleanFilters : undefined,
+                            mappings: ut.mappings,
+                            masking: ut.masking,
+                            status: 'stable' as const,
+                            free: true,
+                            code: ut.hog,
+                            code_language: 'hog' as const,
+                        } satisfies HogFunctionTemplateType
+                    }
+
                     if (!props.templateId) {
                         return null
                     }
@@ -708,8 +750,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
 
                 const payload: Record<string, any> = sanitizeConfiguration(data)
-                // Only sent on create
-                payload.template_id = props.templateId || values.hogFunction?.template?.id
+                // Only sent on create – 'new' is a placeholder for blank functions, not a real template
+                const templateId = props.templateId !== 'new' ? props.templateId : undefined
+                payload.template_id = templateId || values.hogFunction?.template?.id
 
                 if (!props.id || props.id === 'new') {
                     const type = values.type
@@ -1432,7 +1475,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             integration_target: router.values.searchParams.integration_target,
         }
 
-        if (props.templateId) {
+        if (props.templateId || props.userTemplateId || props.editUserTemplateId) {
             cache.configFromUrl = router.values.hashParams.configuration
             actions.loadTemplate()
         } else if (props.id && props.id !== 'new') {

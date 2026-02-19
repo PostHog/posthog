@@ -20,6 +20,7 @@ import {
     HogFunctionTemplateType,
     HogFunctionTemplateWithSubTemplateType,
     HogFunctionTypeType,
+    HogFunctionUserTemplateType,
     UserType,
 } from '~/types'
 
@@ -83,6 +84,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         setFilters: (filters: Partial<HogFunctionTemplateListFilters>) => ({ filters }),
         resetFilters: true,
         registerInterest: (template: HogFunctionTemplateType) => ({ template }),
+        deleteUserTemplate: (id: string) => ({ id }),
     }),
     reducers(() => ({
         filters: [
@@ -109,11 +111,47 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                 },
             },
         ],
+        userTemplates: [
+            [] as HogFunctionUserTemplateType[],
+            {
+                loadUserTemplates: async () => {
+                    const response = await api.hogFunctionUserTemplates.list()
+                    return response.results.filter((t) =>
+                        [props.type, ...(props.additionalTypes || [])].includes(t.type as HogFunctionTypeType)
+                    )
+                },
+            },
+        ],
     })),
     selectors({
-        loading: [(s) => [s.rawTemplatesLoading], (x) => x],
+        loading: [(s) => [s.rawTemplatesLoading, s.userTemplatesLoading], (a, b) => a || b],
 
-        templates: [
+        userTemplatesAsTemplates: [
+            (s) => [s.userTemplates],
+            (userTemplates: HogFunctionUserTemplateType[]): HogFunctionTemplateWithSubTemplateType[] => {
+                return userTemplates.map((ut) => ({
+                    id: `user-template-${ut.id}`,
+                    type: ut.type as HogFunctionTypeType,
+                    name: ut.name,
+                    description: ut.description,
+                    icon_url: ut.icon_url ?? undefined,
+                    inputs_schema: ut.inputs_schema,
+                    filters: ut.filters,
+                    mappings: ut.mappings,
+                    masking: ut.masking,
+                    status: 'stable' as const,
+                    free: true,
+                    code: ut.hog,
+                    code_language: 'hog' as const,
+                    user_template_id: ut.id,
+                    user_template_scope: ut.scope,
+                    tags: ut.tags,
+                    created_by: ut.created_by,
+                }))
+            },
+        ],
+
+        systemTemplates: [
             (s) => [
                 s.rawTemplates,
                 s.user,
@@ -136,13 +174,11 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                         ...(manualTemplates || []),
                     ] as HogFunctionTemplateWithSubTemplateType[]
                 } else {
-                    // Special case for listing sub templates - we
                     for (const template of rawTemplates) {
                         for (const subTemplateId of subTemplateIds ?? []) {
                             const subTemplate = getSubTemplate(template, subTemplateId)
 
                             if (subTemplate) {
-                                // Store it with the overrides applied
                                 templates.push({
                                     ...template,
                                     ...subTemplate,
@@ -151,11 +187,19 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                         }
                     }
                 }
+
                 return templates
                     .filter((x) => shouldShowHogFunctionTemplate(x, user))
                     .filter((x) => !x.flag || !!featureFlags[x.flag as FeatureFlagKey])
                     .filter((x) => x.type !== 'source_webhook' || !!featureFlags[FEATURE_FLAGS.CDP_HOG_SOURCES])
                     .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+            },
+        ],
+
+        templates: [
+            (s) => [s.systemTemplates, s.userTemplatesAsTemplates],
+            (systemTemplates, userTemplatesAsTemplates): HogFunctionTemplateWithSubTemplateType[] => {
+                return [...userTemplatesAsTemplates, ...systemTemplates]
             },
         ],
 
@@ -169,17 +213,33 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             },
         ],
 
+        filteredUserTemplates: [
+            (s) => [s.filters, s.userTemplatesAsTemplates, s.templatesFuse],
+            (filters, userTemplates, templatesFuse): HogFunctionTemplateType[] => {
+                const { search } = filters
+
+                if (search) {
+                    return templatesFuse
+                        .search(search)
+                        .map((x) => x.item)
+                        .filter((item) => !!(item as any).user_template_id) as HogFunctionTemplateType[]
+                }
+
+                return userTemplates as HogFunctionTemplateType[]
+            },
+        ],
+
         filteredTemplates: [
             (s) => [
                 s.filters,
-                s.templates,
+                s.systemTemplates,
                 s.templatesFuse,
                 (_, props) => props.hideComingSoonByDefault ?? false,
                 (_, props) => props.customFilterFunction ?? (() => true),
             ],
             (
                 filters,
-                templates,
+                systemTemplates,
                 templatesFuse,
                 hideComingSoonByDefault,
                 customFilterFunction
@@ -193,12 +253,15 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                             if (!customFilterFunction(x.item)) {
                                 return null
                             }
+                            if ((x.item as any).user_template_id) {
+                                return null
+                            }
                             return x.item
                         })
                         .filter(Boolean) as HogFunctionTemplateType[]
                 }
 
-                const [available, comingSoon] = templates.reduce(
+                const [available, comingSoon] = systemTemplates.reduce(
                     ([available, comingSoon], template) => {
                         if (!customFilterFunction(template)) {
                             return [available, comingSoon]
@@ -246,6 +309,13 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                         return urls.batchExportNew(template.id.replace('batch-export-', ''))
                     }
 
+                    if ((template as any).user_template_id) {
+                        return combineUrl(urls.hogFunction('new'), {
+                            ...queryParams,
+                            userTemplateId: (template as any).user_template_id,
+                        }).url
+                    }
+
                     const subTemplate = template.sub_template_id
                         ? getSubTemplate(template, template.sub_template_id)
                         : null
@@ -273,9 +343,28 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                 }
             },
         ],
+
+        editUrlForTemplate: [
+            () => [(_, props) => props],
+            ({ queryParams }): ((template: HogFunctionTemplateWithSubTemplateType) => string | null) => {
+                return (template: HogFunctionTemplateWithSubTemplateType) => {
+                    const userTemplateId = (template as any).user_template_id
+                    if (!userTemplateId) {
+                        return null
+                    }
+                    return combineUrl(urls.hogFunction('new'), {
+                        ...queryParams,
+                        editUserTemplateId: userTemplateId,
+                    }).url
+                }
+            },
+        ],
     }),
 
-    listeners(({ values }) => ({
+    listeners(({ values, actions }) => ({
+        loadHogFunctionTemplates: () => {
+            actions.loadUserTemplates()
+        },
         registerInterest: ({ template }) => {
             posthog.capture('notify_me_pipeline', {
                 name: template.name,
@@ -284,6 +373,15 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             })
 
             lemonToast.success('Thank you for your interest! We will notify you when this feature is available.')
+        },
+        deleteUserTemplate: async ({ id }) => {
+            try {
+                await api.hogFunctionUserTemplates.delete(id)
+                lemonToast.success('Template deleted')
+                actions.loadUserTemplates()
+            } catch (e: any) {
+                lemonToast.error(e?.detail || e?.message || 'Failed to delete template')
+            }
         },
     })),
 

@@ -103,6 +103,7 @@ from . import (
     hog,
     hog_function,
     hog_function_template,
+    hog_function_user_template,
     ingestion_warnings,
     insight_variable,
     instance_settings,
@@ -969,6 +970,13 @@ register_grandfathered_environment_nested_viewset(
     r"hog_flow_templates",
     hog_flow_template.HogFlowTemplateViewSet,
     "environment_hog_flow_templates",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"hog_function_user_templates",
+    hog_function_user_template.HogFunctionUserTemplateViewSet,
+    "environment_hog_function_user_templates",
     ["team_id"],
 )
 

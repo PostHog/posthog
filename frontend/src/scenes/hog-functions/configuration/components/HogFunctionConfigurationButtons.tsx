@@ -21,7 +21,7 @@ export function HogFunctionConfigurationSaveButton(): JSX.Element {
             htmlType="submit"
             onClick={submitConfiguration}
             loading={isConfigurationSubmitting}
-            disabledReason={!configurationChanged && hogFunction ? 'No changes' : undefined}
+            disabledReason={!configurationChanged && hogFunction && !template ? 'No changes' : undefined}
             size="small"
         >
             {template ? 'Create' : 'Save'}

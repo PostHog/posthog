@@ -134,6 +134,7 @@ import {
     HogFunctionTemplateType,
     HogFunctionType,
     HogFunctionTypeType,
+    HogFunctionUserTemplateType,
     InsightModel,
     IntegrationType,
     JiraProjectType,
@@ -1794,6 +1795,14 @@ export class ApiRequest {
 
     public hogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): ApiRequest {
         return this.hogFlowTemplates().addPathComponent(hogFlowTemplateId)
+    }
+
+    public hogFunctionUserTemplates(): ApiRequest {
+        return this.environments().current().addPathComponent('hog_function_user_templates')
+    }
+
+    public hogFunctionUserTemplate(id: string): ApiRequest {
+        return this.hogFunctionUserTemplates().addPathComponent(id)
     }
 
     public wizard(): ApiRequest {
@@ -5153,6 +5162,33 @@ const api = {
         },
         async deleteHogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): Promise<void> {
             return await new ApiRequest().hogFlowTemplate(hogFlowTemplateId).delete()
+        },
+    },
+
+    hogFunctionUserTemplates: {
+        async list(): Promise<PaginatedResponse<HogFunctionUserTemplateType>> {
+            return await new ApiRequest().hogFunctionUserTemplates().get()
+        },
+        async get(id: string): Promise<HogFunctionUserTemplateType> {
+            return await new ApiRequest().hogFunctionUserTemplate(id).get()
+        },
+        async create(data: Partial<HogFunctionUserTemplateType>): Promise<HogFunctionUserTemplateType> {
+            return await new ApiRequest().hogFunctionUserTemplates().create({ data })
+        },
+        async createFromFunction(data: {
+            hog_function_id: string
+            name: string
+            description?: string
+            scope?: string
+            tags?: string[]
+        }): Promise<HogFunctionUserTemplateType> {
+            return await new ApiRequest().hogFunctionUserTemplates().withAction('from_function').create({ data })
+        },
+        async update(id: string, data: Partial<HogFunctionUserTemplateType>): Promise<HogFunctionUserTemplateType> {
+            return await new ApiRequest().hogFunctionUserTemplate(id).update({ data })
+        },
+        async delete(id: string): Promise<void> {
+            return await new ApiRequest().hogFunctionUserTemplate(id).delete()
         },
     },
 

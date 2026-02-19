@@ -6040,6 +6040,25 @@ export type HogFunctionType = {
     deleted?: boolean
 }
 
+export type HogFunctionUserTemplateType = {
+    id: string
+    name: string
+    description: string
+    icon_url?: string | null
+    tags: string[]
+    scope: 'team' | 'organization'
+    type: string
+    hog: string
+    inputs_schema: CyclotronJobInputSchemaType[]
+    inputs?: Record<string, any> | null
+    filters?: CyclotronJobFiltersType | null
+    mappings?: any[] | null
+    masking?: CyclotronJobMasking | null
+    created_at: string
+    created_by?: UserBasicType | null
+    updated_at: string
+}
+
 export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon' | 'hidden'
 
 // Contexts change the way the UI is rendered allowing different teams to customize the UI for their use case

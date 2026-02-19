@@ -44,6 +44,8 @@ import {
 } from './configuration/components/HogFunctionConfigurationButtons'
 import { HogFunctionMetrics } from './metrics/HogFunctionMetrics'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
+import { SaveAsHogFunctionTemplateModal } from './templates/SaveAsHogFunctionTemplateModal'
+import { hogFunctionUserTemplateLogic } from './templates/hogFunctionUserTemplateLogic'
 
 const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'logs', 'testing', 'backfills', 'history'] as const
 export type HogFunctionSceneTab = (typeof HOG_FUNCTION_SCENE_TABS)[number]
@@ -57,7 +59,11 @@ const HogFunctionSceneMapping: Partial<Record<HogFunctionTypeType, { scene: Scen
 
 export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
     props({} as HogFunctionConfigurationLogicProps),
-    key(({ id, templateId }: HogFunctionConfigurationLogicProps) => id ?? templateId ?? 'new'),
+    key(({ id, templateId, userTemplateId, editUserTemplateId }: HogFunctionConfigurationLogicProps) => {
+        const base = id ?? templateId ?? 'new'
+        const utId = editUserTemplateId ?? userTemplateId
+        return utId ? `${base}_ut-${utId}` : base
+    }),
     path((key) => ['scenes', 'hog-functions', 'hogFunctionSceneLogic', key]),
     connect((props: HogFunctionConfigurationLogicProps) => ({
         values: [
@@ -289,21 +295,33 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
 export const scene: SceneExport<HogFunctionConfigurationLogicProps> = {
     component: HogFunctionScene,
     logic: hogFunctionSceneLogic,
-    paramsToProps: ({ params: { id, templateId }, hashParams }) => {
+    paramsToProps: ({ params: { id, templateId }, searchParams, hashParams }) => {
         return {
             id,
             templateId,
             subTemplateId: hashParams.configuration?.sub_template_id,
+            userTemplateId: searchParams.userTemplateId,
+            editUserTemplateId: searchParams.editUserTemplateId,
         }
     },
 }
 
 function HogFunctionHeader(): JSX.Element {
-    const { configuration, logicProps, loading, isLegacyPlugin } = useValues(hogFunctionConfigurationLogic)
+    const { configuration, logicProps, loading, isLegacyPlugin, isConfigurationSubmitting } =
+        useValues(hogFunctionConfigurationLogic)
     const { setConfigurationValue, duplicate, deleteHogFunction } = useActions(hogFunctionConfigurationLogic)
+    const isSaved = logicProps.id && logicProps.id !== 'new'
+    const editUserTemplateId = logicProps.editUserTemplateId
+
+    const templateLogicProps = {
+        id: logicProps.id ?? 'new',
+        editUserTemplateId: editUserTemplateId ?? undefined,
+    }
+    const { showSaveAsTemplateModal } = useActions(hogFunctionUserTemplateLogic(templateLogicProps))
 
     return (
         <>
+            <SaveAsHogFunctionTemplateModal {...templateLogicProps} />
             <SceneTitleSection
                 name={configuration.name}
                 description={configuration.description || ''}
@@ -324,7 +342,7 @@ function HogFunctionHeader(): JSX.Element {
                 canEdit
                 actions={
                     <>
-                        {!logicProps.templateId && (
+                        {!logicProps.templateId && !editUserTemplateId && (
                             <>
                                 <More
                                     size="small"
@@ -333,6 +351,14 @@ function HogFunctionHeader(): JSX.Element {
                                             {!isLegacyPlugin && (
                                                 <LemonButton fullWidth onClick={() => duplicate()}>
                                                     Duplicate
+                                                </LemonButton>
+                                            )}
+                                            {isSaved && (
+                                                <LemonButton
+                                                    fullWidth
+                                                    onClick={() => showSaveAsTemplateModal(configuration)}
+                                                >
+                                                    Save as template
                                                 </LemonButton>
                                             )}
                                             <LemonDivider />
@@ -346,7 +372,18 @@ function HogFunctionHeader(): JSX.Element {
                             </>
                         )}
                         <HogFunctionConfigurationClearChangesButton />
-                        <HogFunctionConfigurationSaveButton />
+                        {editUserTemplateId ? (
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={() => showSaveAsTemplateModal(configuration)}
+                                loading={isConfigurationSubmitting}
+                            >
+                                Update template
+                            </LemonButton>
+                        ) : (
+                            <HogFunctionConfigurationSaveButton />
+                        )}
                     </>
                 }
             />
@@ -360,7 +397,8 @@ export function HogFunctionScene(): JSX.Element {
     const { setCurrentTab } = useActions(hogFunctionSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { id, templateId, subTemplateId } = logicProps
+    const { id, templateId, subTemplateId, userTemplateId, editUserTemplateId } = logicProps
+    const isEditingUserTemplate = !!editUserTemplateId
 
     useFileSystemLogView({
         type: `hog_function/${type ?? ''}`,
@@ -378,11 +416,11 @@ export function HogFunctionScene(): JSX.Element {
         )
     }
 
-    if (id && !loaded) {
+    if (id && id !== 'new' && !loaded) {
         return <NotFound object="Hog function" />
     }
 
-    if (!templateId && !id) {
+    if (!templateId && !userTemplateId && !editUserTemplateId && !id) {
         return <NotFound object="Hog function" />
     }
 
@@ -390,7 +428,16 @@ export function HogFunctionScene(): JSX.Element {
         {
             label: 'Configuration',
             key: 'configuration',
-            content: <HogFunctionConfiguration id={id} />,
+            content: (
+                <HogFunctionConfiguration
+                    id={id}
+                    templateId={templateId}
+                    subTemplateId={subTemplateId}
+                    userTemplateId={userTemplateId}
+                    editUserTemplateId={editUserTemplateId}
+                    hideBottomButtons={isEditingUserTemplate}
+                />
+            ),
         },
 
         type === 'site_app' || type === 'site_destination'
@@ -446,7 +493,13 @@ export function HogFunctionScene(): JSX.Element {
                     </LemonBanner>
                 )}
                 {templateId ? (
-                    <HogFunctionConfiguration templateId={templateId} subTemplateId={subTemplateId} />
+                    <HogFunctionConfiguration
+                        templateId={templateId}
+                        subTemplateId={subTemplateId}
+                        userTemplateId={userTemplateId}
+                        editUserTemplateId={editUserTemplateId}
+                        hideBottomButtons={isEditingUserTemplate}
+                    />
                 ) : (
                     <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset={true} />
                 )}

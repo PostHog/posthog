@@ -38,6 +38,9 @@ export interface HogFunctionConfigurationProps {
     subTemplateId?: string | null
     id?: string | null
     logicKey?: string
+    userTemplateId?: string | null
+    editUserTemplateId?: string | null
+    hideBottomButtons?: boolean
 }
 
 export function HogFunctionConfiguration({
@@ -45,8 +48,11 @@ export function HogFunctionConfiguration({
     subTemplateId,
     id,
     logicKey,
+    userTemplateId,
+    editUserTemplateId,
+    hideBottomButtons,
 }: HogFunctionConfigurationProps): JSX.Element {
-    const logicProps = { templateId, subTemplateId, id, logicKey }
+    const logicProps = { templateId, subTemplateId, id, logicKey, userTemplateId, editUserTemplateId }
     const logic = hogFunctionConfigurationLogic(logicProps)
     const {
         configuration,
@@ -142,37 +148,39 @@ export function HogFunctionConfiguration({
                 >
                     <div className="flex flex-wrap gap-4 items-start">
                         <div className="flex flex-col flex-1 gap-4 min-w-100">
-                            <div className={clsx('p-3 rounded border deprecated-space-y-2 bg-surface-primary')}>
-                                <div className="flex items-center justify-between">
-                                    <LemonLabel>Status</LemonLabel>
-                                    {hogFunction && <HogFunctionStatusIndicator hogFunction={hogFunction} />}
-                                </div>
-                                <LemonField name="enabled">
-                                    {({ value, onChange }) => (
-                                        <LemonSwitch
-                                            onChange={() => onChange(!value)}
-                                            checked={value}
-                                            disabled={loading}
-                                            bordered
-                                            fullWidth
-                                            label={
-                                                <span className="flex flex-1">
-                                                    {configuration.enabled ? 'Enabled' : 'Disabled'}
-                                                </span>
-                                            }
-                                            tooltip={
-                                                <>
-                                                    {value
-                                                        ? 'Enabled. Events will be processed.'
-                                                        : 'Disabled. Events will not be processed.'}
-                                                </>
-                                            }
-                                        />
-                                    )}
-                                </LemonField>
+                            {!hideBottomButtons && (
+                                <div className={clsx('p-3 rounded border deprecated-space-y-2 bg-surface-primary')}>
+                                    <div className="flex items-center justify-between">
+                                        <LemonLabel>Status</LemonLabel>
+                                        {hogFunction && <HogFunctionStatusIndicator hogFunction={hogFunction} />}
+                                    </div>
+                                    <LemonField name="enabled">
+                                        {({ value, onChange }) => (
+                                            <LemonSwitch
+                                                onChange={() => onChange(!value)}
+                                                checked={value}
+                                                disabled={loading}
+                                                bordered
+                                                fullWidth
+                                                label={
+                                                    <span className="flex flex-1">
+                                                        {configuration.enabled ? 'Enabled' : 'Disabled'}
+                                                    </span>
+                                                }
+                                                tooltip={
+                                                    <>
+                                                        {value
+                                                            ? 'Enabled. Events will be processed.'
+                                                            : 'Disabled. Events will not be processed.'}
+                                                    </>
+                                                }
+                                            />
+                                        )}
+                                    </LemonField>
 
-                                {templateInfo}
-                            </div>
+                                    {templateInfo}
+                                </div>
+                            )}
 
                             {type === 'source_webhook' && <HogFunctionSourceWebhookInfo />}
                             {showFilters && <HogFunctionFilters />}
@@ -196,10 +204,12 @@ export function HogFunctionConfiguration({
                             {canEditSource && <HogFunctionCode />}
                             {showTesting ? <HogFunctionTest /> : null}
                             {type === 'source_webhook' && <HogFunctionSourceWebhookTest />}
-                            <div className="flex gap-2 justify-end">
-                                <HogFunctionConfigurationClearChangesButton />
-                                <HogFunctionConfigurationSaveButton />
-                            </div>
+                            {!hideBottomButtons && (
+                                <div className="flex gap-2 justify-end">
+                                    <HogFunctionConfigurationClearChangesButton />
+                                    <HogFunctionConfigurationSaveButton />
+                                </div>
+                            )}
                         </div>
                     </div>
                 </Form>

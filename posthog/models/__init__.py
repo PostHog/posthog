@@ -49,7 +49,7 @@ from .group_type_mapping import GroupTypeMapping
 from .heatmap_saved import SavedHeatmap, HeatmapSnapshot
 from .host_definition import HostDefinition
 from .hog_flow import HogFlow
-from .hog_functions import HogFunction
+from .hog_functions import HogFunction, HogFunctionUserTemplate  # noqa: F401
 from .hog_function_template import HogFunctionTemplate
 from .health_issue import HealthIssue
 from .insight import Insight, InsightViewed
