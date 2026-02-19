@@ -11,7 +11,14 @@ import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'
 import { DashboardFilter, HogQLVariable, TileFilters } from '~/queries/schema/schema-general'
-import { DashboardLayoutSize } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    DashboardLayoutSize,
+    InsightModel,
+    QueryBasedInsightModel,
+    TileLayout,
+} from '~/types'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: TAILWIND_BREAKPOINTS.md - 1,
