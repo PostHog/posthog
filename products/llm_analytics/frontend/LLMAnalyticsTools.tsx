@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
+import { escapeRegex } from 'lib/actionUtils'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
@@ -60,7 +61,7 @@ export function LLMAnalyticsTools(): JSX.Element {
                                                         type: PropertyFilterType.Event,
                                                         key: '$ai_tools_called',
                                                         operator: PropertyOperator.Regex,
-                                                        value: `(^|,)${toolString}(,|$)`,
+                                                        value: `(^|,)${escapeRegex(toolString)}(,|$)`,
                                                     },
                                                 ],
                                             }).url
