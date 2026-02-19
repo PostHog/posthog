@@ -47,6 +47,13 @@ export interface ReportSignalsResponse {
     signals: SignalNode[]
 }
 
+export interface ReportListResponse {
+    count: number
+    next: string | null
+    previous: string | null
+    results: ReportData[]
+}
+
 // ── Layout / graph types ───────────────────────────────────────────────────────
 
 export interface LayoutPosition {

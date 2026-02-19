@@ -3,6 +3,7 @@ import uuid
 import logging
 
 from django.conf import settings
+from django.db.models import Count
 
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema, extend_schema_view
@@ -66,6 +67,46 @@ class SignalViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
         return Response({"status": "ok"}, status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=False, url_path="list_reports")
+    def list_reports(self, request: Request, *args, **kwargs):
+        """Paginated list of all signal reports for this team. DEBUG only."""
+        if not settings.DEBUG:
+            raise NotFound()
+
+        limit = int(request.query_params.get("limit", 20))
+        offset = int(request.query_params.get("offset", 0))
+        status_filter = request.query_params.get("status")
+
+        qs = (
+            SignalReport.objects.filter(team=self.team)
+            .annotate(artefact_count=Count("artefacts"))
+            .order_by("-signal_count")
+        )
+
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+
+        total = qs.count()
+        reports = qs[offset : offset + limit]
+        serializer = SignalReportSerializer(reports, many=True)
+
+        next_offset = offset + limit
+        next_url = None
+        if next_offset < total:
+            next_url = request.build_absolute_uri(f"?limit={limit}&offset={next_offset}")
+            if status_filter:
+                next_url += f"&status={status_filter}"
+
+        return Response(
+            {
+                "count": total,
+                "next": next_url,
+                "previous": None,
+                "results": serializer.data,
+            }
+        )
 
     @extend_schema(exclude=True)
     @action(methods=["GET"], detail=False, url_path="report_signals")

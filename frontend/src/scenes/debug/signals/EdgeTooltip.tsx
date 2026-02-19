@@ -15,10 +15,10 @@ export function EdgeTooltip({ edge, x, y }: { edge: GraphEdge; x: number; y: num
             }}
         >
             <div className="font-semibold mb-1.5 text-[13px]">Match connection</div>
-            <div className="text-muted text-xs font-medium mb-0.5">Query</div>
-            <div className="italic mb-2">{edge.match_query}</div>
             <div className="text-muted text-xs font-medium mb-0.5">Reason</div>
-            <div>{edge.reason}</div>
+            <div className="mb-2">{edge.reason}</div>
+            <div className="text-muted text-xs font-medium mb-0.5">Query</div>
+            <div className="italic">{edge.match_query}</div>
         </div>
     )
 }

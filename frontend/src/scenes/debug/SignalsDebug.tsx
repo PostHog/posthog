@@ -11,6 +11,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { DetailPanel } from './signals/DetailPanel'
 import { EdgeTooltip } from './signals/EdgeTooltip'
+import { ReportListPanel } from './signals/ReportListPanel'
 import { SignalGraph } from './signals/SignalGraph'
 import { SimulationControls } from './signals/SimulationControls'
 import { statusBadgeColor } from './signals/helpers'
@@ -51,14 +52,18 @@ export function SignalsDebug(): JSX.Element {
         [signals, selectedSignalId]
     )
 
-    const handleLoad = useCallback(async () => {
-        const trimmed = reportId.trim()
+    const loadReport = useCallback(async (id: string) => {
+        const trimmed = id.trim()
         if (!trimmed) {
             return
         }
-        setLoading(true)
+        // Clear everything immediately to prevent artefacting from the previous report
+        setSignals([])
+        setReport(null)
         setSelectedSignalId(null)
         setHoveredEdge(null)
+        setLoaded(false)
+        setLoading(true)
         try {
             const response = await api.get<ReportSignalsResponse>(
                 `api/environments/@current/signals/report_signals/?report_id=${encodeURIComponent(trimmed)}`
@@ -74,7 +79,19 @@ export function SignalsDebug(): JSX.Element {
         } finally {
             setLoading(false)
         }
-    }, [reportId])
+    }, [])
+
+    const handleLoad = useCallback(() => {
+        void loadReport(reportId)
+    }, [reportId, loadReport])
+
+    const handleSelectReport = useCallback(
+        (id: string) => {
+            setReportId(id)
+            void loadReport(id)
+        },
+        [loadReport]
+    )
 
     const handleKeyDown = useCallback(
         (e: React.KeyboardEvent) => {
@@ -90,106 +107,127 @@ export function SignalsDebug(): JSX.Element {
     }, [])
 
     return (
-        <SceneContent className="h-full flex flex-col grow">
+        <SceneContent className="h-full flex flex-col grow gap-y-1">
             {/* Header */}
-            <div className="shrink-0 space-y-2 pb-3">
-                <h1 className="text-xl font-bold">Signal report explorer</h1>
-                <div className="flex gap-2 items-center max-w-2xl">
+            <div className="shrink-0 flex items-baseline gap-3 pb-1 border-b">
+                <h1 className="text-xl font-bold shrink-0">Signal report explorer</h1>
+                <div className="flex gap-2 items-center flex-1" style={{ maxWidth: '33%' }}>
                     <LemonInput
                         fullWidth
+                        size="small"
                         value={reportId}
                         onChange={setReportId}
                         onKeyDown={handleKeyDown}
                         placeholder="Enter report UUID..."
                         className="font-mono"
                     />
-                    <LemonButton type="primary" onClick={handleLoad} loading={loading} disabled={!reportId.trim()}>
+                    <LemonButton
+                        size="small"
+                        type="primary"
+                        onClick={handleLoad}
+                        loading={loading}
+                        disabled={!reportId.trim()}
+                    >
                         Load
                     </LemonButton>
                 </div>
-                {/* Report summary bar */}
-                {report && (
-                    <div className="flex items-center gap-3 text-sm bg-surface-secondary border rounded px-3 py-2 max-w-4xl">
-                        <span
-                            className={`text-xs font-medium rounded px-1.5 py-0.5 ${statusBadgeColor(report.status)}`}
-                        >
-                            {report.status}
-                        </span>
-                        {report.title && <span className="font-medium truncate">{report.title}</span>}
-                        <span className="text-muted text-xs shrink-0">
-                            {signals.length} signal{signals.length !== 1 ? 's' : ''} · weight{' '}
-                            {report.total_weight.toFixed(2)}
-                        </span>
-                    </div>
-                )}
             </div>
 
-            {/* Graph area — fills remaining viewport */}
-            <div className="relative grow border rounded bg-surface-primary overflow-hidden">
-                {loading && (
-                    <div className="absolute inset-0 flex items-center justify-center z-30">
-                        <Spinner />
-                    </div>
-                )}
-                {!loaded && !loading && (
-                    <div className="flex items-center justify-center h-full text-muted text-sm">
-                        Enter a report UUID above to explore its signal graph
-                    </div>
-                )}
-                {loaded && signals.length === 0 && !loading && (
-                    <div className="flex items-center justify-center h-full text-muted text-sm">
-                        No signals found for this report
-                    </div>
-                )}
-                {loaded && signals.length > 0 && (
-                    <SignalGraph
-                        signals={signals}
-                        positions={positions}
-                        edges={edges}
-                        selectedSignalId={selectedSignalId}
-                        onSelectSignal={setSelectedSignalId}
-                        hoveredEdge={hoveredEdge}
-                        onHoverEdge={setHoveredEdge}
-                        onMouseMove={handleMouseMove}
-                        containerRef={containerRef}
-                        onNodeDragStart={onNodeDragStart}
-                        draggedNodeId={draggedNodeId}
-                        didDragRef={didDragRef}
-                        transform={transform}
-                    />
-                )}
-                {/* Detail panel */}
-                {selectedSignal && (
-                    <DetailPanel
-                        signal={selectedSignal}
-                        isRoot={rootIds.has(selectedSignal.signal_id)}
-                        onClose={() => setSelectedSignalId(null)}
-                    />
-                )}
-                {/* Edge hover tooltip */}
-                {hoveredEdge && <EdgeTooltip edge={hoveredEdge} x={mousePos.x} y={mousePos.y} />}
-                {/* Zoom level & viewport center indicator */}
-                {loaded && signals.length > 0 && (
-                    <div
-                        className="absolute bottom-3 left-3 z-20 flex items-center gap-1.5 rounded-md bg-surface-primary text-xs text-muted font-mono tabular-nums select-none"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{
-                            border: '1px solid var(--border)',
-                            padding: '4px 8px',
-                        }}
-                    >
-                        <span>{Math.round(transform.k * 100)}%</span>
-                        <span className="opacity-40">·</span>
-                        <span>
-                            {viewportCenter.x}, {viewportCenter.y}
-                        </span>
-                        <LemonButton size="xsmall" type="tertiary" onClick={resetView} className="ml-1">
-                            Reset
-                        </LemonButton>
-                    </div>
-                )}
-                {/* Physics tuning panel */}
-                {loaded && signals.length > 0 && <SimulationControls config={simConfig} onChange={setSimConfig} />}
+            {/* Main area — report list on left, graph on right */}
+            <div className="relative grow flex overflow-hidden">
+                {/* Report list panel */}
+                <ReportListPanel selectedReportId={report?.id ?? null} onSelectReport={handleSelectReport} />
+
+                {/* Graph area */}
+                <div className="relative grow border rounded bg-surface-primary overflow-hidden">
+                    {/* Report summary overlay */}
+                    {report && (
+                        <div
+                            className="absolute top-3 left-3 z-20 flex items-center gap-2 rounded-md bg-surface-primary/80 backdrop-blur text-sm select-none pointer-events-none"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                border: '1px solid var(--border)',
+                                padding: '4px 10px',
+                                maxWidth: 'calc(100% - 24px)',
+                            }}
+                        >
+                            <span
+                                className={`text-[10px] font-medium rounded px-1.5 py-0.5 shrink-0 ${statusBadgeColor(report.status)}`}
+                            >
+                                {report.status}
+                            </span>
+                            {report.title && <span className="font-medium truncate text-xs">{report.title}</span>}
+                            <span className="text-muted text-[11px] shrink-0">
+                                {signals.length} signal{signals.length !== 1 ? 's' : ''} · w
+                                {report.total_weight.toFixed(2)}
+                            </span>
+                        </div>
+                    )}
+                    {loading && (
+                        <div className="absolute inset-0 flex items-center justify-center z-30">
+                            <Spinner />
+                        </div>
+                    )}
+                    {!loaded && !loading && (
+                        <div className="flex items-center justify-center h-full text-muted text-sm">
+                            Select a report from the list or enter a UUID above
+                        </div>
+                    )}
+                    {loaded && signals.length === 0 && !loading && (
+                        <div className="flex items-center justify-center h-full text-muted text-sm">
+                            No signals found for this report
+                        </div>
+                    )}
+                    {loaded && signals.length > 0 && (
+                        <SignalGraph
+                            signals={signals}
+                            positions={positions}
+                            edges={edges}
+                            selectedSignalId={selectedSignalId}
+                            onSelectSignal={setSelectedSignalId}
+                            hoveredEdge={hoveredEdge}
+                            onHoverEdge={setHoveredEdge}
+                            onMouseMove={handleMouseMove}
+                            containerRef={containerRef}
+                            onNodeDragStart={onNodeDragStart}
+                            draggedNodeId={draggedNodeId}
+                            didDragRef={didDragRef}
+                            transform={transform}
+                        />
+                    )}
+                    {/* Detail panel */}
+                    {selectedSignal && (
+                        <DetailPanel
+                            signal={selectedSignal}
+                            isRoot={rootIds.has(selectedSignal.signal_id)}
+                            onClose={() => setSelectedSignalId(null)}
+                        />
+                    )}
+                    {/* Edge hover tooltip */}
+                    {hoveredEdge && <EdgeTooltip edge={hoveredEdge} x={mousePos.x} y={mousePos.y} />}
+                    {/* Zoom level & viewport center indicator */}
+                    {loaded && signals.length > 0 && (
+                        <div
+                            className="absolute bottom-3 left-3 z-20 flex items-center gap-1.5 rounded-md bg-surface-primary text-xs text-muted font-mono tabular-nums select-none"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                border: '1px solid var(--border)',
+                                padding: '4px 8px',
+                            }}
+                        >
+                            <span>{Math.round(transform.k * 100)}%</span>
+                            <span className="opacity-40">·</span>
+                            <span>
+                                {viewportCenter.x}, {viewportCenter.y}
+                            </span>
+                            <LemonButton size="xsmall" type="tertiary" onClick={resetView} className="ml-1">
+                                Reset
+                            </LemonButton>
+                        </div>
+                    )}
+                    {/* Physics tuning panel */}
+                    {loaded && signals.length > 0 && <SimulationControls config={simConfig} onChange={setSimConfig} />}
+                </div>
             </div>
         </SceneContent>
     )

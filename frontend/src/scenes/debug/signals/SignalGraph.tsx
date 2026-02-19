@@ -46,7 +46,12 @@ export function SignalGraph({
             ref={containerRef}
             className="relative w-full h-full overflow-hidden z-0"
             onMouseMove={onMouseMove}
-            onClick={() => onSelectSignal(null)}
+            onClick={() => {
+                if (didDragRef.current) {
+                    return
+                }
+                onSelectSignal(null)
+            }}
         >
             {/* Zoom-transformed wrapper — infinite canvas via overflow:visible */}
             <div
