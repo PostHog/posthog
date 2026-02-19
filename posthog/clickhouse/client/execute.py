@@ -31,7 +31,7 @@ from posthog.clickhouse.query_tagging import (
     get_query_tag_value,
     get_query_tags,
 )
-from posthog.errors import ch_error_type, wrap_query_error
+from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST
 from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info
 from posthog.utils import generate_short_id, patchable
@@ -182,9 +182,8 @@ def sync_execute(
             pass
     tags = get_query_tags()
     is_personal_api_key = tags.access_method == AccessMethod.PERSONAL_API_KEY
-    is_api_key = tags.access_method in [AccessMethod.PERSONAL_API_KEY, AccessMethod.PROJECT_SECRET_API_KEY]
 
-    # When someone uses a personal API key, always put their query to the offline cluster
+    # When someone uses an API key, always put their query to the offline cluster
     # Execute all celery tasks not directly set to be online on the offline cluster
     if workload == Workload.DEFAULT and (is_personal_api_key or tags.kind == "celery"):
         workload = Workload.OFFLINE
@@ -193,7 +192,7 @@ def sync_execute(
     tags_id: str = tags.id or ""
     if tags_id == "posthog.tasks.tasks.process_query_task":
         workload = Workload.ONLINE
-        ch_user = ClickHouseUser.API if is_api_key else ClickHouseUser.APP
+        ch_user = ClickHouseUser.API if is_personal_api_key else ClickHouseUser.APP
 
     if tags.workload == Workload.ENDPOINTS:
         workload = Workload.ENDPOINTS
@@ -216,7 +215,7 @@ def sync_execute(
     tags.query_settings = core_settings
     query_type = tags.query_type or "Other"
     if ch_user == ClickHouseUser.DEFAULT:
-        if is_api_key:
+        if is_personal_api_key:
             ch_user = ClickHouseUser.API
         elif tags.kind == "request" and "api/" in tags_id and "capture" not in tags_id:
             # process requests made to API from the PH app
@@ -260,17 +259,21 @@ def sync_execute(
                 with_column_types=with_column_types,
                 query_id=query_id,
             )
-            if "INSERT INTO" in prepared_sql and client.last_query.progress.written_rows > 0:
+            if (
+                "INSERT INTO" in prepared_sql
+                and hasattr(client, "last_query")
+                and client.last_query.progress.written_rows > 0
+            ):
                 result = client.last_query.progress.written_rows
     except Exception as e:
-        exception_type = ch_error_type(e)
+        exception_type = clickhouse_error_type(e)
         QUERY_ERROR_COUNTER.labels(
             exception_type=exception_type,
             query_type=query_type,
             workload=workload.value if workload else "None",
             chargeable=str(tags.chargeable or "0"),
         ).inc()
-        err = wrap_query_error(e)
+        err = wrap_clickhouse_query_error(e)
         raise err from e
     finally:
         execution_time = perf_counter() - start_time
@@ -305,7 +308,12 @@ def query_with_columns(
     if columns_to_rename is None:
         columns_to_rename = {}
     metrics, types = sync_execute(
-        query, args, settings=settings, with_column_types=True, workload=workload, team_id=team_id
+        query,
+        args,
+        settings=settings,
+        with_column_types=True,
+        workload=workload,
+        team_id=team_id,
     )
     type_names = [key for key, _type in types]
 

@@ -87,7 +87,7 @@ from posthog.clickhouse.client.limit import (
     get_materialized_endpoints_rate_limiter,
     get_org_app_concurrency_limit,
 )
-from posthog.clickhouse.query_tagging import AccessMethod, get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_cache import count_query_cache_hit
@@ -837,6 +837,19 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    # Registered here for server-side CSV export only (ExportedAsset + Celery).
+    # Direct queries are blocked by LogsQueryRunner.validate_query_runner_access.
+    if kind == "LogsQuery":
+        from products.logs.backend.logs_query_runner import LogsQueryRunner
+
+        return LogsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
 
@@ -990,6 +1003,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             cache_key=cache_manager.cache_key,
             refresh_requested=refresh_requested,
             is_query_service=self.is_query_service,
+            is_posthog_ai=self.limit_context == LimitContext.POSTHOG_AI,
         )
 
     def get_async_query_status(self, *, cache_key: str) -> Optional[QueryStatus]:
@@ -1096,10 +1110,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         concurrency_limit = self.get_api_queries_concurrency_limit()
         is_materialized_endpoint = get_query_tag_value("workload") == Workload.ENDPOINTS
-        is_api_key_access = get_query_tag_value("access_method") in [
-            AccessMethod.PERSONAL_API_KEY,
-            AccessMethod.PROJECT_SECRET_API_KEY,
-        ]
+        is_api_key_access = get_query_tag_value("access_method") == "personal_api_key"
 
         if self.is_query_service:
             tag_queries(chargeable=1)

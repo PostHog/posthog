@@ -66,7 +66,6 @@ ActivityScope = Literal[
     "TaggedItem",
     "Subscription",
     "PersonalAPIKey",
-    "ProjectSecretAPIKey",
     "User",
     "Action",
     "AlertConfiguration",
@@ -230,6 +229,8 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     ],
     "OrganizationDomain": [
         "scim_bearer_token",
+        "verification_challenge",
+        "saml_x509_cert",
     ],
     "User": [
         "email",
@@ -262,6 +263,15 @@ field_name_overrides: dict[ActivityScope, dict[str, str]] = {
     "ExternalDataSchema": {
         "should_sync": "enabled",
     },
+    "OrganizationDomain": {
+        "jit_provisioning_enabled": "just-in-time provisioning",
+        "sso_enforcement": "SSO enforcement",
+        "saml_entity_id": "SAML entity ID",
+        "saml_acs_url": "SAML ACS URL",
+        "saml_x509_cert": "SAML X.509 certificate",
+        "scim_enabled": "SCIM provisioning",
+        "verified_at": "domain verification",
+    },
 }
 
 # Fields that prevent activity signal triggering entirely when only these fields change
@@ -285,8 +295,8 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "current_organization_id",
         "current_team_id",
     ],
-    "ProjectSecretAPIKey": [
-        "last_used_at",
+    "OrganizationDomain": [
+        "last_verification_retry",
     ],
 }
 
@@ -308,6 +318,10 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 ]
 
 field_exclusions: dict[ActivityScope, list[str]] = {
+    "OrganizationDomain": [
+        "organization",
+        "scim_provisioned_users",
+    ],
     "Cohort": [
         "version",
         "pending_version",
@@ -464,11 +478,6 @@ field_exclusions: dict[ActivityScope, list[str]] = {
     ],
     "PersonalAPIKey": [
         "value",
-        "secure_value",
-        "last_used_at",
-        "last_rolled_at",
-    ],
-    "ProjectSecretAPIKey": [
         "secure_value",
         "last_used_at",
         "last_rolled_at",

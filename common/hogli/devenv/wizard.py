@@ -147,9 +147,10 @@ def _show_config_summary(config: DevenvConfig) -> None:
 
 def _setup_from_intents(intent_map: IntentMap) -> DevenvConfig:
     """Set up by selecting specific intents."""
+    select_all = "all"
     click.echo("")
     click.echo(click.style("Products", fg="cyan"))
-    click.echo("Select products (comma-separated numbers).")
+    click.echo(f"Select products (comma-separated numbers, or '{select_all}').")
     click.echo("")
 
     intents = list(intent_map.intents.items())
@@ -158,17 +159,20 @@ def _setup_from_intents(intent_map: IntentMap) -> DevenvConfig:
 
     click.echo("")
 
-    selection = click.prompt("Enter numbers (e.g., 1,3,5)", default="1")
+    selection = click.prompt(f"Enter numbers (e.g., 1,3,5) or '{select_all}'", default="1")
 
     selected_intents = []
-    try:
-        indices = [int(x.strip()) for x in selection.split(",")]
-        for idx in indices:
-            if 1 <= idx <= len(intents):
-                selected_intents.append(intents[idx - 1][0])
-    except ValueError:
-        click.echo("Invalid selection, using product_analytics.")
-        selected_intents = ["product_analytics"]
+    if selection.strip().lower() == select_all:
+        selected_intents = [name for name, _ in intents]
+    else:
+        try:
+            indices = [int(x.strip()) for x in selection.split(",")]
+            for idx in indices:
+                if 1 <= idx <= len(intents):
+                    selected_intents.append(intents[idx - 1][0])
+        except ValueError:
+            click.echo("Invalid selection, using product_analytics.")
+            selected_intents = ["product_analytics"]
 
     if not selected_intents:
         selected_intents = ["product_analytics"]

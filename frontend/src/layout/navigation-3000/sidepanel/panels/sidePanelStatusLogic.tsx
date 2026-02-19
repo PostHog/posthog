@@ -1,5 +1,7 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import type { sidePanelStatusLogicType } from './sidePanelStatusLogicType'
@@ -94,6 +96,7 @@ export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelStatusLogic']),
     connect(() => ({
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
+        values: [superpowersLogic, ['fakeStatusOverride', 'superpowersEnabled']],
     })),
 
     actions({
@@ -103,9 +106,9 @@ export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
 
     reducers(() => ({
         // Persisted copy to avoid flash effect on page load
-        status: [
+        rawStatus: [
             'operational' as SPComponentStatus,
-            { persist: true },
+            { persist: true, key: 'status' },
             {
                 loadStatusPageSuccess: (_, { statusPage }) => {
                     const relevantGroups = RELEVANT_GROUPS_MAP[window.location.hostname]
@@ -124,6 +127,18 @@ export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
             },
         ],
     })),
+
+    selectors({
+        status: [
+            (s) => [s.rawStatus, s.fakeStatusOverride, s.superpowersEnabled],
+            (rawStatus, fakeStatusOverride, superpowersEnabled): SPComponentStatus => {
+                if (superpowersEnabled && fakeStatusOverride !== 'none') {
+                    return fakeStatusOverride as SPComponentStatus
+                }
+                return rawStatus
+            },
+        ],
+    }),
 
     loaders(() => ({
         statusPage: [

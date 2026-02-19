@@ -2,6 +2,7 @@ import re
 import json
 import random
 import asyncio
+from typing import Any
 from urllib.parse import urlparse, urlunparse
 
 from django.conf import settings
@@ -21,6 +22,7 @@ from posthog.temporal.ai.slack_conversation import (
 )
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
+from posthog.utils import get_instance_region
 
 from ee.models.assistant import Conversation
 
@@ -137,7 +139,8 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
         # Look up Slack user's email and match to PostHog user
         try:
             slack_user_info = slack.client.users_info(user=slack_user_id)
-            slack_email = slack_user_info.get("user", {}).get("profile", {}).get("email")
+            empty: dict[str, Any] = {}
+            slack_email = slack_user_info.get("user", empty).get("profile", empty).get("email")
             if not slack_email:
                 logger.warning("slack_app_no_user_email", slack_user_id=slack_user_id)
                 slack.client.chat_postEphemeral(
@@ -147,7 +150,9 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
                     text="Sorry, I couldn't find your email address in Slack. Please make sure your email is visible in your Slack profile.",
                 )
                 return
-
+            if get_instance_region() == "DEV":
+                # In dev deployment, always go to the test account - this is to let the Slack folks test on the test account
+                slack_email = "michael+slacktest@posthog.com"
             # Find PostHog user by email
             membership = (
                 OrganizationMembership.objects.filter(
@@ -207,7 +212,7 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
 
         # Fetch all messages in the thread BEFORE posting our response
         thread_messages = slack.client.conversations_replies(channel=channel, ts=thread_ts)
-        raw_messages = thread_messages.get("messages", [])
+        raw_messages: list[dict] = thread_messages.get("messages", [])
 
         # Filter messages: for continuing conversations, only use messages since the last processed app mention
         # A mention is considered "processed" if our bot reacted to it (confirming reception)
@@ -245,7 +250,8 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
             if uid not in user_cache:
                 try:
                     user_info = slack.client.users_info(user=uid)
-                    profile = user_info.get("user", {}).get("profile", {})
+                    empty: dict[str, Any] = {}
+                    profile = user_info.get("user", empty).get("profile", empty)
                     user_cache[uid] = profile.get("display_name") or profile.get("real_name") or "Unknown"
                 except Exception:
                     user_cache[uid] = "Unknown"

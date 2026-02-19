@@ -359,24 +359,19 @@ def get_autocapture_controls(team_id: int, library: str = "web") -> dict | None:
     return result
 
 
-def get_all_autocapture_controls(team_id: int) -> dict[str, dict]:
-    """Get all autocapture controls for a team, keyed by library."""
-    controls = ErrorTrackingAutoCaptureControls.objects.filter(team_id=team_id).values()
-    result: dict[str, dict] = {}
-    for control in controls:
-        library = control.get("library")
-        if library:
-            result[library] = {
-                "id": str(control["id"]) if control.get("id") else None,
-                "library": control.get("library"),
-                "matchType": control.get("match_type"),
-                "sampleRate": float(control["sample_rate"]) if control.get("sample_rate") is not None else None,
-                "linkedFeatureFlag": control.get("linked_feature_flag"),
-                "eventTriggers": control.get("event_triggers"),
-                "urlTriggers": control.get("url_triggers"),
-                "urlBlocklist": control.get("url_blocklist"),
-            }
-    return result
+def get_autocapture_triggers(team_id: int) -> dict | None:
+    controls = ErrorTrackingAutoCaptureControls.objects.filter(team_id=team_id).values().first()
+    if not controls:
+        return None
+    return {
+        "library": controls.get("library"),
+        "matchType": controls.get("match_type"),
+        "sampleRate": float(controls["sample_rate"]) if controls.get("sample_rate") is not None else None,
+        "linkedFeatureFlag": controls.get("linked_feature_flag"),
+        "eventTriggers": controls.get("event_triggers"),
+        "urlTriggers": controls.get("url_triggers"),
+        "urlBlocklist": controls.get("url_blocklist"),
+    }
 
 
 class ErrorTrackingStackFrame(UUIDTModel):

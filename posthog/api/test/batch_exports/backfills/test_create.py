@@ -566,3 +566,53 @@ def test_batch_export_backfill_when_no_data_exists(client: HttpClient, organizat
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["detail"] == "There is no data to backfill for this model."
+
+
+def test_batch_export_earliest_backfill_rejected_without_feature_flag(
+    client: HttpClient, organization, team, user, temporal
+):
+    """Test that earliest backfill (start_at=None) is rejected when feature flag is disabled."""
+    client.force_login(user)
+
+    batch_export = _create_batch_export_ok(client, team, "persons")
+    batch_export_id = batch_export["id"]
+
+    with patch("posthog.batch_exports.http.posthoganalytics.feature_enabled", return_value=False):
+        response = backfill_batch_export(
+            client,
+            team.pk,
+            batch_export_id,
+            None,
+            "2021-01-01T01:00:00+00:00",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == "Backfilling from the beginning of time is not enabled for this team."
+
+
+def test_batch_export_earliest_backfill_allowed_with_feature_flag(
+    client: HttpClient, organization, team, user, temporal
+):
+    """Test that earliest backfill (start_at=None) is allowed when feature flag is enabled."""
+    client.force_login(user)
+
+    create_person(
+        team_id=team.pk,
+        properties={"distinct_id": "1"},
+        uuid=None,
+        version=0,
+        timestamp=dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+    )
+
+    batch_export = _create_batch_export_ok(client, team, "persons")
+    batch_export_id = batch_export["id"]
+
+    with patch("posthog.batch_exports.http.posthoganalytics.feature_enabled", return_value=True):
+        response = backfill_batch_export(
+            client,
+            team.pk,
+            batch_export_id,
+            None,
+            "2021-01-01T01:00:00+00:00",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert "backfill_id" in response.json()

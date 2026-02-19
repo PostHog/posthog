@@ -230,6 +230,9 @@ export const conversationsQueueClearCreate = async (
     })
 }
 
+/**
+ * List tickets with person data attached.
+ */
 export const getConversationsTicketsListUrl = (projectId: string, params?: ConversationsTicketsListParams) => {
     const normalizedParams = new URLSearchParams()
 

@@ -365,7 +365,7 @@ export function SidePanelSupport(): JSX.Element {
                 )}
                 <div
                     className={cn('p-3 max-w-160 w-full mx-auto flex-1 flex flex-col justify-center', {
-                        'p-0 justify-start flex-none': isRemovingSidePanelFlag,
+                        'p-0 justify-start flex-none px-1': isRemovingSidePanelFlag,
                     })}
                 >
                     {isEmailFormOpen && showEmailSupport && isBillingLoaded && !useProductSupportSidePanel ? (

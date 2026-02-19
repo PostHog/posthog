@@ -24,7 +24,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { ProductAnalyticsInsightNodeKind, nodeKindToDefaultQuery } from '../InsightQuery/defaults'
+import { ProductAnalyticsInsightNodeKind, getNodeKindToDefaultQuery } from '../InsightQuery/defaults'
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 
 export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType[]): string[] => {
@@ -121,7 +121,10 @@ export const queryFromKind = (
 ): InsightVizNode =>
     setLatestVersionsOnQuery({
         kind: NodeKind.InsightVizNode,
-        source: { ...nodeKindToDefaultQuery[kind], ...(filterTestAccountsDefault ? { filterTestAccounts: true } : {}) },
+        source: {
+            ...getNodeKindToDefaultQuery()[kind],
+            ...(filterTestAccountsDefault ? { filterTestAccounts: true } : {}),
+        },
     })
 
 export const getDefaultQuery = (

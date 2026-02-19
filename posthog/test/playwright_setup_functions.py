@@ -96,6 +96,27 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
     )
     api_key._value = api_key_value  # type: ignore
 
+    # Skip all onboarding tasks if requested (prevents Quick Start popover in tests)
+    if data.skip_onboarding:
+        team.onboarding_tasks = {
+            "ingest_first_event": "completed",
+            "set_up_reverse_proxy": "completed",
+            "create_first_insight": "completed",
+            "create_first_dashboard": "completed",
+            "track_custom_events": "completed",
+            "define_actions": "completed",
+            "set_up_cohorts": "completed",
+            "explore_trends_insight": "completed",
+            "create_funnel": "completed",
+            "explore_retention_insight": "completed",
+            "explore_paths_insight": "completed",
+            "explore_stickiness_insight": "completed",
+            "explore_lifecycle_insight": "completed",
+            "setup_session_recordings": "completed",
+            "watch_session_recording": "completed",
+        }
+        team.save()
+
     return PlaywrightWorkspaceSetupResult(
         organization_id=str(organization.id),
         team_id=str(team.id),

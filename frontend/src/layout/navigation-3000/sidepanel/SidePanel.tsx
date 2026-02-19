@@ -122,7 +122,7 @@ export const SIDE_PANEL_TABS: Record<
         Content: SidePanelHealth,
     },
     [SidePanelTab.Info]: {
-        label: 'Info & actions',
+        label: 'Actions',
         Icon: SidePanelInfoIcon,
         Content: SidePanelInfo,
     },
@@ -131,6 +131,7 @@ export const SIDE_PANEL_TABS: Record<
 const DEFAULT_WIDTH = 512
 const SIDE_PANEL_BAR_WIDTH = 40
 const SIDE_PANEL_MIN_WIDTH = 448 // Match --side-panel-min-width (28rem)
+const SIDE_PANEL_MIN_WIDTH_COMPACT = 330
 
 export function SidePanel({
     className,
@@ -190,8 +191,13 @@ export function SidePanel({
     const sidePanelWidth = !visibleTabs.length
         ? 0
         : sidePanelOpenAndAvailable
-          ? Math.max(desiredSize ?? DEFAULT_WIDTH, SIDE_PANEL_MIN_WIDTH)
-          : SIDE_PANEL_BAR_WIDTH
+          ? Math.max(
+                desiredSize ?? DEFAULT_WIDTH,
+                isRemovingSidePanelFlag ? SIDE_PANEL_MIN_WIDTH_COMPACT : SIDE_PANEL_MIN_WIDTH
+            )
+          : isRemovingSidePanelFlag
+            ? 0
+            : SIDE_PANEL_BAR_WIDTH
 
     // Update sidepanel width in panelLayoutLogic
     useEffect(() => {
@@ -252,6 +258,9 @@ export function SidePanel({
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: isRemovingSidePanelFlag ? (sidePanelOpenAndAvailable ? sidePanelWidth : '0px') : sidePanelWidth,
+                ...(isRemovingSidePanelFlag
+                    ? ({ '--side-panel-min-width': `${SIDE_PANEL_MIN_WIDTH_COMPACT}px` } as React.CSSProperties)
+                    : {}),
                 ...theme?.sidebarStyle,
             }}
             id="side-panel"

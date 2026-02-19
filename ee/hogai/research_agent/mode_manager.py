@@ -17,7 +17,10 @@ from ee.hogai.core.agent_modes import AgentToolkit
 from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 from ee.hogai.core.agent_modes.mode_manager import AgentModeManager
 from ee.hogai.core.agent_modes.presets.error_tracking import ErrorTrackingAgentToolkit
-from ee.hogai.core.agent_modes.presets.product_analytics import ProductAnalyticsAgentToolkit
+from ee.hogai.core.agent_modes.presets.product_analytics import (
+    ProductAnalyticsAgentToolkit,
+    ReadOnlyProductAnalyticsAgentToolkit,
+)
 from ee.hogai.core.agent_modes.presets.session_replay import SessionReplayAgentToolkit
 from ee.hogai.core.agent_modes.presets.sql import SQLAgentToolkit
 from ee.hogai.core.agent_modes.prompt_builder import AgentPromptBuilder, AgentPromptBuilderBase
@@ -98,6 +101,14 @@ research_agent_error_tracking_agent = AgentModeDefinition(
     mode=AgentMode.ERROR_TRACKING,
     mode_description="Error tracking mode for researching data.",
     toolkit_class=ErrorTrackingAgentToolkit,
+    node_class=ResearchAgentExecutable,
+    tools_node_class=ResearchAgentToolsExecutable,
+)
+
+research_agent_plan_product_analytics_agent = AgentModeDefinition(
+    mode=AgentMode.PRODUCT_ANALYTICS,
+    mode_description="General-purpose mode for product analytics tasks.",
+    toolkit_class=ReadOnlyProductAnalyticsAgentToolkit,  # Only CreateInsightTool
     node_class=ResearchAgentExecutable,
     tools_node_class=ResearchAgentToolsExecutable,
 )
@@ -195,12 +206,15 @@ class ResearchAgentModeManager(AgentModeManager):
         supermode = state.supermode
         if not supermode:
             supermode = AgentMode.PLAN
-        default_mode = AgentMode.SQL if supermode == AgentMode.PLAN else AgentMode.PRODUCT_ANALYTICS
-        self._mode = state.agent_mode or default_mode
         if supermode not in self.supermode_registries.keys():
             raise ValueError(f"Invalid supermode: {supermode}")
         self._supermode = cast(AgentMode, supermode)
         self._mode_registry = self.supermode_registries[self._supermode]
+        self._mode = (
+            state.agent_mode
+            if state.agent_mode and state.agent_mode in self.mode_registry
+            else AgentMode.PRODUCT_ANALYTICS
+        )
         super().__init__(team=team, user=user, node_path=node_path, context_manager=context_manager, state=state)
 
     @property
@@ -211,7 +225,11 @@ class ResearchAgentModeManager(AgentModeManager):
             AgentMode.ERROR_TRACKING: research_agent_error_tracking_agent,
         }
         return {
-            AgentMode.PLAN: {**default_mode_registry, AgentMode.RESEARCH: research_agent},
+            AgentMode.PLAN: {
+                **default_mode_registry,
+                AgentMode.RESEARCH: research_agent,
+                AgentMode.PRODUCT_ANALYTICS: research_agent_plan_product_analytics_agent,
+            },
             AgentMode.RESEARCH: {
                 **default_mode_registry,
                 AgentMode.PRODUCT_ANALYTICS: research_agent_product_analytics_agent,

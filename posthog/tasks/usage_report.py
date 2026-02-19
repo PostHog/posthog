@@ -28,7 +28,7 @@ from posthog import version_requirement
 from posthog.batch_exports.models import BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import AccessMethod, Product, tags_context
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
@@ -1691,17 +1691,17 @@ def capture_report(
 ) -> None:
     if not organization_id:
         raise ValueError("Organization_id must be provided")
+
+    pha_client = get_ph_client(sync_mode=True)
+
     try:
-        pha_client = get_ph_client(sync_mode=True)
         capture_event(
             pha_client=pha_client,
             name="organization usage report",
             organization_id=organization_id,
             properties=full_report_dict,
             timestamp=at_date,
-            set_on_organization=True,
         )
-
     except Exception as err:
         logger.exception(
             f"UsageReport sent to PostHog for organization {organization_id} failed: {str(err)}",
@@ -1712,6 +1712,35 @@ def capture_report(
             organization_id=organization_id,
             properties={"error": str(err)},
         )
+
+    # There are some billing-related flags we wanna set in customer.io
+    # and for that to work properly we need to make sure we include that
+    # for every single person in the organization, otherwise we might end up
+    # with some people having the property and some not,
+    # which makes it harder to filter on in customer.io
+    per_person_properties = {
+        "has_non_zero_usage": full_report_dict.get("has_non_zero_usage"),
+    }
+
+    for membership in OrganizationMembership.objects.filter(organization_id=organization_id).select_related("user"):
+        distinct_id = membership.user.distinct_id
+        if not distinct_id:
+            continue
+
+        try:
+            capture_event(
+                pha_client=pha_client,
+                name="organization usage report per person",
+                organization_id=organization_id,
+                distinct_id=distinct_id,
+                properties=per_person_properties,
+                timestamp=at_date,
+            )
+        except Exception as err:
+            logger.exception(
+                f"UsageReport sent to PostHog for user {distinct_id} in organization {organization_id} failed: {str(err)}",
+            )
+            capture_exception(err, {"distinct_id": distinct_id, "organization_id": organization_id})
 
 
 # extend this with future usage based products
@@ -1882,19 +1911,19 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start,
             period_end,
             metric="read_bytes",
-            access_method=AccessMethod.PERSONAL_API_KEY,
+            access_method="personal_api_key",
         ),
         "teams_with_query_api_rows_read": get_teams_with_query_metric(
             period_start,
             period_end,
             metric="read_rows",
-            access_method=AccessMethod.PERSONAL_API_KEY,
+            access_method="personal_api_key",
         ),
         "teams_with_query_api_duration_ms": get_teams_with_query_metric(
             period_start,
             period_end,
             metric="query_duration_ms",
-            access_method=AccessMethod.PERSONAL_API_KEY,
+            access_method="personal_api_key",
         ),
         "teams_with_api_queries_count": api_queries_usage["count"],
         "teams_with_api_queries_read_bytes": api_queries_usage["read_bytes"],
@@ -1924,21 +1953,21 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_end,
             metric="read_bytes",
             query_types=["EventsQuery"],
-            access_method=AccessMethod.PERSONAL_API_KEY,
+            access_method="personal_api_key",
         ),
         "teams_with_event_explorer_api_rows_read": get_teams_with_query_metric(
             period_start,
             period_end,
             metric="read_rows",
             query_types=["EventsQuery"],
-            access_method=AccessMethod.PERSONAL_API_KEY,
+            access_method="personal_api_key",
         ),
         "teams_with_event_explorer_api_duration_ms": get_teams_with_query_metric(
             period_start,
             period_end,
             metric="query_duration_ms",
             query_types=["EventsQuery"],
-            access_method=AccessMethod.PERSONAL_API_KEY,
+            access_method="personal_api_key",
         ),
         "teams_with_survey_responses_count_in_period": get_teams_with_survey_responses_count_in_period(
             period_start, period_end

@@ -34,7 +34,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import AccessMethod, tag_queries
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Organization, Plugin, Team
@@ -1158,7 +1158,7 @@ class TestHogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTa
         flush_persons_and_events()
         sync_execute("SYSTEM FLUSH LOGS")
         sync_execute("TRUNCATE TABLE system.query_log")
-        tag_queries(kind="request", id="1", access_method=AccessMethod.PERSONAL_API_KEY, chargeable=1)
+        tag_queries(kind="request", id="1", access_method="personal_api_key", chargeable=1)
 
         execute_hogql_query(
             query="select * from events limit 400",
@@ -3782,6 +3782,20 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             timestamp="2021-10-10T23:01:00.00Z",
         )
         assert mock_client.capture.call_args[1]["timestamp"] == datetime(2021, 10, 10, 23, 1, tzinfo=tzutc())
+
+    @patch("posthog.tasks.report_utils.is_cloud", return_value=True)
+    def test_capture_event_skips_group_identify_without_group_properties(self, mock_is_cloud: MagicMock) -> None:
+        organization = Organization.objects.create()
+        mock_client = MagicMock()
+
+        capture_event(
+            pha_client=mock_client,
+            name="test event",
+            organization_id=str(organization.id),
+            properties={"prop1": "val1"},
+        )
+
+        mock_client.group_identify.assert_not_called()
 
 
 class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):

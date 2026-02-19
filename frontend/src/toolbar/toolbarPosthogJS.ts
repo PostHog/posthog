@@ -27,9 +27,12 @@ const initResult = posthog.init(
         disable_product_tours: true,
         disable_session_recording: true,
         session_recording: {
-            // we want to capture the toolbar here, but the toolbar
-            // has `ph-no-capture` so customer replays don't record it
+            // we want to capture the toolbar (which is marked with ph-no-capture
+            // so customer sessions don't see it), but also respect the customer's
+            // ph-no-capture marks
             blockClass: 'ph-internal-no-capture',
+            blockSelector: '.ph-no-capture:not(#__POSTHOG_TOOLBAR__):not(#__POSTHOG_TOOLBAR__ *)',
+            maskAllInputs: true,
         },
     },
     'ph_toolbar_internal'

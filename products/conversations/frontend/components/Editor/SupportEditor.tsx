@@ -58,6 +58,7 @@ export type SupportEditorProps = {
     onUploadingChange?: (uploading: boolean) => void
     disabled?: boolean
     minRows?: number
+    className?: string
 }
 
 const DEFAULT_INITIAL_CONTENT: JSONContent = {
@@ -245,6 +246,7 @@ export function SupportEditor({
     onUploadingChange,
     disabled = false,
     minRows,
+    className,
 }: SupportEditorProps): JSX.Element {
     const [isDragging, setIsDragging] = useState<boolean>(false)
     const [ttEditor, setTTEditor] = useState<TTEditor | null>(null)
@@ -327,7 +329,8 @@ export function SupportEditor({
             ref={dropRef}
             className={cn(
                 'SupportEditor flex flex-col border rounded divide-y mt-4 input-like transition-shadow',
-                isDragging && 'ring-2 ring-primary ring-offset-1'
+                isDragging && 'ring-2 ring-primary ring-offset-1',
+                className
             )}
             onDragEnter={handleDragEnter}
             onDragLeave={handleDragLeave}

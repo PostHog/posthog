@@ -39,7 +39,7 @@ from ee.hogai.chat_agent.prompts import (
 )
 from ee.hogai.chat_agent.toolkit import ChatAgentPlanToolkit, ChatAgentToolkit
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.core.agent_modes.presets.product_analytics import SubagentProductAnalyticsAgentToolkit
+from ee.hogai.core.agent_modes.presets.product_analytics import ReadOnlyProductAnalyticsAgentToolkit
 from ee.hogai.core.agent_modes.presets.survey import SubagentSurveyAgentToolkit
 from ee.hogai.tools.replay.filter_session_recordings import FilterSessionRecordingsTool
 from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
@@ -164,16 +164,22 @@ class TestAgentToolkit(BaseTest):
 
     @parameterized.expand(
         [
-            # (error_tracking_flag, expected_modes, unexpected_modes)
-            [False, ["product_analytics", "sql", "session_replay"], ["error_tracking"]],
-            [True, ["product_analytics", "sql", "session_replay", "error_tracking"], []],
+            # (error_tracking_flag, flags_flag, expected_modes, unexpected_modes)
+            [False, False, ["product_analytics", "sql", "session_replay"], ["error_tracking", "flags"]],
+            [True, False, ["product_analytics", "sql", "session_replay", "error_tracking"], ["flags"]],
+            [False, True, ["product_analytics", "sql", "session_replay", "flags"], ["error_tracking"]],
+            [True, True, ["product_analytics", "sql", "session_replay", "error_tracking", "flags"], []],
         ]
     )
-    def test_mode_registry_based_on_error_tracking_feature_flag(
-        self, error_tracking_flag, expected_modes, unexpected_modes
+    def test_mode_registry_based_on_feature_flags(
+        self, error_tracking_flag, flags_flag, expected_modes, unexpected_modes
     ):
-        with patch(
-            "ee.hogai.chat_agent.mode_manager.has_error_tracking_mode_feature_flag", return_value=error_tracking_flag
+        with (
+            patch(
+                "ee.hogai.chat_agent.mode_manager.has_error_tracking_mode_feature_flag",
+                return_value=error_tracking_flag,
+            ),
+            patch("ee.hogai.chat_agent.mode_manager.has_flags_mode_feature_flag", return_value=flags_flag),
         ):
             node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
             context_manager = AssistantContextManager(
@@ -263,7 +269,7 @@ class TestChatAgentModeManagerPlanMode(BaseTest):
         )
 
         self.assertEqual(mode_manager._supermode, AgentMode.PLAN)
-        self.assertEqual(mode_manager._mode, AgentMode.SQL)
+        self.assertEqual(mode_manager._mode, AgentMode.PRODUCT_ANALYTICS)
 
     def test_plan_mode_uses_plan_mode_registry(self):
         """Test that mode_registry returns plan mode registry when in plan mode"""
@@ -285,7 +291,7 @@ class TestChatAgentModeManagerPlanMode(BaseTest):
         self.assertIn(AgentMode.EXECUTION, mode_names)  # Plan mode has EXECUTION mode
         self.assertIn(AgentMode.SQL, mode_names)  # Plan mode has SQL mode
         self.assertIn(AgentMode.SESSION_REPLAY, mode_names)  # Plan mode has SESSION_REPLAY mode
-        self.assertNotIn(AgentMode.PRODUCT_ANALYTICS, mode_names)  # Plan mode doesn't have PRODUCT_ANALYTICS
+        self.assertIn(AgentMode.PRODUCT_ANALYTICS, mode_names)  # Plan mode now has PRODUCT_ANALYTICS
 
     def test_plan_mode_uses_plan_prompt_builder(self):
         """Test that prompt_builder_class returns ChatAgentPlanPromptBuilder when in plan mode"""
@@ -695,14 +701,13 @@ class TestChatAgentModeManagerSubagent(BaseTest):
                 self.assertNotIn(unexpected, mode_names)
 
     def test_subagent_product_analytics_toolkit_excludes_dangerous_tools(self):
-        from ee.hogai.tools import CreateDashboardTool, CreateInsightTool, UpsertDashboardTool
+        from ee.hogai.tools import CreateInsightTool, UpsertDashboardTool
 
         context_manager = AssistantContextManager(
             team=self.team, user=self.user, config=RunnableConfig(configurable={"is_subagent": True})
         )
-        toolkit = SubagentProductAnalyticsAgentToolkit(team=self.team, user=self.user, context_manager=context_manager)
+        toolkit = ReadOnlyProductAnalyticsAgentToolkit(team=self.team, user=self.user, context_manager=context_manager)
         self.assertIn(CreateInsightTool, toolkit.tools)
-        self.assertNotIn(CreateDashboardTool, toolkit.tools)
         self.assertNotIn(UpsertDashboardTool, toolkit.tools)
 
     def test_subagent_survey_toolkit_excludes_dangerous_tools(self):

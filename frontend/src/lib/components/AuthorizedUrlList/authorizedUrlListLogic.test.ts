@@ -218,5 +218,18 @@ describe('the authorized urls list logic', () => {
                 { url: 'https://not.valid.io', count: 1 },
             ])
         })
+
+        it('filters out invalid URLs like paths without domains', () => {
+            const urlsWithInvalidPaths: SuggestedDomain[] = [
+                { url: '/', count: 10 },
+                { url: '/billing', count: 5 },
+                { url: '/settings/project', count: 3 },
+                { url: 'https://valid.example.com', count: 2 },
+                { url: 'not-a-url', count: 1 },
+            ]
+            expect(filterNotAuthorizedUrls(urlsWithInvalidPaths, [])).toEqual([
+                { url: 'https://valid.example.com', count: 2 },
+            ])
+        })
     })
 })

@@ -33,6 +33,47 @@ import {
     VercelSDKTextMessage,
 } from './types'
 
+export interface PagedSearchOrderFilters {
+    page: number
+    search: string
+    order_by: string
+}
+
+export interface SanitizeTraceUrlSearchParamsOptions {
+    removeSearch?: boolean
+}
+
+export function sanitizeTraceUrlSearchParams(
+    searchParams: Record<string, unknown>,
+    options: SanitizeTraceUrlSearchParamsOptions = {}
+): Record<string, unknown> {
+    const sanitizedSearchParams = { ...searchParams }
+
+    delete sanitizedSearchParams.event
+    delete sanitizedSearchParams.timestamp
+    delete sanitizedSearchParams.exception_ts
+    delete sanitizedSearchParams.line
+    delete sanitizedSearchParams.tab
+    delete sanitizedSearchParams.back_to
+
+    if (options.removeSearch) {
+        delete sanitizedSearchParams.search
+    }
+
+    return sanitizedSearchParams
+}
+
+export function cleanPagedSearchOrderParams(
+    filters: PagedSearchOrderFilters,
+    defaultOrderBy: string = '-created_at'
+): Record<string, unknown> {
+    return {
+        page: filters.page === 1 ? undefined : filters.page,
+        search: filters.search || undefined,
+        order_by: filters.order_by === defaultOrderBy ? undefined : filters.order_by,
+    }
+}
+
 function formatUsage(inputTokens: number, outputTokens?: number | null): string | null {
     return `${inputTokens} → ${outputTokens || 0} (∑ ${inputTokens + (outputTokens || 0)})`
 }
@@ -86,6 +127,30 @@ const usdFormatter = new Intl.NumberFormat('en-US', {
 
 export function formatLLMCost(cost: number): string {
     return usdFormatter.format(cost)
+}
+
+export function formatTokens(tokens: number): string {
+    if (tokens >= 1000000) {
+        return `${(tokens / 1000000).toFixed(1)}M`
+    }
+    if (tokens >= 1000) {
+        return `${(tokens / 1000).toFixed(1)}k`
+    }
+    return tokens.toFixed(0)
+}
+
+export function formatErrorRate(errorRate: number): string {
+    const percentage = errorRate * 100
+    if (percentage === 0) {
+        return '0%'
+    }
+    if (percentage < 0.1) {
+        return '<0.1%'
+    }
+    if (percentage < 1) {
+        return `${percentage.toFixed(1)}%`
+    }
+    return `${Math.round(percentage)}%`
 }
 
 export function isLLMEvent(item: LLMTrace | LLMTraceEvent): item is LLMTraceEvent {
@@ -624,9 +689,10 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
     }
     // Tool result completion
     if (isAnthropicToolResultMessage(rawMessage)) {
+        const toolResultRole = normalizeRole('assistant (tool result)', roleToUse)
         if (Array.isArray(rawMessage.content)) {
             return rawMessage.content
-                .map((content) => normalizeMessage(content, roleToUse))
+                .map((content) => normalizeMessage(content, toolResultRole))
                 .flat()
                 .map((msg) => ({
                     ...msg,
@@ -635,7 +701,7 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
         }
         return [
             {
-                role: roleToUse,
+                role: toolResultRole,
                 content: rawMessage.content,
                 tool_call_id: rawMessage.tool_use_id,
             },

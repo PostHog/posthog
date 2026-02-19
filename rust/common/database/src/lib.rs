@@ -68,17 +68,17 @@ impl Default for PoolConfig {
 
 /// Legacy function for backward compatibility - uses default production settings
 /// New services should use get_pool_with_config() with their own PoolConfig
-pub async fn get_pool(url: &str, max_connections: u32) -> Result<PgPool, sqlx::Error> {
+pub fn get_pool(url: &str, max_connections: u32) -> Result<PgPool, sqlx::Error> {
     let config = PoolConfig {
         max_connections,
         ..Default::default()
     };
-    get_pool_with_config(url, config).await
+    get_pool_with_config(url, config)
 }
 
 /// Legacy function for backward compatibility - uses default production settings except for timeout
 /// New services should use get_pool_with_config() with their own PoolConfig
-pub async fn get_pool_with_timeout(
+pub fn get_pool_with_timeout(
     url: &str,
     max_connections: u32,
     acquire_timeout: Duration,
@@ -88,12 +88,19 @@ pub async fn get_pool_with_timeout(
         acquire_timeout,
         ..Default::default()
     };
-    get_pool_with_config(url, config).await
+    get_pool_with_config(url, config)
 }
 
-/// Creates a database pool with the provided configuration
-/// This is the recommended function for services to use
-pub async fn get_pool_with_config(url: &str, config: PoolConfig) -> Result<PgPool, sqlx::Error> {
+/// Creates a database pool with the provided configuration.
+///
+/// This function creates a *lazy* database pool: connections are not
+/// established until they are first acquired from the pool. URL parsing
+/// errors are still detected immediately when this function is called, but
+/// network connectivity and authentication errors will only be surfaced on
+/// the first actual connection use.
+///
+/// This is the recommended function for services to use.
+pub fn get_pool_with_config(url: &str, config: PoolConfig) -> Result<PgPool, sqlx::Error> {
     let mut options = PgPoolOptions::new()
         .min_connections(config.min_connections)
         .max_connections(config.max_connections)
@@ -118,7 +125,7 @@ pub async fn get_pool_with_config(url: &str, config: PoolConfig) -> Result<PgPoo
         });
     }
 
-    options.connect(url).await
+    options.connect_lazy(url)
 }
 
 #[async_trait]

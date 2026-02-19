@@ -46,6 +46,7 @@ class SlackThreadHandler:
 
     def _get_integration(self) -> Integration:
         if self._integration is None:
+            # nosemgrep: idor-lookup-without-team (internal context, ID from Slack event mapping)
             self._integration = Integration.objects.get(id=self.context.integration_id)
         return self._integration
 

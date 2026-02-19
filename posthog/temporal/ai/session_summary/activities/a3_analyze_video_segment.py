@@ -11,10 +11,10 @@ from typing import Any, cast
 
 from django.conf import settings
 
-import structlog
 import temporalio
 from google.genai import types
 from posthoganalytics.ai.gemini import genai
+from temporalio.exceptions import ApplicationError
 
 from posthog.models import Team
 from posthog.temporal.ai.session_summary.state import (
@@ -28,12 +28,11 @@ from posthog.temporal.ai.session_summary.types.video import (
     VideoSegmentSpec,
     VideoSummarySingleSessionInputs,
 )
+from posthog.temporal.ai.session_summary.utils import format_seconds_as_mm_ss, parse_str_timestamp_to_s
 
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.tracking import capture_session_summary_timing
 from ee.hogai.session_summaries.utils import calculate_time_since_start, get_column_index, prepare_datetime
-
-logger = structlog.get_logger(__name__)
 
 
 @temporalio.activity.defn
@@ -45,7 +44,6 @@ async def analyze_video_segment_activity(
     team_name: str,
 ) -> list[VideoSegmentOutput]:
     """Analyze a segment of the uploaded video with Gemini using video_metadata for time range
-
     Returns detailed descriptions of salient moments in the segment.
     """
     start_time = time.monotonic()
@@ -54,81 +52,94 @@ async def analyze_video_segment_activity(
         # Retrieve cached event data from Redis (populated by fetch_session_data_activity)
         llm_input: SingleSessionSummaryLlmInputs | None = None
         events_context = ""
-        if inputs.redis_key_base:
-            redis_client, redis_input_key, _ = get_redis_state_client(
-                key_base=inputs.redis_key_base,
-                input_label=StateActivitiesEnum.SESSION_DB_DATA,
-                state_id=inputs.session_id,
+        if not inputs.redis_key_base:
+            msg = "No Redis key base provided when analyzing video segment"
+            temporalio.activity.logger.error(
+                msg,
+                extra={
+                    "session_id": inputs.session_id,
+                    "segment_index": segment.segment_index,
+                    "signals_type": "session-summaries",
+                },
             )
-            llm_input_raw = await get_data_class_from_redis(
-                redis_client=redis_client,
-                redis_key=redis_input_key,
-                label=StateActivitiesEnum.SESSION_DB_DATA,
-                target_class=SingleSessionSummaryLlmInputs,
-            )
-            if llm_input_raw:
-                llm_input = cast(SingleSessionSummaryLlmInputs, llm_input_raw)
-
-                # Find events within this segment's time range
-                start_ms = int(segment.start_time * 1000)
-                end_ms = int(segment.end_time * 1000)
-                events_in_range = _find_events_in_time_range(
-                    start_ms=start_ms,
-                    end_ms=end_ms,
-                    simplified_events_mapping=llm_input.simplified_events_mapping,
-                    simplified_events_columns=llm_input.simplified_events_columns,
-                    session_start_time_str=llm_input.session_start_time_str,
-                )
-
-                if events_in_range:
-                    events_context = _format_events_for_prompt(
-                        events_in_range=events_in_range,
-                        simplified_events_columns=llm_input.simplified_events_columns,
-                        url_mapping_reversed=llm_input.url_mapping_reversed,
-                        window_mapping_reversed=llm_input.window_mapping_reversed,
-                    )
-                    logger.debug(
-                        f"Found {len(events_in_range)} events in segment {segment.segment_index} time range",
-                        session_id=inputs.session_id,
-                        segment_index=segment.segment_index,
-                        event_count=len(events_in_range),
-                        signals_type="session-summaries",
-                    )
-
-        # Construct analysis prompt
-        start_timestamp = _format_timestamp_as_mm_ss(segment.start_time)
-        end_timestamp = _format_timestamp_as_mm_ss(segment.end_time)
-        segment_duration = segment.end_time - segment.start_time
-
-        logger.debug(
-            f"Analyzing segment {segment.segment_index} ({start_timestamp} - {end_timestamp}) for session {inputs.session_id}",
-            session_id=inputs.session_id,
-            segment_index=segment.segment_index,
-            signals_type="session-summaries",
+            # No need to retry, if the input is missing critical data, so it failed way before
+            raise ApplicationError(msg, non_retryable=True)
+        redis_client, redis_input_key, _ = get_redis_state_client(
+            key_base=inputs.redis_key_base,
+            input_label=StateActivitiesEnum.SESSION_DB_DATA,
+            state_id=inputs.session_id,
         )
-
+        llm_input_raw = await get_data_class_from_redis(
+            redis_client=redis_client,
+            redis_key=redis_input_key,
+            label=StateActivitiesEnum.SESSION_DB_DATA,
+            target_class=SingleSessionSummaryLlmInputs,
+        )
+        if llm_input_raw:
+            llm_input = cast(SingleSessionSummaryLlmInputs, llm_input_raw)
+            # Find events within this segment's time range, using session time, not video time
+            start_ms = int(segment.start_time * 1000)
+            end_ms = int(segment.end_time * 1000)
+            events_in_range = _find_events_in_time_range(
+                start_ms=start_ms,
+                end_ms=end_ms,
+                simplified_events_mapping=llm_input.simplified_events_mapping,
+                simplified_events_columns=llm_input.simplified_events_columns,
+                session_start_time_str=llm_input.session_start_time_str,
+            )
+            if events_in_range:
+                events_context = _format_events_for_prompt(
+                    events_in_range=events_in_range,
+                    simplified_events_columns=llm_input.simplified_events_columns,
+                    url_mapping_reversed=llm_input.url_mapping_reversed,
+                    window_mapping_reversed=llm_input.window_mapping_reversed,
+                )
+                temporalio.activity.logger.debug(
+                    f"Found {len(events_in_range)} events in segment {segment.segment_index} time range",
+                    extra={
+                        "session_id": inputs.session_id,
+                        "segment_index": segment.segment_index,
+                        "event_count": len(events_in_range),
+                        "signals_type": "session-summaries",
+                    },
+                )
+        # Construct analysis prompt
+        start_timestamp_str = format_seconds_as_mm_ss(segment.recording_start_time)
+        end_timestamp_str = format_seconds_as_mm_ss(segment.recording_end_time)
+        # Calculating duration in video time, not session time
+        segment_duration = segment.recording_end_time - segment.recording_start_time
+        temporalio.activity.logger.debug(
+            f"Analyzing segment {segment.segment_index} ({start_timestamp_str} - {end_timestamp_str}) for session {inputs.session_id}",
+            extra={
+                "session_id": inputs.session_id,
+                "segment_index": segment.segment_index,
+                "signals_type": "session-summaries",
+            },
+        )
         # Analyze with Gemini using video_metadata to specify the time range
         client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
+        video_analysis_prompt = VIDEO_SEGMENT_ANALYSIS_PROMPT.format(
+            team_name=team_name,
+            start_timestamp=start_timestamp_str,
+            segment_duration=segment_duration,
+            events_section=VIDEO_SEGMENT_ANALYSIS_PROMPT_EVENTS_SECTION.format(events_context=events_context)
+            if events_context
+            else "",
+        )
         response = await client.models.generate_content(
             model=f"models/{inputs.model_to_use}",
             contents=[
                 types.Part(
                     file_data=types.FileData(file_uri=uploaded_video.file_uri, mime_type=uploaded_video.mime_type),
+                    # Round, as Gemini doesn't work with nanoseconds
                     video_metadata=types.VideoMetadata(
-                        start_offset=f"{segment.start_time}s",
-                        end_offset=f"{segment.end_time}s",
+                        start_offset=f"{round(segment.recording_start_time, 2)}s",
+                        end_offset=f"{round(segment.recording_end_time, 2)}s",
                     ),
                 ),
-                VIDEO_SEGMENT_ANALYSIS_PROMPT.format(
-                    team_name=team_name,
-                    start_timestamp=start_timestamp,
-                    segment_duration=segment_duration,
-                    events_section=VIDEO_SEGMENT_ANALYSIS_PROMPT_EVENTS_SECTION.format(events_context=events_context)
-                    if events_context
-                    else "",
-                ),
+                video_analysis_prompt,
             ],
-            config=types.GenerateContentConfig(max_output_tokens=4096),
+            config=types.GenerateContentConfig(),
             posthog_distinct_id=inputs.user_distinct_id_to_log,
             posthog_trace_id=trace_id,
             posthog_properties={
@@ -137,63 +148,109 @@ async def analyze_video_segment_activity(
             },
             posthog_groups={"project": str(inputs.team_id)},
         )
-
         response_text = (response.text or "").strip()
-
-        logger.debug(
+        temporalio.activity.logger.debug(
             f"Received analysis for segment {segment.segment_index}",
-            session_id=inputs.session_id,
-            segment_index=segment.segment_index,
-            response_length=len(response_text),
-            response_preview=response_text[:200] if response_text else None,
-            signals_type="session-summaries",
+            extra={
+                "session_id": inputs.session_id,
+                "segment_index": segment.segment_index,
+                "response_length": len(response_text),
+                "response_preview": response_text[:200] if response_text else None,
+                "signals_type": "session-summaries",
+            },
         )
-
         # Parse response into segments
         segments = []
-
         # Parse bullet points in format: * MM:SS - MM:SS: description
         pattern_colon = r"\*\s+(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2}):\s*(.+?)(?=\n\*|$)"
-
         matches = re.findall(pattern_colon, response_text, re.DOTALL | re.MULTILINE)
-
         if not matches:
-            logger.warning(
+            temporalio.activity.logger.warning(
                 f"No segments matched regex pattern for segment {segment.segment_index}",
-                session_id=inputs.session_id,
-                segment_index=segment.segment_index,
-                response_text=response_text[:500],
-                signals_type="session-summaries",
+                extra={
+                    "session_id": inputs.session_id,
+                    "segment_index": segment.segment_index,
+                    "response_text": response_text[:500],
+                    "signals_type": "session-summaries",
+                },
+            )
+        # Iterate over description + start/end time matches from the LLM response to store what happend during the analyzed segment
+        for match_start_time_str, match_end_time_str, match_description in matches:
+            match_description = match_description.strip()
+            if not match_description:
+                # Nothing described, so nothing to store
+                continue
+            # Check if the timestamps are parseable
+            try:
+                # Match timestamps are video-based as LLM generated them based on video
+                match_start_time_s = parse_str_timestamp_to_s(match_start_time_str)
+                match_end_time_s = parse_str_timestamp_to_s(match_end_time_str)
+            except ValueError:
+                temporalio.activity.logger.warning(
+                    "Skipping segment with invalid timestamp",
+                    extra={
+                        "session_id": inputs.session_id,
+                        "segment_index": segment.segment_index,
+                        "start_time": match_start_time_str,
+                        "end_time": match_end_time_str,
+                        "signals_type": "session-summaries",
+                    },
+                )
+                continue
+            # Check if the end timestamp is after the start timestamp
+            if match_end_time_s < match_start_time_s:
+                temporalio.activity.logger.warning(
+                    "Skipping segment with invalid time range",
+                    extra={
+                        "session_id": inputs.session_id,
+                        "segment_index": segment.segment_index,
+                        "start_time": match_start_time_str,
+                        "end_time": match_end_time_str,
+                        "signals_type": "session-summaries",
+                    },
+                )
+                continue
+            # Calculate how much time passed since the segment started in video time
+            start_seconds_since_segment_start = max(round(match_start_time_s - segment.recording_start_time, 2), 0)
+            end_seconds_since_segment_start = max(round(match_end_time_s - segment.recording_start_time, 2), 0)
+            # Calculate the timestamps in session time
+            session_time_start_str = format_seconds_as_mm_ss(segment.start_time + start_seconds_since_segment_start)
+            session_time_end_str = format_seconds_as_mm_ss(segment.start_time + end_seconds_since_segment_start)
+            # Collect the data
+            segments.append(
+                VideoSegmentOutput(
+                    start_time=session_time_start_str,
+                    end_time=session_time_end_str,
+                    description=match_description,
+                )
             )
 
-        for start_time_str, end_time_str, description in matches:
-            description = description.strip()
-            if description:
-                segments.append(
-                    VideoSegmentOutput(
-                        start_time=start_time_str,
-                        end_time=end_time_str,
-                        description=description,
-                    )
-                )
-
-        logger.debug(
+        temporalio.activity.logger.debug(
             f"Parsed {len(segments)} segments from segment {segment.segment_index}",
-            session_id=inputs.session_id,
-            segment_index=segment.segment_index,
-            segment_count=len(segments),
-            signals_type="session-summaries",
+            extra={
+                "session_id": inputs.session_id,
+                "segment_index": segment.segment_index,
+                "segment_count": len(segments),
+                "signals_type": "session-summaries",
+            },
         )
 
         success = True
         return segments
 
     except Exception as e:
-        logger.exception(
+        temporalio.activity.logger.exception(
             f"Failed to analyze segment {segment.segment_index} for session {inputs.session_id}: {e}",
-            session_id=inputs.session_id,
-            segment_index=segment.segment_index,
-            signals_type="session-summaries",
+            extra={
+                "session_id": inputs.session_id,
+                "segment_index": segment.segment_index,
+                "signals_type": "session-summaries",
+                "segment_start_time": segment.start_time,
+                "segment_end_time": segment.end_time,
+                "video_file_uri": uploaded_video.file_uri,
+                "video_duration_seconds": uploaded_video.duration,
+                "model": inputs.model_to_use,
+            },
         )
         raise
     finally:
@@ -263,12 +320,6 @@ Events data (in chronological order):
 {events_context}
 </tracked_events>
 """
-
-
-def _format_timestamp_as_mm_ss(seconds: float) -> str:
-    minutes = int(seconds // 60)
-    secs = int(seconds % 60)
-    return f"{minutes:02d}:{secs:02d}"
 
 
 def _format_events_for_prompt(

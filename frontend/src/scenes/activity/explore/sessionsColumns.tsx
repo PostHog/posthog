@@ -1,10 +1,7 @@
-import { Tooltip } from '@posthog/lemon-ui'
-
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { Link } from 'lib/lemon-ui/Link'
 import { colonDelimitedDuration } from 'lib/utils'
-import { urls } from 'scenes/urls'
+import { SessionDisplay } from 'scenes/sessions/SessionDisplay'
 
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { DataTableNode, SessionsQuery } from '~/queries/schema/schema-general'
@@ -31,39 +28,15 @@ const renderSessionId: QueryContextColumnComponent = ({ value, record, query }) 
     const sessionId = value as string
     const source = query.source
 
-    if (!isSessionsQuery(source)) {
-        return (
-            <Link to={urls.sessionProfile(sessionId)} className="font-mono">
-                {sessionId}
-            </Link>
-        )
+    let isLive = false
+    if (isSessionsQuery(source)) {
+        const endTimestampIndex = findColumnIndex(source.select, '$end_timestamp')
+        const recordArray = Array.isArray(record) ? record : []
+        const endTimestamp = endTimestampIndex !== -1 ? recordArray[endTimestampIndex] : null
+        isLive = isSessionLive(endTimestamp)
     }
 
-    const endTimestampIndex = findColumnIndex(source.select, '$end_timestamp')
-    const recordArray = Array.isArray(record) ? record : []
-    const endTimestamp = endTimestampIndex !== -1 ? recordArray[endTimestampIndex] : null
-    const isLive = isSessionLive(endTimestamp)
-
-    return (
-        <div className="flex flex-row align-center items-center gap-2">
-            {isLive ? (
-                <Tooltip title="Live session">
-                    <span className="relative flex h-2.5 w-2.5">
-                        <span
-                            className="absolute inline-flex h-full w-full rounded-full bg-danger animate-ping"
-                            style={{ opacity: 0.75 }}
-                        />
-                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-danger" />
-                    </span>
-                </Tooltip>
-            ) : (
-                <span className="relative flex h-2.5 w-2.5" />
-            )}
-            <Link to={urls.sessionProfile(sessionId)} className="font-mono">
-                {sessionId}
-            </Link>
-        </div>
-    )
+    return <SessionDisplay sessionId={sessionId} isLive={isLive} noPopover />
 }
 
 export function getSessionsColumns(): QueryContext['columns'] {

@@ -3,6 +3,7 @@ import './FeatureFlag.scss'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
+import { useRef } from 'react'
 
 import {
     IconBalance,
@@ -62,6 +63,8 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         isEditingFlag,
         showImplementation,
         openVariants,
+        payloadExpanded,
+        highlightedFields,
     } = useValues(featureFlagLogic)
     const {
         setMultivariateEnabled,
@@ -74,11 +77,21 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         loadFeatureFlag,
         setShowImplementation,
         setOpenVariants,
+        setPayloadExpanded,
+        clearHighlight,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
     const hasEvaluationTags = useFeatureFlag('FLAG_EVALUATION_TAGS')
 
     const isNewFeatureFlag = id === 'new' || id === undefined
+    const implementationRef = useRef<HTMLDivElement>(null)
+
+    const handleShowImplementation = (): void => {
+        setShowImplementation(true)
+        setTimeout(() => {
+            implementationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }, 150)
+    }
 
     const updateVariant = (
         index: number,
@@ -187,7 +200,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
 
                 <SceneContent>
                     {/* Templates - only show for new flags */}
-                    {isNewFeatureFlag && <FeatureFlagTemplates onTemplateApplied={() => {}} />}
+                    {isNewFeatureFlag && <FeatureFlagTemplates />}
 
                     {/* Two-column layout */}
                     <div className="flex gap-4 flex-wrap items-start">
@@ -200,15 +213,22 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                     label="Flag key"
                                     info="The key is used to identify the feature flag in the code. Must be unique."
                                 >
-                                    <LemonInput
-                                        data-attr="feature-flag-key"
-                                        className="ph-ignore-input"
-                                        autoComplete="off"
-                                        autoCapitalize="off"
-                                        autoCorrect="off"
-                                        spellCheck={false}
-                                        placeholder="Enter a unique key - e.g. new-landing-page, betaFeature, ab_test_1"
-                                    />
+                                    {({ value, onChange }) => (
+                                        <LemonInput
+                                            value={value}
+                                            onChange={(newValue) => {
+                                                clearHighlight('key')
+                                                onChange(newValue)
+                                            }}
+                                            data-attr="feature-flag-key"
+                                            className={`ph-ignore-input ${highlightedFields.includes('key') ? 'template-highlight-glow' : ''}`}
+                                            autoComplete="off"
+                                            autoCapitalize="off"
+                                            autoCorrect="off"
+                                            spellCheck={false}
+                                            placeholder="Enter a unique key - e.g. new-landing-page, betaFeature, ab_test_1"
+                                        />
+                                    )}
                                 </LemonField>
 
                                 <LemonField name="name" label="Description">
@@ -407,6 +427,9 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                     </LemonLabel>
                                     <LemonSelect
                                         fullWidth
+                                        className={
+                                            highlightedFields.includes('flagType') ? 'template-highlight-glow' : ''
+                                        }
                                         value={
                                             featureFlag.is_remote_configuration
                                                 ? 'remote_config'
@@ -415,6 +438,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                   : 'boolean'
                                         }
                                         onChange={(value) => {
+                                            clearHighlight('flagType')
                                             if (value === 'remote_config') {
                                                 setFeatureFlag({
                                                     ...featureFlag,
@@ -482,6 +506,29 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         ]}
                                         data-attr="feature-flag-type"
                                     />
+                                    <div className="text-secondary text-xs mt-1">
+                                        {featureFlag.is_remote_configuration ? (
+                                            <>
+                                                Returns a JSON payload directly, without feature flag evaluation logic.
+                                                Access it via <code className="text-xs">getFeatureFlagPayload</code>.
+                                            </>
+                                        ) : multivariateEnabled ? (
+                                            <>
+                                                When release conditions match, returns one of the variant keys (string)
+                                                based on rollout percentages. Each variant can optionally include a JSON
+                                                payload. Access the variant via{' '}
+                                                <code className="text-xs">getFeatureFlag</code> and its payload via{' '}
+                                                <code className="text-xs">getFeatureFlagPayload</code>.
+                                            </>
+                                        ) : (
+                                            <>
+                                                Returns <code className="text-xs">true</code> or{' '}
+                                                <code className="text-xs">false</code> based on targeting rules. You can
+                                                optionally attach a JSON payload when the flag is{' '}
+                                                <code className="text-xs">true</code>.
+                                            </>
+                                        )}
+                                    </div>
                                 </div>
 
                                 {/* Variants section - only for multivariate */}
@@ -553,19 +600,22 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
 
                                                         <LemonLabel>Description</LemonLabel>
                                                         <LemonTextArea
-                                                            placeholder="Enter a description for the variant"
+                                                            placeholder="Enter an optional description for the variant"
                                                             value={variant.name || ''}
                                                             onChange={(value) => updateVariant(index, 'name', value)}
                                                             data-attr={`feature-flag-variant-description-${index}`}
                                                         />
 
-                                                        <LemonLabel>Payload</LemonLabel>
+                                                        <LemonLabel info="Optionally specify a JSON payload to be returned when this variant is selected.">
+                                                            Payload
+                                                        </LemonLabel>
                                                         <JSONEditorInput
                                                             onChange={(value) => updateVariantPayload(index, value)}
                                                             value={featureFlag.filters?.payloads?.[variant.key]}
                                                             placeholder='{"key": "value"}'
                                                         />
 
+                                                        {variants.length > 1 && <LemonDivider />}
                                                         {variants.length > 1 && (
                                                             <LemonButton
                                                                 type="secondary"
@@ -615,30 +665,14 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 )}
 
                                 {/* Payload section - for boolean and remote config flags */}
-                                {!multivariateEnabled && (
+                                {!multivariateEnabled && featureFlag.is_remote_configuration && (
                                     <div className="flex flex-col gap-2">
-                                        <LemonLabel
-                                            info={
-                                                featureFlag.is_remote_configuration
-                                                    ? 'Specify a JSON payload to be returned for this remote config flag.'
-                                                    : 'Optionally specify a JSON payload to be returned when the flag evaluates to true.'
-                                            }
-                                        >
+                                        <LemonLabel info="Specify a JSON payload to be returned for this remote config flag.">
                                             Payload
                                         </LemonLabel>
                                         <div className="text-secondary text-xs mb-1">
-                                            {featureFlag.is_remote_configuration ? (
-                                                <>
-                                                    Remote config flags always return the payload. Access it via{' '}
-                                                    <code className="text-xs">getFeatureFlagPayload</code>.
-                                                </>
-                                            ) : (
-                                                <>
-                                                    When the flag evaluates to <code className="text-xs">true</code>,
-                                                    this payload will be available via{' '}
-                                                    <code className="text-xs">getFeatureFlagPayload</code>.
-                                                </>
-                                            )}
+                                            Remote config flags always return the payload. Access it via{' '}
+                                            <code className="text-xs">getFeatureFlagPayload</code>.
                                         </div>
                                         <Group name={['filters', 'payloads']}>
                                             <LemonField name="true">
@@ -646,6 +680,33 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                             </LemonField>
                                         </Group>
                                     </div>
+                                )}
+                                {!multivariateEnabled && !featureFlag.is_remote_configuration && (
+                                    <LemonCollapse
+                                        activeKeys={payloadExpanded ? ['payload'] : []}
+                                        onChange={(keys) => setPayloadExpanded(keys?.includes('payload') ?? false)}
+                                        panels={[
+                                            {
+                                                key: 'payload',
+                                                header: 'Payload',
+                                                content: (
+                                                    <div className="flex flex-col gap-2">
+                                                        <div className="text-secondary text-xs">
+                                                            When the flag evaluates to{' '}
+                                                            <code className="text-xs">true</code>, this payload will be
+                                                            available via{' '}
+                                                            <code className="text-xs">getFeatureFlagPayload</code>.
+                                                        </div>
+                                                        <Group name={['filters', 'payloads']}>
+                                                            <LemonField name="true">
+                                                                <JSONEditorInput placeholder='Examples: "A string", 2500, {"key": "value"}' />
+                                                            </LemonField>
+                                                        </Group>
+                                                    </div>
+                                                ),
+                                            },
+                                        ]}
+                                    />
                                 )}
                             </div>
 
@@ -657,13 +718,18 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
                                         variants={nonEmptyVariants}
+                                        highlightedFields={highlightedFields}
+                                        onClearHighlight={clearHighlight}
                                     />
                                 </div>
                             )}
 
                             {/* Implementation section */}
                             {showImplementation ? (
-                                <div className="rounded border p-3 bg-bg-light gap-2 flex flex-col">
+                                <div
+                                    ref={implementationRef}
+                                    className="rounded border p-3 bg-bg-light gap-2 flex flex-col mb-4"
+                                >
                                     <LemonButton
                                         className="-m-2"
                                         icon={<IconCode />}
@@ -675,11 +741,11 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                     <FeatureFlagCodeExample featureFlag={featureFlag} />
                                 </div>
                             ) : (
-                                <div className="rounded border bg-bg-light gap-2 flex flex-col p-3">
+                                <div className="rounded border bg-bg-light gap-2 flex flex-col p-3 mb-4">
                                     <LemonButton
                                         className="-m-2"
                                         icon={<IconCode />}
-                                        onClick={() => setShowImplementation(true)}
+                                        onClick={handleShowImplementation}
                                     >
                                         Show implementation
                                     </LemonButton>

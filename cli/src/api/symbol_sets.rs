@@ -3,14 +3,24 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use reqwest::blocking::multipart::{Form, Part};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt::Debug, iter, thread::sleep, time::Duration};
+use thiserror::Error;
 use tracing::{debug, info, warn};
 
 use crate::{
+    api::client::ClientError,
     invocation_context::context,
     utils::{files::content_hash, raise_for_err},
 };
 
 const MAX_FILE_SIZE: usize = 100 * 1024 * 1024; // 100 MB
+
+#[derive(Error, Debug)]
+pub enum UploadError {
+    #[error("Release ID mismatch: symbol sets already exist with different release IDs")]
+    ReleaseIdMismatch,
+    #[error("{0}")]
+    Other(#[from] anyhow::Error),
+}
 
 #[derive(Debug, Clone)]
 pub struct SymbolSetUpload {
@@ -47,7 +57,34 @@ struct BulkUploadFinishRequest {
     content_hashes: HashMap<String, String>,
 }
 
-pub fn upload(input_sets: &[SymbolSetUpload], batch_size: usize) -> Result<()> {
+/// Upload symbol sets with optional retry on release_id_mismatch error.
+/// If `skip_release_on_fail` is true and the server returns a release_id_mismatch error,
+/// the upload will be retried without release IDs.
+pub fn upload_with_retry(
+    input_sets: Vec<SymbolSetUpload>,
+    batch_size: usize,
+    skip_release_on_fail: bool,
+) -> Result<()> {
+    let res = upload_inner(&input_sets, batch_size);
+    match res {
+        Ok(()) => Ok(()),
+        Err(UploadError::ReleaseIdMismatch) if skip_release_on_fail => {
+            warn!("Release ID mismatch detected. Retrying upload without release IDs...");
+            let sets_without_release: Vec<_> = input_sets
+                .into_iter()
+                .map(|s| SymbolSetUpload {
+                    chunk_id: s.chunk_id.clone(),
+                    release_id: None,
+                    data: s.data,
+                })
+                .collect();
+            upload_inner(&sets_without_release, batch_size).map_err(|e| e.into())
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+fn upload_inner(input_sets: &[SymbolSetUpload], batch_size: usize) -> Result<(), UploadError> {
     let upload_requests: Vec<_> = input_sets
         .iter()
         .filter(|s| {
@@ -96,7 +133,7 @@ pub fn upload(input_sets: &[SymbolSetUpload], batch_size: usize) -> Result<()> {
     Ok(())
 }
 
-fn start_upload(symbol_sets: &[&SymbolSetUpload]) -> Result<BulkUploadStartResponse> {
+fn start_upload(symbol_sets: &[&SymbolSetUpload]) -> Result<BulkUploadStartResponse, UploadError> {
     let client = &context().client;
 
     let request = BulkUploadStartRequest {
@@ -111,10 +148,19 @@ fn start_upload(symbol_sets: &[&SymbolSetUpload]) -> Result<BulkUploadStartRespo
             client.project_url("error_tracking/symbol_sets/bulk_start_upload")?,
             |req| req.json(&request),
         )
-    })
-    .context("Failed to start upload")?;
+    });
 
-    Ok(res.json()?)
+    match res {
+        Ok(response) => Ok(response
+            .json()
+            .context("Failed to parse start upload response")?),
+        Err(ClientError::ApiError(_, _, body)) if body.contains("release_id_mismatch") => {
+            Err(UploadError::ReleaseIdMismatch)
+        }
+        Err(e) => Err(UploadError::Other(
+            anyhow::anyhow!(e).context("Failed to start upload"),
+        )),
+    }
 }
 
 fn upload_to_s3(presigned_url: PresignedUrl, data: &[u8]) -> Result<()> {
@@ -137,7 +183,7 @@ fn upload_to_s3(presigned_url: PresignedUrl, data: &[u8]) -> Result<()> {
     Ok(())
 }
 
-fn finish_upload(content_hashes: HashMap<String, String>) -> Result<()> {
+fn finish_upload(content_hashes: HashMap<String, String>) -> Result<(), UploadError> {
     let client = &context().client;
     let request = BulkUploadFinishRequest { content_hashes };
 
@@ -147,7 +193,7 @@ fn finish_upload(content_hashes: HashMap<String, String>) -> Result<()> {
             |req| req.json(&request),
         )
     })
-    .context("Failed to finish upload")?;
+    .map_err(|e| UploadError::Other(anyhow::anyhow!(e).context("Failed to finish upload")))?;
 
     Ok(())
 }

@@ -1,7 +1,6 @@
 import math
 from typing import Optional, cast
 
-import unittest
 from posthog.test.base import BaseTest, MemoryLeakTestMixin
 
 from posthog.hogql import ast
@@ -1637,6 +1636,19 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_ctes_preserve_declaration_order(self):
+            node = cast(
+                ast.SelectQuery,
+                self._select(
+                    "with zz_first as (select 1 from events), "
+                    "mm_middle as (select * from zz_first), "
+                    "aa_last as (select * from mm_middle) "
+                    "select * from aa_last"
+                ),
+            )
+            assert isinstance(node.ctes, dict)
+            self.assertEqual(list(node.ctes.keys()), ["zz_first", "mm_middle", "aa_last"])
+
         def test_ctes_subquery_recursion(self):
             query = "with users as (select event, timestamp as tt from events ), final as ( select tt from users ) select * from final"
             self.assertEqual(
@@ -2944,7 +2956,6 @@ def parser_test_factory(backend: HogQLParserBackend):
 
             self.assertEqual(self._select("SELECT 1 UNION ALL SELECT 2;"), self._select("SELECT 1 UNION ALL SELECT 2"))
 
-        @unittest.skipIf(backend == "cpp", "Postgres-style casts are not supported in the legacy C++ backend")
         def test_postgres_style_cast(self):
             self.assertEqual(
                 self._expr("x::int"),

@@ -143,7 +143,7 @@ pub struct Config {
     #[envconfig(default = "redis://localhost:6379/")]
     pub redis_url: String,
 
-    #[envconfig(from = "ISSUE_BUCKETS_REDIS_URL", default = "redis://localhost:6479/")]
+    #[envconfig(from = "ISSUE_BUCKETS_REDIS_URL", default = "redis://localhost:6379/")]
     pub issue_buckets_redis_url: String,
 
     #[envconfig(default = "100")]

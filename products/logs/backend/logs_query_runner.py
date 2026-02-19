@@ -1,7 +1,7 @@
 import json
 import base64
 import datetime as dt
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -26,6 +26,9 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 
 def _generate_resource_attribute_filters(
@@ -120,6 +123,13 @@ def _generate_resource_attribute_filters(
 
 
 class LogsQueryRunnerMixin(QueryRunner):
+    @cached_property
+    def settings(self):
+        return HogQLGlobalSettings(
+            max_bytes_to_read=None,
+            read_overflow_mode=None,
+        )
+
     def __init__(self, query, *args, **kwargs):
         super().__init__(query, *args, **kwargs)
 
@@ -370,6 +380,15 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
     cached_response: CachedLogsQueryResponse
     paginator: HogQLHasMorePaginator
 
+    def validate_query_runner_access(self, user: "User") -> bool:
+        # LogsQuery is registered in get_query_runner solely for server-side CSV export
+        # (via ExportedAsset + Celery, which runs without a user context and skips this check).
+        # Block all user-initiated queries via the generic /api/projects/:id/query/ endpoint
+        # until the LogsQuery schema is stable and ready to be a public API.
+        from posthog.rbac.user_access_control import UserAccessControlError
+
+        raise UserAccessControlError("logs", "viewer")
+
     def _calculate(self) -> LogsQueryResponse:
         response = self.paginator.execute_hogql_query(
             query_type="LogsQuery",
@@ -459,4 +478,6 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
             allow_experimental_join_condition=False,
             transform_null_in=False,
             allow_experimental_analyzer=True,
+            max_bytes_to_read=None,
+            read_overflow_mode=None,
         )

@@ -2161,7 +2161,7 @@ export const AnnotationScopeEnumApi = {
 export interface AnnotationApi {
     readonly id: number
     /**
-     * @maxLength 400
+     * @maxLength 8192
      * @nullable
      */
     content?: string | null
@@ -2200,7 +2200,7 @@ export interface PaginatedAnnotationListApi {
 export interface PatchedAnnotationApi {
     readonly id?: number
     /**
-     * @maxLength 400
+     * @maxLength 8192
      * @nullable
      */
     content?: string | null
@@ -2377,6 +2377,17 @@ export interface PatchedDashboardTemplateApi {
 }
 
 /**
+ * * `allow` - Allow
+ * `reject` - Reject
+ */
+export type EnforcementModeEnumApi = (typeof EnforcementModeEnumApi)[keyof typeof EnforcementModeEnumApi]
+
+export const EnforcementModeEnumApi = {
+    allow: 'allow',
+    reject: 'reject',
+} as const
+
+/**
  * Serializer mixin that handles tags for objects.
  */
 export interface EnterpriseEventDefinitionApi {
@@ -2401,6 +2412,7 @@ export interface EnterpriseEventDefinitionApi {
     readonly verified_by: UserBasicApi
     /** @nullable */
     hidden?: boolean | null
+    enforcement_mode?: EnforcementModeEnumApi
     readonly is_action: boolean
     readonly action_id: number
     readonly is_calculating: boolean
@@ -2408,6 +2420,7 @@ export interface EnterpriseEventDefinitionApi {
     readonly created_by: UserBasicApi
     post_to_slack?: boolean
     default_columns?: string[]
+    readonly media_preview_urls: readonly string[]
 }
 
 export interface PaginatedEnterpriseEventDefinitionListApi {
@@ -2444,6 +2457,7 @@ export interface PatchedEnterpriseEventDefinitionApi {
     readonly verified_by?: UserBasicApi
     /** @nullable */
     hidden?: boolean | null
+    enforcement_mode?: EnforcementModeEnumApi
     readonly is_action?: boolean
     readonly action_id?: number
     readonly is_calculating?: boolean
@@ -2451,6 +2465,7 @@ export interface PatchedEnterpriseEventDefinitionApi {
     readonly created_by?: UserBasicApi
     post_to_slack?: boolean
     default_columns?: string[]
+    readonly media_preview_urls?: readonly string[]
 }
 
 export type EventDefinitionApiProperties = { [key: string]: unknown }

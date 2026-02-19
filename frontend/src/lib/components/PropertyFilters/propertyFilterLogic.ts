@@ -1,4 +1,5 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import isEqual from 'lodash.isequal'
 
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import { isValidPropertyFilter, parseProperties } from 'lib/components/PropertyFilters/utils'
@@ -6,6 +7,23 @@ import { isValidPropertyFilter, parseProperties } from 'lib/components/PropertyF
 import { AnyPropertyFilter, EmptyPropertyFilter } from '~/types'
 
 import type { propertyFilterLogicType } from './propertyFilterLogicType'
+
+export interface FilterItem {
+    _id: number
+    filter: AnyPropertyFilter
+}
+
+export interface FiltersState {
+    nextId: number
+    items: FilterItem[]
+}
+
+function initFiltersState(filters: AnyPropertyFilter[]): FiltersState {
+    return {
+        nextId: filters.length,
+        items: filters.map((filter, i) => ({ _id: i, filter })),
+    }
+}
 
 export const propertyFilterLogic = kea<propertyFilterLogicType>([
     path((key) => ['lib', 'components', 'PropertyFilters', 'propertyFilterLogic', key]),
@@ -20,31 +38,55 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
     }),
 
     reducers(({ props }) => ({
-        filters: [
-            props.propertyFilters ? parseProperties(props.propertyFilters) : ([] as AnyPropertyFilter[]),
+        _filtersState: [
+            initFiltersState(props.propertyFilters ? parseProperties(props.propertyFilters) : []),
             {
-                setFilter: (state, { index, property }) => {
-                    const newFilters: AnyPropertyFilter[] = [...state]
-                    newFilters[index] = property
-                    return newFilters
+                setFilter: (
+                    state: FiltersState,
+                    { index, property }: { index: number; property: AnyPropertyFilter }
+                ) => {
+                    if (index < state.items.length) {
+                        const newItems = [...state.items]
+                        newItems[index] = { _id: state.items[index]._id, filter: property }
+                        return { ...state, items: newItems }
+                    }
+                    // Appending beyond current length (filling the virtual empty slot)
+                    const newItems = [...state.items, { _id: state.nextId, filter: property }]
+                    return { nextId: state.nextId + 1, items: newItems }
                 },
-                setFilters: (_, { filters }) => filters,
-                remove: (state, { index }) => {
-                    const newState = state.filter((_, i) => i !== index)
-                    if (newState.length === 0) {
-                        return [{} as EmptyPropertyFilter]
+                setFilters: (state: FiltersState, { filters }: { filters: AnyPropertyFilter[] }) => {
+                    const currentFilters = state.items.map((i) => i.filter)
+                    if (isEqual(currentFilters, filters)) {
+                        return state
                     }
-                    if (Object.keys(newState[newState.length - 1]).length !== 0) {
-                        return [...newState, {} as EmptyPropertyFilter]
+                    let nextId = state.nextId
+                    const items: FilterItem[] = filters.map((filter, i) => {
+                        if (i < state.items.length) {
+                            return { _id: state.items[i]._id, filter }
+                        }
+                        return { _id: nextId++, filter }
+                    })
+                    return { nextId, items }
+                },
+                remove: (state: FiltersState, { index }: { index: number }) => {
+                    const newItems = state.items.filter((_, i) => i !== index)
+                    let nextId = state.nextId
+                    if (newItems.length === 0) {
+                        return { nextId: nextId + 1, items: [{ _id: nextId, filter: {} as EmptyPropertyFilter }] }
                     }
-                    return newState
+                    if (Object.keys(newItems[newItems.length - 1].filter).length !== 0) {
+                        return {
+                            nextId: nextId + 1,
+                            items: [...newItems, { _id: nextId, filter: {} as EmptyPropertyFilter }],
+                        }
+                    }
+                    return { ...state, items: newItems }
                 },
             },
         ],
     })),
 
     listeners(({ actions, props, values }) => ({
-        // Only send update if value is set to something
         setFilter: async ({ property }) => {
             if (
                 props.sendAllKeyUpdates ||
@@ -65,6 +107,11 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
     })),
 
     selectors({
+        filters: [
+            (s) => [s._filtersState],
+            (state: FiltersState): AnyPropertyFilter[] => state.items.map((i) => i.filter),
+        ],
+        filterIds: [(s) => [s._filtersState], (state: FiltersState): number[] => state.items.map((i) => i._id)],
         filledFilters: [(s) => [s.filters], (filters) => filters.filter(isValidPropertyFilter)],
         filtersWithNew: [
             (s) => [s.filters],
@@ -73,6 +120,15 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
                     return [...filters, {} as AnyPropertyFilter]
                 }
                 return filters
+            },
+        ],
+        filterIdsWithNew: [
+            (s) => [s.filterIds, s._filtersState, s.filtersWithNew],
+            (filterIds: number[], state: FiltersState, filtersWithNew: AnyPropertyFilter[]): number[] => {
+                if (filtersWithNew.length > filterIds.length) {
+                    return [...filterIds, state.nextId]
+                }
+                return filterIds
             },
         ],
     }),

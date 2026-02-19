@@ -14,6 +14,8 @@ import type {
 } from '../../types'
 import type { supportTicketsSceneLogicType } from './supportTicketsSceneLogicType'
 
+export const SUPPORT_TICKETS_PAGE_SIZE = 20
+
 export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'tickets', 'supportTicketsSceneLogic']),
     actions({
@@ -23,8 +25,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setPriorityFilter: (priorities: TicketPriority[]) => ({ priorities }),
         setAssigneeFilter: (assignee: AssigneeFilterValue) => ({ assignee }),
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setCurrentPage: (page: number) => ({ page }),
         loadTickets: true,
         setTickets: (tickets: Ticket[]) => ({ tickets }),
+        setTotalCount: (count: number) => ({ count }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
     }),
     reducers({
@@ -40,6 +44,18 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 loadTickets: () => true,
                 setTickets: () => false,
                 setTicketsLoading: (_, { loading }) => loading,
+            },
+        ],
+        currentPage: [
+            1,
+            {
+                setCurrentPage: (_, { page }) => page,
+            },
+        ],
+        totalCount: [
+            0,
+            {
+                setTotalCount: (_, { count }) => count,
             },
         ],
         statusFilter: [
@@ -77,12 +93,14 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         ],
         dateFrom: [
             '-7d' as string | null,
+            { persist: true },
             {
                 setDateRange: (_, { dateFrom }) => dateFrom,
             },
         ],
         dateTo: [
             null as string | null,
+            { persist: true },
             {
                 setDateRange: (_, { dateTo }) => dateTo,
             },
@@ -117,29 +135,35 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             if (values.dateTo) {
                 params.date_to = values.dateTo
             }
+            params.limit = SUPPORT_TICKETS_PAGE_SIZE
+            params.offset = (values.currentPage - 1) * SUPPORT_TICKETS_PAGE_SIZE
 
             try {
                 const response = await api.conversationsTickets.list(params)
                 actions.setTickets(response.results || [])
+                actions.setTotalCount(response.count ?? response.results?.length ?? 0)
             } catch {
                 lemonToast.error('Failed to load tickets')
                 actions.setTicketsLoading(false)
             }
         },
-        setStatusFilter: () => {
+        setCurrentPage: () => {
             actions.loadTickets()
+        },
+        setStatusFilter: () => {
+            actions.setCurrentPage(1)
         },
         setPriorityFilter: () => {
-            actions.loadTickets()
+            actions.setCurrentPage(1)
         },
         setChannelFilter: () => {
-            actions.loadTickets()
+            actions.setCurrentPage(1)
         },
         setAssigneeFilter: () => {
-            actions.loadTickets()
+            actions.setCurrentPage(1)
         },
         setDateRange: () => {
-            actions.loadTickets()
+            actions.setCurrentPage(1)
         },
     })),
     afterMount(({ actions }) => {

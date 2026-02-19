@@ -1,5 +1,6 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
@@ -16,7 +17,7 @@ import type { QueryBasedInsightModel } from '~/types'
 import type { addSavedInsightsModalLogicType } from './addSavedInsightsModalLogicType'
 import { SavedInsightFilters, cleanFilters } from './savedInsightsLogic'
 
-export const INSIGHTS_PER_PAGE = 30
+export const INSIGHTS_PER_PAGE = 15
 
 export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
     path(['scenes', 'saved-insights', 'addSavedInsightsModalLogic']),
@@ -38,6 +39,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
             insight,
             dashboardId,
         }),
+        dashboardUpdateFailed: (insightId: number) => ({ insightId }),
 
         updateInsight: (insight: QueryBasedInsightModel) => ({ insight }),
     }),
@@ -49,10 +51,11 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
 
                 const { order, page, search, dashboardId, insightType, createdBy, dateFrom, dateTo } = values.filters
 
+                const perPage = values.insightsPerPage
                 const params: Record<string, any> = {
                     order,
-                    limit: INSIGHTS_PER_PAGE,
-                    offset: Math.max(0, (page - 1) * INSIGHTS_PER_PAGE),
+                    limit: perPage,
+                    offset: Math.max(0, (page - 1) * perPage),
                     saved: true,
                     basic: true,
                 }
@@ -121,6 +124,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
             (s) => [s.rawModalFilters],
             (rawModalFilters): SavedInsightFilters => cleanFilters(rawModalFilters || {}),
         ],
+        insightsPerPage: [() => [], (): number => INSIGHTS_PER_PAGE],
         count: [(s) => [s.insights], (insights) => insights.count],
         sorting: [
             (s) => [s.filters],
@@ -137,12 +141,19 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
         setModalPage: async ({ page }) => {
             actions.setModalFilters({ page }, true)
         },
-        setModalFilters: async (_, _breakpoint, __, previousState) => {
+        setModalFilters: async (_, breakpoint, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
             const newFilters = values.filters
 
             if (!objectsEqual(oldFilters, newFilters)) {
                 actions.loadInsights()
+            }
+
+            if (newFilters.search !== undefined && newFilters.search !== oldFilters.search) {
+                await breakpoint(1000)
+                posthog.capture('insight dashboard modal searched', {
+                    search_term: newFilters.search,
+                })
             }
         },
 
@@ -160,6 +171,10 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                     logic.unmount()
                     lemonToast.success('Insight added to dashboard')
                 }
+            } catch (e) {
+                actions.dashboardUpdateFailed(insight.id)
+                lemonToast.error('Failed to add insight to dashboard')
+                throw e
             } finally {
                 eventUsageLogic.actions.reportSavedInsightToDashboard(insight, dashboardId)
                 actions.setDashboardUpdateLoading(insight.id, false)
@@ -180,6 +195,10 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                     logic.unmount()
                     lemonToast.success('Insight removed from dashboard')
                 }
+            } catch (e) {
+                actions.dashboardUpdateFailed(insight.id)
+                lemonToast.error('Failed to remove insight from dashboard')
+                throw e
             } finally {
                 eventUsageLogic.actions.reportRemovedInsightFromDashboard(insight, dashboardId)
                 actions.setDashboardUpdateLoading(insight.id, false)

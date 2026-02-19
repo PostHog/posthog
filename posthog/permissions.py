@@ -16,7 +16,6 @@ from posthog.auth import (
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
-    ProjectSecretAPIKeyUser,
     SessionAuthentication,
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
@@ -343,9 +342,14 @@ class TimeSensitiveActionPermission(BasePermission):
         if not isinstance(request.successful_authenticator, SessionAuthentication):
             return True
 
+        exclude_actions = getattr(view, "time_sensitive_exclude_actions", [])
+        if getattr(view, "action", None) in exclude_actions:
+            return True
+
         allow_safe_methods = getattr(view, "time_sensitive_allow_safe_methods", True)
 
         allow_if_only_fields = getattr(view, "time_sensitive_allow_if_only_fields", None)
+        allow_actions = getattr(view, "time_sensitive_allow_actions", None)
         if allow_if_only_fields and request.method not in SAFE_METHODS:
             data = getattr(request, "data", None)
             data_keys: set[str] = set()
@@ -354,6 +358,9 @@ class TimeSensitiveActionPermission(BasePermission):
 
             if data_keys and data_keys.issubset(set(allow_if_only_fields)):
                 return True
+
+        if allow_actions and view.action in allow_actions:
+            return True
 
         if allow_safe_methods and request.method in SAFE_METHODS:
             return True
@@ -424,20 +431,6 @@ class ScopeBasePermission(BasePermission):
 
         return None
 
-    def _check_required_scope_satisfied(self, key_scopes, required_scopes):
-        for required_scope in required_scopes:
-            valid_scopes = [required_scope]
-
-            # For all valid scopes with :read we also add :write
-            if required_scope.endswith(":read"):
-                valid_scopes.append(required_scope.replace(":read", ":write"))
-
-            if not any(scope in key_scopes for scope in valid_scopes):
-                self.message = f"API key missing required scope '{required_scope}'"
-                return False
-
-        return True
-
 
 class APIScopePermission(ScopeBasePermission):
     """
@@ -455,21 +448,12 @@ class APIScopePermission(ScopeBasePermission):
         # Helps devs remember to add it.
         self._get_scope_object(request, view)
 
-        # API Scopes apply to PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication and OAuthAccessTokenAuthentication
+        # API Scopes apply to PersonalAPIKeyAuthentication and OAuthAccessTokenAuthentication
 
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             key_scopes = request.successful_authenticator.personal_api_key.scopes
             # TRICKY: Legacy Personal API keys have no scopes and are allowed to do anything
             if not key_scopes:
-                return True
-        elif isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication):
-            key_scopes = []
-            if request.successful_authenticator.project_secret_api_key:
-                key_scopes = request.successful_authenticator.project_secret_api_key.scopes
-                if not key_scopes:
-                    self.message = "Project secret API key has no scopes and cannot access this resource"
-                    return False
-            else:
                 return True
         elif isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication):
             # OAuth tokens store scopes as space-separated string
@@ -485,7 +469,7 @@ class APIScopePermission(ScopeBasePermission):
         required_scopes = self._get_required_scopes(request, view)
 
         if not required_scopes:
-            self.message = f"This action does not support API Key access"
+            self.message = f"This action does not support Personal API Key access"
             return False
 
         self.check_team_and_org_permissions(request, view)
@@ -493,7 +477,18 @@ class APIScopePermission(ScopeBasePermission):
         if "*" in key_scopes:
             return True
 
-        return self._check_required_scope_satisfied(key_scopes, required_scopes)
+        for required_scope in required_scopes:
+            valid_scopes = [required_scope]
+
+            # For all valid scopes with :read we also add :write
+            if required_scope.endswith(":read"):
+                valid_scopes.append(required_scope.replace(":read", ":write"))
+
+            if not any(scope in key_scopes for scope in valid_scopes):
+                self.message = f"API key missing required scope '{required_scope}'"
+                return False
+
+        return True
 
     def check_team_and_org_permissions(self, request, view) -> None:
         scope_object = self._get_scope_object(request, view)
@@ -508,9 +503,6 @@ class APIScopePermission(ScopeBasePermission):
         elif isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
             scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
-        elif isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication):
-            scoped_teams = [request.user.team.id]
-            scoped_organizations = []
         else:
             raise ValueError("Unexpected authentication type")
 
@@ -745,67 +737,6 @@ class ProjectSecretAPITokenPermission(BasePermission):
             return True
 
         return authenticated_team.id == resolved_team.id
-
-
-class ProjectSecretAPIKeyPermission(ScopeBasePermission):
-    """
-    Permission class for project secret API key authentication.
-
-    Validates:
-    1. Request is authenticated with ProjectSecretAPIKeyAuthentication
-    2. If authenticated with a managed ProjectSecretAPIKey (not team token), validate scopes
-    3. Key's project matches the resolved project
-    """
-
-    message = "Project secret API key does not have required permissions"
-
-    def has_permission(self, request: Request, view) -> bool:
-        if not isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication):
-            return True
-
-        # If not using ProjectSecretAPIKeyUser, pass through
-        if not isinstance(request.user, ProjectSecretAPIKeyUser):
-            return True
-
-        # Legacy team secret_api_token: no scopes to check. Endpoint restriction
-        # is enforced by ProjectSecretAPITokenPermission, not here.
-        if request.user.project_secret_api_key is None:
-            return True
-
-        project_secret_api_key = request.user.project_secret_api_key
-
-        try:
-            view_team_id = view.team_id
-            if project_secret_api_key.team_id != view_team_id:
-                raise NotFound()
-        except AttributeError:
-            # not a team view
-            return False
-
-        key_scopes = set(project_secret_api_key.scopes or [])
-        required_scopes = self._get_required_scopes(request, view)
-
-        if not required_scopes:
-            self.message = "This action does not support Project Secret API Key access"
-            return False
-
-        return self._check_required_scope_satisfied(key_scopes, required_scopes)
-
-    def has_object_permission(self, request: Request, view, obj) -> bool:
-        if not isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication):
-            return True
-
-        if not isinstance(request.user, ProjectSecretAPIKeyUser):
-            return True
-
-        # Validate key's project matches the object's project
-        team = request.user.team
-        if hasattr(obj, "team") and obj.team is not None:
-            return obj.team.id == team.id
-        elif hasattr(obj, "team_id") and obj.team_id is not None:
-            return obj.team_id == team.id
-
-        return False
 
 
 class UserCanInvitePermission(BasePermission):

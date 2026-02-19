@@ -107,8 +107,8 @@ export const autoCaptureControlsLogic = kea<autoCaptureControlsLogicType>([
     })),
     selectors({
         triggers: [
-            (s) => [s.sampleRate, s.linkedFeatureFlag, s.eventTriggers, s.urlTriggers, s.urlBlocklist],
-            (sampleRate, linkedFeatureFlag, eventTriggers, urlTriggers, urlBlocklist): Trigger[] => [
+            (s) => [s.sampleRate, s.linkedFeatureFlag, s.eventTriggers, s.urlTriggers],
+            (sampleRate, linkedFeatureFlag, eventTriggers, urlTriggers): Trigger[] => [
                 {
                     type: TriggerType.URL_MATCH,
                     enabled: urlTriggers.length > 0,
@@ -128,11 +128,6 @@ export const autoCaptureControlsLogic = kea<autoCaptureControlsLogicType>([
                     type: TriggerType.SAMPLING,
                     enabled: sampleRate < 1,
                     sampleRate: sampleRate,
-                },
-                {
-                    type: TriggerType.URL_BLOCKLIST,
-                    enabled: urlBlocklist.length > 0,
-                    urls: urlBlocklist,
                 },
             ],
         ],

@@ -106,6 +106,8 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         loadAllFlagKeys: (flagIds: string[]) => ({ flagIds }),
         setFlagKeys: (flagKeys: Record<string, string>) => ({ flagKeys }),
         setFlagKeysLoading: (isLoading: boolean) => ({ isLoading }),
+        setOpenConditions: (openConditions: string[]) => ({ openConditions }),
+        openCondition: (sortKey: string) => ({ sortKey }),
     }),
     defaults(({ props }) => ({
         filters: ensureSortKeys(props.filters),
@@ -248,19 +250,34 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 setFlagKeysLoading: (_, { isLoading }) => isLoading,
             },
         ],
+        openConditions: [
+            [] as string[],
+            {
+                setOpenConditions: (_, { openConditions }) => openConditions,
+                openCondition: (state, { sortKey }) =>
+                    state.includes(`condition-${sortKey}`) ? state : [...state, `condition-${sortKey}`],
+            },
+        ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         setFilters: async () => {
             const { flagIds } = values
             if (flagIds.length > 0) {
                 await actions.loadAllFlagKeys(flagIds)
             }
+            // Recalculate blast radius when filters change (e.g., from template application)
+            if (!props.readOnly) {
+                actions.calculateBlastRadius()
+            }
         },
         duplicateConditionSet: async ({ index }, breakpoint) => {
-            await breakpoint(1000) // in ms
-            const sourceSortKey = values.filters.groups[index].sort_key
-            const valueForSourceCondition = sourceSortKey ? values.affectedUsers[sourceSortKey] : undefined
             const newGroup = values.filters.groups[values.filters.groups.length - 1]
+            if (newGroup?.sort_key) {
+                actions.openCondition(newGroup.sort_key)
+            }
+            await breakpoint(1000) // in ms
+            const sourceSortKey = values.filters.groups[index]?.sort_key
+            const valueForSourceCondition = sourceSortKey ? values.affectedUsers[sourceSortKey] : undefined
             actions.setAffectedUsers(newGroup.sort_key, valueForSourceCondition)
         },
         updateConditionSet: async ({ index, newProperties }, breakpoint) => {
@@ -306,11 +323,42 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         addConditionSet: () => {
             const newGroup = values.filters.groups[values.filters.groups.length - 1]
             if (newGroup.sort_key) {
-                actions.setAffectedUsers(newGroup.sort_key, values.totalUsers || -1)
+                // Use ?? instead of || to properly handle totalUsers = 0
+                actions.setAffectedUsers(newGroup.sort_key, values.totalUsers ?? -1)
+                actions.openCondition(newGroup.sort_key)
+            }
+        },
+        removeConditionSet: () => {
+            // Clean up openConditions to only include keys that still exist in groups
+            const currentSortKeys = new Set(values.filters.groups.map((g) => g.sort_key))
+            const newOpenConditions = values.openConditions.filter((key) => {
+                const sortKey = key.replace('condition-', '')
+                return currentSortKeys.has(sortKey)
+            })
+            if (newOpenConditions.length !== values.openConditions.length) {
+                actions.setOpenConditions(newOpenConditions)
             }
         },
         setAggregationGroupTypeIndex: () => {
             actions.calculateBlastRadius()
+
+            // Clean up stale open conditions
+            const currentSortKeys = new Set(values.filters.groups.map((g) => g.sort_key))
+            const newOpenConditions = values.openConditions.filter((key) => {
+                const sortKey = key.replace('condition-', '')
+                return currentSortKeys.has(sortKey)
+            })
+
+            // If all conditions became stale but we had some open, open the first one
+            if (
+                newOpenConditions.length === 0 &&
+                values.openConditions.length > 0 &&
+                values.filters.groups.length > 0
+            ) {
+                actions.setOpenConditions([`condition-${values.filters.groups[0].sort_key}`])
+            } else if (newOpenConditions.length !== values.openConditions.length) {
+                actions.setOpenConditions(newOpenConditions)
+            }
         },
         calculateBlastRadius: async () => {
             const usersAffectedPromises: Promise<{ result: UserBlastRadiusType; sortKey: string }>[] = []
@@ -579,6 +627,11 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
 
         if (!props.readOnly) {
             actions.calculateBlastRadius()
+        }
+
+        // Initialize first condition as open if there's only one
+        if (values.filters.groups.length === 1 && values.filters.groups[0]?.sort_key) {
+            actions.setOpenConditions([`condition-${values.filters.groups[0].sort_key}`])
         }
     }),
 ])

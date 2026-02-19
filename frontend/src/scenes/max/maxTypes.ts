@@ -69,7 +69,7 @@ export interface MaxContextTaxonomicFilterOption {
     id: string
     value: string | integer
     name: string
-    icon: React.ReactNode
+    icon: React.ComponentType
     type?: MaxContextType
 }
 

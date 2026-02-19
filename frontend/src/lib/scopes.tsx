@@ -1,4 +1,3 @@
-import { ProjectSecretAPIKeyAllowedScope } from '~/queries/schema/schema-general'
 import type { APIScopeAction, APIScopeObject } from '~/types'
 
 export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_key.py
@@ -36,6 +35,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'export', objectName: 'Export', objectPlural: 'exports' },
     { key: 'feature_flag', objectName: 'Feature flag', objectPlural: 'feature flags' },
     { key: 'group', objectName: 'Group', objectPlural: 'groups' },
+    { key: 'health_issue', objectName: 'Health issue', objectPlural: 'health issues' },
     { key: 'hog_function', objectName: 'Hog function', objectPlural: 'hog functions' },
     { key: 'insight', objectName: 'Insight', objectPlural: 'insights' },
     { key: 'insight_variable', objectName: 'Insight variable', objectPlural: 'insight variables' },
@@ -163,27 +163,6 @@ export const APIScopeActionLabels: Record<APIScopeAction, string> = {
     read: 'Read',
     write: 'Write',
 }
-
-export const PROJECT_SECRET_API_KEY_SCOPES: APIScope[] = Object.values(ProjectSecretAPIKeyAllowedScope)
-    .filter((scopeString) => scopeString.includes(':'))
-    .map((scopeString) => {
-        const [objectKey, action] = scopeString.split(':')
-        const scopeConfig = API_SCOPES.find((s) => s.key === objectKey)
-
-        return {
-            key: objectKey as APIScopeObject,
-            objectName: scopeConfig?.objectName ?? objectKey,
-            objectPlural: scopeConfig?.objectPlural ?? `${objectKey}s`,
-            disabledActions: action === 'read' ? (['write'] as const) : undefined,
-        }
-    })
-
-export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: {
-    value: string
-    label: string
-    scopes: string[]
-    description: string
-}[] = []
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 

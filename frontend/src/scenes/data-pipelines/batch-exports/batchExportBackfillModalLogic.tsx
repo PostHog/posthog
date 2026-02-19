@@ -5,8 +5,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { BatchExportConfiguration } from '~/types'
 
 import type { batchExportBackfillModalLogicType } from './batchExportBackfillModalLogicType'
@@ -177,7 +179,10 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
         dayOfWeekName: [
             (s) => [s.dayOfWeek],
             (dayOfWeek: number | null): string | null => {
-                return dayOfWeek ? dayOptions[dayOfWeek].label : null
+                if (dayOfWeek === null) {
+                    return null
+                }
+                return dayOptions[dayOfWeek].label
             },
         ],
         hourOffset: [
@@ -305,6 +310,11 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
                         }
                         throw e
                     })
+
+                void addProductIntent({
+                    product_type: ProductKey.PIPELINE_BATCH_EXPORTS,
+                    intent_context: ProductIntentContext.BATCH_EXPORT_BACKFILL_CREATED,
+                })
 
                 actions.closeBackfillModal()
                 return

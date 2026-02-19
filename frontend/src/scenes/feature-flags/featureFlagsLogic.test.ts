@@ -33,7 +33,7 @@ describe('flagMatchesStatus', () => {
         [true, 'ACTIVE', undefined, true],
         [true, 'ACTIVE', 'true', true],
         [true, 'ACTIVE', 'false', false],
-        [false, 'INACTIVE', 'false', true],
+        [false, 'ACTIVE', 'false', true],
         [true, 'STALE', 'STALE', true],
         [true, 'ACTIVE', 'STALE', false],
     ])('active=%p status=%p filter=%p → %p', (active, status, filter, expected) => {

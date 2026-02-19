@@ -220,7 +220,26 @@ impl KafkaSink {
                 "queue.buffering.max.kbytes",
                 (config.kafka_producer_queue_mib * 1024).to_string(),
             )
-            .set("acks", &config.kafka_producer_acks);
+            .set("acks", &config.kafka_producer_acks)
+            .set(
+                "batch.num.messages",
+                config.kafka_producer_batch_num_messages.to_string(),
+            )
+            .set("batch.size", config.kafka_producer_batch_size.to_string())
+            .set(
+                "max.in.flight.requests.per.connection",
+                config.kafka_producer_max_in_flight_requests.to_string(),
+            )
+            .set(
+                "sticky.partitioning.linger.ms",
+                config
+                    .kafka_producer_sticky_partitioning_linger_ms
+                    .to_string(),
+            )
+            .set(
+                "enable.idempotence",
+                config.kafka_producer_enable_idempotence.to_string(),
+            );
 
         if !&config.kafka_client_id.is_empty() {
             client_config.set("client.id", &config.kafka_client_id);
@@ -317,6 +336,16 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                 &[("reason", "event_restriction")]
             )
             .increment(1);
+
+            // Set DLQ specific headers
+            // DLQ reason cannot be known beyond being triggered by an event restriction.
+            headers.set_dlq_reason("event_restriction".to_string());
+            // Unlike with our node code, DLQ step will always be static.
+            headers.set_dlq_step("capture".to_string());
+            headers.set_dlq_timestamp(
+                chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            );
+
             (&self.topics.dlq_topic, Some(event_key.as_str()))
         } else {
             match data_type {
@@ -533,6 +562,11 @@ mod tests {
             kafka_producer_max_retries: 2,
             kafka_producer_acks: "all".to_string(),
             kafka_socket_timeout_ms: 60000,
+            kafka_producer_batch_num_messages: 10000,
+            kafka_producer_batch_size: 1000000,
+            kafka_producer_max_in_flight_requests: 1000000,
+            kafka_producer_sticky_partitioning_linger_ms: 10,
+            kafka_producer_enable_idempotence: false,
         };
         let sink = KafkaSink::new(config, handle, limiter, None)
             .await
@@ -717,6 +751,9 @@ mod tests {
             now: Some("2023-01-01T12:00:00Z".to_string()),
             force_disable_person_processing: None,
             historical_migration: Some(true),
+            dlq_reason: None,
+            dlq_step: None,
+            dlq_timestamp: None,
         };
 
         let owned_headers: OwnedHeaders = headers_historical.into();
@@ -734,6 +771,9 @@ mod tests {
             now: Some("2023-01-01T12:00:00Z".to_string()),
             force_disable_person_processing: None,
             historical_migration: Some(false),
+            dlq_reason: None,
+            dlq_step: None,
+            dlq_timestamp: None,
         };
 
         let owned_headers: OwnedHeaders = headers_main.into();
@@ -759,6 +799,9 @@ mod tests {
             now: Some(test_now.clone()),
             force_disable_person_processing: None,
             historical_migration: None,
+            dlq_reason: None,
+            dlq_step: None,
+            dlq_timestamp: None,
         };
 
         // Convert to owned headers and back
@@ -769,6 +812,39 @@ mod tests {
         assert_eq!(parsed_headers.now, Some(test_now));
         assert_eq!(parsed_headers.token, Some("test_token".to_string()));
         assert_eq!(parsed_headers.distinct_id, Some("test_id".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_dlq_headers_are_set() {
+        use common_types::CapturedEventHeaders;
+        use rdkafka::message::OwnedHeaders;
+
+        // Test that the 'now' header is correctly set and parsed
+        let test_now = "2024-01-15T10:30:45Z".to_string();
+        let dlq_timestamp = "2025-01-15T10:30:45Z".to_string();
+        let headers = CapturedEventHeaders {
+            token: Some("test_token".to_string()),
+            distinct_id: Some("test_id".to_string()),
+            session_id: None,
+            timestamp: Some("2024-01-15T10:30:00Z".to_string()),
+            event: Some("test_event".to_string()),
+            uuid: Some("test-uuid".to_string()),
+            now: Some(test_now.clone()),
+            force_disable_person_processing: None,
+            historical_migration: None,
+            dlq_reason: Some("test reason".to_string()),
+            dlq_step: Some("test step".to_string()),
+            dlq_timestamp: Some(dlq_timestamp.clone()),
+        };
+
+        // Convert to owned headers and back
+        let owned_headers: OwnedHeaders = headers.into();
+        let parsed_headers = CapturedEventHeaders::from(owned_headers);
+
+        // Verify the 'now' field is preserved
+        assert_eq!(parsed_headers.dlq_reason, Some("test reason".to_string()));
+        assert_eq!(parsed_headers.dlq_step, Some("test step".to_string()));
+        assert_eq!(parsed_headers.dlq_timestamp, Some(dlq_timestamp));
     }
 
     #[cfg(test)]
@@ -1459,6 +1535,62 @@ mod tests {
                 },
             )
             .await;
+        }
+
+        // ==================== DLQ Header Tests ====================
+        // Verify that DLQ-specific headers (reason, step, timestamp) are set
+        // when routing to DLQ, and absent for all other routes.
+
+        #[tokio::test]
+        async fn dlq_headers_set_when_redirect_to_dlq() {
+            let producer = MockKafkaProducer::new();
+            let sink =
+                KafkaSinkBase::with_producer(producer.clone(), create_test_topics(), None, None);
+
+            let event = create_test_event(&EventInput {
+                data_type: DataType::AnalyticsMain,
+                force_overflow: false,
+                skip_person_processing: false,
+                redirect_to_dlq: true,
+            });
+            sink.send(event).await.unwrap();
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 1);
+            let headers = &records[0].headers;
+
+            assert_eq!(headers.dlq_reason.as_deref(), Some("event_restriction"));
+            assert_eq!(headers.dlq_step.as_deref(), Some("capture"));
+            assert!(
+                headers.dlq_timestamp.is_some(),
+                "dlq_timestamp should be set"
+            );
+
+            // Verify the timestamp is a valid RFC 3339 string
+            let ts = headers.dlq_timestamp.as_deref().unwrap();
+            chrono::DateTime::parse_from_rfc3339(ts)
+                .unwrap_or_else(|e| panic!("dlq_timestamp '{ts}' is not valid RFC 3339: {e}"));
+        }
+
+        #[tokio::test]
+        async fn dlq_headers_absent_for_normal_analytics() {
+            let producer = MockKafkaProducer::new();
+            let sink =
+                KafkaSinkBase::with_producer(producer.clone(), create_test_topics(), None, None);
+
+            let event = create_test_event(&EventInput {
+                data_type: DataType::AnalyticsMain,
+                force_overflow: false,
+                skip_person_processing: false,
+                redirect_to_dlq: false,
+            });
+            sink.send(event).await.unwrap();
+
+            let records = producer.get_records();
+            let headers = &records[0].headers;
+            assert_eq!(headers.dlq_reason, None);
+            assert_eq!(headers.dlq_step, None);
+            assert_eq!(headers.dlq_timestamp, None);
         }
     }
 }

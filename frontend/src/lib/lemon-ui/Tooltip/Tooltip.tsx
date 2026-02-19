@@ -1,28 +1,11 @@
 import './Tooltip.scss'
 
-import {
-    FloatingArrow,
-    FloatingPortal,
-    Placement,
-    arrow,
-    autoUpdate,
-    flip,
-    offset as offsetFunc,
-    shift,
-    useDismiss,
-    useFloating,
-    useFocus,
-    useHover,
-    useInteractions,
-    useMergeRefs,
-    useRole,
-    useTransitionStyles,
-} from '@floating-ui/react'
-import clsx from 'clsx'
-import React, { useEffect, useRef, useState } from 'react'
-import { twMerge } from 'tailwind-merge'
+import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
+import { Placement } from '@floating-ui/react'
+import React, { useEffect, useState } from 'react'
 
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
+import { cn } from 'lib/utils/css-classes'
 
 import { Link } from '../Link'
 
@@ -59,6 +42,24 @@ export type RequiredTooltipProps = (
 ) &
     BaseTooltipProps
 
+type Side = 'top' | 'bottom' | 'left' | 'right'
+type Align = 'start' | 'center' | 'end'
+
+function placementToSideAlign(placement: Placement): { side: Side; align: Align } {
+    const parts = placement.split('-')
+    const side = parts[0] as Side
+    const alignPart = parts[1] as 'start' | 'end' | undefined
+
+    let align: Align = 'center'
+    if (alignPart === 'start') {
+        align = 'start'
+    } else if (alignPart === 'end') {
+        align = 'end'
+    }
+
+    return { side, align }
+}
+
 export function Tooltip({
     children,
     title,
@@ -67,8 +68,8 @@ export function Tooltip({
     fallbackPlacements,
     offset = 8,
     arrowOffset,
-    delayMs = 500,
-    closeDelayMs = 100, // Slight delay to ensure smooth transition
+    delayMs = 400,
+    closeDelayMs = 0,
     interactive = false,
     visible: controlledOpen,
     docLink,
@@ -76,12 +77,9 @@ export function Tooltip({
     onOpen,
 }: React.PropsWithChildren<RequiredTooltipProps>): JSX.Element {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
-    const [isHoveringTooltip, setIsHoveringTooltip] = useState(false) // Track tooltip hover state
-    const [isPressingReference, setIsPressingReference] = useState(false) // Track reference hover state
-    const caretRef = useRef(null)
     const floatingContainer = useFloatingContainer()
 
-    const open = controlledOpen ?? (uncontrolledOpen || isHoveringTooltip)
+    const open = controlledOpen ?? uncontrolledOpen
 
     useEffect(() => {
         if (open && onOpen) {
@@ -89,136 +87,69 @@ export function Tooltip({
         }
     }, [open, onOpen])
 
-    const { context, refs } = useFloating({
-        placement,
-        open,
-        onOpenChange: setUncontrolledOpen,
-        whileElementsMounted: autoUpdate,
-        middleware: [
-            offsetFunc(offset),
-            flip({ fallbackPlacements, fallbackAxisSideDirection: 'start' }),
-            shift({ padding: 4 }),
-            arrow({ element: caretRef }),
-        ],
-    })
-
-    useEffect(() => {
-        return () => {
-            // Break circular references on unmount to prevent memory leaks.
-            // The floating-ui event handlers capture context in closures, and context
-            // holds refs to DOM elements. Clearing refs breaks this retention chain.
-            refs.setReference(null)
-            refs.setFloating(null)
-        }
-    }, [refs])
-
-    const hover = useHover(context, {
-        enabled: !isPressingReference, // Need to disable esp. for elements where the tooltip is a dragging handle
-        move: false,
-        delay: {
-            open: delayMs,
-            close: closeDelayMs,
-        },
-    })
-    const focus = useFocus(context)
-    const dismiss = useDismiss(context, {
-        referencePress: true, // referencePress closes tooltip on click
-    })
-    const role = useRole(context, { role: 'tooltip' })
-
-    const { getFloatingProps, getReferenceProps } = useInteractions([hover, focus, dismiss, role])
-
-    const { isMounted, styles: transitionStyles } = useTransitionStyles(context, {
-        duration: {
-            open: 100,
-            close: 50,
-        },
-        initial: ({ side }) => ({
-            opacity: 0,
-            transform: {
-                top: 'translateY(3px)',
-                bottom: 'translateY(-3px)',
-                left: 'translateX(3px)',
-                right: 'translateX(-3px)',
-            }[side],
-        }),
-    })
-
-    const childrenRef = (children as any).ref
-    const triggerRef = useMergeRefs([refs.setReference, childrenRef])
-
     const child = React.isValidElement(children) ? children : <span>{children}</span>
-
-    const clonedChild = React.cloneElement(
-        child,
-        getReferenceProps({
-            ...child.props,
-            ref: triggerRef,
-            onMouseDown: () => {
-                setIsPressingReference(true)
-                child.props.onMouseEnter?.()
-            },
-            onMouseUp: () => {
-                setIsPressingReference(false)
-                child.props.onMouseUp?.()
-            },
-        })
-    )
 
     if (!title && !docLink) {
         return <>{child}</>
     }
 
     const isInteractive = interactive || !!docLink
+    const { side, align } = placementToSideAlign(placement)
+
+    const collisionAvoidance = fallbackPlacements
+        ? {
+              side: 'flip' as const,
+              align: 'flip' as const,
+              fallbackAxisSide: 'start' as const,
+          }
+        : {
+              side: 'flip' as const,
+              align: 'shift' as const,
+              fallbackAxisSide: 'start' as const,
+          }
+
+    const handleOpenChange = (newOpen: boolean): void => {
+        if (controlledOpen === undefined) {
+            setUncontrolledOpen(newOpen)
+        }
+    }
 
     return (
-        <>
-            {clonedChild}
-            {isMounted && (
-                <FloatingPortal root={floatingContainer}>
-                    <div
-                        ref={refs.setFloating}
-                        className={twMerge('Tooltip max-w-sm', containerClassName)}
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ ...context.floatingStyles }}
-                        {...getFloatingProps({
-                            onMouseEnter: () => isInteractive && setIsHoveringTooltip(true), // Keep tooltip open
-                            onMouseLeave: () => isInteractive && setIsHoveringTooltip(false), // Allow closing
-                        })}
+        <BaseTooltip.Root open={open} onOpenChange={handleOpenChange} disableHoverablePopup={!isInteractive}>
+            <BaseTooltip.Trigger delay={delayMs} closeDelay={closeDelayMs} render={child} />
+            <BaseTooltip.Portal container={floatingContainer}>
+                <BaseTooltip.Positioner
+                    side={side}
+                    align={align}
+                    sideOffset={offset}
+                    arrowPadding={typeof arrowOffset === 'number' ? arrowOffset : 5}
+                    collisionAvoidance={collisionAvoidance}
+                    className={cn('Tooltip max-w-sm', containerClassName)}
+                >
+                    <BaseTooltip.Popup
+                        className={cn(
+                            'Tooltip__popup bg-surface-tooltip py-1.5 px-2 break-words rounded text-start',
+                            className
+                        )}
                     >
-                        <div
-                            className={clsx('bg-surface-tooltip py-1.5 px-2 break-words rounded text-start', className)}
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ ...transitionStyles }}
-                        >
-                            {typeof title === 'function' ? title() : title}
-                            {docLink && (
-                                <p className={`mb-0 ${title ? 'mt-1' : ''}`}>
-                                    <Link
-                                        to={docLink}
-                                        target="_blank"
-                                        className="text-xs"
-                                        data-ph-capture-attribute-autocapture-event-name="clicked tooltip doc link"
-                                        data-ph-capture-attribute-doclink={docLink}
-                                    >
-                                        Read the docs
-                                    </Link>
-                                </p>
-                            )}
-                            <FloatingArrow
-                                ref={caretRef}
-                                context={context}
-                                width={8}
-                                height={4}
-                                staticOffset={
-                                    typeof arrowOffset === 'function' ? arrowOffset(context.placement) : arrowOffset
-                                }
-                                fill="var(--color-bg-surface-tooltip)"
-                            />
-                        </div>
-                    </div>
-                </FloatingPortal>
-            )}
-        </>
+                        {typeof title === 'function' ? title() : title}
+                        {docLink && (
+                            <p className={`mb-0 ${title ? 'mt-1' : ''}`}>
+                                <Link
+                                    to={docLink}
+                                    target="_blank"
+                                    className="text-xs"
+                                    data-ph-capture-attribute-autocapture-event-name="clicked tooltip doc link"
+                                    data-ph-capture-attribute-doclink={docLink}
+                                >
+                                    Read the docs
+                                </Link>
+                            </p>
+                        )}
+                        <BaseTooltip.Arrow className="Tooltip__arrow" />
+                    </BaseTooltip.Popup>
+                </BaseTooltip.Positioner>
+            </BaseTooltip.Portal>
+        </BaseTooltip.Root>
     )
 }

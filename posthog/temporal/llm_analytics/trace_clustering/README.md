@@ -117,11 +117,11 @@ graph TB
 
 The workflow uses **three separate activities** with independent timeouts and retry policies:
 
-| Activity                              | Purpose                              | Timeout | Retries | Data Size      |
-| ------------------------------------- | ------------------------------------ | ------- | ------- | -------------- |
-| `perform_clustering_compute_activity` | Fetch embeddings, HDBSCAN, distances | 120s    | 3       | ~150 KB output |
-| `generate_cluster_labels_activity`    | LLM-based cluster labeling           | 600s    | 2       | ~4 KB output   |
-| `emit_cluster_events_activity`        | Write results to ClickHouse          | 60s     | 3       | ~150 KB input  |
+| Activity                              | Purpose                              | Timeout | Heartbeat | Retries | Data Size      |
+| ------------------------------------- | ------------------------------------ | ------- | --------- | ------- | -------------- |
+| `perform_clustering_compute_activity` | Fetch embeddings, HDBSCAN, distances | 120s    | 60s       | 3       | ~150 KB output |
+| `generate_cluster_labels_activity`    | LLM-based cluster labeling           | 600s    | 120s      | 2       | ~4 KB output   |
+| `emit_cluster_events_activity`        | Write results to ClickHouse          | 60s     | 30s       | 3       | ~150 KB input  |
 
 **Benefits:**
 
@@ -140,7 +140,7 @@ The workflow uses **three separate activities** with independent timeouts and re
 
 **Activity 2 (Label)** - LangGraph agent:
 
-- Runs a multi-turn LangGraph agent powered by OpenAI GPT-5.1 (`gpt-5.1`)
+- Runs a multi-turn LangGraph agent powered by OpenAI GPT-5.1 (`gpt-5.2`)
 - Agent explores clusters using tools (overview, trace titles, trace details)
 - Iteratively generates distinctive labels for each cluster
 - Ensures labels differentiate clusters from each other
@@ -316,21 +316,17 @@ if results:
 
 The coordinator workflow (`llma-trace-clustering-coordinator`) runs on a schedule and:
 
-1. Processes teams from the `ALLOWED_TEAM_IDS` allowlist
+1. Discovers teams dynamically via `get_team_ids_for_llm_analytics` (guaranteed teams + a random sample of teams with AI events)
 2. Spawns clustering workflow for each team in parallel
 3. Handles failures gracefully (individual team failures don't affect others)
 
-Team allowlist in `constants.py`:
+Team discovery is configured in `team_discovery.py`:
 
-```python
-ALLOWED_TEAM_IDS: list[int] = [
-    1,      # Local development
-    2,      # Internal PostHog project
-    112495, # Dogfooding project
-]
-```
+- `GUARANTEED_TEAM_IDS` — always included (development, internal, dogfooding teams)
+- `SAMPLE_PERCENTAGE` — fraction of remaining teams to sample (default 10%)
+- `DISCOVERY_LOOKBACK_DAYS` — how far back to look for AI events (default 30 days)
 
-To add new teams, simply add their IDs to this list.
+If discovery fails, the coordinator falls back to guaranteed teams only.
 
 ## Configuration
 
@@ -345,7 +341,7 @@ Key constants in `constants.py`:
 | `MIN_TRACES_FOR_CLUSTERING`         | 20                                | Minimum traces required for workflow          |
 | `COMPUTE_ACTIVITY_TIMEOUT`          | 120s                              | Clustering compute timeout                    |
 | `EMIT_ACTIVITY_TIMEOUT`             | 60s                               | Event emission timeout                        |
-| `LABELING_AGENT_MODEL`              | gpt-5.1                           | OpenAI model for labeling agent               |
+| `LABELING_AGENT_MODEL`              | gpt-5.2                           | OpenAI model for labeling agent               |
 | `LABELING_AGENT_MAX_ITERATIONS`     | 50                                | Max agent iterations before finalization      |
 | `LABELING_AGENT_RECURSION_LIMIT`    | 150                               | LangGraph recursion limit                     |
 | `LABELING_AGENT_TIMEOUT`            | 600.0                             | Full agent run timeout (seconds)              |
@@ -356,7 +352,8 @@ Key constants in `constants.py`:
 | `DEFAULT_UMAP_MIN_DIST`             | 0.0                               | UMAP min distance (tighter for clustering)    |
 | `NOISE_CLUSTER_ID`                  | -1                                | HDBSCAN noise/outlier cluster ID              |
 | `LLMA_TRACE_DOCUMENT_TYPE`          | llm-trace-summary-detailed        | Document type filter for embeddings           |
-| `ALLOWED_TEAM_IDS`                  | [1, 2, 112495]                    | Teams to process (allowlist approach)         |
+| `GUARANTEED_TEAM_IDS`               | [1, 2, 112495, ...]               | Teams always included (in team_discovery.py)  |
+| `SAMPLE_PERCENTAGE`                 | 0.1                               | Fraction of discovered teams to sample        |
 
 ## Processing Flow
 

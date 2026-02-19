@@ -15,8 +15,9 @@ class TestAITemporalModuleIntegrity:
             "SummarizeLLMTracesWorkflow",
             "SlackConversationRunnerWorkflow",
             "VideoSegmentClusteringWorkflow",
+            "VideoSegmentClusteringCoordinatorWorkflow",
         ]
-        actual_workflow_names = [workflow.__name__ for workflow in ai.WORKFLOWS]
+        actual_workflow_names = [workflow.__name__ for workflow in ai.AI_WORKFLOWS + ai.SIGNALS_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
             f"Workflow count mismatch. Expected {len(expected_workflows)}, got {len(actual_workflow_names)}. "
             "If you're adding/removing workflows, update this test accordingly."
@@ -51,20 +52,22 @@ class TestAITemporalModuleIntegrity:
             "validate_llm_single_session_summary_with_videos_activity",
             "summarize_llm_traces_activity",
             "process_slack_conversation_activity",
-            "export_session_video_activity",
+            "prep_session_video_asset_activity",
             "upload_video_to_gemini_activity",
             "analyze_video_segment_activity",
             "consolidate_video_segments_activity",
             "embed_and_store_segments_activity",
             "store_video_session_summary_activity",
-            "prime_session_embeddings_activity",
+            "capture_timing_activity",
+            "get_sessions_to_prime_activity",
             "fetch_segments_activity",
             "cluster_segments_activity",
             "match_clusters_activity",
             "label_clusters_activity",
             "persist_reports_activity",
+            "get_proactive_tasks_enabled_team_ids_activity",
         ]
-        actual_activity_names = [activity.__name__ for activity in ai.ACTIVITIES]
+        actual_activity_names = [activity.__name__ for activity in ai.AI_ACTIVITIES + ai.SIGNALS_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (
             f"Activity count mismatch. Expected {len(expected_activities)}, got {len(actual_activity_names)}. "
             "If you're adding/removing activities, update this test accordingly."

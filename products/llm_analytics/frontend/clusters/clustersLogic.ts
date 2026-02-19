@@ -1,6 +1,7 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
@@ -11,11 +12,13 @@ import { urls } from 'scenes/urls'
 import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
 
+import { loadClusterMetrics } from './clusterMetricsLoader'
 import type { clustersLogicType } from './clustersLogicType'
 import { MAX_CLUSTERING_RUNS, NOISE_CLUSTER_ID, OUTLIER_COLOR } from './constants'
 import { loadTraceSummaries } from './traceSummaryLoader'
 import {
     Cluster,
+    ClusterMetrics,
     ClusteringLevel,
     ClusteringParams,
     ClusteringRun,
@@ -65,6 +68,9 @@ export const clustersLogic = kea<clustersLogicType>([
         setTraceSummaries: (summaries: Record<string, TraceSummary>) => ({ summaries }),
         setTraceSummariesLoading: (loading: boolean) => ({ loading }),
         loadTraceSummariesForRun: (run: ClusteringRun) => ({ run }),
+        setClusterMetrics: (metrics: Record<number, ClusterMetrics>) => ({ metrics }),
+        setClusterMetricsLoading: (loading: boolean) => ({ loading }),
+        loadClusterMetricsForRun: (run: ClusteringRun) => ({ run }),
     }),
 
     reducers({
@@ -114,6 +120,20 @@ export const clustersLogic = kea<clustersLogicType>([
             true,
             {
                 toggleScatterPlotExpanded: (state) => !state,
+            },
+        ],
+        clusterMetrics: [
+            {} as Record<number, ClusterMetrics>,
+            {
+                setClusterMetrics: (_, { metrics }) => metrics,
+                // Clear metrics when level changes (new run will load fresh metrics)
+                setClusteringLevel: () => ({}),
+            },
+        ],
+        clusterMetricsLoading: [
+            false,
+            {
+                setClusterMetricsLoading: (_, { loading }) => loading,
             },
         ],
     }),
@@ -231,11 +251,6 @@ export const clustersLogic = kea<clustersLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
-                    key: 'LLMAnalytics',
-                    name: 'LLM analytics',
-                    path: urls.llmAnalyticsDashboard(),
-                },
-                {
                     key: 'LLMAnalyticsClusters',
                     name: 'Clusters',
                     path: urls.llmAnalyticsClusters(),
@@ -335,9 +350,32 @@ export const clustersLogic = kea<clustersLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        setClusteringLevel: () => {
+        setClusteringLevel: ({ level }) => {
+            posthog.capture('llma clusters level changed', { level })
             // Reload runs when level changes
             actions.loadClusteringRuns()
+        },
+
+        loadClusterMetricsForRun: async ({ run }) => {
+            if (!run.clusters || run.clusters.length === 0) {
+                return
+            }
+
+            actions.setClusterMetricsLoading(true)
+
+            try {
+                const metrics = await loadClusterMetrics(
+                    run.clusters,
+                    run.windowStart,
+                    run.windowEnd,
+                    run.level || values.clusteringLevel
+                )
+                actions.setClusterMetrics(metrics)
+            } catch (error) {
+                console.error('Failed to load cluster metrics:', error)
+            } finally {
+                actions.setClusterMetricsLoading(false)
+            }
         },
 
         loadTraceSummariesForRun: async ({ run }) => {
@@ -366,6 +404,10 @@ export const clustersLogic = kea<clustersLogicType>([
         },
 
         toggleClusterExpanded: async ({ clusterId }) => {
+            posthog.capture('llma clusters cluster expanded', {
+                cluster_id: clusterId,
+                run_id: values.effectiveRunId,
+            })
             // Load summaries when expanding a cluster (fallback for lazy loading)
             if (values.expandedClusterIds.has(clusterId)) {
                 const run = values.currentRun
@@ -403,7 +445,16 @@ export const clustersLogic = kea<clustersLogicType>([
             }
             // Load all trace summaries when a run is loaded for scatter plot tooltips
             if (currentRun) {
+                if (currentRun.clusters.length === 0) {
+                    posthog.capture('llma clusters empty state shown', {
+                        reason: 'no_clusters_in_run',
+                        clustering_level: currentRun.level || values.clusteringLevel,
+                        run_id: currentRun.runId,
+                    })
+                }
                 actions.loadTraceSummariesForRun(currentRun)
+                // Load cluster metrics for displaying averages in cluster cards
+                actions.loadClusterMetricsForRun(currentRun)
             }
         },
 
@@ -412,14 +463,27 @@ export const clustersLogic = kea<clustersLogicType>([
         },
 
         loadClusteringRunsSuccess: ({ clusteringRuns }) => {
+            if (clusteringRuns.length === 0) {
+                posthog.capture('llma clusters empty state shown', {
+                    reason: 'no_clustering_runs',
+                    clustering_level: values.clusteringLevel,
+                })
+            }
             // Auto-load the first run if available and no run is selected
             if (clusteringRuns.length > 0 && !values.selectedRunId) {
                 actions.loadClusteringRun(clusteringRuns[0].runId)
             }
         },
 
+        toggleScatterPlotExpanded: () => {
+            posthog.capture('llma clusters scatter plot toggled', {
+                expanded: values.isScatterPlotExpanded,
+            })
+        },
+
         setSelectedRunId: ({ runId }) => {
             if (runId) {
+                posthog.capture('llma clusters run selected', { run_id: runId })
                 actions.loadClusteringRun(runId)
             }
         },

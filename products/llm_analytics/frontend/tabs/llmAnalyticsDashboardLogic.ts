@@ -49,9 +49,9 @@ function getDayDateRange(day: string): { date_from: string; date_to: string } {
 
 export const llmAnalyticsDashboardLogic = kea<llmAnalyticsDashboardLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'tabs', 'llmAnalyticsDashboardLogic']),
-    connect({
+    connect(() => ({
         values: [llmAnalyticsSharedLogic, ['dashboardDateFilter', 'shouldFilterTestAccounts', 'propertyFilters']],
-    }),
+    })),
 
     actions({
         refreshAllDashboardItems: true,

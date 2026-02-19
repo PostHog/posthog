@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from posthog.schema import (
     HogQLQuery,
     HogQLQueryModifiers,
+    LimitContext as SchemaLimitContext,
     QueryRequest,
     QueryResponseAlternative,
     QueryStatusResponse,
@@ -33,7 +34,7 @@ from posthog.api.services.query import process_query_model
 from posthog.api.utils import action, is_insight_actors_options_query, is_insight_actors_query, is_insight_query
 from posthog.clickhouse.client.execute_async import cancel_query, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import AccessMethod, get_query_tag_value, get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.exceptions_capture import capture_exception
@@ -141,28 +142,26 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             self._tag_client_query_id(client_query_id)
             query_dict = query.model_dump()
 
+            if data.limit_context == SchemaLimitContext.POSTHOG_AI:
+                limit_context: LimitContext | None = LimitContext.POSTHOG_AI
+            elif (
+                is_insight_query(query_dict)
+                or is_insight_actors_query(query_dict)
+                or is_insight_actors_options_query(query_dict)
+            ) and get_query_tag_value("access_method") != "personal_api_key":
+                # QUERY_ASYNC provides extended max execution time for insight queries
+                limit_context = LimitContext.QUERY_ASYNC
+            else:
+                limit_context = None
+
             result = process_query_model(
                 self.team,
                 query,
                 execution_mode=execution_mode,
                 query_id=client_query_id,
                 user=request.user,  # type: ignore[arg-type]
-                is_query_service=(
-                    get_query_tag_value("access_method")
-                    in [AccessMethod.PERSONAL_API_KEY, AccessMethod.PROJECT_SECRET_API_KEY]
-                ),
-                limit_context=(
-                    # QUERY_ASYNC provides extended max execution time for insight queries
-                    LimitContext.QUERY_ASYNC
-                    if (
-                        is_insight_query(query_dict)
-                        or is_insight_actors_query(query_dict)
-                        or is_insight_actors_options_query(query_dict)
-                    )
-                    and get_query_tag_value("access_method")
-                    not in [AccessMethod.PERSONAL_API_KEY, AccessMethod.PROJECT_SECRET_API_KEY]
-                    else None
-                ),
+                is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+                limit_context=limit_context,
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)

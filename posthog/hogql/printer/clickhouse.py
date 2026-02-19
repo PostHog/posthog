@@ -15,7 +15,7 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickh
 from posthog.hogql.printer.base import HogQLPrinter, resolve_field_type
 from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMaterializedPropertyGroupItem
 from posthog.hogql.utils import ilike_matches, like_matches
-from posthog.hogql.visitor import clone_expr
+from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
 from posthog.clickhouse.property_groups import property_groups
 from posthog.models.utils import UUIDT
@@ -67,9 +67,10 @@ class ClickHousePrinter(HogQLPrinter):
         if len(self.stack) == 0 and self.settings:
             if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):
                 raise QueryError("Settings can only be applied to SELECT queries")
-            settings = self._print_settings(self.settings)
-            if settings is not None:
-                response += " " + settings
+            merged = self._merge_table_top_level_settings(self.settings)
+            printed = self._print_settings(merged)
+            if printed is not None:
+                response += " " + printed
 
         return response
 
@@ -684,6 +685,39 @@ class ClickHousePrinter(HogQLPrinter):
 
         return None  # nothing to optimize
 
+    def _is_events_table_timestamp_field(self, node: ast.Expr) -> bool:
+        traverser = GetFieldsTraverser(node)
+
+        for field in traverser.fields:
+            if isinstance(field.type, ast.FieldType):
+                field_name = str(field.chain[-1]) if field.chain else ""
+
+                # Check if field name is timestamp-like
+                if not (field_name == "timestamp" or field_name.endswith("_timestamp")):
+                    continue
+
+                table_type = field.type.table_type
+                while True:
+                    if isinstance(table_type, ast.TableType):
+                        table_name = table_type.table.to_printed_hogql()
+                        if table_name in (
+                            "events",
+                            "raw_sessions",
+                            "raw_sessions_v3",
+                            "session_replay_events",
+                            "raw_session_replay_events",
+                        ):
+                            return True
+                        break
+                    elif isinstance(table_type, (ast.LazyJoinType, ast.VirtualTableType)):
+                        table_type = table_type.table_type
+                    elif isinstance(table_type, ast.TableAliasType):
+                        table_type = table_type.table_type
+                    else:
+                        break
+
+        return False
+
     def visit_compare_operation(self, node: ast.CompareOperation):
         # If either side of the operation is a property that is part of a property group, special optimizations may
         # apply here to ensure that data skipping indexes can be used when possible.
@@ -710,10 +744,10 @@ class ClickHousePrinter(HogQLPrinter):
 
         # :HACK: until the new type system is out: https://github.com/PostHog/posthog/pull/17267
         # If we add a ifNull() around `events.timestamp`, we lose on the performance of the index.
-        if ("toTimeZone(" in left and (".timestamp" in left or "_timestamp" in left)) or (
-            "toTimeZone(" in right and (".timestamp" in right or "_timestamp" in right)
-        ):
+        # Only apply this optimization to actual table timestamp fields, not CTE fields.
+        if self._is_events_table_timestamp_field(node.left) or self._is_events_table_timestamp_field(node.right):
             not_nullable = True
+
         hack_sessions_timestamp = (
             "fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))",
             "raw_sessions_v3.session_timestamp",
@@ -953,10 +987,16 @@ class ClickHousePrinter(HogQLPrinter):
         if self.context.output_format and is_top_level_query and (not part_of_select_union or is_last_query_in_union):
             clauses.append(f"FORMAT{space}{self.context.output_format}")
 
-        if node.settings is not None:
-            settings = self._print_settings(node.settings)
-            if settings is not None:
-                clauses.append(settings)
+        # When self.settings exists, table-level settings are merged in visit() instead
+        merged = (
+            self._merge_table_top_level_settings(node.settings)
+            if is_top_level_query and not self.settings
+            else node.settings
+        )
+        if merged is not None:
+            printed = self._print_settings(merged)
+            if printed is not None:
+                clauses.append(printed)
 
         return clauses
 
