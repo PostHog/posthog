@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import React from 'react'
 
@@ -130,9 +129,10 @@ export const MaxInstance = React.memo(function MaxInstance({
                     // is at the same viewport height as the QuestionInput text that appear after going into a thread.
                     // This makes the transition from one view into another just that bit smoother visually.
                     <div
-                        className={clsx(
+                        className={cn(
                             '@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow',
-                            !sidePanel && 'min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]'
+                            !sidePanel && 'min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]',
+                            sidePanel && isRemovingSidePanelFlag && 'px-0'
                         )}
                     >
                         <div className="grow items-center justify-center flex flex-col gap-3 relative z-50">
@@ -157,8 +157,10 @@ export const MaxInstance = React.memo(function MaxInstance({
                                 </LemonBanner>
                             </div>
                         )}
-                        <Thread className="p-3" />
-                        {!conversation?.has_unsupported_content && <SidebarQuestionInput isSticky />}
+                        <Thread className={cn('p-3', sidePanel && isRemovingSidePanelFlag && 'p-1')} />
+                        {!conversation?.has_unsupported_content && (
+                            <SidebarQuestionInput isSticky sidePanel={sidePanel} />
+                        )}
                     </ThreadAutoScroller>
                 )}
             </BindLogic>
@@ -330,7 +332,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                                     closeTabId(tabId, { source: 'open_in_side_panel' })
                                 }}
                             >
-                                Open in side panel
+                                {isRemovingSidePanelFlag ? 'Open in context panel' : 'Open in side panel'}
                             </LemonButton>
                         ) : undefined}
                     </>

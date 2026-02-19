@@ -87,6 +87,14 @@ class BingAdsConfig(BaseMarketingConfig):
 
 
 @dataclass
+class SnapchatAdsConfig(BaseMarketingConfig):
+    """Configuration for Snapchat Ads marketing sources"""
+
+    campaign_table: DataWarehouseTable
+    stats_table: DataWarehouseTable
+
+
+@dataclass
 class ValidationResult:
     """Result of source validation"""
 
