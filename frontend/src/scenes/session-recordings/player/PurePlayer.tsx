@@ -98,7 +98,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
     useEffect(() => {
         setPlayerActive(true)
         return () => setPlayerActive(false)
-    }, [setPlayerActive])
+    }, [])
 
     useEffect(() => {
         // Disable skipping inactivity when exporting, but keep it if we are displaying metadata footer (export for analysis purposes)
