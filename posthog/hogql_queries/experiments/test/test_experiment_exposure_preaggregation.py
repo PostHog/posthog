@@ -502,8 +502,8 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         # Create experiment with narrow range (Jan 5-9)
         experiment = self.create_experiment(
             feature_flag=feature_flag,
-            start_date=datetime(2024, 1, 5, tzinfo=UTC),
-            end_date=datetime(2024, 1, 9, tzinfo=UTC),
+            start_date=datetime(2024, 1, 5),
+            end_date=datetime(2024, 1, 9),
         )
 
         # Create precomputation job for BROAD range (Jan 1-10) - includes exposures before experiment
