@@ -434,6 +434,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         groupType,
         value,
         taxonomicGroups,
+        taxonomicGroupTypes,
         selectedProperties,
         dataWarehousePopoverFields,
         anyGroupLoading,
@@ -512,9 +513,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                             <span className="text-secondary text-center">
                                 Start searching and we'll suggest filters...
                             </span>
-                            <span className="text-center text-primary-3000">
-                                Try searching for an email, URL, or screen name
-                            </span>
+                            <SuggestedFiltersSearchHint taxonomicGroupTypes={taxonomicGroupTypes} />
                         </>
                     ) : (
                         <>
@@ -611,6 +610,34 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
             ) : null}
         </div>
     )
+}
+
+function SuggestedFiltersSearchHint({
+    taxonomicGroupTypes,
+}: {
+    taxonomicGroupTypes: TaxonomicFilterGroupType[]
+}): JSX.Element | null {
+    const groupSet = new Set(taxonomicGroupTypes)
+    const hints: string[] = []
+    if (groupSet.has(TaxonomicFilterGroupType.EmailAddresses)) {
+        hints.push('an email')
+    }
+    if (groupSet.has(TaxonomicFilterGroupType.PageviewUrls) || groupSet.has(TaxonomicFilterGroupType.PageviewEvents)) {
+        hints.push('a URL')
+    }
+    if (groupSet.has(TaxonomicFilterGroupType.Screens) || groupSet.has(TaxonomicFilterGroupType.ScreenEvents)) {
+        hints.push('a screen name')
+    }
+    if (hints.length === 0) {
+        return null
+    }
+    const joined =
+        hints.length === 1
+            ? hints[0]
+            : hints.length === 2
+              ? `${hints[0]} or ${hints[1]}`
+              : `${hints.slice(0, -1).join(', ')}, or ${hints[hints.length - 1]}`
+    return <span className="text-center text-secondary italic">Try searching for {joined}</span>
 }
 
 export function getItemGroup(

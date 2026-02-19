@@ -166,10 +166,23 @@ class Resolver(CloningVisitor):
     def visit_cte(self, node: ast.CTE):
         self.cte_counter += 1
 
-        # Visit the CTE expression (SELECT query) without creating a new CTE scope
-        # This allows the CTE to reference previously defined CTEs in the same WITH clause
-        # We clone the expr to avoid modifying the input node
         cte_expr = clone_expr(node.expr)
+
+        if node.recursive and isinstance(cte_expr, ast.SelectSetQuery):
+            # For recursive CTEs, resolve the base case first to determine column types,
+            # then register the CTE so the recursive branch can self-reference it.
+            base_select = clone_expr(cte_expr.initial_select_query)
+            base_select = self.visit(base_select)
+
+            placeholder = ast.CTE(
+                name=node.name,
+                expr=base_select,
+                cte_type=node.cte_type,
+                recursive=True,
+                type=ast.CTETableType(name=node.name, select_query_type=base_select.type),
+            )
+            self.ctes[node.name] = placeholder
+
         cte_expr = self.visit(cte_expr)
 
         # If the CTE has a column name list, remap the type's columns
@@ -193,6 +206,7 @@ class Resolver(CloningVisitor):
             name=node.name,
             expr=cte_expr,
             cte_type=node.cte_type,
+            recursive=node.recursive,
             columns=node.columns,
         )
 
@@ -510,14 +524,16 @@ class Resolver(CloningVisitor):
                 # visit USING constraint before adding the table to avoid ambiguous names
                 node.constraint = self.visit_join_constraint(node.constraint)
 
-            node.table = super().visit(node.table)
+            node.table = cast(ast.SelectQuery, super().visit(node.table))
             if isinstance(node.table, ast.SelectQuery) and node.table.view_name is not None and node.alias is not None:
                 if node.alias in scope.tables:
                     raise QueryError(
                         f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
                     )
                 node.type = ast.SelectViewType(
-                    alias=node.alias, view_name=node.table.view_name, select_query_type=node.table.type
+                    alias=node.alias,
+                    view_name=node.table.view_name,
+                    select_query_type=cast(ast.SelectQueryType, node.table.type),
                 )
                 scope.tables[node.alias] = node.type
             elif node.alias is not None:
@@ -525,11 +541,13 @@ class Resolver(CloningVisitor):
                     raise QueryError(
                         f'Already have joined a table called "{node.alias}". Can\'t join another one with the same name.'
                     )
-                node.type = ast.SelectQueryAliasType(alias=node.alias, select_query_type=node.table.type)
+                node.type = ast.SelectQueryAliasType(
+                    alias=node.alias, select_query_type=cast(ast.SelectQueryType, node.table.type)
+                )
                 scope.tables[node.alias] = node.type
             else:
-                node.type = node.table.type
-                scope.anonymous_tables.append(node.type)
+                node.type = cast(ast.TableOrSelectType, node.table.type)
+                scope.anonymous_tables.append(cast(ast.SelectQueryType | ast.SelectSetQueryType, node.type))
 
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
             node.next_join = self.visit(node.next_join)

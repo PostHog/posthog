@@ -1177,6 +1177,10 @@ class ExperimentQueryBuilder:
 
         Re-aggregates across jobs since the same user can appear in multiple time-window jobs.
         Returns the same column shape as _build_exposure_select_query().
+
+        Important: Jobs can cover broader time ranges than the experiment (for reusability),
+        so we must filter by experiment start/end dates to avoid including exposures outside
+        the experiment window.
         """
         # The lazy-computed table stores entity_id as String, but person_id is UUID in events.
         # Cast back to match the type expected by downstream JOINs.
@@ -1204,6 +1208,8 @@ class ExperimentQueryBuilder:
                 FROM experiment_exposures_preaggregated AS t
                 WHERE t.job_id IN {job_ids}
                     AND t.team_id = {team_id}
+                    AND t.first_exposure_time >= {date_from}
+                    AND t.first_exposure_time <= {date_to}
                 GROUP BY entity_id
             """,
             placeholders={
@@ -1211,6 +1217,8 @@ class ExperimentQueryBuilder:
                 "variant_expr": variant_expr,
                 "job_ids": ast.Constant(value=job_ids),
                 "team_id": ast.Constant(value=self.team.id),
+                "date_from": self.date_range_query.date_from_as_hogql(),
+                "date_to": self.date_range_query.date_to_as_hogql(),
             },
         )
         assert isinstance(query, ast.SelectQuery)
