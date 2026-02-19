@@ -260,6 +260,8 @@ function CyclotronJobTemplateInput(props: {
     )
 }
 
+type DictionaryEntry = { id: string; key: string; value: string }
+
 function DictionaryField({
     input,
     onChange,
@@ -272,12 +274,19 @@ function DictionaryField({
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
 }): JSX.Element {
     const value = input.value ?? {}
-    const [entries, setEntries] = useState<[string, string][]>(Object.entries(value))
-    const prevFilteredEntriesRef = useRef<[string, string][]>(entries)
+    const [entries, setEntries] = useState<DictionaryEntry[]>(() =>
+        Object.entries(value).map(([key, val]) => ({ id: uuid(), key, value: val as string }))
+    )
+    const prevFilteredEntriesRef = useRef<[string, string][]>(Object.entries(value) as [string, string][])
+    // Track which entries have been "touched" (user has moved away from them) - by ID
+    const [touchedEntries, setTouchedEntries] = useState<Set<string>>(() => new Set(entries.map((e) => e.id)))
+    const [showWarnings, setShowWarnings] = useState(true)
 
     useEffect(() => {
         // NOTE: Filter out all empty entries as fetch will throw if passed in
-        const filteredEntries = entries.filter(([key, val]) => key.trim() !== '' || val.trim() !== '')
+        const filteredEntries: [string, string][] = entries
+            .filter((e) => e.key.trim() !== '' || e.value.trim() !== '')
+            .map((e) => [e.key, e.value])
 
         // Compare with previous filtered entries to avoid unnecessary updates
         if (objectsEqual(filteredEntries, prevFilteredEntriesRef.current)) {
@@ -292,68 +301,146 @@ function DictionaryField({
     }, [entries, onChange])
 
     const handleEnableIncludeObject = (): void => {
-        setEntries([[EXTEND_OBJECT_KEY, '{event.properties}'], ...entries])
+        const newEntry = { id: uuid(), key: EXTEND_OBJECT_KEY, value: '{event.properties}' }
+        setTouchedEntries((prev) => new Set([...prev, newEntry.id]))
+        setEntries([newEntry, ...entries])
     }
+
+    // Compute issues for consolidated warning message
+    const duplicateKeys = useMemo(() => {
+        const keyCounts: Record<string, number> = {}
+        for (const entry of entries) {
+            if (entry.key.trim() !== '' && entry.key !== EXTEND_OBJECT_KEY) {
+                keyCounts[entry.key] = (keyCounts[entry.key] || 0) + 1
+            }
+        }
+        return Object.keys(keyCounts).filter((key) => keyCounts[key] > 1)
+    }, [entries])
+
+    // Only show empty value warnings for entries the user has "touched" (moved away from)
+    const emptyValueKeys = useMemo(() => {
+        return entries
+            .filter(
+                (entry) =>
+                    entry.key.trim() !== '' &&
+                    entry.key !== EXTEND_OBJECT_KEY &&
+                    entry.value.trim() === '' &&
+                    touchedEntries.has(entry.id)
+            )
+            .map((entry) => entry.key)
+    }, [entries, touchedEntries])
+
+    const hasIssues = duplicateKeys.length > 0 || emptyValueKeys.length > 0
 
     return (
         <div className="deprecated-space-y-2">
-            {!entries.some(([key]) => key === EXTEND_OBJECT_KEY) ? (
+            {!entries.some((e) => e.key === EXTEND_OBJECT_KEY) ? (
                 <LemonButton icon={<IconPlus />} size="small" type="secondary" onClick={handleEnableIncludeObject}>
                     Include properties from an entire object
                 </LemonButton>
             ) : null}
-            {entries.map(([key, val], index) => (
-                <div className="flex gap-2 items-center" key={index}>
-                    <Tooltip title={EXTEND_OBJECT_KEY === key ? 'Include properties from an entire object' : undefined}>
-                        <LemonInput
-                            value={key === EXTEND_OBJECT_KEY ? 'INCLUDE ENTIRE OBJECT' : key}
-                            disabled={key === EXTEND_OBJECT_KEY}
-                            className="flex-1 min-w-60"
-                            onChange={(key) => {
+            {entries.map((entry, index) => {
+                const isDuplicate =
+                    showWarnings &&
+                    entry.key.trim() !== '' &&
+                    entry.key !== EXTEND_OBJECT_KEY &&
+                    entries.filter((e) => e.key === entry.key).length > 1
+                const hasEmptyValue =
+                    showWarnings &&
+                    entry.key.trim() !== '' &&
+                    entry.key !== EXTEND_OBJECT_KEY &&
+                    entry.value.trim() === '' &&
+                    touchedEntries.has(entry.id)
+
+                const handleRowBlur = (e: React.FocusEvent<HTMLDivElement>): void => {
+                    // Only mark as touched if focus is leaving the row entirely (not moving within it)
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                        if (!touchedEntries.has(entry.id)) {
+                            setTouchedEntries((prev) => new Set([...prev, entry.id]))
+                        }
+                    }
+                }
+
+                return (
+                    <div className="flex gap-2 items-center" key={entry.id} onBlur={handleRowBlur}>
+                        <Tooltip
+                            title={
+                                EXTEND_OBJECT_KEY === entry.key ? 'Include properties from an entire object' : undefined
+                            }
+                        >
+                            <LemonInput
+                                value={entry.key === EXTEND_OBJECT_KEY ? 'INCLUDE ENTIRE OBJECT' : entry.key}
+                                disabled={entry.key === EXTEND_OBJECT_KEY}
+                                className={clsx('w-60 shrink-0', isDuplicate && 'border-warning')}
+                                onChange={(key) => {
+                                    const newEntries = [...entries]
+                                    newEntries[index] = { ...entry, key }
+                                    setEntries(newEntries)
+                                }}
+                                placeholder="Key"
+                            />
+                        </Tooltip>
+
+                        <CyclotronJobTemplateInput
+                            className={clsx(
+                                'overflow-hidden flex-1 min-w-0',
+                                hasEmptyValue && 'rounded border border-warning'
+                            )}
+                            input={{ ...input, value: entry.value }}
+                            onChange={(val) => {
                                 const newEntries = [...entries]
-                                newEntries[index] = [key, newEntries[index][1]]
+                                newEntries[index] = { ...entry, value: val.value ?? '' }
+                                if (val.templating) {
+                                    onChange?.({ ...input, templating: val.templating })
+                                }
                                 setEntries(newEntries)
                             }}
-                            placeholder="Key"
+                            templating={templating}
+                            sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                         />
-                    </Tooltip>
 
-                    <CyclotronJobTemplateInput
-                        className="overflow-hidden flex-2"
-                        input={{ ...input, value: val }}
-                        onChange={(val) => {
-                            const newEntries = [...entries]
-                            newEntries[index] = [newEntries[index][0], val.value ?? '']
-                            if (val.templating) {
-                                onChange?.({ ...input, templating: val.templating })
-                            }
-                            setEntries(newEntries)
-                        }}
-                        templating={templating}
-                        sampleGlobalsWithInputs={sampleGlobalsWithInputs}
-                    />
-
-                    <LemonButton
-                        icon={<IconX />}
-                        size="small"
-                        onClick={() => {
-                            const newEntries = [...entries]
-                            newEntries.splice(index, 1)
-                            setEntries(newEntries)
-                        }}
-                    />
-                </div>
-            ))}
+                        <LemonButton
+                            icon={<IconX />}
+                            size="small"
+                            onClick={() => {
+                                const newEntries = [...entries]
+                                const deletedId = entries[index].id
+                                newEntries.splice(index, 1)
+                                setEntries(newEntries)
+                                setTouchedEntries((prev) => {
+                                    const next = new Set(prev)
+                                    next.delete(deletedId)
+                                    return next
+                                })
+                            }}
+                        />
+                    </div>
+                )
+            })}
             <LemonButton
                 icon={<IconPlus />}
                 size="small"
                 type="secondary"
                 onClick={() => {
-                    setEntries([...entries, ['', '']])
+                    setEntries([...entries, { id: uuid(), key: '', value: '' }])
                 }}
             >
                 Add entry
             </LemonButton>
+            {hasIssues && (
+                <div className="flex items-center gap-2 mt-2">
+                    <LemonSwitch checked={showWarnings} onChange={setShowWarnings} />
+                    <LemonLabel>Show warnings</LemonLabel>
+                </div>
+            )}
+            {hasIssues && showWarnings && (
+                <div className="text-warning text-xs">
+                    {duplicateKeys.length > 0 && (
+                        <p>Duplicate keys: {duplicateKeys.join(', ')} (only the last value will be sent).</p>
+                    )}
+                    {emptyValueKeys.length > 0 && <p>Empty values: {emptyValueKeys.join(', ')} (won't be sent).</p>}
+                </div>
+            )}
         </div>
     )
 }
