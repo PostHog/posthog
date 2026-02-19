@@ -1,5 +1,3 @@
-from datetime import UTC, datetime
-
 import pytest
 
 import dagster
@@ -10,7 +8,6 @@ from posthog.dags.common.health.detectors import (
     clickhouse_batch_detector_from_fn,
     resolve_execution_policy,
 )
-from posthog.dags.common.health.framework import _compute_scheduled_slice_index
 from posthog.dags.common.health.query import _validate_clickhouse_team_query
 from posthog.dags.common.health.types import HealthCheckResult
 from posthog.dags.common.ops import _filter_team_ids_for_rollout
@@ -37,7 +34,6 @@ class TestHealthExecutionPolicies:
 
         assert policy.batch_size == 1000
         assert policy.max_concurrent == 5
-        assert policy.slice_count == 1
 
     def test_default_policy_for_clickhouse_detector(self):
         detector = clickhouse_batch_detector_from_fn(_batch_detect_fn)
@@ -45,17 +41,15 @@ class TestHealthExecutionPolicies:
 
         assert policy.batch_size == 250
         assert policy.max_concurrent == 1
-        assert policy.slice_count == 24
 
     def test_policy_overrides(self):
         detector = clickhouse_batch_detector_from_fn(_batch_detect_fn)
-        policy = resolve_execution_policy(detector, batch_size=500, max_concurrent=2, slice_count=12)
+        policy = resolve_execution_policy(detector, batch_size=500, max_concurrent=2)
 
         assert policy.batch_size == 500
         assert policy.max_concurrent == 2
-        assert policy.slice_count == 12
 
-    @parameterized.expand([("batch_size", 0), ("max_concurrent", 0), ("slice_count", 0)])
+    @parameterized.expand([("batch_size", 0), ("max_concurrent", 0)])
     def test_policy_rejects_non_positive_values(self, field: str, value: int):
         detector = batch_detector(_batch_detect_fn)
         kwargs = {field: value}
@@ -77,21 +71,6 @@ class TestClickhouseQueryValidation:
         _validate_clickhouse_team_query(
             "SELECT 1 WHERE team_id IN %(team_ids)s AND timestamp >= now() - INTERVAL %(lookback_days)s DAY"
         )
-
-
-class TestScheduledSliceSelection:
-    def test_slice_index_is_stable_for_same_tick(self):
-        scheduled_execution_time = datetime(2026, 1, 1, 10, 30, tzinfo=UTC)
-
-        slice_a = _compute_scheduled_slice_index(scheduled_execution_time, slice_count=24)
-        slice_b = _compute_scheduled_slice_index(scheduled_execution_time, slice_count=24)
-
-        assert slice_a == slice_b
-        assert 0 <= slice_a < 24
-
-    def test_slice_index_with_single_slice_is_zero(self):
-        scheduled_execution_time = datetime(2026, 1, 1, 10, 30, tzinfo=UTC)
-        assert _compute_scheduled_slice_index(scheduled_execution_time, slice_count=1) == 0
 
 
 class TestTeamRolloutSelection:
