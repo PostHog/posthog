@@ -39,6 +39,7 @@ describe('execute-sql', { concurrent: false }, () => {
     it('should execute a simple query', async () => {
         const result = await tool.handler(context, {
             query: "SELECT 'test_string'",
+            truncate: true,
         })
 
         expect(typeof result).toBe('string')
@@ -48,6 +49,7 @@ describe('execute-sql', { concurrent: false }, () => {
     it('should execute a query with a WHERE clause', async () => {
         const result = await tool.handler(context, {
             query: "SELECT event, count() AS cnt FROM events WHERE event = '$pageview' GROUP BY event",
+            truncate: true,
         })
 
         expect(typeof result).toBe('string')
@@ -58,16 +60,19 @@ describe('execute-sql', { concurrent: false }, () => {
     it('should execute a query with date filters', async () => {
         const result = await tool.handler(context, {
             query: "SELECT event, count() AS cnt FROM events WHERE timestamp >= now() - INTERVAL 7 DAY AND event = '$pageview' GROUP BY event ORDER BY cnt DESC LIMIT 5",
+            truncate: false,
         })
 
         expect(typeof result).toBe('string')
     })
 
     it('should throw on invalid SQL', async () => {
-        await expect(tool.handler(context, { query: 'SELEC INVALID SYNTAX' })).rejects.toThrow()
+        await expect(tool.handler(context, { query: 'SELEC INVALID SYNTAX', truncate: true })).rejects.toThrow()
     })
 
     it('should throw on querying a non-existent table', async () => {
-        await expect(tool.handler(context, { query: 'SELECT * FROM non_existent_table_xyz' })).rejects.toThrow()
+        await expect(
+            tool.handler(context, { query: 'SELECT * FROM non_existent_table_xyz', truncate: true })
+        ).rejects.toThrow()
     })
 })

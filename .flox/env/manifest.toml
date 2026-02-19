@@ -17,6 +17,7 @@ freetds = { pkg-path = "freetds" } # For pymssql
 nodejs = { pkg-path = "nodejs_24", pkg-group = "nodejs", version = "24.12.0" } # Same maj.min ver as in Dockerfile; diverges from patch ver
 corepack = { pkg-path = "corepack_24", pkg-group = "nodejs", version = "24.12.0" } # Same maj.min as in Dockerfile; diverges from patch ver
 brotli = { pkg-path = "brotli", pkg-group = "nodejs" }
+zstd = { pkg-path = "zstd", pkg-group = "nodejs" }
 openssl = { pkg-path = "openssl", version = "3.4.1", pkg-group = "openssl" }
 nodemon = { pkg-path = "nodemon" }
 # Rust toolchain (based on https://flox.dev/docs/cookbook/languages/rust/)

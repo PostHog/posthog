@@ -218,3 +218,60 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
         ).toEqual([])
     })
 })
+
+describe('Tool Filtering - excludeTools', () => {
+    const excludeTests = [
+        {
+            excludeTools: ['switch-organization', 'switch-project'],
+            description: 'excludes both switch tools when project ID is provided',
+            expectedExcluded: ['switch-organization', 'switch-project'],
+            expectedIncluded: ['organizations-get', 'projects-get'],
+        },
+        {
+            excludeTools: ['switch-organization'],
+            description: 'excludes only switch-organization when org ID is provided',
+            expectedExcluded: ['switch-organization'],
+            expectedIncluded: ['switch-project', 'organizations-get', 'projects-get'],
+        },
+        {
+            excludeTools: [],
+            description: 'excludes nothing when empty array',
+            expectedExcluded: [],
+            expectedIncluded: ['switch-organization', 'switch-project'],
+        },
+        {
+            excludeTools: undefined,
+            description: 'excludes nothing when undefined',
+            expectedExcluded: [],
+            expectedIncluded: ['switch-organization', 'switch-project'],
+        },
+    ]
+
+    it.each(excludeTests)('should $description', async ({ excludeTools, expectedExcluded, expectedIncluded }) => {
+        const context = createMockContext(['*'])
+        const tools = await getToolsFromContext(context, { excludeTools })
+        const toolNames = tools.map((t) => t.name)
+
+        for (const tool of expectedExcluded) {
+            expect(toolNames).not.toContain(tool)
+        }
+        for (const tool of expectedIncluded) {
+            expect(toolNames).toContain(tool)
+        }
+    })
+
+    it('should combine excludeTools with feature filtering', async () => {
+        const context = createMockContext(['*'])
+        const tools = await getToolsFromContext(context, {
+            features: ['workspace'],
+            excludeTools: ['switch-organization', 'switch-project'],
+        })
+        const toolNames = tools.map((t) => t.name)
+
+        expect(toolNames).toContain('organizations-get')
+        expect(toolNames).toContain('projects-get')
+        expect(toolNames).not.toContain('switch-organization')
+        expect(toolNames).not.toContain('switch-project')
+        expect(toolNames).not.toContain('dashboard-create')
+    })
+})
