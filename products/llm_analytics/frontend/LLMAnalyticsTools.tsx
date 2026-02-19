@@ -109,7 +109,7 @@ export function LLMAnalyticsTools(): JSX.Element {
                             </Tooltip>
                         ),
                         render: function RenderSoloPct(x) {
-                            return <span>{x.value}%</span>
+                            return <span>{String(x.value)}%</span>
                         },
                     },
                     days_seen: {
