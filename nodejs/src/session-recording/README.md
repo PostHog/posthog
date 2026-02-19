@@ -24,21 +24,21 @@ The `SessionRecordingIngester` consumes session recording events from Kafka and:
 
 1. Start the required services (Kafka, MinIO, Postgres, Redis, ClickHouse):
 
-   ```bash
-   hogli dev:setup
-   ```
+    ```bash
+    hogli dev:setup
+    ```
 
-   Or manually:
+    Or manually:
 
-   ```bash
-   docker compose -f docker-compose.dev.yml up
-   ```
+    ```bash
+    docker compose -f docker-compose.dev.yml up
+    ```
 
 2. Set up the test database (creates test_posthog DB and runs migrations):
 
-   ```bash
-   pnpm setup:test
-   ```
+    ```bash
+    pnpm setup:test
+    ```
 
 ## Testing
 
@@ -68,16 +68,16 @@ The E2E tests validate the full pipeline by:
 ### Adding New Test Cases
 
 1. Add a new entry to the `testCases` array in `consumer.e2e.test.ts`:
-   - `name`: Short identifier used in the snapshot name
-   - `description`: What the test verifies
-   - `createPayloads`: Function returning `PayloadConfig[]` with test data
-   - `expectedOutcome`: `'written'` (data should appear in S3) or `'dropped'` (rejected)
+    - `name`: Short identifier used in the snapshot name
+    - `description`: What the test verifies
+    - `createPayloads`: Function returning `PayloadConfig[]` with test data
+    - `expectedOutcome`: `'written'` (data should appear in S3) or `'dropped'` (rejected)
 
 2. Run tests with the update flag to generate the new snapshot:
 
-   ```bash
-   pnpm jest src/session-recording/consumer.e2e.test.ts -u
-   ```
+    ```bash
+    pnpm jest src/session-recording/consumer.e2e.test.ts -u
+    ```
 
 3. Review the generated snapshot in `__snapshots__/` to ensure it captures expected behavior.
 
