@@ -6,7 +6,7 @@ from django.test import TestCase
 
 from parameterized import parameterized
 
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+from products.data_warehouse.backend.models import DataWarehouseSavedQuery, DataWarehouseTable
 from products.endpoints.backend.models import Endpoint
 from products.endpoints.backend.rate_limit import (
     EndpointBurstThrottle,
@@ -97,13 +97,21 @@ class TestCheckAndCacheMaterializationStatus(APIBaseTest):
             is_active=True,
             current_version=1,
         )
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=f"table_{status}",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern=f"s3://test-bucket/table_{status}",
+        )
+        saved_query.table = table
+        saved_query.save()
+
         EndpointVersion.objects.create(
             endpoint=endpoint,
             version=1,
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
             created_by=self.user,
             saved_query=saved_query,
-            is_materialized=True,
         )
 
         result = _check_and_cache_materialization_status(self.team.id, f"endpoint_{status}")
@@ -162,13 +170,21 @@ class TestIsMaterializedEndpointRequest(APIBaseTest):
             is_active=True,
             current_version=1,
         )
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="lazy_table",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/lazy_table",
+        )
+        saved_query.table = table
+        saved_query.save()
+
         EndpointVersion.objects.create(
             endpoint=endpoint,
             version=1,
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
             created_by=self.user,
             saved_query=saved_query,
-            is_materialized=True,
         )
 
         self.assertIsNone(is_endpoint_materialization_ready(self.team.id, "lazy_endpoint"))
