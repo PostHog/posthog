@@ -1411,6 +1411,12 @@ def send_error_tracking_weekly_digest_for_team(
     if not memberships_to_email:
         return
 
+    allowed_emails = settings.ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS
+    if allowed_emails and "*" not in allowed_emails:
+        memberships_to_email = [m for m in memberships_to_email if m.user.email in allowed_emails]
+        if not memberships_to_email:
+            return
+
     top_issues = get_top_issues_for_team(team)
     new_issues = get_new_issues_for_team(team)
     daily_counts = get_daily_exception_counts(team_id)
