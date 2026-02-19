@@ -310,9 +310,11 @@ function DictionaryField({
                             disabled={key === EXTEND_OBJECT_KEY}
                             className="flex-1 min-w-60"
                             onChange={(key) => {
-                                const newEntries = [...entries]
-                                newEntries[index] = [key, newEntries[index][1]]
-                                setEntries(newEntries)
+                                setEntries((prev) => {
+                                    const newEntries = [...prev]
+                                    newEntries[index] = [key, newEntries[index][1]]
+                                    return newEntries
+                                })
                             }}
                             placeholder="Key"
                         />
@@ -322,12 +324,15 @@ function DictionaryField({
                         className="overflow-hidden flex-2"
                         input={{ ...input, value: val }}
                         onChange={(val) => {
-                            const newEntries = [...entries]
-                            newEntries[index] = [newEntries[index][0], val.value ?? '']
                             if (val.templating) {
                                 onChange?.({ ...input, templating: val.templating })
                             }
-                            setEntries(newEntries)
+
+                            setEntries((prev) => {
+                                const newEntries = [...prev]
+                                newEntries[index] = [newEntries[index][0], val.value ?? '']
+                                return newEntries
+                            })
                         }}
                         templating={templating}
                         sampleGlobalsWithInputs={sampleGlobalsWithInputs}
@@ -337,9 +342,11 @@ function DictionaryField({
                         icon={<IconX />}
                         size="small"
                         onClick={() => {
-                            const newEntries = [...entries]
-                            newEntries.splice(index, 1)
-                            setEntries(newEntries)
+                            setEntries((prev) => {
+                                const newEntries = [...prev]
+                                newEntries.splice(index, 1)
+                                return newEntries
+                            })
                         }}
                     />
                 </div>
