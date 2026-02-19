@@ -195,6 +195,10 @@ impl KafkaSink {
         rows: Vec<KafkaLogRow>,
         uncompressed_bytes: u64,
     ) -> Result<(), anyhow::Error> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+
         let schema = Schema::parse_str(AVRO_SCHEMA)?;
         let mut writer = Writer::with_codec(
             &schema,
@@ -236,6 +240,10 @@ impl KafkaSink {
                     .insert(Header {
                         key: "created_at",
                         value: Some(&created_at),
+                    })
+                    .insert(Header {
+                        key: "batch_uuid",
+                        value: Some(&uuid::Uuid::new_v4().to_string()),
                     })
             }),
         }) {

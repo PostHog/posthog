@@ -6,7 +6,6 @@ import { IconGear, IconPencil, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Label } from 'lib/ui/Label/Label'
@@ -40,7 +39,6 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
         isExperimentDraft,
         isSingleVariantShipped,
         shippedVariantKey,
-        featureFlags,
         autoRefresh,
     } = useValues(experimentLogic)
     const { updateExperiment, refreshExperimentResults, reportExperimentMetricsRefreshed } = useActions(experimentLogic)
@@ -53,7 +51,6 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
     } = useActions(modalsLogic)
     const { isDescriptionModalOpen } = useValues(modalsLogic)
 
-    const useNewCalculator = featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_CALCULATOR] === 'test'
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
 
     useEffect(() => {
@@ -223,35 +220,34 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
 
                 {/* Column 2 */}
                 <div className="flex flex-col gap-4 overflow-hidden items-start min-[1400px]:items-end min-w-0">
-                    {/* Row 1: Duration */}
+                    {/* Row 1: Duration (date pickers) - only for launched experiments */}
                     {!isExperimentDraft && <ExperimentDuration />}
 
-                    {/* Row 2: Last refreshed, Created by */}
+                    {/* Row 2: Running time, Last refreshed, Created by */}
                     <div className="flex flex-col overflow-hidden items-start min-[1400px]:items-end">
                         <div className="flex flex-wrap gap-x-8 gap-y-2 justify-end">
+                            {tabId && (
+                                <RunningTimeNew
+                                    experiment={experiment}
+                                    tabId={tabId}
+                                    onClick={openRunningTimeConfigModal}
+                                    isExperimentDraft={isExperimentDraft}
+                                />
+                            )}
                             {experiment.start_date && (
-                                <>
-                                    {useNewCalculator && tabId && (
-                                        <RunningTimeNew
-                                            experiment={experiment}
-                                            tabId={tabId}
-                                            onClick={openRunningTimeConfigModal}
-                                        />
-                                    )}
-                                    <ExperimentReloadAction
-                                        isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
-                                        lastRefresh={lastRefresh}
-                                        onClick={() => {
-                                            // Track manual refresh click
-                                            reportExperimentMetricsRefreshed(experiment, true, {
-                                                triggered_by: 'manual',
-                                                auto_refresh_enabled: autoRefresh.enabled,
-                                                auto_refresh_interval: autoRefresh.interval,
-                                            })
-                                            refreshExperimentResults(true)
-                                        }}
-                                    />
-                                </>
+                                <ExperimentReloadAction
+                                    isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
+                                    lastRefresh={lastRefresh}
+                                    onClick={() => {
+                                        // Track manual refresh click
+                                        reportExperimentMetricsRefreshed(experiment, true, {
+                                            triggered_by: 'manual',
+                                            auto_refresh_enabled: autoRefresh.enabled,
+                                            auto_refresh_interval: autoRefresh.interval,
+                                        })
+                                        refreshExperimentResults(true)
+                                    }}
+                                />
                             )}
                             <div className="flex flex-col">
                                 <Label intent="menu">Created by</Label>

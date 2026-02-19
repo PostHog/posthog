@@ -48,7 +48,7 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert "is ready!" in mocked_email_messages[0].html_body
-        assert f"/exporter/export-my-test-subscription.png?token=ey" in mocked_email_messages[0].html_body
+        assert f"/exporter/export-my-test-subscription-2022-02-02.png?token=ey" in mocked_email_messages[0].html_body
 
     def test_new_subscription_delivery(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_ee_email_messages(MockEmailMessage)

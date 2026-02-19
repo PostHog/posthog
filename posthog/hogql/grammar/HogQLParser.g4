@@ -75,7 +75,7 @@ selectStmt:
     settingsClause?
     ;
 
-withClause: WITH withExprList;
+withClause: WITH RECURSIVE? withExprList;
 topClause: TOP DECIMAL_LITERAL (WITH TIES)?;
 fromClause: FROM joinExpr;
 arrayJoinClause: (LEFT | INNER)? ARRAY JOIN columnExprList;
@@ -295,7 +295,7 @@ keyword
     | IF | ILIKE | IN | INNER | INTERVAL | JOIN | KEY
     | LAST | LEADING | LEFT | LIKE | LIMIT
     | NOT | NULLS | OFFSET | ON | OR | ORDER | OUTER | OVER | PARTITION
-    | PRECEDING | PREWHERE | RANGE | RETURN | RIGHT | ROLLUP | ROW
+    | PRECEDING | PREWHERE | RANGE | RECURSIVE | RETURN | RIGHT | ROLLUP | ROW
     | ROWS | SAMPLE | SELECT | SEMI | SETTINGS | SUBSTRING
     | THEN | TIES | TIMESTAMP | TOTALS | TRAILING | TRIM | TRUNCATE | TO | TOP
     | UNBOUNDED | UNION | USING | WHEN | WHERE | WINDOW | WITH

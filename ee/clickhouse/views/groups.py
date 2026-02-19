@@ -11,6 +11,7 @@ import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from loginas.utils import is_impersonated_session
+from opentelemetry import trace
 from requests import HTTPError
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
@@ -45,6 +46,7 @@ from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
 from ee.clickhouse.views.exceptions import TriggerGroupIdentifyException
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 def detect_group_property_type(value):
@@ -668,33 +670,42 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def property_values(self, request: request.Request, **kw):
-        value_filter = request.GET.get("value")
+        with tracer.start_as_current_span("groups_api_property_values") as span:
+            value_filter = request.GET.get("value")
+            group_type_index = request.GET["group_type_index"]
+            key = request.GET["key"]
 
-        query = f"""
-            SELECT {trim_quotes_expr("tupleElement(keysAndValues, 2)")} as value, count(*) as count
-            FROM groups
-            ARRAY JOIN JSONExtractKeysAndValuesRaw(group_properties) as keysAndValues
-            WHERE team_id = %(team_id)s
-              AND group_type_index = %(group_type_index)s
-              AND tupleElement(keysAndValues, 1) = %(key)s
-              {f"AND {trim_quotes_expr('tupleElement(keysAndValues, 2)')} ILIKE %(value_filter)s" if value_filter else ""}
-            GROUP BY value
-            ORDER BY count DESC, value ASC
-            LIMIT 20
-        """
+            span.set_attribute("team_id", self.team.pk)
+            span.set_attribute("group_type_index", group_type_index)
+            span.set_attribute("property_key", key)
+            span.set_attribute("has_value_filter", value_filter is not None)
 
-        params = {
-            "team_id": self.team.pk,
-            "group_type_index": request.GET["group_type_index"],
-            "key": request.GET["key"],
-        }
+            query = f"""
+                SELECT {trim_quotes_expr("tupleElement(keysAndValues, 2)")} as value, count(*) as count
+                FROM groups
+                ARRAY JOIN JSONExtractKeysAndValuesRaw(group_properties) as keysAndValues
+                WHERE team_id = %(team_id)s
+                  AND group_type_index = %(group_type_index)s
+                  AND tupleElement(keysAndValues, 1) = %(key)s
+                  {f"AND {trim_quotes_expr('tupleElement(keysAndValues, 2)')} ILIKE %(value_filter)s" if value_filter else ""}
+                GROUP BY value
+                ORDER BY count DESC, value ASC
+                LIMIT 20
+            """
 
-        if value_filter:
-            params["value_filter"] = f"%{value_filter}%"
+            params = {
+                "team_id": self.team.pk,
+                "group_type_index": group_type_index,
+                "key": key,
+            }
 
-        rows = sync_execute(query, params)
+            if value_filter:
+                params["value_filter"] = f"%{value_filter}%"
 
-        return response.Response([{"name": name, "count": count} for name, count in rows])
+            rows = sync_execute(query, params)
+
+            span.set_attribute("result_count", len(rows))
+            return response.Response([{"name": name, "count": count} for name, count in rows])
 
     def _is_crm_enabled(self, user: User) -> bool:
         return posthoganalytics.feature_enabled(

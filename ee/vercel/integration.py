@@ -157,6 +157,7 @@ class VercelIntegration:
     @staticmethod
     def _get_resource(resource_id: str) -> Integration:
         try:
+            # nosemgrep: idor-lookup-without-team (Vercel integration auth validates ownership)
             return Integration.objects.get(pk=resource_id, kind=Integration.IntegrationKind.VERCEL)
         except Integration.DoesNotExist:
             raise exceptions.NotFound("Resource not found")
@@ -399,6 +400,29 @@ class VercelIntegration:
     def delete_installation(installation_id: str) -> dict[str, Any]:
         logger.info("Starting Vercel installation deletion", installation_id=installation_id, integration="vercel")
         installation = VercelIntegration._get_installation(installation_id)
+        organization = installation.organization
+
+        # Notify billing service to cancel subscription and reset billing provider
+        license = get_cached_instance_license()
+        if license:
+            try:
+                billing_manager = BillingManager(license)
+                billing_manager.deauthorize(organization, billing_provider=BillingProvider.VERCEL)
+                logger.info(
+                    "Deauthorized billing for Vercel installation",
+                    installation_id=installation_id,
+                    organization_id=str(organization.id),
+                )
+            except Exception as e:
+                logger.exception(
+                    "Failed to deauthorize billing for Vercel installation",
+                    installation_id=installation_id,
+                    organization_id=str(organization.id),
+                )
+                capture_exception(e)
+                # Continue with deletion even if billing deauthorization fails
+                # The billing service will handle the orphaned state gracefully
+
         installation.delete()
         logger.info(
             "Successfully deleted Vercel installation",
@@ -1174,6 +1198,7 @@ class VercelIntegration:
 
     @staticmethod
     def set_active_project(user: User, resource_id: str):
+        # nosemgrep: idor-lookup-without-team (Vercel integration auth validates ownership)
         resource = Integration.objects.filter(pk=resource_id, kind=Integration.IntegrationKind.VERCEL).first()
         if not resource:
             raise exceptions.NotFound(f"Vercel resource not found: {resource_id}")

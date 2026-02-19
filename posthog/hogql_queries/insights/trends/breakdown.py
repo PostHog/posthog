@@ -16,7 +16,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import BREAKDOWN_VALUE_MAX_LENGTH, LimitContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import apply_path_cleaning
 from posthog.hogql.timings import HogQLTimings
@@ -355,9 +355,10 @@ class Breakdown:
         return cast(
             ast.Call,
             parse_expr(
-                "ifNull(nullIf(toString({node}), ''), {nil})",
+                "ifNull(nullIf(left(toString({node}), {max_length}), ''), {nil})",
                 placeholders={
                     "node": node,
+                    "max_length": ast.Constant(value=BREAKDOWN_VALUE_MAX_LENGTH),
                     "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
                 },
             ),

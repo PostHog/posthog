@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -15,7 +17,7 @@ import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { createdAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { LLMPrompt } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, LLMPrompt } from '~/types'
 
 import { PROMPTS_PER_PAGE, llmPromptsLogic } from './llmPromptsLogic'
 import { openDeletePromptDialog } from './utils'
@@ -29,6 +31,8 @@ export const scene: SceneExport = {
 export function LLMPromptsScene(): JSX.Element {
     const { setFilters, deletePrompt } = useActions(llmPromptsLogic)
     const { prompts, promptsLoading, sorting, pagination, filters, promptCountLabel } = useValues(llmPromptsLogic)
+    const { searchParams } = useValues(router)
+    const promptUrl = (name: string): string => combineUrl(urls.llmAnalyticsPrompt(name), searchParams).url
 
     const columns: LemonTableColumns<LLMPrompt> = [
         {
@@ -38,11 +42,7 @@ export function LLMPromptsScene(): JSX.Element {
             width: '25%',
             render: function renderName(_, prompt) {
                 return (
-                    <Link
-                        to={urls.llmAnalyticsPrompt(prompt.name)}
-                        className="font-semibold"
-                        data-attr="prompt-name-link"
-                    >
+                    <Link to={promptUrl(prompt.name)} className="font-semibold" data-attr="prompt-name-link">
                         {prompt.name}
                     </Link>
                 )
@@ -81,22 +81,23 @@ export function LLMPromptsScene(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton
-                                    to={urls.llmAnalyticsPrompt(prompt.name)}
-                                    data-attr="prompt-dropdown-view"
-                                    fullWidth
-                                >
+                                <LemonButton to={promptUrl(prompt.name)} data-attr="prompt-dropdown-view" fullWidth>
                                     View
                                 </LemonButton>
 
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => openDeletePromptDialog(() => deletePrompt(prompt.id))}
-                                    data-attr="prompt-dropdown-delete"
-                                    fullWidth
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    minAccessLevel={AccessControlLevel.Editor}
                                 >
-                                    Delete
-                                </LemonButton>
+                                    <LemonButton
+                                        status="danger"
+                                        onClick={() => openDeletePromptDialog(() => deletePrompt(prompt.id))}
+                                        data-attr="prompt-dropdown-delete"
+                                        fullWidth
+                                    >
+                                        Delete
+                                    </LemonButton>
+                                </AccessControlAction>
                             </>
                         }
                     />
@@ -112,14 +113,19 @@ export function LLMPromptsScene(): JSX.Element {
                 description="Track and manage your LLM prompts."
                 resourceType={{ type: 'llm_prompts' }}
                 actions={
-                    <LemonButton
-                        type="primary"
-                        to={urls.llmAnalyticsPrompt('new')}
-                        icon={<IconPlusSmall />}
-                        data-attr="new-prompt-button"
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
                     >
-                        New prompt
-                    </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            to={promptUrl('new')}
+                            icon={<IconPlusSmall />}
+                            data-attr="new-prompt-button"
+                        >
+                            New prompt
+                        </LemonButton>
+                    </AccessControlAction>
                 }
             />
 

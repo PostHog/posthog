@@ -122,6 +122,7 @@ class TestSurvey(APIBaseTest):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "surveys",
+                "source": "web",
             },
         )
 
@@ -1059,6 +1060,49 @@ class TestSurvey(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Feature Flag with this ID does not exist" in str(response.json())
+
+    def test_creating_survey_with_targeting_flag_from_different_team_returns_400(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_flag = FeatureFlag.objects.create(team=other_team, key="other-team-flag", created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Test Survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "Test?"}],
+                "targeting_flag_id": other_flag.id,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Targeting Feature Flag with this ID does not exist" in str(response.json())
+        assert FeatureFlag.objects.filter(id=other_flag.id).exists()
+
+    def test_updating_survey_with_targeting_flag_from_different_team_returns_400(self):
+        survey = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Test Survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "Test?"}],
+            },
+            format="json",
+        ).json()
+
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_flag = FeatureFlag.objects.create(team=other_team, key="other-team-flag", created_by=self.user)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey['id']}/",
+            data={"targeting_flag_id": other_flag.id},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Targeting Feature Flag with this ID does not exist" in str(response.json())
+        assert FeatureFlag.objects.filter(id=other_flag.id).exists()
 
     def test_creating_survey_with_nonexistent_linked_flag_returns_400(self):
         response = self.client.post(

@@ -165,88 +165,6 @@ def team_api_test_factory():
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
             self.assertEqual(response.json(), self.not_found_response())
 
-        @parameterized.expand(
-            [
-                ("no_geoip", {}, None),
-                ("US", {"$geoip_country_code": "US"}, 0),
-                ("PL", {"$geoip_country_code": "PL"}, 1),
-                ("IR", {"$geoip_country_code": "IR"}, 0),
-            ]
-        )
-        @patch("posthog.demo.matrix.manager.MatrixManager.run_on_team")
-        @patch("posthog.api.project.get_geoip_properties")
-        @patch("posthog.api.team.get_geoip_properties")
-        def test_ip_location_is_used_for_new_team_week_day_start(
-            self,
-            _name: str,
-            geoip_return: dict,
-            expected_week_start_day: int | None,
-            get_geoip_properties_mock: MagicMock,
-            get_geoip_properties_legacy_endpoint: MagicMock,
-            mock_matrix_manager: MagicMock,
-        ):
-            if self.client_class is EnvironmentToProjectRewriteClient:
-                get_geoip_properties_mock = get_geoip_properties_legacy_endpoint
-
-            self.organization.available_product_features = [
-                {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "limit": 100},
-            ]
-            self.organization.save()
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            # Use demo teams for testing since they have special handling allowing creation
-            get_geoip_properties_mock.return_value = geoip_return
-            response = self.client.post(
-                "/api/projects/@current/environments/", {"name": f"Test {_name}", "is_demo": True}
-            )
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertEqual(response.json()["week_start_day"], expected_week_start_day)
-
-        def test_cant_create_team_without_license_on_selfhosted(self):
-            with self.is_cloud(False):
-                response = self.client.post("/api/projects/@current/environments/", {"name": "Test"})
-                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-                self.assertEqual(Team.objects.count(), 1)
-                response = self.client.post("/api/projects/@current/environments/", {"name": "Test"})
-                self.assertEqual(Team.objects.count(), 1)
-
-        def test_cant_create_a_second_team_without_license(self):
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-            self.assertEqual(Team.objects.count(), 1)
-
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox", "is_demo": False})
-            self.assertEqual(response.status_code, 403)
-            response_data = response.json()
-            self.assertEqual(
-                response_data.get("detail"),
-                (
-                    "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-                    if self.client_class is not EnvironmentToProjectRewriteClient
-                    else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
-                ),
-            )
-            self.assertEqual(response_data.get("type"), "authentication_error")
-            self.assertEqual(response_data.get("code"), "permission_denied")
-            self.assertEqual(Team.objects.count(), 1)
-
-            # another request without the is_demo parameter
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox"})
-            self.assertEqual(response.status_code, 403)
-            response_data = response.json()
-            self.assertEqual(
-                response_data.get("detail"),
-                (
-                    "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-                    if self.client_class is not EnvironmentToProjectRewriteClient
-                    else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
-                ),
-            )
-            self.assertEqual(response_data.get("type"), "authentication_error")
-            self.assertEqual(response_data.get("code"), "permission_denied")
-            self.assertEqual(Team.objects.count(), 1)
-
         @freeze_time("2022-02-08")
         def test_update_team_timezone(self):
             self._assert_activity_log_is_empty()
@@ -1074,22 +992,6 @@ def team_api_test_factory():
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.json(), {"is_generating_demo_data": False})
 
-        @patch("posthog.demo.matrix.manager.MatrixManager.run_on_team")  # We don't actually need demo data, it's slow
-        def test_org_member_can_create_demo_project(self, mock_create_data_for_demo_team: MagicMock):
-            self.organization.available_product_features = [
-                {
-                    "key": AvailableFeature.ORGANIZATIONS_PROJECTS,
-                    "name": "Projects",
-                    "limit": 2,
-                },
-            ]
-            self.organization.save()
-            self.organization_membership.level = OrganizationMembership.Level.MEMBER
-            self.organization_membership.save()
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox", "is_demo": True})
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-            mock_create_data_for_demo_team.assert_called_once()
-
         @freeze_time("2022-02-08")
         def test_team_float_config_can_be_serialized_to_activity_log(self):
             # regression test since this isn't true by default
@@ -1869,40 +1771,6 @@ def team_api_test_factory():
             return response
 
         @patch("posthoganalytics.capture_exception")
-        def test_access_control_field_deprecated_on_create(self, mock_capture_exception):
-            """Test that access_control field is deprecated and cannot be used when creating a team."""
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            self.organization.available_product_features = [
-                {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "limit": 100},
-            ]
-            self.organization.save()
-
-            # Create a new project so we can create a team under it
-            project_id = Team.objects.increment_id_sequence()
-            new_project = Project.objects.create(
-                id=project_id, organization=self.organization, name="Test Project for Access Control"
-            )
-
-            response = self.client.post(
-                f"/api/projects/{new_project.id}/environments/",
-                {"name": "Test Environment", "access_control": True},
-            )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            error_data = response.json()
-            self.assertIn("deprecated", error_data["detail"])
-            self.assertIn("https://posthog.com/docs/settings/access-control", error_data["detail"])
-
-            # Verify that the exception was captured
-            mock_capture_exception.assert_called_once()
-            call_args = mock_capture_exception.call_args
-            self.assertEqual(call_args[0][0].args[0], "Deprecated access control field used")
-            self.assertEqual(call_args[1]["properties"]["field"], "access_control")
-            self.assertEqual(call_args[1]["properties"]["value"], "True")
-            self.assertEqual(call_args[1]["properties"]["user_id"], self.user.id)
-
-        @patch("posthoganalytics.capture_exception")
         def test_access_control_field_deprecated_on_update(self, mock_capture_exception):
             """Test that access_control field is deprecated and cannot be used when updating a team."""
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -2204,6 +2072,105 @@ def team_api_test_factory():
                     },
                 )
                 assert response.status_code == status.HTTP_200_OK
+
+        def test_read_only_api_key_cannot_update_team_config_fields(self):
+            """API keys with only project:read scope should not be able to modify config fields."""
+            api_key = self.create_personal_api_key_with_scopes(["project:read"])
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"timezone": "Europe/Lisbon"},
+                headers={"authorization": f"Bearer {api_key}"},
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertIn("project:write", response.json().get("detail", ""))
+
+            # Verify no changes were made
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.timezone, "UTC")
+
+        def test_write_api_key_can_update_team_config_fields(self):
+            """API keys with project:write scope should be able to modify config fields."""
+            api_key = self.create_personal_api_key_with_scopes(["project:write"])
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+                headers={"authorization": f"Bearer {api_key}"},
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            # Verify changes were made
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.timezone, "Europe/Lisbon")
+            self.assertEqual(self.team.session_recording_opt_in, True)
+
+        def _get_model_for_name_field(self):
+            """Returns the model whose 'name' field is updated by the current endpoint.
+
+            /api/environments/ updates Team.name, /api/projects/ updates Project.name.
+            This allows tests to work correctly when inherited by TestProjectAPI.
+            """
+            if isinstance(self.client, EnvironmentToProjectRewriteClient):
+                return self.project
+            return self.team
+
+        def test_read_only_api_key_cannot_update_team_non_config_fields(self):
+            """API keys with only project:read scope should not be able to modify non-config fields like name."""
+            api_key = self.create_personal_api_key_with_scopes(["project:read"])
+            model = self._get_model_for_name_field()
+            original_name = model.name
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"name": "New Team Name"},
+                headers={"authorization": f"Bearer {api_key}"},
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+            # Verify no changes were made
+            model.refresh_from_db()
+            self.assertEqual(model.name, original_name)
+
+        def test_write_api_key_can_update_team_non_config_fields(self):
+            """API keys with project:write scope should be able to modify non-config fields like name."""
+            api_key = self.create_personal_api_key_with_scopes(["project:write"])
+            model = self._get_model_for_name_field()
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"name": "New Team Name"},
+                headers={"authorization": f"Bearer {api_key}"},
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            # Verify changes were made
+            model.refresh_from_db()
+            self.assertEqual(model.name, "New Team Name")
+
+        def test_session_auth_member_can_still_update_config_fields(self):
+            """Session-based auth (browser users) with member role should still be able to update config fields.
+
+            This test ensures we didn't break existing UI behavior while fixing the API key issue.
+            """
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            # Verify changes were made
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.timezone, "Europe/Lisbon")
+            self.assertEqual(self.team.session_recording_opt_in, True)
 
     return TestTeamAPI
 

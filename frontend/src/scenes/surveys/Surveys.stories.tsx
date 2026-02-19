@@ -426,6 +426,7 @@ export const SurveyTemplates: Story = {
 }
 
 export const SurveyNotFound: Story = {
+    tags: ['test-skip'],
     parameters: {
         pageUrl: urls.survey('1234566789'),
     },

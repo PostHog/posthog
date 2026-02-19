@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconChevronDown, IconCopy, IconInfo, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
@@ -86,9 +86,15 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
             </div>
             <div>
                 <span className="text-secondary">First seen:</span>{' '}
-                {person.created_at ? <TZLabel time={person.created_at} /> : 'unknown'}
+                {person.created_at ? (
+                    <span className="relative -top-px">
+                        <TZLabel time={person.created_at} />
+                    </span>
+                ) : (
+                    'unknown'
+                )}
             </div>
-            <div>
+            <div className="flex items-center gap-1">
                 <span className="text-secondary">Merge restrictions:</span> {person.is_identified ? 'applied' : 'none'}
                 <Link to="https://posthog.com/docs/data/identify#alias-assigning-multiple-distinct-ids-to-the-same-user">
                     <Tooltip
@@ -155,6 +161,7 @@ function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Elem
 }
 
 export function PersonScene(): JSX.Element | null {
+    const mountedPersonsLogic = useMountedLogic(personsLogic)
     const {
         feedEnabled,
         person,
@@ -168,9 +175,9 @@ export function PersonScene(): JSX.Element | null {
         eventsQuery,
         exceptionsQuery,
         surveyResponsesQuery,
-    } = useValues(personsLogic)
+    } = useValues(mountedPersonsLogic)
     const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
-        useActions(personsLogic)
+        useActions(mountedPersonsLogic)
     const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
     const { deletedPersonLoading } = useValues(personDeleteModalLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
@@ -250,7 +257,7 @@ export function PersonScene(): JSX.Element | null {
                         ? {
                               key: PersonsTabType.PROFILE,
                               label: <span data-attr="persons-profile-tab">Profile</span>,
-                              content: <PersonProfileCanvas person={person} />,
+                              content: <PersonProfileCanvas person={person} attachTo={mountedPersonsLogic} />,
                           }
                         : false,
                     {

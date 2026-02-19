@@ -237,7 +237,7 @@ class ClickhouseFunnelBase(ABC):
                 serialized_result.update(
                     {
                         "breakdown": (
-                            get_breakdown_cohort_name(breakdown_value)
+                            get_breakdown_cohort_name(breakdown_value, self._team)
                             if self._filter.breakdown_type == "cohort"
                             else breakdown_value
                         ),

@@ -28,7 +28,7 @@ export function getDefaultGenerationsColumns(showInputOutput: boolean): string[]
 
 export const llmAnalyticsGenerationsLogic = kea<llmAnalyticsGenerationsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'tabs', 'llmAnalyticsGenerationsLogic']),
-    connect({
+    connect(() => ({
         values: [
             llmAnalyticsSharedLogic,
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
@@ -38,7 +38,7 @@ export const llmAnalyticsGenerationsLogic = kea<llmAnalyticsGenerationsLogicType
             ['featureFlags'],
         ],
         actions: [llmAnalyticsSharedLogic, ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts']],
-    }),
+    })),
 
     actions({
         setGenerationsQuery: (query: DataTableNode) => ({ query }),
@@ -166,6 +166,7 @@ export const llmAnalyticsGenerationsLogic = kea<llmAnalyticsGenerationsLogicType
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.EventsQuery,
+                    limit: 100,
                     select:
                         generationsColumns ||
                         getDefaultGenerationsColumns(!!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]),

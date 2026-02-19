@@ -602,6 +602,35 @@ describe('CDP API', () => {
         })
     })
 
+    describe('body size limits', () => {
+        const largePayload = 'x'.repeat(600 * 1024)
+
+        it('accepts large payloads on hog function invocations endpoint', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
+                .send({ globals, mock_async_functions: true, configuration: { large_field: largePayload } })
+
+            expect(res.status).toEqual(200)
+        })
+
+        it('accepts large payloads on hog flow invocations endpoint', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFunction.team_id}/hog_flows/new/invocations`)
+                .send({ globals, mock_async_functions: true, configuration: { large_field: largePayload } })
+
+            // 400 from missing flow config, not 413/500 from body size
+            expect(res.status).not.toEqual(413)
+            expect(res.status).not.toEqual(500)
+        })
+
+        it('rejects large payloads on public webhooks endpoint', async () => {
+            const res = await supertest(app).post('/public/webhooks/test-webhook').send({ large_field: largePayload })
+
+            expect(res.status).toEqual(413)
+            expect(res.body).toEqual({ error: 'Request entity too large' })
+        })
+    })
+
     describe('batch hogflow invocations', () => {
         let batchHogFlow: HogFlow
         let originalKafkaProducer: any

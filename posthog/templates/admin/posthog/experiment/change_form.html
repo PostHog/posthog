@@ -3,6 +3,14 @@
 
 {% block after_field_sets %}
     {{ block.super }}
+    {% if show_fix_properties %}
+        <div class="submit-row" style="margin-top: 20px; padding: 20px; border-radius: 5px; border: 1px solid #dc3545; color: #dc3545; display: flex; align-items: center; gap: 10px;">
+            <div class="info">This experiment has malformed metric properties (dict instead of list format).</div>
+            <a class="button" style="padding:10px 15px; background-color: #dc3545; color: white;" href="{% url 'admin:experiment_fix_properties' object_id=original.pk %}">
+                Fix Properties
+            </a>
+        </div>
+    {% endif %}
     {% if show_migration %}
         {% if shared_metrics_status %}
             <div class="submit-row" style="margin-top: 20px; padding: 10px; border-radius: 5px; border: 1px solid #f7a501; color: #f7a501; display: flex; align-items: center; gap: 10px;">

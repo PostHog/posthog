@@ -2,8 +2,11 @@ from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
+import posthoganalytics
+
 from posthog.schema import AgentMode, AssistantMessage, HumanMessage, MaxBillingContext
 
+from posthog import event_usage
 from posthog.models import Team, User
 
 from ee.hogai.chat_agent import AssistantGraph
@@ -69,6 +72,7 @@ class ChatAgentRunner(BaseAgentRunner):
         slack_thread_context: Optional["SlackThreadContext"] = None,
         use_checkpointer: bool = True,
         is_agent_billable: bool = True,
+        is_impersonated: bool = False,
         resume_payload: Optional[dict[str, Any]] = None,
     ):
         super().__init__(
@@ -88,6 +92,7 @@ class ChatAgentRunner(BaseAgentRunner):
             billing_context=billing_context,
             use_checkpointer=use_checkpointer,
             is_agent_billable=is_agent_billable,
+            is_impersonated=is_impersonated,
             stream_processor=ChatAgentStreamProcessor(
                 verbose_nodes=VERBOSE_NODES,
                 streaming_nodes=STREAMING_NODES,
@@ -141,6 +146,20 @@ class ChatAgentRunner(BaseAgentRunner):
         stream_first_message: bool = True,
         stream_only_assistant_messages: bool = False,
     ) -> AsyncGenerator[AssistantOutput, None]:
+        if self._selected_agent_mode and self._user:
+            posthoganalytics.capture(
+                distinct_id=self._user.distinct_id,
+                event="ai mode executed",
+                properties={
+                    "mode": self._selected_agent_mode,
+                    "previous_mode": None,
+                    "is_initial_mode": True,
+                    "conversation_id": str(self._conversation.id),
+                    "$session_id": self._session_id,
+                },
+                groups=event_usage.groups(team=self._team),
+            )
+
         last_ai_message: AssistantMessage | None = None
         async for stream_event in super().astream(
             stream_message_chunks, stream_subgraphs, stream_first_message, stream_only_assistant_messages

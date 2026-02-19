@@ -236,7 +236,9 @@ CREATE TABLE IF NOT EXISTS {table_name} (
 
     lc_dagster__job_name String,
     lc_dagster__run_id String,
-    lc_dagster__owner String
+    lc_dagster__owner String,
+
+    lc_modifiers String
 ) ENGINE = {engine}{table_clauses}
     """.format(
         table_name=table_name,
@@ -364,7 +366,9 @@ SELECT
 
     JSONExtractString(log_comment, 'dagster', 'job_name') as lc_dagster__job_name,
     JSONExtractString(log_comment, 'dagster', 'run_id') as lc_dagster__run_id,
-    JSONExtractString(log_comment, 'dagster', 'tags', 'owner') as lc_dagster__owner
+    JSONExtractString(log_comment, 'dagster', 'tags', 'owner') as lc_dagster__owner,
+
+    if(is_initial_query, JSONExtractRaw(log_comment, 'modifiers'), '') as lc_modifiers
 FROM system.query_log
 WHERE
     type != 'QueryStart'
@@ -470,6 +474,14 @@ def QUERY_LOG_ARCHIVE_ADD_V8_COLUMNS_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
 def QUERY_LOG_ARCHIVE_ADD_LC_QUERY_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
     return f"""
     ALTER TABLE {table} ADD COLUMN IF NOT EXISTS lc_query String AFTER lc_query__query
+    """
+
+
+# V10 - adding lc_modifiers to store HogQL query modifiers
+def QUERY_LOG_ARCHIVE_ADD_MODIFIERS_COLUMN_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
+    return f"""
+    ALTER TABLE {table}
+        ADD COLUMN IF NOT EXISTS lc_modifiers String AFTER lc_dagster__owner
     """
 
 

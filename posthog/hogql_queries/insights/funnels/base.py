@@ -13,6 +13,7 @@ from posthog.schema import (
     EventsNode,
     FunnelTimeToConvertResults,
     FunnelVizType,
+    GroupNode,
     StepOrderValue,
 )
 
@@ -195,7 +196,7 @@ class FunnelBase(ABC):
                 serialized_result.update(
                     {
                         "breakdown": (
-                            get_breakdown_cohort_name(breakdown_value)
+                            get_breakdown_cohort_name(breakdown_value, self.context.team)
                             if self.context.breakdownFilter.breakdown_type == "cohort"
                             else breakdown_value
                         ),
@@ -209,7 +210,7 @@ class FunnelBase(ABC):
 
     def _serialize_step(
         self,
-        step: ActionsNode | EventsNode | DataWarehouseNode,
+        step: ActionsNode | EventsNode | DataWarehouseNode | GroupNode,
         count: int,
         index: int,
         people: Optional[list[uuid.UUID]] = None,
@@ -221,6 +222,8 @@ class FunnelBase(ABC):
             step_type = "actions"
         elif isinstance(step, DataWarehouseNode):
             step_type = "data_warehouse"
+        elif isinstance(step, GroupNode):
+            step_type = "group"
         else:
             raise TypeError(f"Unsupported step type {type(step)}")
 
@@ -242,6 +245,23 @@ class FunnelBase(ABC):
         elif isinstance(step, DataWarehouseNode):
             name = f"{step.table_name}.{step.distinct_id_field}"
             action_id = None
+        elif isinstance(step, GroupNode):
+            action_ids = [int(node.id) for node in step.nodes if isinstance(node, ActionsNode)]
+            actions_by_id = {}
+            if action_ids:
+                actions = Action.objects.filter(pk__in=action_ids, team__project_id=self.context.team.project_id)
+                actions_by_id = {action.pk: action.name or "Unnamed action" for action in actions}
+
+            events = []
+            for node in step.nodes:
+                if isinstance(node, EventsNode):
+                    events.append(node.event if node.event is not None else "All events")
+                elif isinstance(node, ActionsNode):
+                    events.append(actions_by_id.get(int(node.id), "Unnamed action"))
+                elif isinstance(node, DataWarehouseNode):
+                    events.append(node.table_name)
+            name = ", ".join(events)
+            action_id = name
         else:
             action = Action.objects.get(pk=step.id, team__project_id=self.context.team.project_id)
             name = action.name

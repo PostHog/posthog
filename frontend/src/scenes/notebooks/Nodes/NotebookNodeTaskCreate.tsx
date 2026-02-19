@@ -8,6 +8,7 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeProps, NotebookNodeType } from 'scenes/notebooks/types'
 
 import { tasksLogic } from 'products/tasks/frontend/logics/tasksLogic'
+import { tasksLogicType } from 'products/tasks/frontend/logics/tasksLogicType'
 import { OriginProduct, TaskUpsertProps } from 'products/tasks/frontend/types'
 
 import { notebookNodeLogic } from './notebookNodeLogic'
@@ -19,7 +20,7 @@ type NotebookNodeTaskCreateAttributes = {
 }
 
 function Component({ attributes }: NotebookNodeProps<NotebookNodeTaskCreateAttributes>): JSX.Element | null {
-    const { createTask } = useActions(tasksLogic)
+    const { createTask } = useActions<tasksLogicType>(tasksLogic)
     const { expanded } = useValues(notebookNodeLogic)
     const [title, setTitle] = useState<string>(attributes.title || '')
     const [description, setDescription] = useState<string>(attributes.description || '')

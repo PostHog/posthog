@@ -7,9 +7,7 @@ import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils'
 
 import { DateMappingOption } from '~/types'
 
-import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
-
-import { logsSceneLogic } from '../../../logsSceneLogic'
+import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 const dateMapping: DateMappingOption[] = [
     { key: CUSTOM_OPTION_KEY, values: [] },
@@ -56,9 +54,9 @@ const dateMapping: DateMappingOption[] = [
 ]
 
 export const DateRangeFilter = (): JSX.Element => {
-    const { dateRange } = useValues(logsSceneLogic)
-    const { setDateRange } = useActions(logsSceneLogic)
-    const { setFilter } = useActions(logsViewerConfigLogic)
+    const { filters } = useValues(logsViewerFiltersLogic)
+    const { dateRange } = filters
+    const { setDateRange } = useActions(logsViewerFiltersLogic)
 
     return (
         <DateFilter
@@ -68,7 +66,6 @@ export const DateRangeFilter = (): JSX.Element => {
             dateOptions={dateMapping}
             onChange={(changedDateFrom, changedDateTo) => {
                 setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
-                setFilter('dateRange', { date_from: changedDateFrom, date_to: changedDateTo })
             }}
             allowTimePrecision
             allowFixedRangeWithTime

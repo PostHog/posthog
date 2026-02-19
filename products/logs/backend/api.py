@@ -1,8 +1,10 @@
+import re
 import json
 import base64
 import datetime as dt
 
 from django.core.cache import cache
+from django.utils import timezone
 
 from pydantic import ValidationError
 from rest_framework import status, viewsets
@@ -16,6 +18,9 @@ from posthog.schema import DateRange, LogAttributesQuery, LogsQuery, LogValuesQu
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import User
+from posthog.models.exported_asset import ExportedAsset
+from posthog.tasks.exporter import export_asset
 
 from products.logs.backend.explain import LogExplainViewSet
 from products.logs.backend.has_logs_query_runner import HasLogsQueryRunner
@@ -25,6 +30,8 @@ from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, Log
 from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
 
 __all__ = ["LogsViewSet", "LogExplainViewSet"]
+
+LOGS_MAX_EXPORT_ROWS = 10_000
 
 
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
@@ -40,15 +47,18 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         after_cursor = query_data.get("after", None)
         date_range = self.get_model(query_data.get("dateRange"), DateRange)
 
+        order_by = query_data.get("orderBy")
+        # Default to latest instead of erroring on invalid order_by
+        if order_by not in (OrderBy3.EARLIEST, OrderBy3.LATEST):
+            order_by = OrderBy3.LATEST
         # When using cursor pagination, narrow the date range based on the cursor timestamp.
         # This allows time-slicing optimization to work on progressively smaller ranges
         # as the user pages through results.
-        order_by = query_data.get("orderBy")
         if after_cursor:
             try:
                 cursor = json.loads(base64.b64decode(after_cursor).decode("utf-8"))
                 cursor_ts = dt.datetime.fromisoformat(cursor["timestamp"])
-                if order_by == OrderBy3.EARLIEST or order_by == "earliest":
+                if order_by == OrderBy3.EARLIEST:
                     # For "earliest" ordering, we're looking for logs AFTER the cursor
                     date_range = DateRange(
                         date_from=cursor_ts.isoformat(),
@@ -68,7 +78,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             "dateRange": date_range,
             "severityLevels": query_data.get("severityLevels", []),
             "serviceNames": query_data.get("serviceNames", []),
-            "orderBy": query_data.get("orderBy"),
+            "orderBy": order_by,
             "searchTerm": query_data.get("searchTerm", None),
             "filterGroup": query_data.get("filterGroup", None),
             "resourceFingerprint": query_data.get("resourceFingerprint", None),
@@ -203,7 +213,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             next_cursor = base64.b64encode(json.dumps(cursor_data).encode("utf-8")).decode("utf-8")
 
         return Response(
-            {"query": query, "results": results, "hasMore": has_more, "nextCursor": next_cursor}, status=200
+            {
+                "query": query,
+                "results": results,
+                "hasMore": has_more,
+                "nextCursor": next_cursor,
+                "maxExportableLogs": LOGS_MAX_EXPORT_ROWS,
+            },
+            status=200,
         )
 
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
@@ -349,3 +366,58 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             cache.set(cache_key, True, int(dt.timedelta(days=7).total_seconds()))
 
         return Response({"hasLogs": has_logs}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
+    def export(self, request: Request, *args, **kwargs) -> Response:
+        query_data = request.data.get("query", None)
+        if query_data is None:
+            return Response({"error": "No query provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+        columns = request.data.get("columns") or []
+        filename = self._generate_export_filename(query_data)
+
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {**query_data, "kind": "LogsQuery", "limit": LOGS_MAX_EXPORT_ROWS},
+                "columns": columns,
+                "filename": filename,
+                "row_limit": LOGS_MAX_EXPORT_ROWS,
+            },
+            created_by=request.user if isinstance(request.user, User) else None,
+        )
+
+        export_asset.delay(asset.id)
+
+        return Response(
+            {
+                "id": asset.id,
+                "export_format": asset.export_format,
+                "created_at": asset.created_at,
+                "has_content": asset.has_content,
+                "filename": asset.filename,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    def _generate_export_filename(self, query_data: dict) -> str:
+        service_names = query_data.get("serviceNames") or []
+        if len(service_names) == 1:
+            service_part = re.sub(r"[^a-zA-Z0-9_-]", "-", service_names[0])[:50]
+        elif len(service_names) > 1:
+            service_part = f"{len(service_names)}-services"
+        else:
+            service_part = "all-services"
+
+        date_range = query_data.get("dateRange", {})
+        date_from = date_range.get("date_from", "")[:10] if date_range.get("date_from") else ""
+        date_to = date_range.get("date_to", "")[:10] if date_range.get("date_to") else ""
+        if date_from and date_to:
+            date_part = f"{date_from}-to-{date_to}"
+        elif date_from:
+            date_part = f"from-{date_from}"
+        else:
+            date_part = timezone.now().strftime("%Y-%m-%d")
+
+        return f"logs-{service_part}-{date_part}"

@@ -15,6 +15,9 @@ from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 from ee.hogai.core.agent_modes.mode_manager import AgentModeManager
 from ee.hogai.core.agent_modes.presets.error_tracking import chat_agent_plan_error_tracking_agent, error_tracking_agent
+from ee.hogai.core.agent_modes.presets.flags import chat_agent_plan_flags_agent, flags_agent
+from ee.hogai.core.agent_modes.presets.onboarding import onboarding_agent
+from ee.hogai.core.agent_modes.presets.onboarding_prompt_builder import OnboardingPromptBuilder
 from ee.hogai.core.agent_modes.presets.product_analytics import (
     chat_agent_plan_product_analytics_agent,
     product_analytics_agent,
@@ -27,6 +30,7 @@ from ee.hogai.core.agent_modes.prompt_builder import AgentPromptBuilder
 from ee.hogai.core.agent_modes.toolkit import AgentToolkit, AgentToolkitManager
 from ee.hogai.utils.feature_flags import (
     has_error_tracking_mode_feature_flag,
+    has_flags_mode_feature_flag,
     has_plan_mode_feature_flag,
     has_survey_mode_feature_flag,
 )
@@ -78,24 +82,21 @@ class ChatAgentModeManager(AgentModeManager):
     ):
         self._is_subagent = context_manager.is_subagent
 
+        # Set _mode and _supermode before super().__init__ because the parent
+        # calls self.mode_registry which accesses these attributes.
+        if state.agent_mode == AgentMode.PLAN:
+            self._supermode: AgentMode | None = AgentMode.PLAN
+            self._mode = AgentMode.PRODUCT_ANALYTICS
+        else:
+            self._supermode = cast(AgentMode | None, state.supermode)
+            self._mode = state.agent_mode or AgentMode.PRODUCT_ANALYTICS
+
         super().__init__(
             team=team,
             user=user,
             node_path=node_path,
             context_manager=context_manager,
             state=state,
-        )
-
-        # Handle plan mode: agent_mode=PLAN from frontend means supermode=PLAN
-        self._supermode: AgentMode | None
-        if state.agent_mode == AgentMode.PLAN:
-            self._supermode = AgentMode.PLAN
-        else:
-            self._supermode = cast(AgentMode | None, state.supermode)
-        self._mode = (
-            state.agent_mode
-            if state.agent_mode and state.agent_mode in self.mode_registry
-            else AgentMode.PRODUCT_ANALYTICS
         )
 
     @property
@@ -116,6 +117,13 @@ class ChatAgentModeManager(AgentModeManager):
                 registry[AgentMode.ERROR_TRACKING] = error_tracking_agent
         if has_survey_mode_feature_flag(self._team, self._user):
             registry[AgentMode.SURVEY] = survey_agent
+        if has_flags_mode_feature_flag(self._team, self._user):
+            if self._supermode == AgentMode.PLAN:
+                registry[AgentMode.FLAGS] = chat_agent_plan_flags_agent
+            else:
+                registry[AgentMode.FLAGS] = flags_agent
+        if self._mode == AgentMode.ONBOARDING:
+            registry[AgentMode.ONBOARDING] = onboarding_agent
         return registry
 
     @property
@@ -129,6 +137,8 @@ class ChatAgentModeManager(AgentModeManager):
 
     @property
     def prompt_builder_class(self) -> type[AgentPromptBuilder]:
+        if self._mode == AgentMode.ONBOARDING:
+            return OnboardingPromptBuilder
         if self._supermode == AgentMode.PLAN:
             return ChatAgentPlanPromptBuilder
         return ChatAgentPromptBuilder

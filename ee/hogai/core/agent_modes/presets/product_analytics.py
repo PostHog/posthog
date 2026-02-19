@@ -1,8 +1,6 @@
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-import posthoganalytics
-
 from posthog.schema import AgentMode
 
 from ee.hogai.chat_agent.executables import (
@@ -11,9 +9,8 @@ from ee.hogai.chat_agent.executables import (
     ChatAgentPlanToolsExecutable,
     ChatAgentToolsExecutable,
 )
-from ee.hogai.tools import CreateDashboardTool, CreateInsightTool, UpsertDashboardTool
+from ee.hogai.tools import CreateInsightTool, UpsertDashboardTool
 from ee.hogai.tools.todo_write import POSITIVE_TODO_EXAMPLES, TodoWriteExample
-from ee.hogai.utils.feature_flags import has_upsert_dashboard_feature_flag
 
 from ..factory import AgentModeDefinition
 from ..toolkit import AgentToolkit
@@ -58,27 +55,7 @@ class ProductAnalyticsAgentToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        tools: list[type[MaxTool]] = [CreateInsightTool]
-
-        # Add other lower-priority tools
-        if has_upsert_dashboard_feature_flag(self._team, self._user):
-            tools.append(UpsertDashboardTool)
-        else:
-            tools.append(CreateDashboardTool)
-
-        return tools
-
-    def _has_session_summarization_feature_flag(self) -> bool:
-        """
-        Check if the user has the session summarization feature flag enabled.
-        """
-        return posthoganalytics.feature_enabled(
-            "max-session-summarization",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
-        )
+        return [CreateInsightTool, UpsertDashboardTool]
 
 
 product_analytics_agent = AgentModeDefinition(

@@ -12,6 +12,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models import Survey, Team, User
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL
 from posthog.models.person.person import Person, PersonDistinctId
+from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
 
 class MultipleChoiceTemplate(TypedDict):
@@ -204,6 +205,25 @@ OPEN_RESPONSES_LONG = {
 # Backward compatibility: keep OPEN_RESPONSES pointing to short responses
 OPEN_RESPONSES = OPEN_RESPONSES_SHORT
 
+# Specific responses for LLM feedback surveys
+LLM_NEGATIVE_FEEDBACK = [
+    "The response didn't answer my question at all.",
+    "It hallucinated facts that aren't true.",
+    "The answer was too vague and generic.",
+    "It misunderstood what I was asking.",
+    "The code example had bugs.",
+    "The response was cut off and incomplete.",
+    "It gave outdated information.",
+    "The explanation was confusing and hard to follow.",
+    "It repeated itself multiple times unnecessarily.",
+    "The response was too long and rambling.",
+    "It didn't follow my specific instructions.",
+    "The formatting was all wrong.",
+    "It made up a feature that doesn't exist.",
+    "The response contradicted what it said earlier.",
+    "It was too slow and timed out.",
+]
+
 
 class PersonData:
     """Holds person data for event generation."""
@@ -217,6 +237,20 @@ class PersonData:
 
 class Command(BaseCommand):
     help = "Generate random surveys for development purposes"
+
+    def get_real_trace_ids(self, team: Team, limit: int = 100) -> list[str]:
+        """Fetch real AI trace IDs from the project if they exist."""
+        query = """
+        SELECT DISTINCT JSONExtractString(properties, '$ai_trace_id') as trace_id
+        FROM events
+        WHERE team_id = %(team_id)s
+          AND event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+          AND JSONExtractString(properties, '$ai_trace_id') != ''
+        ORDER BY timestamp DESC
+        LIMIT %(limit)s
+        """
+        result = sync_execute(query, {"team_id": team.id, "limit": limit})
+        return [row[0] for row in result if row[0]]
 
     def get_real_persons(self, team: Team, limit: int = 50) -> list[PersonData]:
         """Fetch real persons from the database that were created by demo data generation."""
@@ -272,6 +306,16 @@ class Command(BaseCommand):
             "--with-trace-ids",
             action="store_true",
             help="Include $ai_trace_id property on each survey response (for testing LLM feedback surveys)",
+        )
+        parser.add_argument(
+            "--llm-feedback",
+            action="store_true",
+            help="Generate a specific LLM feedback survey with thumbs up/down + optional follow-up question (branching)",
+        )
+        parser.add_argument(
+            "--wipe",
+            action="store_true",
+            help="Wipe all existing surveys and survey events before generating new ones",
         )
 
     def generate_question_of_type(
@@ -338,9 +382,9 @@ class Command(BaseCommand):
                 "optional": random.choice([True, False]),
                 "buttonText": random.choice(["Submit", "Next", "Continue"]),
                 "display": "emoji",
-                "scale": 2,  # Thumbs up/down scale
-                "lowerBoundLabel": "No",
-                "upperBoundLabel": "Yes",
+                "scale": 2,  # Thumbs up/down scale (1 = thumbs up, 2 = thumbs down)
+                "lowerBoundLabel": "Yes",
+                "upperBoundLabel": "No",
             }
 
         else:  # link
@@ -457,6 +501,82 @@ class Command(BaseCommand):
                 "link": link_template["link"],
             }
 
+    def generate_llm_feedback_survey(self, team_id: int, user_id: int) -> dict[str, Any]:
+        """Generate a specific LLM feedback survey with thumbs up/down + optional follow-up."""
+        questions = [
+            {
+                "type": "rating",
+                "question": "Was this AI response helpful?",
+                "description": "Quick feedback on the AI response",
+                "descriptionContentType": "text",
+                "optional": False,
+                "buttonText": "Submit",
+                "display": "emoji",
+                "scale": 2,
+                "lowerBoundLabel": "No",
+                "upperBoundLabel": "Yes",
+                "branching": {
+                    "type": "response_based",
+                    "responseValues": {
+                        "positive": "end",
+                        "negative": 1,
+                    },
+                },
+            },
+            {
+                "type": "open",
+                "question": "What went wrong with this response?",
+                "description": "Help us improve our AI by sharing what could be better",
+                "descriptionContentType": "text",
+                "optional": True,
+                "buttonText": "Submit",
+            },
+        ]
+
+        return {
+            "team_id": team_id,
+            "name": "[API] LLM Feedback Survey - Thumbs with Follow-up",
+            "description": "Collect feedback on AI responses with conditional follow-up",
+            "type": "api",
+            "questions": questions,
+            "appearance": {
+                "thankYouMessageHeader": "Thanks for your feedback!",
+                "thankYouMessageDescription": "We'll use it to improve our AI.",
+                "thankYouMessageDescriptionContentType": "text",
+                "surveyPopupDelaySeconds": 0,
+                "fontFamily": "system-ui",
+                "backgroundColor": "#eeeded",
+                "submitButtonColor": "black",
+                "submitButtonTextColor": "white",
+                "ratingButtonColor": "white",
+                "ratingButtonActiveColor": "black",
+                "borderColor": "#c9c6c6",
+                "placeholder": "Tell us what went wrong...",
+                "whiteLabel": False,
+                "displayThankYouMessage": True,
+                "position": "right",
+            },
+            "created_by_id": user_id,
+            "archived": False,
+            "schedule": "once",
+            "linked_flag_id": None,
+            "linked_flag": None,
+            "targeting_flag": None,
+            "start_date": timezone.now() - timedelta(days=60),
+            "end_date": None,
+            "conditions": None,
+            "responses_limit": None,
+            "iteration_count": None,
+            "iteration_frequency_days": None,
+            "internal_targeting_flag": None,
+            "internal_response_sampling_flag": None,
+            "response_sampling_start_date": None,
+            "response_sampling_interval_type": None,
+            "response_sampling_interval": None,
+            "response_sampling_limit": None,
+            "response_sampling_daily_limits": None,
+        }
+
     def generate_random_survey(self, team_id: int, user_id: int) -> dict[str, Any]:
         # Always include the 4 required actionable question types
         questions = self.generate_required_questions()
@@ -524,6 +644,10 @@ class Command(BaseCommand):
         question_text = question.get("question", "").lower()
 
         if question_type == "open":
+            # Check for LLM feedback survey question
+            if "wrong" in question_text or "ai" in question_text:
+                return random.choice(LLM_NEGATIVE_FEEDBACK)
+
             # 35% chance of a long response, 65% chance of a short response
             use_long = random.random() < 0.35
             responses = OPEN_RESPONSES_LONG if use_long else OPEN_RESPONSES_SHORT
@@ -539,9 +663,10 @@ class Command(BaseCommand):
             display = question.get("display", "number")
 
             # Handle thumbs up/down (scale of 2, emoji display)
+            # 1 = thumbs up, 2 = thumbs down
             if scale == 2 and display == "emoji":
                 # Realistic distribution: ~70% thumbs up, ~30% thumbs down
-                return "2" if random.random() < 0.7 else "1"
+                return "1" if random.random() < 0.7 else "2"
 
             # Realistic distribution: skewed positive with some variation
             rand = random.random()
@@ -676,6 +801,7 @@ class Command(BaseCommand):
         days_back: int,
         persons_data: list[PersonData],
         with_trace_ids: bool = False,
+        real_trace_ids: list[str] | None = None,
     ) -> tuple[int, int, int]:
         """Generate survey response events for a survey.
 
@@ -738,17 +864,39 @@ class Command(BaseCommand):
 
                 # Add trace ID if requested (for testing LLM feedback surveys)
                 if with_trace_ids:
-                    response_properties["$ai_trace_id"] = str(uuid.uuid4())
+                    if real_trace_ids:
+                        # Use a real trace ID from the project
+                        response_properties["$ai_trace_id"] = random.choice(real_trace_ids)
+                    else:
+                        # Fall back to random UUID if no real traces exist
+                        response_properties["$ai_trace_id"] = str(uuid.uuid4())
 
-                # Generate response for each question
+                # Generate response for each question, respecting branching logic
                 questions = survey.questions or []
+                skip_remaining = False
                 for idx, question in enumerate(questions):
+                    if skip_remaining:
+                        break
+
                     response = self.generate_response_for_question(question)
                     if response is not None:
                         if idx == 0:
                             response_properties["$survey_response"] = response
                         else:
                             response_properties[f"$survey_response_{idx}"] = response
+
+                        # Check branching logic
+                        branching = question.get("branching")
+                        if branching and branching.get("type") == "response_based":
+                            response_values = branching.get("responseValues", {})
+                            # For rating questions (scale 2), determine sentiment from response
+                            # 1 = thumbs up (positive), 2 = thumbs down (negative)
+                            scale = question.get("scale", 5)
+                            if question.get("type") == "rating" and scale == 2:
+                                sentiment = "positive" if response == "1" else "negative"
+                                next_step = response_values.get(sentiment)
+                                if next_step == "end":
+                                    skip_remaining = True
 
                 insert, event_params = self._build_event_row(
                     event_name="survey sent",
@@ -787,12 +935,33 @@ class Command(BaseCommand):
 
         return sent_count, shown_count, dismissed_count
 
+    def wipe_surveys_and_events(self, team: Team) -> None:
+        """Delete all surveys and survey events for the team."""
+        # Delete surveys from Django
+        survey_count = Survey.objects.filter(team_id=team.id).count()
+        Survey.objects.filter(team_id=team.id).delete()
+        self.stdout.write(self.style.SUCCESS(f"Deleted {survey_count} surveys from Django"))
+
+        # Delete survey events from ClickHouse (must use sharded_events table, not the distributed table)
+        survey_events = ["survey shown", "survey sent", "survey dismissed"]
+        for event_name in survey_events:
+            delete_query = f"""
+            DELETE FROM sharded_events ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+            WHERE team_id = %(team_id)s AND event = %(event_name)s
+            """
+            sync_execute(delete_query, {"team_id": team.id, "event_name": event_name})
+            self.stdout.write(self.style.SUCCESS(f"Deleted '{event_name}' events from ClickHouse"))
+
+        self.stdout.write(self.style.SUCCESS("Wipe complete!"))
+
     def handle(self, *args, **options):
         count = options["count"]
         team_id = options["team_id"]
         num_responses = options["responses"]
         days_back = options["days_back"]
         with_trace_ids = options["with_trace_ids"]
+        llm_feedback = options["llm_feedback"]
+        wipe = options["wipe"]
 
         if team_id:
             team = Team.objects.filter(id=team_id).first()
@@ -813,6 +982,15 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f"No users found for team {team.id}"))
             return
 
+        # Wipe existing surveys and events if requested
+        if wipe:
+            self.stdout.write(self.style.WARNING("Wiping existing surveys and survey events..."))
+            self.wipe_surveys_and_events(team)
+
+        # LLM feedback mode implies --with-trace-ids
+        if llm_feedback:
+            with_trace_ids = True
+
         total_sent = 0
         total_shown = 0
         total_dismissed = 0
@@ -832,8 +1010,24 @@ class Command(BaseCommand):
                     )
                 )
 
+        # Fetch real trace IDs if requested
+        real_trace_ids: list[str] = []
+        if with_trace_ids:
+            real_trace_ids = self.get_real_trace_ids(team, limit=500)
+            if real_trace_ids:
+                self.stdout.write(
+                    self.style.SUCCESS(f"Found {len(real_trace_ids)} real AI trace IDs to use for responses")
+                )
+            else:
+                self.stdout.write(
+                    self.style.WARNING("No AI trace IDs found in the project. Will generate random UUIDs instead.")
+                )
+
         for _ in range(count):
-            survey_data = self.generate_random_survey(team.id, user.id)
+            if llm_feedback:
+                survey_data = self.generate_llm_feedback_survey(team.id, user.id)
+            else:
+                survey_data = self.generate_random_survey(team.id, user.id)
             survey = Survey.objects.create(**survey_data)
 
             # Backdate created_at so that generated events (spread over days_back days) fall within
@@ -847,7 +1041,7 @@ class Command(BaseCommand):
 
             if num_responses > 0 and persons_data:
                 sent, shown, dismissed = self.generate_survey_responses(
-                    survey, team, num_responses, days_back, persons_data, with_trace_ids
+                    survey, team, num_responses, days_back, persons_data, with_trace_ids, real_trace_ids
                 )
                 total_sent += sent
                 total_shown += shown

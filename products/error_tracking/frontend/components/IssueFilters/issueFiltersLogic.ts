@@ -1,6 +1,5 @@
 import equal from 'fast-deep-equal'
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { SelectedQuickFilter, quickFiltersSectionLogic } from 'lib/components/QuickFilters'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -10,7 +9,7 @@ import { Params } from 'scenes/sceneTypes'
 import { DateRange, QuickFilterContext } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, PropertyFilterType, UniversalFiltersGroup } from '~/types'
 
-import { syncSearchParams, updateSearchParams } from '../../utils'
+import { updateSearchParams } from '../../utils'
 import { TAXONOMIC_FILTER_LOGIC_KEY, TAXONOMIC_GROUP_TYPES } from './consts'
 import type { issueFiltersLogicType } from './issueFiltersLogicType'
 
@@ -54,21 +53,19 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
     reducers({
         dateRange: [
             DEFAULT_DATE_RANGE as DateRange,
-            { persist: true },
             {
                 setDateRange: (_, { dateRange }) => dateRange,
             },
         ],
         filterGroup: [
             DEFAULT_FILTER_GROUP as UniversalFiltersGroup,
-            { persist: true },
             {
-                setFilterGroup: (_, { filterGroup }) => filterGroup,
+                setFilterGroup: (_, { filterGroup }) =>
+                    filterGroup?.values?.length ? filterGroup : DEFAULT_FILTER_GROUP,
             },
         ],
         filterTestAccounts: [
             DEFAULT_TEST_ACCOUNT as boolean,
-            { persist: true },
             {
                 setFilterTestAccounts: (_, { filterTestAccounts }) => filterTestAccounts,
             },
@@ -120,52 +117,53 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
             },
         ],
     }),
-
-    urlToAction(({ actions, values }) => {
-        const urlToAction = (_: any, params: Params): void => {
-            if (params.dateRange && !equal(params.dateRange, values.dateRange)) {
-                actions.setDateRange(params.dateRange)
-            }
-            if (params.filterGroup && !equal(params.filterGroup, values.filterGroup)) {
-                actions.setFilterGroup(params.filterGroup)
-            }
-            if (params.filterTestAccounts && !equal(params.filterTestAccounts, values.filterTestAccounts)) {
-                actions.setFilterTestAccounts(params.filterTestAccounts)
-            }
-            const newQuery = params.searchQuery ? params.searchQuery.toString() : null
-            if (newQuery && !equal(newQuery, values.searchQuery)) {
-                actions.setSearchQuery(newQuery)
-                actions.setTaxonomicSearchQuery(newQuery)
-            }
-        }
-        return {
-            '*': urlToAction,
-        }
-    }),
-
-    actionToUrl(({ values }) => {
-        const buildURL = (): [
-            string,
-            Params,
-            Record<string, any>,
-            {
-                replace: boolean
-            },
-        ] => {
-            return syncSearchParams(router, (params: Params) => {
-                updateSearchParams(params, 'filterTestAccounts', values.filterTestAccounts, DEFAULT_TEST_ACCOUNT)
-                updateSearchParams(params, 'searchQuery', values.searchQuery, DEFAULT_SEARCH_QUERY)
-                updateSearchParams(params, 'filterGroup', values.filterGroup, DEFAULT_FILTER_GROUP)
-                updateSearchParams(params, 'dateRange', values.dateRange, DEFAULT_DATE_RANGE)
-                return params
-            })
-        }
-
-        return {
-            setDateRange: () => buildURL(),
-            setFilterGroup: () => buildURL(),
-            setSearchQuery: () => buildURL(),
-            setFilterTestAccounts: () => buildURL(),
-        }
-    }),
+    listeners(({ actions }) => ({
+        setSearchQuery: async ({ searchQuery }) => {
+            actions.setTaxonomicSearchQuery(searchQuery)
+        },
+    })),
 ])
+
+export interface IssueFilterValues {
+    dateRange: DateRange | null
+    filterGroup: UniversalFiltersGroup
+    filterTestAccounts: boolean
+    searchQuery: string
+}
+
+export interface IssueFilterActions {
+    setDateRange: (dateRange: DateRange) => void
+    setSearchQuery: (searchQuery: string) => void
+    setFilterGroup: (filterGroup: UniversalFiltersGroup) => void
+    setFilterTestAccounts: (filterTestAccounts: boolean) => void
+}
+
+export function updateFilterSearchParams(params: Params, values: IssueFilterValues): Params {
+    updateSearchParams(params, 'filterTestAccounts', values.filterTestAccounts, DEFAULT_TEST_ACCOUNT)
+    updateSearchParams(params, 'searchQuery', values.searchQuery, DEFAULT_SEARCH_QUERY)
+    updateSearchParams(params, 'filterGroup', values.filterGroup, DEFAULT_FILTER_GROUP)
+    updateSearchParams(params, 'dateRange', values.dateRange, DEFAULT_DATE_RANGE)
+    return params
+}
+
+export const triggerFilterActions = (params: Params, values: any, actions: IssueFilterActions): void => {
+    const dateRange = params.dateRange ?? DEFAULT_DATE_RANGE
+    if (!equal(dateRange, values.dateRange)) {
+        actions.setDateRange(dateRange)
+    }
+
+    const filterGroup = params.filterGroup ?? DEFAULT_FILTER_GROUP
+    if (!equal(filterGroup, values.filterGroup)) {
+        actions.setFilterGroup(filterGroup)
+    }
+
+    const filterTestAccounts = params.filterTestAccounts ?? DEFAULT_TEST_ACCOUNT
+    if (!equal(filterTestAccounts, values.filterTestAccounts)) {
+        actions.setFilterTestAccounts(filterTestAccounts)
+    }
+
+    const newQuery = params.searchQuery ? params.searchQuery.toString() : DEFAULT_SEARCH_QUERY
+    if (!equal(newQuery, values.searchQuery)) {
+        actions.setSearchQuery(newQuery)
+    }
+}

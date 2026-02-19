@@ -4,6 +4,7 @@ import React, { useMemo } from 'react'
 
 import { LemonBanner, LemonButton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -30,7 +31,7 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
-import { DashboardPlacement, EventType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, EventType } from '~/types'
 
 import { LLMAnalyticsErrors } from './LLMAnalyticsErrors'
 import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
@@ -44,7 +45,7 @@ import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsDashboardLogic } from './tabs/llmAnalyticsDashboardLogic'
 import { getDefaultGenerationsColumns, llmAnalyticsGenerationsLogic } from './tabs/llmAnalyticsGenerationsLogic'
-import { truncateValue } from './utils'
+import { sanitizeTraceUrlSearchParams, truncateValue } from './utils'
 
 export const scene: SceneExport = {
     component: LLMAnalyticsScene,
@@ -82,9 +83,14 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
             )}
             {hidePropertyFilters && <div className="flex-1" />}
             {activeTab === 'dashboard' && selectedDashboardId && (
-                <LemonButton type="secondary" size="small" to={urls.dashboard(selectedDashboardId)}>
-                    Edit dashboard
-                </LemonButton>
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.LlmAnalytics}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
+                    <LemonButton type="secondary" size="small" to={urls.dashboard(selectedDashboardId)}>
+                        Edit dashboard
+                    </LemonButton>
+                </AccessControlAction>
             )}
             <LLMAnalyticsReloadAction />
         </div>
@@ -142,6 +148,7 @@ function LLMAnalyticsDashboard(): JSX.Element {
 function LLMAnalyticsGenerations(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
     const { propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
+    const { searchParams } = useValues(router)
     const { setGenerationsColumns, toggleGenerationExpanded, setGenerationsSort } =
         useActions(llmAnalyticsGenerationsLogic)
     const { generationsQuery, expandedGenerationIds, loadedTraces, generationsSort } =
@@ -215,6 +222,9 @@ function LLMAnalyticsGenerations(): JSX.Element {
 
                             const ids = getRowIds(record)
                             const visualValue = truncateValue(value)
+                            const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, {
+                                removeSearch: true,
+                            })
 
                             return !ids ? (
                                 <strong>{visualValue}</strong>
@@ -222,7 +232,13 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 <strong>
                                     <Tooltip title={value}>
                                         <Link
-                                            to={`/llm-analytics/traces/${ids.traceId}?event=${value}`}
+                                            to={
+                                                combineUrl(urls.llmAnalyticsTrace(ids.traceId), {
+                                                    ...nonTraceSearchParams,
+                                                    event: value,
+                                                    back_to: 'generations',
+                                                }).url
+                                            }
                                             data-attr="generation-id-link"
                                         >
                                             {visualValue}
@@ -423,22 +439,17 @@ export function LLMAnalyticsScene(): JSX.Element {
         },
     ]
 
-    if (
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_ERRORS_TAB] ||
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-    ) {
-        tabs.push({
-            key: 'errors',
-            label: 'Errors',
-            content: (
-                <LLMAnalyticsSetupPrompt>
-                    <LLMAnalyticsErrors />
-                </LLMAnalyticsSetupPrompt>
-            ),
-            link: combineUrl(urls.llmAnalyticsErrors(), searchParams).url,
-            'data-attr': 'errors-tab',
-        })
-    }
+    tabs.push({
+        key: 'errors',
+        label: 'Errors',
+        content: (
+            <LLMAnalyticsSetupPrompt>
+                <LLMAnalyticsErrors />
+            </LLMAnalyticsSetupPrompt>
+        ),
+        link: combineUrl(urls.llmAnalyticsErrors(), searchParams).url,
+        'data-attr': 'errors-tab',
+    })
 
     // TODO: Once we remove FF, should add to the shortcuts list at the top of the component
     if (
@@ -476,28 +487,41 @@ export function LLMAnalyticsScene(): JSX.Element {
 
     const availableItemsInSidebar = useMemo(() => {
         return [
-            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] ? (
-                <Link to={urls.llmAnalyticsClusters()} onClick={() => toggleProduct('Clusters', true)}>
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB] ||
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS] ? (
+                <Link
+                    to={combineUrl(urls.llmAnalyticsClusters(), searchParams).url}
+                    onClick={() => toggleProduct('Clusters', true)}
+                >
                     clusters
                 </Link>
             ) : null,
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS] ? (
-                <Link to={urls.llmAnalyticsDatasets()} onClick={() => toggleProduct('Datasets', true)}>
+                <Link
+                    to={combineUrl(urls.llmAnalyticsDatasets(), searchParams).url}
+                    onClick={() => toggleProduct('Datasets', true)}
+                >
                     datasets
                 </Link>
             ) : null,
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS] ? (
-                <Link to={urls.llmAnalyticsEvaluations()} onClick={() => toggleProduct('Evaluations', true)}>
+                <Link
+                    to={combineUrl(urls.llmAnalyticsEvaluations(), searchParams).url}
+                    onClick={() => toggleProduct('Evaluations', true)}
+                >
                     evaluations
                 </Link>
             ) : null,
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_PROMPTS] ? (
-                <Link to={urls.llmAnalyticsPrompts()} onClick={() => toggleProduct('Prompts', true)}>
+                <Link
+                    to={combineUrl(urls.llmAnalyticsPrompts(), searchParams).url}
+                    onClick={() => toggleProduct('Prompts', true)}
+                >
                     prompts
                 </Link>
             ) : null,
         ].filter(Boolean) as JSX.Element[]
-    }, [featureFlags])
+    }, [featureFlags, searchParams, toggleProduct])
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>

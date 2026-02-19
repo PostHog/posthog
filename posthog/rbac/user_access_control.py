@@ -56,6 +56,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "external_data_source",
     "feature_flag",
     "insight",
+    "llm_analytics",
     "notebook",
     "revenue_analytics",
     "session_recording",
@@ -70,6 +71,10 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
 RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "session_recording_playlist": "session_recording",
     "external_data_schema": "external_data_source",
+    "evaluation": "llm_analytics",
+    "dataset": "llm_analytics",
+    "llm_provider_key": "llm_analytics",
+    "llm_prompt": "llm_analytics",
 }
 
 

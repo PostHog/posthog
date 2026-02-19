@@ -14,6 +14,7 @@ import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotke
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { RecordingDeleted } from 'scenes/session-recordings/player/RecordingDeleted'
 import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
 import { PlayerFrameCommentOverlay } from 'scenes/session-recordings/player/commenting/PlayerFrameCommentOverlay'
 import { urls } from 'scenes/urls'
@@ -23,8 +24,7 @@ import { PlayerFrameMetaOverlay } from './PlayerFrameMetaOverlay'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { ClipOverlay } from './controller/ClipRecording'
 import { PlayerController } from './controller/PlayerController'
-import { PlayerMeta } from './player-meta/PlayerMeta'
-import { PlayerMetaTopSettings } from './player-meta/PlayerMetaTopSettings'
+import { PlayerMetaBar } from './player-meta/PlayerMetaBar'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from './sessionRecordingDataCoordinatorLogic'
 import {
@@ -67,6 +67,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         setQuickEmojiIsOpen,
         setShowingClipParams,
         setPlayNextAnimationInterrupted,
+        setPlayerActive,
     } = useActions(sessionRecordingPlayerLogic)
 
     const {
@@ -83,7 +84,9 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         endReached,
     } = useValues(sessionRecordingPlayerLogic)
 
-    const { isNotFound, isRecentAndInvalid } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
+    const { isNotFound, isRecentAndInvalid, isRecordingDeleted, recordingDeletedAt } = useValues(
+        sessionRecordingDataCoordinatorLogic(logicProps)
+    )
     const { loadSnapshots } = useActions(sessionRecordingDataCoordinatorLogic(logicProps))
 
     const { isPlaylistCollapsed, showMetadataFooter } = useValues(playerSettingsLogic)
@@ -94,6 +97,11 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         mode === SessionRecordingPlayerMode.Screenshot ||
         mode === SessionRecordingPlayerMode.Video ||
         mode === SessionRecordingPlayerMode.Kiosk
+
+    useEffect(() => {
+        setPlayerActive(true)
+        return () => setPlayerActive(false)
+    }, [setPlayerActive])
 
     useEffect(() => {
         // Disable skipping inactivity when exporting, but keep it if we are displaying metadata footer (export for analysis purposes)
@@ -221,6 +229,14 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         )
     }
 
+    if (isRecordingDeleted) {
+        return (
+            <div className="flex-1 w-full flex justify-center items-center">
+                <RecordingDeleted deletedAt={recordingDeletedAt} />
+            </div>
+        )
+    }
+
     return (
         <div
             ref={playerRef}
@@ -257,14 +273,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                         ) : (
                             <div className="flex w-full h-full">
                                 <div className="flex flex-col flex-1 w-full relative">
-                                    <div className="relative">
-                                        {showMeta ? (
-                                            <>
-                                                <PlayerMeta />
-                                                <PlayerMetaTopSettings />
-                                            </>
-                                        ) : null}
-                                    </div>
+                                    <div className="relative">{showMeta ? <PlayerMetaBar /> : null}</div>
                                     <div
                                         className="SessionRecordingPlayer__body"
                                         draggable={draggable && !isCommenting}

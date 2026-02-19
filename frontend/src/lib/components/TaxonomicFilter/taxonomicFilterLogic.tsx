@@ -20,9 +20,12 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
+    isQuickFilterItem,
 } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconCohort } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, isString, pluralize, toParams } from 'lib/utils'
 import {
     getEventDefinitionIcon,
@@ -99,6 +102,15 @@ export const propertyTaxonomicGroupProps = (
     getIcon: getPropertyDefinitionIcon,
 })
 
+// Stable reference for CohortsWithAllUsers options to prevent cascading re-renders.
+// taxonomicGroups has 14 dependencies that change during initial mount. Each change creates
+// new group objects with inline options arrays, causing rawLocalItems → fuse → localItems →
+// items → selectedItem reference changes. With CohortsWithAllUsers, selectedItemHasPopover
+// returns true (getValue returns 'all'), so ControlledDefinitionPopover renders and its
+// useEffect dispatches setDefinition on every selectedItem change, triggering kea store updates
+// that combined with react-window's layout effect setState exceed React's 50-update limit.
+const COHORTS_WITH_ALL_USERS_OPTIONS: CohortType[] = [{ id: 'all', name: 'All Users*' } as unknown as CohortType]
+
 export const defaultDataWarehousePopoverFields: DataWarehousePopoverField[] = [
     {
         key: 'id_field',
@@ -136,6 +148,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['eventMetadataPropertyDefinitions'],
             taxonomicFilterPreferencesLogic,
             ['eventOrdering'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
     actions(() => ({
@@ -157,6 +171,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             groupType,
             results,
         }),
+        appendTopMatches: (items: (TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType })[]) => ({
+            items,
+        }),
     })),
     reducers(({ props, selectors }) => ({
         searchQuery: [
@@ -167,7 +184,17 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         activeTab: [
             (state: any): TaxonomicFilterGroupType => {
-                return selectors.groupType(state) || selectors.taxonomicGroupTypes(state)[0]
+                const groupTypes = selectors.taxonomicGroupTypes(state)
+                const propsGroupType = selectors.groupType(state)
+                // If there's an existing filter type (e.g., SQL expression being edited),
+                // use that instead of defaulting to SuggestedFilters
+                if (propsGroupType && groupTypes.includes(propsGroupType)) {
+                    return propsGroupType
+                }
+                if (groupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)) {
+                    return TaxonomicFilterGroupType.SuggestedFilters
+                }
+                return groupTypes[0]
             },
             {
                 setActiveTab: (_, { activeTab }) => activeTab,
@@ -182,6 +209,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 moveDown: () => false,
                 setActiveTab: () => true,
                 enableMouseInteractions: () => true,
+            },
+        ],
+        topMatchItems: [
+            [] as (TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType })[],
+            {
+                setSearchQuery: () => [],
+                appendTopMatches: (
+                    state: (TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType })[],
+                    { items }: { items: (TaxonomicDefinitionTypes & { group: TaxonomicFilterGroupType })[] }
+                ) => {
+                    if (items.length === 0) {
+                        return state
+                    }
+                    const incomingGroup = items[0].group
+                    return [...state.filter((i) => i.group !== incomingGroup), ...items]
+                },
             },
         ],
     })),
@@ -234,6 +277,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.hideBehavioralCohorts],
             (hideBehavioralCohorts: boolean | undefined) => hideBehavioralCohorts ?? false,
         ],
+        hogQLGlobals: [
+            () => [(_, props) => props.hogQLGlobals],
+            (hogQLGlobals: Record<string, any> | undefined) => hogQLGlobals,
+        ],
         endpointFilters: [
             () => [(_, props) => props.endpointFilters],
             (endpointFilters: Record<string, any>) => endpointFilters,
@@ -253,6 +300,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.maxContextOptions,
                 s.hideBehavioralCohorts,
                 s.endpointFilters,
+                s.hogQLGlobals,
             ],
             (
                 currentTeam: TeamType,
@@ -267,7 +315,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 eventOrdering: string | null,
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
                 hideBehavioralCohorts: boolean,
-                endpointFilters: Record<string, any> | undefined
+                endpointFilters: Record<string, any> | undefined,
+                hogQLGlobals: Record<string, any> | undefined
             ): TaxonomicFilterGroup[] => {
                 const { id: teamId } = currentTeam
                 const { excludedProperties, propertyAllowList } = propertyFilters
@@ -684,7 +733,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'cohorts',
                         type: TaxonomicFilterGroupType.CohortsWithAllUsers,
                         endpoint: combineUrl(`api/projects/${projectId}/cohorts/`).url,
-                        options: [{ id: 'all', name: 'All Users*' }],
+                        options: COHORTS_WITH_ALL_USERS_OPTIONS,
                         getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
                         getValue: (cohort: CohortType) => cohort.id,
                         getPopoverHeader: () => `All Users`,
@@ -692,25 +741,77 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
                         },
                     },
+                    // PageviewUrls returns a URL string value, used in paths and property filters.
+                    // PageviewEvents creates a $pageview event with $current_url property filter,
+                    // used in trends and funnels series pickers.
                     {
                         name: 'Pageview URLs',
                         searchPlaceholder: 'pageview URLs',
                         type: TaxonomicFilterGroupType.PageviewUrls,
-                        endpoint: `api/environments/${teamId}/events/values/?key=$current_url`,
+                        endpoint: `api/environments/${teamId}/events/values/?key=$current_url&event_name=$pageview`,
                         searchAlias: 'value',
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => `Pageview URL`,
+                        minSearchQueryLength: 3,
                     },
+                    {
+                        name: 'Pageview events',
+                        searchPlaceholder: 'pageview events',
+                        type: TaxonomicFilterGroupType.PageviewEvents,
+                        endpoint: `api/environments/${teamId}/events/values/?key=$current_url&event_name=$pageview`,
+                        searchAlias: 'value',
+                        getName: (option: SimpleOption) => option.name,
+                        getValue: (option: SimpleOption) => option.name,
+                        getPopoverHeader: () => `Pageview event`,
+                        minSearchQueryLength: 3,
+                    },
+                    // Screens returns a screen name value, used in paths and property filters.
+                    // ScreenEvents creates a $screen event with $screen_name property filter,
+                    // used in trends and funnels series pickers.
                     {
                         name: 'Screens',
                         searchPlaceholder: 'screens',
                         type: TaxonomicFilterGroupType.Screens,
-                        endpoint: `api/environments/${teamId}/events/values/?key=$screen_name`,
+                        endpoint: `api/environments/${teamId}/events/values/?key=$screen_name&event_name=$screen`,
                         searchAlias: 'value',
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => `Screen`,
+                        minSearchQueryLength: 3,
+                    },
+                    {
+                        name: 'Screen events',
+                        searchPlaceholder: 'screen events',
+                        type: TaxonomicFilterGroupType.ScreenEvents,
+                        endpoint: `api/environments/${teamId}/events/values/?key=$screen_name&event_name=$screen`,
+                        searchAlias: 'value',
+                        getName: (option: SimpleOption) => option.name,
+                        getValue: (option: SimpleOption) => option.name,
+                        getPopoverHeader: () => `Screen event`,
+                        minSearchQueryLength: 3,
+                    },
+                    {
+                        name: 'Email addresses',
+                        searchPlaceholder: 'email addresses',
+                        type: TaxonomicFilterGroupType.EmailAddresses,
+                        endpoint: `api/environments/${teamId}/persons/values/?key=email`,
+                        searchAlias: 'value',
+                        getName: (option: SimpleOption) => option.name,
+                        getValue: (option: SimpleOption) => option.name,
+                        getPopoverHeader: () => `Email address`,
+                        minSearchQueryLength: 5,
+                    },
+                    {
+                        name: 'Autocapture events',
+                        searchPlaceholder: 'autocapture events',
+                        type: TaxonomicFilterGroupType.AutocaptureEvents,
+                        endpoint: `api/environments/${teamId}/events/values/?key=$el_text&event_name=$autocapture`,
+                        searchAlias: 'value',
+                        getName: (option: SimpleOption) => option.name,
+                        getValue: (option: SimpleOption) => option.name,
+                        getPopoverHeader: () => `Autocapture event`,
+                        minSearchQueryLength: 3,
                     },
                     {
                         name: 'Custom Events',
@@ -854,7 +955,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.HogQLExpression,
                         render: InlineHogQLEditor,
                         getPopoverHeader: () => 'SQL expression',
-                        componentProps: { metadataSource },
+                        componentProps: { metadataSource, globals: hogQLGlobals },
                     },
                     {
                         name: 'Replay',
@@ -896,9 +997,21 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getName: (option: MaxContextTaxonomicFilterOption) => option.name,
                         getValue: (option: MaxContextTaxonomicFilterOption) => option.value,
                         getIcon: (option: MaxContextTaxonomicFilterOption) => {
-                            return <>{option.icon}</>
+                            const IconComponent = option.icon
+                            return <IconComponent />
                         },
                         getPopoverHeader: () => 'On this page',
+                    },
+                    {
+                        name: 'Suggested filters',
+                        searchPlaceholder: 'suggested filters',
+                        categoryLabel: (count: number) => 'Suggested filters' + (count > 0 ? `: ${count}` : ''),
+                        type: TaxonomicFilterGroupType.SuggestedFilters,
+                        options: [],
+                        getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
+                        getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
+                            'name' in item ? (item.name ?? null) : null,
+                        getPopoverHeader: () => 'Suggested filters',
                     },
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,
@@ -912,11 +1025,36 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (activeTab, taxonomicGroups) => taxonomicGroups.find((g) => g.type === activeTab),
         ],
         taxonomicGroupTypes: [
-            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups],
-            (groupTypes, taxonomicGroups): TaxonomicFilterGroupType[] => {
+            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups, s.featureFlags],
+            (groupTypes, taxonomicGroups, featureFlags): TaxonomicFilterGroupType[] => {
                 const availableGroupTypes = new Set(taxonomicGroups.map((group) => group.type))
-                const resolvedGroupTypes = groupTypes || taxonomicGroups.map((group) => group.type)
-                return resolvedGroupTypes.filter((groupType) => availableGroupTypes.has(groupType))
+                const quickFiltersEnabled = featureFlags[FEATURE_FLAGS.TAXONOMIC_QUICK_FILTERS] === 'test'
+                const resolvedGroupTypes: TaxonomicFilterGroupType[] =
+                    groupTypes || taxonomicGroups.map((group) => group.type)
+
+                const quickFilterGroupFlags: Partial<Record<TaxonomicFilterGroupType, FeatureFlagKey>> = {
+                    [TaxonomicFilterGroupType.PageviewUrls]: FEATURE_FLAGS.TAXONOMIC_QUICK_FILTER_PAGEVIEW_URLS,
+                    [TaxonomicFilterGroupType.PageviewEvents]: FEATURE_FLAGS.TAXONOMIC_QUICK_FILTER_PAGEVIEW_EVENTS,
+                    [TaxonomicFilterGroupType.Screens]: FEATURE_FLAGS.TAXONOMIC_QUICK_FILTER_SCREENS,
+                    [TaxonomicFilterGroupType.ScreenEvents]: FEATURE_FLAGS.TAXONOMIC_QUICK_FILTER_SCREEN_EVENTS,
+                    [TaxonomicFilterGroupType.EmailAddresses]: FEATURE_FLAGS.TAXONOMIC_QUICK_FILTER_EMAIL_ADDRESSES,
+                    [TaxonomicFilterGroupType.AutocaptureEvents]:
+                        FEATURE_FLAGS.TAXONOMIC_QUICK_FILTER_AUTOCAPTURE_EVENTS,
+                }
+
+                return resolvedGroupTypes.filter((groupType) => {
+                    if (!availableGroupTypes.has(groupType)) {
+                        return false
+                    }
+                    if (groupType === TaxonomicFilterGroupType.SuggestedFilters) {
+                        return quickFiltersEnabled
+                    }
+                    const individualFlag = quickFilterGroupFlags[groupType] as FeatureFlagKey | undefined
+                    if (individualFlag) {
+                        return quickFiltersEnabled && !!featureFlags[individualFlag]
+                    }
+                    return true
+                })
             },
         ],
         groupAnalyticsTaxonomicGroupNames: [
@@ -971,6 +1109,20 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         }),
                     ])
                 ),
+        ],
+        anyGroupLoading: [
+            (s) => [
+                (state, props) => {
+                    const logics = s.infiniteListLogics(state, props)
+                    return Object.entries(logics).some(
+                        ([type, logic]) =>
+                            type !== TaxonomicFilterGroupType.SuggestedFilters &&
+                            logic.isMounted() &&
+                            logic.selectors.isLoading(state, logic.props)
+                    )
+                },
+            ],
+            (anyGroupLoading: boolean) => anyGroupLoading,
         ],
         infiniteListCounts: [
             (s) => [
@@ -1032,6 +1184,17 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             itemName: item.name,
                             originalQuery,
                             item,
+                        })
+                    }
+                    if (isQuickFilterItem(item)) {
+                        posthog.capture('taxonomic suggested filter selected', {
+                            query: originalQuery,
+                            filterName: item.name,
+                            propertyKey: item.propertyKey,
+                            operator: item.operator,
+                            filterValue: item.filterValue,
+                            propertyFilterType: item.propertyFilterType,
+                            eventName: item.eventName,
                         })
                     }
                 } catch (e) {
@@ -1115,6 +1278,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             // or is this a Taxonomic group with a local data source, zero results after searching.
             const shouldOtherwiseTabRight =
                 activeTaxonomicGroup &&
+                activeTaxonomicGroup.type !== TaxonomicFilterGroupType.SuggestedFilters &&
                 !activeTaxonomicGroup.endpoint &&
                 infiniteListCounts[activeTaxonomicGroup.type] === 0
             if (shouldTabRightBecauseReplay || shouldOtherwiseTabRight) {
@@ -1131,11 +1295,20 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         },
 
         infiniteListResultsReceived: ({ groupType, results }) => {
-            // Open the next tab if no results on an active tab.
             const activeTabHasNoResults = groupType === values.activeTab && !results.count && !results.expandedCount
 
-            if (activeTabHasNoResults) {
+            if (activeTabHasNoResults && values.activeTab !== TaxonomicFilterGroupType.SuggestedFilters) {
                 actions.tabRight()
+            }
+
+            if (groupType !== TaxonomicFilterGroupType.SuggestedFilters) {
+                const subLogic = values.infiniteListLogics[groupType]
+                if (subLogic?.isMounted()) {
+                    const matches = subLogic.values.topMatchesForQuery
+                    if (matches.length > 0) {
+                        actions.appendTopMatches(matches.map((m) => ({ ...m, group: groupType })))
+                    }
+                }
             }
 
             // Update app-wide cached property metadata

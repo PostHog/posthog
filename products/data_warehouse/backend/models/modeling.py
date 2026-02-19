@@ -165,6 +165,12 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
     else:
         queries = [prepared_ast]
 
+    # collect CTE definitions so we can resolve through them to find real tables
+    ctes: dict[str, ast.CTE] = {}
+    for q in queries:
+        if q.ctes:
+            ctes.update(q.ctes)
+
     parents: set[str] = set()
 
     while queries:
@@ -195,7 +201,14 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
                 raise ValueError(f"No handler for {join.table.__class__.__name__} in get_parents_from_model_query")
 
             if isinstance(parent_name, str):
-                parents.add(parent_name)
+                if parent_name in ctes:
+                    cte_expr = ctes[parent_name].expr
+                    if isinstance(cte_expr, ast.SelectSetQuery):
+                        queries.extend(list(extract_select_queries(cte_expr)))
+                    elif isinstance(cte_expr, ast.SelectQuery):
+                        queries.append(cte_expr)
+                else:
+                    parents.add(parent_name)
 
             join = join.next_join
 

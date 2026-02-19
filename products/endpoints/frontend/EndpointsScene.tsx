@@ -1,7 +1,7 @@
 import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconBook, IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -80,7 +80,7 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                                                 placement: 'bottom-end',
                                                 className: 'new-endpoint-overlay',
                                                 actionable: true,
-                                                overlay: <OverlayForNewEndpointMenu dataAttr="new-endpoint-option" />,
+                                                overlay: <OverlayForNewEndpointMenu />,
                                             },
                                             'data-attr': 'new-endpoint-dropdown',
                                         }}
@@ -103,6 +103,19 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                                 it may change while we work with you on what works best. Please let us know what you'd
                                 like to see here and/or report any issues directly to us!
                             </p>
+                        </LemonBanner>
+                        <LemonBanner
+                            type="success"
+                            dismissKey="endpoints-docs-upgrade-banner"
+                            action={{
+                                children: 'View docs',
+                                to: 'https://posthog.com/docs/endpoints',
+                                targetBlank: true,
+                            }}
+                            icon={<IconBook />}
+                        >
+                            We've leveled up our endpoints documentation. Check out the new docs for detailed guides and
+                            examples.
                         </LemonBanner>
                         <ProductIntroduction
                             productName="endpoints"

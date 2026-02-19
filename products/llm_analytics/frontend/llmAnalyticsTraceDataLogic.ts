@@ -1,5 +1,9 @@
-import { connect, kea, key, path, props, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
+
+import { dayjs } from 'lib/dayjs'
+import { getAppContext } from 'lib/utils/getAppContext'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -14,6 +18,7 @@ import { InsightLogicProps } from '~/types'
 
 import type { llmAnalyticsTraceDataLogicType } from './llmAnalyticsTraceDataLogicType'
 import { llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
+import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import {
     SearchOccurrence,
     eventMatchesSearch,
@@ -46,6 +51,67 @@ function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogic
 }
 
 const FEEDBACK_EVENTS = new Set(['$ai_feedback', '$ai_metric'])
+const SINGLE_TRACE_PAGE_LOADED_EVENT = 'llma single trace loaded'
+
+export interface SingleTraceLoadTiming {
+    min_trace_timestamp_utc: string | null
+    max_trace_timestamp_utc: string | null
+    now_timestamp_utc: string | null
+    trace_age_minutes: number | null
+    trace_timespan_seconds: number | null
+    trace_query_runner_load_duration_ms: number | null
+}
+
+export function getSingleTraceLoadTiming(
+    trace: LLMTrace,
+    nowTimestamp: string,
+    traceQueryRunnerLoadDurationMs: number | null
+): SingleTraceLoadTiming {
+    const eventTimestampsUTC = trace.events
+        .map((event) => dayjs.utc(event.createdAt))
+        .filter((timestamp): timestamp is dayjs.Dayjs => timestamp.isValid())
+
+    const minEventTimestampUTC = eventTimestampsUTC.reduce(
+        (earliest, timestamp) => (earliest === null || timestamp.isBefore(earliest) ? timestamp : earliest),
+        null as dayjs.Dayjs | null
+    )
+
+    const maxEventTimestampUTC = eventTimestampsUTC.reduce(
+        (latest, timestamp) => (latest === null || timestamp.isAfter(latest) ? timestamp : latest),
+        null as dayjs.Dayjs | null
+    )
+
+    const fallbackTraceTimestampUTC = dayjs.utc(trace.createdAt)
+    const minTraceTimestampUTC =
+        minEventTimestampUTC ?? (fallbackTraceTimestampUTC.isValid() ? fallbackTraceTimestampUTC : null)
+    const maxTraceTimestampUTC =
+        maxEventTimestampUTC ?? (fallbackTraceTimestampUTC.isValid() ? fallbackTraceTimestampUTC : null)
+
+    const nowTimestampUTC = dayjs.utc(nowTimestamp)
+
+    if (!minTraceTimestampUTC?.isValid() || !maxTraceTimestampUTC?.isValid() || !nowTimestampUTC.isValid()) {
+        return {
+            min_trace_timestamp_utc: null,
+            max_trace_timestamp_utc: null,
+            now_timestamp_utc: null,
+            trace_age_minutes: null,
+            trace_timespan_seconds: null,
+            trace_query_runner_load_duration_ms: traceQueryRunnerLoadDurationMs,
+        }
+    }
+
+    const traceAgeMinutes = nowTimestampUTC.diff(minTraceTimestampUTC, 'minute', true)
+    const traceTimespanSeconds = maxTraceTimestampUTC.diff(minTraceTimestampUTC, 'second', true)
+
+    return {
+        min_trace_timestamp_utc: minTraceTimestampUTC.toISOString(),
+        max_trace_timestamp_utc: maxTraceTimestampUTC.toISOString(),
+        now_timestamp_utc: nowTimestampUTC.toISOString(),
+        trace_age_minutes: traceAgeMinutes,
+        trace_timespan_seconds: traceTimespanSeconds,
+        trace_query_runner_load_duration_ms: traceQueryRunnerLoadDurationMs,
+    }
+}
 
 /**
  * Find all parent events for a given event, including the event itself
@@ -83,7 +149,7 @@ function findEventWithParents(
 }
 
 export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
-    path(['scenes', 'llm-analytics', 'llmAnalyticsTraceLogic']),
+    path(['scenes', 'llm-analytics', 'llmAnalyticsTraceDataLogic']),
     props({} as TraceDataLogicProps),
     key((props) => props.traceId),
     connect((props: TraceDataLogicProps) => ({
@@ -91,9 +157,21 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             llmAnalyticsTraceLogic,
             ['eventId', 'searchQuery', 'initialTab'],
             dataNodeLogic(getDataNodeLogicProps(props)),
-            ['response', 'responseLoading', 'responseError'],
+            ['elapsedTime', 'response', 'responseLoading', 'responseError'],
         ],
     })),
+    actions({
+        reportSingleTraceLoadIfReady: true,
+        setSingleTraceLoadReported: true,
+    }),
+    reducers({
+        singleTraceLoadReported: [
+            false,
+            {
+                setSingleTraceLoadReported: () => true,
+            },
+        ],
+    }),
     selectors({
         trace: [
             (s) => [s.response],
@@ -258,7 +336,13 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
                     return null
                 }
 
-                return showableEvents.find((event) => event.id === effectiveEventId) || null
+                const matchedEvent =
+                    showableEvents.find((event) => {
+                        return event.id === effectiveEventId
+                    }) || null
+
+                // If URL carries a stale/invalid event id, fall back to trace root instead of hard-failing.
+                return matchedEvent || trace || null
             },
         ],
         tree: [(s) => [s.filteredTree], (filteredTree): TraceTreeNode[] => filteredTree],
@@ -295,11 +379,41 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
         ],
     }),
 
-    subscriptions(({ props }) => ({
+    listeners(({ actions, props, values }) => ({
+        reportSingleTraceLoadIfReady: () => {
+            const trace = values.trace
+            if (!trace || !props.traceId || values.singleTraceLoadReported) {
+                return
+            }
+
+            actions.setSingleTraceLoadReported()
+
+            const nowTimestamp = dayjs.utc().toISOString()
+            const appContext = getAppContext()
+            const traceQueryRunnerLoadDurationMs = values.elapsedTime ?? null
+            const timing = getSingleTraceLoadTiming(trace, nowTimestamp, traceQueryRunnerLoadDurationMs)
+
+            posthog.capture(SINGLE_TRACE_PAGE_LOADED_EVENT, {
+                trace_id: trace.id,
+                team_id: appContext?.current_team?.id ?? null,
+                project_id: appContext?.current_team?.project_id ?? null,
+                organization_id: appContext?.current_team?.organization ?? null,
+                organization_name: appContext?.current_user?.organization?.name ?? null,
+                ...timing,
+            })
+        },
+    })),
+    subscriptions(({ actions, props }) => ({
         trace: (trace: LLMTrace | undefined) => {
             if (trace?.createdAt && props.traceId) {
                 llmAnalyticsTraceLogic.actions.loadNeighbors(props.traceId, trace.createdAt)
             }
+
+            if (trace?.distinctId) {
+                llmPersonsLazyLoaderLogic.actions.ensurePersonLoaded(trace.distinctId)
+            }
+
+            actions.reportSingleTraceLoadIfReady()
         },
     })),
 ])

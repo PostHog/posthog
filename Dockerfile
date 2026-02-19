@@ -94,6 +94,17 @@ ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 COPY nodejs/src/scripts/ nodejs/src/scripts/
 RUN cd nodejs/src/scripts && npm install --omit=dev
 
+# Build plugin transpiler for site destinations/apps
+COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
+COPY bin/turbo bin/turbo
+COPY patches/ patches/
+COPY common/esbuilder/ common/esbuilder/
+COPY common/plugin_transpiler/ common/plugin_transpiler/
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
+    corepack enable && \
+    NODE_OPTIONS="--max-old-space-size=4096" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
+    NODE_OPTIONS="--max-old-space-size=4096" bin/turbo --filter=@posthog/plugin-transpiler build
+
 
 #
 # ---------------------------------------------------------
@@ -194,8 +205,8 @@ RUN apt-get update && \
     "libxmlsec1-dev=1.2.37-2" \
     "libxml2" \
     "ffmpeg=7:5.1.8-0+deb12u1" \
-    "libssl-dev=3.0.17-1~deb12u2" \
-    "libssl3=3.0.17-1~deb12u2" \
+    "libssl-dev=3.0.18-1~deb12u2" \
+    "libssl3=3.0.18-1~deb12u2" \
     "libjemalloc2" \
     && \
     rm -rf /var/lib/apt/lists/*
@@ -293,8 +304,17 @@ COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmd
 # Copy standalone Node.js scripts and their dependencies.
 COPY --from=node-scripts-build --chown=posthog:posthog /code/nodejs/src/scripts /code/nodejs/src/scripts
 
+# Copy plugin transpiler (used by Django for site destinations/apps).
+# pnpm stores packages in node_modules/.pnpm/, workspace node_modules contain symlinks there.
+COPY --from=node-scripts-build --chown=posthog:posthog /code/node_modules /code/node_modules
+COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/dist /code/common/plugin_transpiler/dist
+COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/node_modules /code/common/plugin_transpiler/node_modules
+COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/package.json /code/common/plugin_transpiler/package.json
+
 # Add in custom bin files and Django deps.
 COPY --chown=posthog:posthog ./bin ./bin/
+# Persons SQL migration files (read by apply_persons_migrations management command for hobby deploys)
+COPY --chown=posthog:posthog ./rust/persons_migrations ./rust/persons_migrations/
 COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/

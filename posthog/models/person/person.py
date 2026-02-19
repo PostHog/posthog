@@ -184,6 +184,10 @@ class Person(models.Model):
     # current version of the person, used to sync with ClickHouse and collapse rows correctly
     version = models.BigIntegerField(null=True, blank=True)
 
+    # Timestamp of when the person was last seen (last event timestamp)
+    # Updated by ingestion pipeline when processing events
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+
     # Has an index on properties -> email from migration 0121, (team_id, id DESC) from migration 0164
 
     objects = PersonManager()

@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconFeatures } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import {
     AssigneeIconDisplay,
     AssigneeLabelDisplay,
@@ -85,8 +86,18 @@ export function PropertyValue({
     // This will require detecting isOperatorSemver(operator) and validating the input
     // matches semver format (e.g., "1.2.3", "1.2.3-alpha", etc.)
 
+    // we first load a set of suggested values when there is no user input yet to avoid
+    // options jumping around as the user types, we keep the initially loaded options
+    // in state and show those first, then any new options based on user input after
+    const [initialSuggestedValues, setInitialSuggestedValues] = useState<{
+        set: Set<string>
+        orderedKeys: string[]
+    }>({ set: new Set(), orderedKeys: [] })
+    const currentSearchInput = useRef<string>('')
+
     const load = useCallback(
         (newInput: string | undefined): void => {
+            currentSearchInput.current = newInput || ''
             loadPropertyValues({
                 endpoint,
                 type: propertyDefinitionType,
@@ -101,23 +112,76 @@ export function PropertyValue({
 
     const setValue = (newValue: PropertyValueProps['value']): void => onSet(newValue)
 
+    // preload values if preloadValues prop is set
     useEffect(() => {
         if (preloadValues && propertyOptions?.status !== 'loading' && propertyOptions?.status !== 'loaded') {
             load('')
         }
     }, [preloadValues, load, propertyOptions?.status])
 
+    // load options when propertyKey changes, unless it's a date/time property (since those don't have options to load)
     useEffect(() => {
         if (!isDateTimeProperty && propertyOptions?.status !== 'loading' && propertyOptions?.status !== 'loaded') {
             load('')
         }
     }, [propertyKey, isDateTimeProperty, load, propertyOptions?.status])
 
-    const displayOptions = propertyOptions?.values || []
+    // set initial suggested values when options are loaded, but only if there is no search input
+    // (to avoid overwriting suggestions based on search input)
+    useEffect(() => {
+        if (propertyOptions?.status === 'loaded' && propertyOptions?.values && currentSearchInput.current === '') {
+            const orderedKeys = propertyOptions.values.map((v) => toString(v.name))
+            setInitialSuggestedValues({
+                set: new Set(orderedKeys),
+                orderedKeys,
+            })
+        }
+    }, [propertyOptions?.status, propertyOptions?.values])
+
+    // reset initial suggested values when propertyKey changes
+    useEffect(() => {
+        setInitialSuggestedValues({ set: new Set(), orderedKeys: [] })
+    }, [propertyKey])
+
+    // show suggested values first, then any other available options that aren't in the suggested list
+    const displayOptions = useMemo(() => {
+        const options = propertyOptions?.values || []
+        if (initialSuggestedValues.set.size === 0) {
+            return options
+        }
+
+        // map options by name
+        const allOptionsMap = new Map<string, (typeof options)[0]>()
+        for (const option of options) {
+            allOptionsMap.set(toString(option.name), option)
+        }
+
+        const suggestedOptions: typeof options = []
+        const otherOptions: typeof options = []
+
+        // build suggested options in order of their name, and remove them from the all options map
+        for (const key of initialSuggestedValues.orderedKeys) {
+            const existingOption = allOptionsMap.get(key)
+            if (existingOption) {
+                suggestedOptions.push(existingOption)
+                allOptionsMap.delete(key)
+            } else {
+                suggestedOptions.push({ name: key } as (typeof options)[0])
+            }
+        }
+
+        // built other options from what's left in the all options map
+        for (const option of allOptionsMap.values()) {
+            otherOptions.push(option)
+        }
+
+        return [...suggestedOptions, ...otherOptions]
+    }, [propertyOptions?.values, initialSuggestedValues])
 
     const onSearchTextChange = (newInput: string): void => {
-        if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
-            load(newInput.trim())
+        const trimmedInput = newInput.trim()
+        if (trimmedInput !== currentSearchInput.current && !(operator && isOperatorFlag(operator))) {
+            load(trimmedInput)
         }
     }
 
@@ -256,13 +320,24 @@ export function PropertyValue({
             popoverClassName="max-w-200"
             options={displayOptions.map(({ name: _name }, index) => {
                 const name = toString(_name)
+                const isSuggested = initialSuggestedValues.set.has(name)
                 return {
                     key: name,
                     label: name,
                     value: isFlagDependencyProperty ? _name : undefined, // Preserve original type for flags
                     labelComponent: (
-                        <span key={name} data-attr={'prop-val-' + index} className="ph-no-capture" title={name}>
+                        <span
+                            key={name}
+                            data-attr={'prop-val-' + index}
+                            className="ph-no-capture flex items-center gap-1.5"
+                            title={name}
+                        >
                             {formatLabelContent(isFlagDependencyProperty ? _name : name)}
+                            {isSuggested && currentSearchInput.current && (
+                                <Tooltip title="Suggested value">
+                                    <IconFeatures className="text-muted shrink-0 w-4 h-4" />
+                                </Tooltip>
+                            )}
                         </span>
                     ),
                 }
