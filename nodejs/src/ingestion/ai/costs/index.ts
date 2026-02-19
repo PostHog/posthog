@@ -1,6 +1,6 @@
 import bigDecimal from 'js-big-decimal'
 
-import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
+import { PluginEvent, Properties } from '~/plugin-scaffold'
 
 import { aiCostLookupCounter, aiCostTotalOutcomeCounter } from '../metrics'
 import {

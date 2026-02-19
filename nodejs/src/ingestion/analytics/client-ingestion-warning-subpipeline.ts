@@ -1,4 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { createHandleClientIngestionWarningStep } from '../event-processing/handle-client-ingestion-warning-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'

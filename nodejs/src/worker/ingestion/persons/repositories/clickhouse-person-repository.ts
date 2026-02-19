@@ -1,7 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { Properties } from '@posthog/plugin-scaffold'
-
+import { Properties } from '~/plugin-scaffold'
 import { ClickHouseRouter } from '~/utils/db/clickhouse'
 import { logger } from '~/utils/logger'
 

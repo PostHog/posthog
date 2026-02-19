@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { PipelineWarning } from '../../../ingestion/pipelines/pipeline.interface'
 import { PipelineResult, dlq, isOkResult, ok } from '../../../ingestion/pipelines/results'

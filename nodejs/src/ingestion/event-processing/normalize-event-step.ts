@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { EventHeaders } from '../../types'
 import { normalizeEventStep } from '../../worker/ingestion/event-pipeline/normalizeEventStep'

@@ -1,11 +1,10 @@
 import { DateTime } from 'luxon'
 import express from 'ultimate-express'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
-
 import { ModifiedRequest } from '~/api/router'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS, KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'

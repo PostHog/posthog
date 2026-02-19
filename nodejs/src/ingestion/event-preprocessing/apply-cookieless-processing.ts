@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { EventHeaders, Team } from '../../types'
 import { CookielessManager } from '../cookieless/cookieless-manager'

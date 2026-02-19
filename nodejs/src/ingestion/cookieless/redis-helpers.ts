@@ -1,9 +1,8 @@
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
 
-import { CacheOptions } from '@posthog/plugin-scaffold'
-
 import { withSpan } from '~/common/tracing/tracing-utils'
+import { CacheOptions } from '~/plugin-scaffold'
 
 import { RedisOperationError } from '../../utils/db/error'
 import { timeoutGuard } from '../../utils/db/utils'

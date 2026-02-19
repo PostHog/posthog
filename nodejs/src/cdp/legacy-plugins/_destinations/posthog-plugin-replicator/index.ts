@@ -1,4 +1,4 @@
-import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
+import { ProcessedPluginEvent, RetryError } from '~/plugin-scaffold'
 
 import { LegacyDestinationPluginMeta } from '../../types'
 

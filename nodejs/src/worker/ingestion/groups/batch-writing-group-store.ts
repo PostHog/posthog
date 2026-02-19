@@ -1,9 +1,8 @@
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
-import { Properties } from '@posthog/plugin-scaffold'
-
 import { KafkaProducerWrapper } from '~/kafka/producer'
+import { Properties } from '~/plugin-scaffold'
 
 import { GroupTypeIndex, Hub, TeamId } from '../../../types'
 import { MessageSizeTooLarge } from '../../../utils/db/error'

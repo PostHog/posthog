@@ -1,7 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
-
+import { PluginEvent } from '~/plugin-scaffold'
 import { TeamManager } from '~/utils/team-manager'
 
 import { eventDroppedCounter } from '../../common/metrics'

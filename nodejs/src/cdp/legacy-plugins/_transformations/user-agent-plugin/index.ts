@@ -1,6 +1,6 @@
 import { detect } from 'detect-browser'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { LegacyTransformationPluginMeta } from '../../types'
 
