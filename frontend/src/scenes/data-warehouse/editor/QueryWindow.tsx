@@ -230,6 +230,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                     }
                 />
             )}
+
             {actionsRow}
 
             <QueryPane

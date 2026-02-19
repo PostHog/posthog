@@ -123,8 +123,8 @@ function EndpointHogQLQuery({
     }, [query.query, query.variables, queryInput]) // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
-        <div className="flex gap-4">
-            <div className="flex-1 flex flex-col gap-2">
+        <div className="flex min-w-0 gap-4">
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
                 <ResizableSQLEditorContainer>
                     <SQLEditor tabId={sqlEditorTabId} mode={SQLEditorMode.Embedded} />
                 </ResizableSQLEditorContainer>
