@@ -30,7 +30,6 @@ from products.signals.backend.temporal.activities import (
     RunSignalSemanticSearchOutput,
     SummarizeSignalsInput,
     SummarizeSignalsOutput,
-    UpdateClusteringStatusInput,
     assign_signal_to_report_activity,
     emit_to_clickhouse_activity,
     fetch_signals_for_report_activity,
@@ -42,13 +41,8 @@ from products.signals.backend.temporal.activities import (
     mark_report_ready_activity,
     run_signal_semantic_search_activity,
     summarize_signals_activity,
-    update_clustering_status_activity,
 )
-from products.signals.backend.temporal.types import (
-    EmitSignalInputs,
-    InitialClusteringTriggerInputs,
-    SignalResearchWorkflowInputs,
-)
+from products.signals.backend.temporal.types import EmitSignalInputs, SignalResearchWorkflowInputs
 
 
 # TODO: Not idempotent on source_id - re-running with the same source_id will create duplicate signals.
@@ -275,53 +269,3 @@ class SignalResearchWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             raise
-
-
-@temporalio.workflow.defn(name="initial-clustering-trigger")
-class InitialClusteringTriggerWorkflow(PostHogWorkflow):
-    """Wraps VideoSegmentClusteringWorkflow to update SignalSourceConfig.clustering_status on completion.
-
-    Triggered when a new session analysis SignalSourceConfig is created, so the user sees
-    immediate feedback that an analysis run is in progress.
-    """
-
-    @staticmethod
-    def parse_inputs(inputs: list[str]) -> InitialClusteringTriggerInputs:
-        loaded = json.loads(inputs[0])
-        return InitialClusteringTriggerInputs(**loaded)
-
-    @temporalio.workflow.run
-    async def run(self, inputs: InitialClusteringTriggerInputs) -> None:
-        status = "completed"
-        try:
-            with workflow.unsafe.imports_passed_through():
-                from posthog.temporal.ai.video_segment_clustering.clustering_workflow import (
-                    VideoSegmentClusteringWorkflow,
-                )
-                from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs
-
-            await workflow.execute_child_workflow(
-                VideoSegmentClusteringWorkflow.run,
-                ClusteringWorkflowInputs(team_id=inputs.team_id),
-                id=f"video-segment-clustering-team-{inputs.team_id}-initial-{temporalio.workflow.now().isoformat()}",
-                execution_timeout=timedelta(hours=3),
-                retry_policy=RetryPolicy(
-                    maximum_attempts=2,
-                    initial_interval=timedelta(seconds=30),
-                    maximum_interval=timedelta(minutes=5),
-                    backoff_coefficient=2.0,
-                ),
-            )
-        except Exception:
-            status = "failed"
-            workflow.logger.exception(f"Initial clustering failed for team {inputs.team_id}")
-
-        await workflow.execute_activity(
-            update_clustering_status_activity,
-            UpdateClusteringStatusInput(
-                signal_source_config_id=inputs.signal_source_config_id,
-                status=status,
-            ),
-            start_to_close_timeout=timedelta(seconds=60),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )

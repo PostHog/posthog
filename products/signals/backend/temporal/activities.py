@@ -19,7 +19,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.embedding_worker import emit_embedding_request, generate_embedding
 from posthog.models import Team
 
-from products.signals.backend.models import SignalReport, SignalSourceConfig
+from products.signals.backend.models import SignalReport
 from products.signals.backend.temporal.llm import generate_search_queries, match_signal_with_llm, summarize_signals
 from products.signals.backend.temporal.types import (
     ExistingReportMatch,
@@ -573,30 +573,3 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
             report_id=input.report_id,
         )
         raise
-
-
-# ============================================================================
-# Clustering Status Activities
-# ============================================================================
-
-
-@dataclass
-class UpdateClusteringStatusInput:
-    signal_source_config_id: str
-    status: str
-
-
-@temporalio.activity.defn
-async def update_clustering_status_activity(input: UpdateClusteringStatusInput) -> None:
-    """Update the clustering_status field on a SignalSourceConfig."""
-
-    def do_update():
-        SignalSourceConfig.objects.filter(id=input.signal_source_config_id).update(
-            clustering_status=input.status,
-        )
-
-    await sync_to_async(do_update, thread_sensitive=False)()
-    logger.debug(
-        f"Updated clustering status to {input.status}",
-        signal_source_config_id=input.signal_source_config_id,
-    )

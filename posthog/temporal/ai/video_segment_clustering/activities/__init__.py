@@ -4,6 +4,7 @@ from .a3_cluster_segments import cluster_segments_activity
 from .a4_match_clusters import match_clusters_activity
 from .a5_label_clusters import label_clusters_activity
 from .a6_persist_reports import persist_reports_activity
+from .a7_update_source_config import update_source_config_status_activity
 
 __all__ = [
     "get_sessions_to_prime_activity",
@@ -12,4 +13,5 @@ __all__ = [
     "match_clusters_activity",
     "label_clusters_activity",
     "persist_reports_activity",
+    "update_source_config_status_activity",
 ]

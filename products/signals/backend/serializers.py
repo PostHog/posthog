@@ -15,10 +15,10 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             "config",
             "created_at",
             "updated_at",
-            "clustering_status",
-            "clustering_triggered_at",
+            "status",
+            "triggered_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at", "clustering_status", "clustering_triggered_at"]
+        read_only_fields = ["id", "created_at", "updated_at", "status", "triggered_at"]
 
     def validate_source_type(self, value: str) -> str:
         valid_types = {choice[0] for choice in SignalSourceConfig.SourceType.choices}

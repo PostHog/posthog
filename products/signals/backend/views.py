@@ -17,7 +17,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.common import RetryPolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
@@ -31,7 +31,6 @@ from products.signals.backend.serializers import (
     SignalReportSerializer,
     SignalSourceConfigSerializer,
 )
-from products.signals.backend.temporal.types import InitialClusteringTriggerInputs
 from products.tasks.backend.temporal.client import execute_video_segment_clustering_workflow
 
 logger = logging.getLogger(__name__)
@@ -92,23 +91,21 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             self._trigger_initial_clustering(instance)
 
     def _trigger_initial_clustering(self, config: SignalSourceConfig) -> None:
-        """Fire-and-forget the initial clustering workflow and mark the config as running."""
-        try:
-            config.clustering_status = SignalSourceConfig.ClusteringStatus.RUNNING
-            config.clustering_triggered_at = timezone.now()
-            config.save(update_fields=["clustering_status", "clustering_triggered_at"])
+        """Fire-and-forget the clustering workflow and mark the config as running."""
+        from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs
 
-            workflow_id = f"initial-clustering-trigger-team-{self.team_id}-config-{config.id}"
+        try:
+            config.status = SignalSourceConfig.Status.RUNNING
+            config.triggered_at = timezone.now()
+            config.save(update_fields=["status", "triggered_at"])
+
+            workflow_id = f"video-segment-clustering-team-{self.team_id}-initial-{config.id}"
             client = sync_connect()
             asyncio.run(
                 client.start_workflow(
-                    "initial-clustering-trigger",
-                    InitialClusteringTriggerInputs(
-                        team_id=self.team_id,
-                        signal_source_config_id=str(config.id),
-                    ),
+                    "video-segment-clustering",
+                    ClusteringWorkflowInputs(team_id=self.team_id),
                     id=workflow_id,
-                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                     task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
@@ -116,8 +113,8 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             logger.info(f"Started initial clustering workflow for team {self.team_id}")
         except Exception:
             logger.exception(f"Failed to start initial clustering workflow for team {self.team_id}")
-            config.clustering_status = SignalSourceConfig.ClusteringStatus.FAILED
-            config.save(update_fields=["clustering_status"])
+            config.status = SignalSourceConfig.Status.FAILED
+            config.save(update_fields=["status"])
 
     def perform_update(self, serializer):
         serializer.save()

@@ -20,6 +20,10 @@ with workflow.unsafe.imports_passed_through():
         label_clusters_activity,
         match_clusters_activity,
         persist_reports_activity,
+        update_source_config_status_activity,
+    )
+    from posthog.temporal.ai.video_segment_clustering.activities.a7_update_source_config import (
+        UpdateSourceConfigStatusInput,
     )
     from posthog.temporal.ai.video_segment_clustering.models import (
         ClusterForLabeling,
@@ -58,6 +62,24 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: ClusteringWorkflowInputs) -> WorkflowResult:
         """Execute the video segment clustering workflow for a single team."""
+        status = "completed"
+        try:
+            return await self._run_pipeline(inputs)
+        except Exception:
+            status = "failed"
+            raise
+        finally:
+            try:
+                await workflow.execute_activity(
+                    update_source_config_status_activity,
+                    UpdateSourceConfigStatusInput(team_id=inputs.team_id, status=status),
+                    start_to_close_timeout=timedelta(seconds=60),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+            except Exception:
+                workflow.logger.warning(f"Failed to update source config status for team {inputs.team_id}")
+
+    async def _run_pipeline(self, inputs: ClusteringWorkflowInputs) -> WorkflowResult:
         # Step 1: Prime the document_embeddings table with analysis of latest sessions
         prime_info = None
         if inputs.skip_priming:

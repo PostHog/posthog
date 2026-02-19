@@ -13,7 +13,7 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import iconZendesk from 'public/services/zendesk.svg'
 
 import { inboxSceneLogic } from './inboxSceneLogic'
-import { ClusteringStatus } from './types'
+import { SignalSourceConfigStatus } from './types'
 
 type SourceProps =
     | {
@@ -101,8 +101,8 @@ function isNonEmptyFilters(obj: unknown): boolean {
     return obj != null && typeof obj === 'object' && Object.keys(obj as Record<string, unknown>).length > 0
 }
 
-function ClusteringStatusIndicator({ status }: { status: ClusteringStatus | null }): JSX.Element | null {
-    if (status === ClusteringStatus.RUNNING) {
+function ClusteringStatusIndicator({ status }: { status: SignalSourceConfigStatus | null }): JSX.Element | null {
+    if (status === SignalSourceConfigStatus.RUNNING) {
         return (
             <div className="mt-2 flex items-center gap-2 px-2 py-1.5 rounded bg-accent-light text-xs text-accent">
                 <Spinner className="size-3.5" />
@@ -136,7 +136,7 @@ export function SourcesList(): JSX.Element {
                 configButtonLabel={recordingFilters ? 'Edit' : 'Configure'}
                 onConfigClick={openSessionAnalysisSetup}
                 onClearClick={hasNonEmptyFilters ? clearSessionAnalysisFilters : undefined}
-                statusSection={<ClusteringStatusIndicator status={sessionAnalysisConfig?.clustering_status ?? null} />}
+                statusSection={<ClusteringStatusIndicator status={sessionAnalysisConfig?.status ?? null} />}
                 configSection={
                     recordingFilters ? (
                         <RecordingsUniversalFiltersDisplay filters={recordingFilters} />

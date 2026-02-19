@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="signalsourceconfig",
-            name="clustering_status",
+            name="status",
             field=models.CharField(
                 blank=True,
                 choices=[("running", "Running"), ("completed", "Completed"), ("failed", "Failed")],
@@ -19,7 +19,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="signalsourceconfig",
-            name="clustering_triggered_at",
+            name="triggered_at",
             field=models.DateTimeField(blank=True, null=True),
         ),
     ]
