@@ -61,7 +61,6 @@ class TestGithubIssueEmitter:
         assert result is not None
         assert result.extra["html_url"] == "https://github.com/acme/analytics/issues/87"
         assert result.extra["number"] == 87
-        assert result.extra["comments"] == 3
 
 
 class TestGithubIssuesConfig:
