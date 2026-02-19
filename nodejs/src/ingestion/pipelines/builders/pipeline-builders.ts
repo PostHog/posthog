@@ -1,4 +1,3 @@
-import type { TopHogPipeOptions } from '../../tophog/tophog'
 import { BranchDecisionFn, BranchingPipeline } from '../branching-pipeline'
 import { Pipeline } from '../pipeline.interface'
 import { RetryingPipeline, RetryingPipelineOptions } from '../retrying-pipeline'
@@ -7,12 +6,12 @@ import { StepPipeline } from '../step-pipeline'
 import { ProcessingStep } from '../steps'
 
 export class StartPipelineBuilder<T, C> {
-    pipe<U>(step: ProcessingStep<T, U>, options?: { topHog?: TopHogPipeOptions<T> }): PipelineBuilder<T, U, C> {
-        return new PipelineBuilder(new StepPipeline(step, new StartPipeline<T, C>(), options?.topHog))
+    pipe<U>(step: ProcessingStep<T, U>): PipelineBuilder<T, U, C> {
+        return new PipelineBuilder(new StepPipeline(step, new StartPipeline<T, C>()))
     }
 
     retry<U>(
-        callback: (builder: StartPipelineBuilder<T, C>) => PipelineBuilder<T, U, C>,
+        callback: (builder: StartPipelineBuilder<T, C>) => { build(): Pipeline<T, U, C> },
         options?: RetryingPipelineOptions
     ): PipelineBuilder<T, U, C> {
         const innerPipeline = callback(new StartPipelineBuilder<T, C>()).build()
@@ -35,11 +34,8 @@ export class StartPipelineBuilder<T, C> {
 export class PipelineBuilder<TInput, TOutput, C> {
     constructor(protected pipeline: Pipeline<TInput, TOutput, C>) {}
 
-    pipe<U>(
-        step: ProcessingStep<TOutput, U>,
-        options?: { topHog?: TopHogPipeOptions<TOutput> }
-    ): PipelineBuilder<TInput, U, C> {
-        return new PipelineBuilder(new StepPipeline(step, this.pipeline, options?.topHog))
+    pipe<U>(step: ProcessingStep<TOutput, U>): PipelineBuilder<TInput, U, C> {
+        return new PipelineBuilder(new StepPipeline(step, this.pipeline))
     }
 
     branching<TBranch extends string, U>(
@@ -66,7 +62,9 @@ export class BranchingPipelineBuilder<TInput, TIntermediate, TOutput, C, TBranch
 
     branch(
         branchName: TBranch,
-        callback: (builder: StartPipelineBuilder<TIntermediate, C>) => PipelineBuilder<TIntermediate, TOutput, C>
+        callback: (builder: StartPipelineBuilder<TIntermediate, C>) => {
+            build(): Pipeline<TIntermediate, TOutput, C>
+        }
     ): BranchingPipelineBuilder<TInput, TIntermediate, TOutput, C, TBranch> {
         const branchPipeline = callback(new StartPipelineBuilder<TIntermediate, C>()).build()
         this.branches[branchName] = branchPipeline

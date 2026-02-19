@@ -20,7 +20,6 @@ export type PipelineContext<C = { message: Message }> = C & {
     lastStep?: string
     sideEffects: Promise<unknown>[]
     warnings: PipelineWarning[]
-    topHog?: TopHogTracker
 }
 
 /**

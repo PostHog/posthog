@@ -29,7 +29,9 @@ import {
 } from './analytics'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
+import { createTopHogWrapper } from './pipelines/extensions/tophog'
 import { createContext } from './pipelines/helpers'
+import { TopHogTracker } from './pipelines/pipeline.interface'
 import { ok } from './pipelines/results'
 import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from './utils/overflow-redirect/overflow-lane-overflow-redirect'
@@ -95,6 +97,7 @@ export class IngestionConsumer {
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
     private eventSchemaEnforcementManager: EventSchemaEnforcementManager
     public readonly promiseScheduler = new PromiseScheduler()
+    private topHogTracker: TopHogTracker = { increment: () => {} }
 
     private joinedPipeline!: BatchPipeline<
         JoinedIngestionPipelineInput,
@@ -236,6 +239,7 @@ export class IngestionConsumer {
             teamManager: this.hub.teamManager,
             groupTypeManager: this.hub.groupTypeManager,
             groupId: this.groupId,
+            topHog: createTopHogWrapper(this.topHogTracker),
         }
         this.joinedPipeline = createJoinedIngestionPipeline(
             newBatchPipelineBuilder<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>(),

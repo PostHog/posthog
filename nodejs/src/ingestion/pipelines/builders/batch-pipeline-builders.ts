@@ -15,7 +15,7 @@ import { Pipeline } from '../pipeline.interface'
 import { PipelineConfig, ResultHandlingPipeline } from '../result-handling-pipeline'
 import { SequentialBatchPipeline } from '../sequential-batch-pipeline'
 import { SideEffectHandlingPipeline } from '../side-effect-handling-pipeline'
-import { PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
+import { StartPipelineBuilder } from './pipeline-builders'
 
 /**
  * Builder for configuring how items within a group are processed.
@@ -30,7 +30,7 @@ export class GroupProcessingBuilder<TInput, TOutput, CInput = Record<string, nev
      * Process items within each group sequentially through the provided pipeline.
      */
     sequentially<U>(
-        callback: (builder: StartPipelineBuilder<TOutput, COutput>) => PipelineBuilder<TOutput, U, COutput>
+        callback: (builder: StartPipelineBuilder<TOutput, COutput>) => { build(): Pipeline<TOutput, U, COutput> }
     ): BatchPipelineBuilder<TInput, U, CInput, COutput> {
         const processor = callback(new StartPipelineBuilder<TOutput, COutput>()).build()
         return new BatchPipelineBuilder(
@@ -69,7 +69,7 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput> {
     }
 
     concurrently<U>(
-        callback: (builder: StartPipelineBuilder<TOutput, COutput>) => PipelineBuilder<TOutput, U, COutput>
+        callback: (builder: StartPipelineBuilder<TOutput, COutput>) => { build(): Pipeline<TOutput, U, COutput> }
     ): BatchPipelineBuilder<TInput, U, CInput, COutput> {
         const processor = callback(new StartPipelineBuilder<TOutput, COutput>()).build()
         return new BatchPipelineBuilder(new ConcurrentBatchProcessingPipeline(processor, this.pipeline))
@@ -80,7 +80,7 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput> {
     }
 
     sequentially<U>(
-        callback: (builder: StartPipelineBuilder<TOutput, COutput>) => PipelineBuilder<TOutput, U, COutput>
+        callback: (builder: StartPipelineBuilder<TOutput, COutput>) => { build(): Pipeline<TOutput, U, COutput> }
     ): BatchPipelineBuilder<TInput, U, CInput, COutput> {
         const processor = callback(new StartPipelineBuilder<TOutput, COutput>()).build()
         return new BatchPipelineBuilder(new SequentialBatchPipeline(processor, this.pipeline))
