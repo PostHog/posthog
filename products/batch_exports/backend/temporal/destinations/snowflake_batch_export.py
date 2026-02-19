@@ -371,6 +371,9 @@ class SnowflakeField(Field):
     def to_destination_field(self) -> SnowflakeDestinationField:
         return SnowflakeDestinationField(name=self.name, type=self.snowflake_type_name, is_nullable=self.nullable)
 
+    def with_new_arrow_type(self, new_type: pa.DataType) -> "SnowflakeField":
+        return SnowflakeField(self.name, data_type_to_snowflake_type(new_type), new_type, self.nullable)
+
 
 class SnowflakeTable(Table):
     def __init__(
