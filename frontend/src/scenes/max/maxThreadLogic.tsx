@@ -1715,7 +1715,7 @@ function enhanceThreadToolCalls(
             lastPlanningMessageId = message.id
             break
         }
-        if (previousMessage && isAssistantMessage(message) && isAssistantMessage(previousMessage)) {
+        if (previousMessage && isAssistantMessage(message)) {
             const formCarriedOverFromPreviousMessage = getFormToCarryOverFromPreviousMessage(previousMessage)
             if (formCarriedOverFromPreviousMessage) {
                 // This is safe to do in place, as we're iterating backwards, so we always know previousMessage is untouched
@@ -1936,13 +1936,33 @@ function updateMessagesWithCompletedStatus(thread: RootAssistantMessage[]): Thre
  * (which can be quite long).
  */
 function getFormToCarryOverFromPreviousMessage(message: ThreadMessage): AssistantForm | null {
-    if (!isAssistantMessage(message) || !message.meta?.form?.options) {
-        return null
+    // Check AssistantMessage with form containing session-summaries link
+    if (isAssistantMessage(message) && message.meta?.form?.options) {
+        const hasSessionSummaryLink = message.meta.form.options.some((option) =>
+            option.href?.startsWith('/session-summaries/')
+        )
+        if (hasSessionSummaryLink) {
+            return message.meta.form
+        }
     }
 
-    // Check if any option has an href to session-summaries
-    const hasSessionSummaryLink = message.meta.form.options.some((option) =>
-        option.href?.startsWith('/session-summaries/')
-    )
-    return hasSessionSummaryLink ? message.meta.form : null
+    // Check AssistantToolCallMessage with summarize_sessions ui_payload
+    if (
+        message.type === AssistantMessageType.ToolCall &&
+        'ui_payload' in message &&
+        message.ui_payload?.summarize_sessions?.session_group_summary_id
+    ) {
+        const { session_group_summary_id } = message.ui_payload.summarize_sessions
+        return {
+            options: [
+                {
+                    value: 'Open report',
+                    href: `/session-summaries/${session_group_summary_id}`,
+                    variant: 'primary',
+                },
+            ],
+        }
+    }
+
+    return null
 }
