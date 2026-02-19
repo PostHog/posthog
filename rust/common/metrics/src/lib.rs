@@ -160,7 +160,9 @@ impl TimingGuard<'_> {
 impl Drop for TimingGuard<'_> {
     fn drop(&mut self) {
         let labels = self.labels.as_slice();
-        metrics::histogram!(self.name, labels).record(self.start.elapsed().as_millis() as f64);
+        let filtered_labels = apply_label_filter(labels);
+        metrics::histogram!(self.name, &filtered_labels)
+            .record(self.start.elapsed().as_millis() as f64);
     }
 }
 
