@@ -26,6 +26,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { Query } from '~/queries/Query/Query'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { queryExportContext } from '~/queries/query'
 import {
@@ -41,7 +42,6 @@ import {
     ChartDisplayType,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
-    EndpointVersionType,
     ExportContext,
     LineageGraph,
     QueryBasedInsightModel,
@@ -79,7 +79,6 @@ export interface QueryTab {
     insight?: QueryBasedInsightModel
     response?: Record<string, any>
     draft?: DataWarehouseSavedQueryDraft
-    endpoint?: EndpointVersionType
 }
 
 export interface SuggestionPayload {
@@ -132,7 +131,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
     props({ mode: SQLEditorMode.FullScene } as SqlEditorLogicProps),
     tabAwareScene(),
-    connect(() => ({
+    connect((props: SqlEditorLogicProps) => ({
         values: [
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById'],
@@ -140,6 +139,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['user'],
             draftsLogic,
             ['drafts'],
+            outputPaneLogic({ tabId: props.tabId }),
+            ['activeTab as outputActiveTab'],
         ],
         actions: [
             dataWarehouseViewsLogic,
@@ -155,7 +156,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 'updateDataWarehouseSavedQueryFailure',
                 'updateDataWarehouseSavedQuery',
             ],
-            outputPaneLogic,
+            outputPaneLogic({ tabId: props.tabId }),
             ['setActiveTab'],
             editorSceneLogic,
             ['reportAIQueryPrompted', 'reportAIQueryAccepted', 'reportAIQueryRejected', 'reportAIQueryPromptOpen'],
@@ -175,14 +176,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             query?: string,
             view?: DataWarehouseSavedQuery,
             insight?: QueryBasedInsightModel,
-            draft?: DataWarehouseSavedQueryDraft,
-            endpoint?: EndpointVersionType
+            draft?: DataWarehouseSavedQueryDraft
         ) => ({
             query,
             view,
             insight,
             draft,
-            endpoint,
         }),
         updateTab: (tab: QueryTab) => ({ tab }),
 
@@ -199,7 +198,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         saveAsEndpoint: true,
         saveAsEndpointSubmit: (name: string, description?: string) => ({ name, description }),
         updateInsight: true,
-        updateEndpoint: true,
         setFinishedLoading: (loading: boolean) => ({ loading }),
         setError: (error: string | null) => ({ error }),
         setDataError: (error: string | null) => ({ error }),
@@ -294,12 +292,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             null as QueryBasedInsightModel | null,
             {
                 updateTab: (_, { tab }) => tab.insight ?? null,
-            },
-        ],
-        editingEndpoint: [
-            null as EndpointVersionType | null,
-            {
-                updateTab: (_, { tab }) => tab.endpoint ?? null,
             },
         ],
         viewLoading: [
@@ -605,9 +597,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         editInsight: ({ query, insight }) => {
             actions.createTab(query, undefined, insight)
         },
-        createTab: async ({ query = '', view, insight, draft, endpoint }) => {
+        createTab: async ({ query = '', view, insight, draft }) => {
             // Use tabId to ensure each browser tab has its own unique Monaco model
-            const tabName = draft?.name || view?.name || insight?.name || endpoint?.name || NEW_QUERY
+            const tabName = draft?.name || view?.name || insight?.name || NEW_QUERY
 
             if (props.monaco) {
                 const uri = props.monaco.Uri.parse(`tab-${props.tabId}`)
@@ -634,7 +626,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     name: tabName,
                     sourceQuery: insight?.query as DataVisualizationNode | undefined,
                     draft: draft,
-                    endpoint,
                 })
             }
             if (query) {
@@ -804,11 +795,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
         },
         saveAsInsight: async () => {
+            const defaultDisplay =
+                values.outputActiveTab === OutputTab.Results
+                    ? ChartDisplayType.ActionsTable
+                    : values.sourceQuery.display || ChartDisplayType.ActionsLineGraph
+
             LemonDialog.openForm({
                 title: 'Save as new insight',
                 initialValues: {
                     name: '',
-                    display: ChartDisplayType.ActionsLineGraph,
+                    display: defaultDisplay,
                 },
                 content: (
                     <>
@@ -826,6 +822,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                 ]}
                             />
                         </LemonField>
+                        <div className="mt-3">
+                            <div className="text-muted text-xs mb-1">Preview</div>
+                            <div className="border rounded bg-bg-light p-3 h-[24rem] overflow-hidden">
+                                <Query
+                                    readOnly
+                                    query={{
+                                        ...values.sourceQuery,
+                                        display: defaultDisplay,
+                                    }}
+                                />
+                            </div>
+                        </div>
                     </>
                 ),
                 errors: {
@@ -932,28 +940,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             )
 
             router.actions.push(urls.insightView(savedInsight.short_id))
-        },
-        updateEndpoint: async () => {
-            if (!values.editingEndpoint?.name) {
-                return
-            }
-
-            try {
-                const updatedEndpoint = await api.endpoint.update(values.editingEndpoint.name, {
-                    query: {
-                        ...(values.sourceQuery.source as HogQLQuery),
-                        query: values.queryInput ?? '',
-                    },
-                })
-
-                if (values.activeTab) {
-                    actions.updateTab({ ...values.activeTab, endpoint: updatedEndpoint })
-                }
-
-                lemonToast.success('Endpoint updated')
-            } catch {
-                lemonToast.error('Failed to update endpoint')
-            }
         },
         loadDataWarehouseSavedQueriesSuccess: ({ dataWarehouseSavedQueries }) => {
             if (values.activeTab?.view) {
@@ -1233,8 +1219,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         titleSectionProps: [
-            (s) => [s.editingInsight, s.insightLoading, s.editingView, s.viewLoading, s.editingEndpoint],
-            (editingInsight, insightLoading, editingView, viewLoading, editingEndpoint) => {
+            (s) => [s.editingInsight, s.insightLoading, s.editingView, s.viewLoading],
+            (editingInsight, insightLoading, editingView, viewLoading) => {
                 if (editingInsight) {
                     const forceBackTo: Breadcrumb = {
                         key: editingInsight.short_id,
@@ -1268,21 +1254,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     return {
                         name: 'Loading view...',
                         resourceType: { type: 'view' },
-                    }
-                }
-
-                if (editingEndpoint) {
-                    const forceBackTo: Breadcrumb = {
-                        key: editingEndpoint.name,
-                        name: 'Back to endpoint',
-                        path: urls.endpoint(editingEndpoint.name),
-                        iconType: 'endpoints',
-                    }
-
-                    return {
-                        forceBackTo,
-                        name: editingEndpoint.name,
-                        resourceType: { type: 'endpoint' },
                     }
                 }
 
@@ -1404,20 +1375,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                     actions.editView(queryToOpen, view)
                     actions.setViewLoading(false)
-                    tabAdded = true
-                    router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
-                } else if (searchParams.endpoint_name) {
-                    let endpoint: EndpointVersionType | null = null
-                    try {
-                        endpoint = await api.endpoint.get(searchParams.endpoint_name)
-                    } catch {
-                        lemonToast.error('Endpoint not found')
-                        return
-                    }
-
-                    const endpointQuery = endpoint?.query?.query || ''
-                    const queryToOpen = searchParams.open_query ? searchParams.open_query : endpointQuery
-                    actions.createTab(queryToOpen, undefined, undefined, undefined, endpoint || undefined)
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                 } else if (searchParams.open_insight || (hashParams.insight && values.queryInput === null)) {

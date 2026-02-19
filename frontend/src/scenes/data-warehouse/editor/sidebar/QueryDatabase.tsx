@@ -149,8 +149,6 @@ export const QueryDatabase = (): JSX.Element => {
                 return 'materialized view'
             case 'managed-view':
                 return 'managed view'
-            case 'endpoint':
-                return 'endpoint'
             case 'view':
             case 'view-table':
                 return item.record.view?.is_materialized ? 'materialized view' : 'view'
@@ -244,14 +242,9 @@ export const QueryDatabase = (): JSX.Element => {
                                 ) : (
                                     <span
                                         className={cn(
-                                            [
-                                                'managed-views',
-                                                'views',
-                                                'sources',
-                                                'drafts',
-                                                'unsaved-folder',
-                                                'endpoints',
-                                            ].includes(item.record?.type) && 'font-semibold',
+                                            ['managed-views', 'views', 'sources', 'drafts', 'unsaved-folder'].includes(
+                                                item.record?.type
+                                            ) && 'font-semibold',
                                             isColumn && 'font-mono text-xs',
                                             'truncate shrink-0'
                                         )}
@@ -528,38 +521,7 @@ export const QueryDatabase = (): JSX.Element => {
                     )
                 }
 
-                // Show menu for endpoints
-                if (item.record?.type === 'endpoint') {
-                    return (
-                        <DropdownMenuGroup>
-                            <DropdownMenuItem
-                                asChild
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    sceneLogic.actions.newTab(urls.endpoint(item.name))
-                                }}
-                            >
-                                <ButtonPrimitive menuItem>View endpoint</ButtonPrimitive>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                asChild
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    sceneLogic.actions.newTab(
-                                        urls.sqlEditor({
-                                            query: item.record?.endpoint?.query.query,
-                                            endpointName: item.record?.endpoint?.name,
-                                        })
-                                    )
-                                }}
-                            >
-                                <ButtonPrimitive menuItem>Edit endpoint query</ButtonPrimitive>
-                            </DropdownMenuItem>
-                        </DropdownMenuGroup>
-                    )
-                }
-
-                if (['sources', 'endpoints'].includes(item.record?.type)) {
+                if (item.record?.type === 'sources') {
                     // used to override default icon behavior
                     return null
                 }
@@ -583,27 +545,10 @@ export const QueryDatabase = (): JSX.Element => {
                         </ButtonPrimitive>
                     )
                 }
-
-                if (item.record?.type === 'endpoints') {
-                    return (
-                        <ButtonPrimitive
-                            iconOnly
-                            isSideActionRight
-                            className="z-2"
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                sceneLogic.actions.newTab(urls.sqlEditor())
-                            }}
-                            data-attr="sql-editor-add-endpoint"
-                        >
-                            <IconPlusSmall className="text-tertiary" />
-                        </ButtonPrimitive>
-                    )
-                }
             }}
             renderItemTooltip={(item) => {
                 // Show tooltip with full name for items that could be truncated
-                const tooltipTypes = ['table', 'view', 'managed-view', 'endpoint', 'draft', 'column', 'unsaved-query']
+                const tooltipTypes = ['table', 'view', 'managed-view', 'draft', 'column', 'unsaved-query']
                 if (tooltipTypes.includes(item.record?.type)) {
                     if (item.record?.type === 'column' && item.record?.field?.type === 'field_traverser') {
                         const traversalChain = formatTraversalChain(item.record.field.chain)
