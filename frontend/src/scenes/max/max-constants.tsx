@@ -947,6 +947,17 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Finalizing plan...'
         },
     },
+    recommend_products: {
+        name: 'Recommend products',
+        description: 'Recommend products based on user needs',
+        icon: iconForType('product_analytics'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Recommended products'
+            }
+            return 'Recommending products...'
+        },
+    },
 }
 
 export const MODE_DEFINITIONS: Record<
@@ -988,6 +999,12 @@ export const MODE_DEFINITIONS: Record<
         description: 'Creates and analyzes surveys to collect user feedback.',
         icon: iconForType('survey'),
         scenes: new Set([Scene.Surveys, Scene.Survey]),
+    },
+    [AgentMode.Onboarding]: {
+        name: 'Onboarding',
+        description: 'Helps new users discover which PostHog products are right for their needs.',
+        icon: iconForType('product_analytics'),
+        scenes: new Set([Scene.Onboarding]),
     },
     [AgentMode.Flags]: {
         name: 'Flags',
