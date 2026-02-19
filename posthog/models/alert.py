@@ -1,7 +1,13 @@
+from __future__ import annotations
+
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from django.core.exceptions import ValidationError
 from django.db import models
+
+if TYPE_CHECKING:
+    from posthog.models.organization import Organization
 
 import pydantic
 
@@ -154,7 +160,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         super().save(*args, **kwargs)
 
     @classmethod
-    def check_alert_limit(cls, team_id: int, organization) -> str | None:
+    def check_alert_limit(cls, team_id: int, organization: Organization) -> str | None:
         """Return an error message if the team has reached its alert limit, else None."""
         from posthog.constants import AvailableFeature
 
