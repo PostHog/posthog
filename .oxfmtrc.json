@@ -104,7 +104,7 @@
         "common/hogql_parser/build_wasm/",
         "common/hogql_parser/build/",
         "common/hogql_parser/dist/",
-        "node/",
+        "nodejs/",
         "rust/",
         "livestream/",
         "cli/target/",

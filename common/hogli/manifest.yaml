@@ -498,7 +498,7 @@ quality:
         description: Fix Python code quality issues
     format:markdown:
         cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix
-            "$@" && pnpm exec oxfmt "$@"
+            "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
         description: Format Markdown files
 tools:
     tool:temporal-django-worker:
