@@ -7,13 +7,14 @@ from django.http import HttpResponse
 
 import requests
 import structlog
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.integration import OauthIntegration
 from posthog.rate_limit import MCPOAuthBurstThrottle, MCPOAuthSustainedThrottle
@@ -94,7 +95,29 @@ class InstallCustomSerializer(serializers.Serializer):
         return value
 
 
-@extend_schema(tags=["mcp_store"])
+class AuthorizeQuerySerializer(serializers.Serializer):
+    server_id = serializers.UUIDField(required=True)
+
+
+class OAuthCallbackRequestSerializer(serializers.Serializer):
+    code = serializers.CharField(required=True)
+    server_id = serializers.UUIDField(required=True)
+    state_token = serializers.CharField(required=True)
+    mcp_url = serializers.URLField(required=False, allow_blank=True, default="")
+    display_name = serializers.CharField(required=False, allow_blank=True, default="")
+    description = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class MCPServerInstallationUpdateSerializer(serializers.Serializer):
+    display_name = serializers.CharField(required=False, allow_blank=True)
+    description = serializers.CharField(required=False, allow_blank=True)
+    configuration = serializers.DictField(required=False)
+
+
+class OAuthRedirectResponseSerializer(serializers.Serializer):
+    redirect_url = serializers.URLField()
+
+
 class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "project"
     queryset = MCPServerInstallation.objects.all()
@@ -112,13 +135,16 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
+    @validated_request(
+        MCPServerInstallationUpdateSerializer,
+        responses={200: OpenApiResponse(response=MCPServerInstallationSerializer)},
+    )
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         installation = self.get_object()
-        allowed_fields = {"display_name", "description", "configuration"}
-        data = {k: v for k, v in request.data.items() if k in allowed_fields}
+        data = request.validated_data
 
         config = data.get("configuration")
-        if isinstance(config, dict) and "api_key" in config:
+        if config is not None and "api_key" in config:
             api_key = config.pop("api_key")
             if api_key:
                 sensitive = dict(installation.sensitive_configuration or {})
@@ -132,6 +158,13 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         serializer = self.get_serializer(installation)
         return Response(serializer.data)
 
+    @validated_request(
+        InstallCustomSerializer,
+        responses={
+            200: OpenApiResponse(response=OAuthRedirectResponseSerializer),
+            201: OpenApiResponse(response=MCPServerInstallationSerializer),
+        },
+    )
     @action(
         detail=False,
         methods=["post"],
@@ -139,9 +172,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         throttle_classes=[MCPOAuthBurstThrottle, MCPOAuthSustainedThrottle],
     )
     def install_custom(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        serializer = InstallCustomSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
+        data = request.validated_data
 
         name = data["name"]
         url = data["url"]
@@ -301,6 +332,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             created_by=request.user,
         )
 
+    @validated_request(query_serializer=AuthorizeQuerySerializer)
     @action(
         detail=False,
         methods=["get"],
@@ -308,9 +340,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         throttle_classes=[MCPOAuthBurstThrottle, MCPOAuthSustainedThrottle],
     )
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        server_id = request.query_params.get("server_id")
-        if not server_id:
-            return Response({"detail": "server_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+        server_id = request.validated_query_data["server_id"]
 
         try:
             server = MCPServer.objects.get(id=server_id)
@@ -407,6 +437,13 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         response.set_cookie("ph_pkce_verifier", code_verifier, max_age=600, httponly=True, samesite="Lax")
         return response
 
+    @validated_request(
+        OAuthCallbackRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=MCPServerInstallationSerializer),
+            201: OpenApiResponse(response=MCPServerInstallationSerializer),
+        },
+    )
     @action(
         detail=False,
         methods=["post"],
@@ -414,18 +451,15 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         throttle_classes=[MCPOAuthBurstThrottle, MCPOAuthSustainedThrottle],
     )
     def oauth_callback(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        code = request.data.get("code")
-        server_id = request.data.get("server_id")
-        state_token = request.data.get("state_token")
-        mcp_url = request.data.get("mcp_url", "")
-        display_name = request.data.get("display_name", "")
-        description = request.data.get("description", "")
-
-        if not code or not server_id:
-            return Response({"detail": "code and server_id are required"}, status=status.HTTP_400_BAD_REQUEST)
+        code = request.validated_data["code"]
+        server_id = request.validated_data["server_id"]
+        state_token = request.validated_data["state_token"]
+        mcp_url = request.validated_data["mcp_url"]
+        display_name = request.validated_data["display_name"]
+        description = request.validated_data["description"]
 
         cookie_token = request.COOKIES.get("ph_oauth_state")
-        if not cookie_token or not state_token or not secrets.compare_digest(cookie_token, state_token):
+        if not cookie_token or not secrets.compare_digest(cookie_token, state_token):
             return Response({"detail": "Invalid OAuth state token"}, status=status.HTTP_403_FORBIDDEN)
 
         try:
