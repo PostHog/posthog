@@ -19,9 +19,11 @@ describe('RecipientPreferencesService', () => {
     let team: Team
     let service: RecipientPreferencesService
     let mockRecipientsManager: RecipientsManagerService
-    let mockRecipientsManagerGet: jest.Spied
-    let mockRecipientsManagerGetPreference: jest.Spied
-    let mockRecipientsManagerGetAllMarketingMessagingPreference: jest.Spied
+    let mockRecipientsManagerGet: jest.Spied<typeof mockRecipientsManager.get>
+    let mockRecipientsManagerGetPreference: jest.Spied<typeof mockRecipientsManager.getPreference>
+    let mockRecipientsManagerGetAllMarketingMessagingPreference: jest.Spied<
+        typeof mockRecipientsManager.getAllMarketingMessagingPreference
+    >
 
     beforeEach(async () => {
         await resetTestDatabase()

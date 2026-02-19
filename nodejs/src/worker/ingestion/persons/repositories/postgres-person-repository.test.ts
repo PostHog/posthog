@@ -2489,7 +2489,7 @@ describe('PostgresPersonRepository', () => {
 
     describe('JSON field size metrics', () => {
         let personJsonFieldSizeHistogram: any
-        let labelsSpy: jest.Spied
+        let labelsSpy: jest.Spied<typeof personJsonFieldSizeHistogram.labels>
         let observeCalls: any[]
 
         beforeEach(() => {

@@ -16,7 +16,7 @@ const toUnixSeconds = (isoString: string): number => new Date(isoString).getTime
 describe('LiveMetricsSlidingWindow', () => {
     const WINDOW_SIZE_MINUTES = 30
 
-    let mockNow: jest.Spied
+    let mockNow: jest.Spied<typeof Date.now>
     let currentTimeMs = WALL_CLOCK_MS
 
     const tickMinute = (): void => {

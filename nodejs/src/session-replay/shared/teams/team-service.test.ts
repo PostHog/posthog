@@ -3,7 +3,7 @@ import { TeamService } from './team-service'
 
 describe('TeamService', () => {
     let teamService: TeamService
-    let fetchSpy: jest.Spied
+    let fetchSpy: jest.Spied<(typeof teamService)['fetchTeamTokensWithRecordings']>
 
     beforeEach(() => {
         jest.useFakeTimers()

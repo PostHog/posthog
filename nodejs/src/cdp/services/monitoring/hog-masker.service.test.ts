@@ -11,7 +11,7 @@ import { deleteKeysWithPrefix } from '../../_tests/redis'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../types'
 import { BASE_REDIS_KEY, HogMaskerService } from './hog-masker.service'
 
-const mockNow: jest.Spied = jest.spyOn(Date, 'now')
+const mockNow: jest.Spied<typeof Date.now> = jest.spyOn(Date, 'now')
 
 describe('HogMasker', () => {
     jest.retryTimes(3)

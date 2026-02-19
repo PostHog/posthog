@@ -16,7 +16,9 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
     let realtimeSupportedFilterManager: RealtimeSupportedFilterManagerCDP
     let postgres: PostgresRouter
     let teamId: Team['id']
-    let fetchRealtimeSupportedFiltersSpy: jest.Spied
+    let fetchRealtimeSupportedFiltersSpy: jest.Spied<
+        (typeof realtimeSupportedFilterManager)['fetchRealtimeSupportedFilters']
+    >
 
     beforeEach(async () => {
         const now = Date.now()

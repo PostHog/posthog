@@ -5,7 +5,7 @@ jest.mock('../utils/logger')
 
 describe('TopTracker', () => {
     let tracker: TopTracker
-    let mockLoggerInfo: jest.Spied
+    let mockLoggerInfo: jest.Spied<typeof logger.info>
 
     beforeEach(() => {
         tracker = new TopTracker()
