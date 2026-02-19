@@ -17,10 +17,9 @@ import {
 } from '~/queries/schema/schema-general'
 
 import { useChartColors } from '../MetricsView/shared/colors'
-import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
-import { getExposureConfigDisplayName } from '../utils'
+import { filterInsignificantMultipleVariants, getExposureConfigDisplayName } from '../utils'
 import { VariantTag } from './components'
 
 const srmFailureTooltipText =
@@ -284,19 +283,16 @@ export function Exposures(): JSX.Element {
                                 {exposures?.timeseries?.length > 0 && <MicroChart exposures={exposures} />}
                                 {variants.length > 0 && (
                                     <div className="ml-2 flex items-center gap-4">
-                                        {variants
-                                            .filter(
-                                                ({ variant, percentage }) =>
-                                                    variant !== EXPERIMENT_VARIANT_MULTIPLE || percentage > 0.5
-                                            )
-                                            .map(({ variant, percentage }) => (
+                                        {filterInsignificantMultipleVariants(variants).map(
+                                            ({ variant, percentage }) => (
                                                 <div key={variant} className="flex items-center gap-2">
                                                     <div className="metric-cell">
                                                         <VariantTag variantKey={variant} />
                                                     </div>
                                                     <span className="metric-cell">{percentage.toFixed(1)}%</span>
                                                 </div>
-                                            ))}
+                                            )
+                                        )}
                                     </div>
                                 )}
                                 {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SAMPLE_RATIO_MISMATCH] && hasSRM && (
