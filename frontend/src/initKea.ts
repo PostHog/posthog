@@ -29,6 +29,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadBilling', // Gracefully handled if it fails
     'loadData', // Gracefully handled in the data table
     'loadRecordingMeta', // Gracefully handled in the recording player
+    'loadSimilarIssues', // Gracefully handled in the similar issues list
 ]
 
 interface InitKeaProps {
@@ -107,11 +108,12 @@ export function initKea({
                     let errorMessage = error.detail || error.statusText
                     const isTwoFactorError =
                         error.code === 'two_factor_setup_required' || error.code === 'two_factor_verification_required'
+                    const isSensitiveActionError = error.code === 'sensitive_action_required_reauth'
 
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
                     }
-                    if (isTwoFactorError) {
+                    if (isTwoFactorError || isSensitiveActionError) {
                         errorMessage = null
                     }
                     if (errorMessage) {

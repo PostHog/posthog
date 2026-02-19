@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconArchive, IconGraph, IconTrash } from '@posthog/icons'
+import { IconArchive, IconCode, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -16,7 +16,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
 import { SurveyHeadline } from 'scenes/surveys/SurveyHeadline'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
-import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
+import { SurveySQLHelper } from 'scenes/surveys/SurveySQLHelper'
 import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
@@ -47,6 +47,7 @@ import {
 } from '~/types'
 
 import { SurveyDraftContent } from './SurveyDraftContent'
+import { SurveyResultsFiltersBar } from './SurveyFilters'
 import { SurveyDetailsPanel, SurveyExportPanel, SurveyNotificationsPanel } from './SurveySidebar'
 
 const RESOURCE_TYPE = 'survey'
@@ -61,6 +62,7 @@ export function SurveyViewRedesign(): JSX.Element {
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
     const [tabKey, setTabKey] = useState('summary')
     const [panelTabKey, setPanelTabKey] = useState('details')
+    const [sqlHelperOpen, setSqlHelperOpen] = useState(false)
     const status = getSurveyStatus(survey)
     const isDraft = status === ProgressStatus.Draft
 
@@ -87,6 +89,12 @@ export function SurveyViewRedesign(): JSX.Element {
                             }
                         }}
                     />
+                    {!isDraft && (
+                        <ButtonPrimitive menuItem onClick={() => setSqlHelperOpen(true)}>
+                            <IconCode />
+                            SQL query
+                        </ButtonPrimitive>
+                    )}
                     {!survey.archived && (
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Survey}
@@ -236,6 +244,7 @@ export function SurveyViewRedesign(): JSX.Element {
             </div>
 
             <DuplicateToProjectModal />
+            <SurveySQLHelper isOpen={sqlHelperOpen} onClose={() => setSqlHelperOpen(false)} />
         </SceneContent>
     )
 }
@@ -338,7 +347,7 @@ function SurveySummaryContent({ onViewResponses }: { onViewResponses: () => void
     if (!isAnyResultsLoading && !atLeastOneResponse) {
         return (
             <div className="space-y-4 px-4 pb-4">
-                <SurveyResponseFilters />
+                <SurveyResultsFiltersBar />
                 <SurveyStatsSummary />
                 <SurveyNoResponsesBanner type="survey" />
             </div>
@@ -347,11 +356,10 @@ function SurveySummaryContent({ onViewResponses }: { onViewResponses: () => void
 
     return (
         <div className="space-y-4 px-4 pb-4">
-            <SurveyResponseFilters />
+            <SurveyResultsFiltersBar />
             <SurveyStatsSummary />
             {isSurveyHeadlineEnabled && <SurveyHeadline />}
 
-            {/* Question visualizations */}
             <div className="flex flex-col gap-2">
                 {survey.questions.map((question, i) => {
                     if (!question.id || question.type === SurveyQuestionType.Link) {
@@ -378,46 +386,34 @@ function SurveySummaryContent({ onViewResponses }: { onViewResponses: () => void
 }
 
 function SurveyResponsesContent(): JSX.Element {
-    const { dataTableQuery, surveyLoading, archivedResponseUuids, surveyAsInsightURL } = useValues(surveyLogic)
-
-    if (surveyLoading) {
-        return (
-            <div className="px-4 pb-4">
-                <LemonSkeleton />
-            </div>
-        )
-    }
+    const { dataTableQuery, surveyLoading, archivedResponseUuids } = useValues(surveyLogic)
 
     return (
         <div className="px-4 pb-4 space-y-4">
-            <LemonButton
-                type="primary"
-                data-attr="survey-results-explore"
-                icon={<IconGraph />}
-                to={surveyAsInsightURL}
-                size="small"
-            >
-                View insights for this survey
-            </LemonButton>
-            <div className="survey-table-results">
-                <Query
-                    query={dataTableQuery}
-                    context={{
-                        rowProps: (record: unknown) => {
-                            if (typeof record !== 'object' || !record || !('result' in record)) {
-                                return {}
-                            }
-                            const result = record.result
-                            if (!Array.isArray(result)) {
-                                return {}
-                            }
-                            return {
-                                className: archivedResponseUuids.has(result[0].uuid) ? 'opacity-50' : undefined,
-                            }
-                        },
-                    }}
-                />
-            </div>
+            <SurveyResultsFiltersBar />
+            {surveyLoading ? (
+                <LemonSkeleton />
+            ) : (
+                <div className="survey-table-results">
+                    <Query
+                        query={dataTableQuery}
+                        context={{
+                            rowProps: (record: unknown) => {
+                                if (typeof record !== 'object' || !record || !('result' in record)) {
+                                    return {}
+                                }
+                                const result = record.result
+                                if (!Array.isArray(result)) {
+                                    return {}
+                                }
+                                return {
+                                    className: archivedResponseUuids.has(result[0].uuid) ? 'opacity-50' : undefined,
+                                }
+                            },
+                        }}
+                    />
+                </div>
+            )}
         </div>
     )
 }
