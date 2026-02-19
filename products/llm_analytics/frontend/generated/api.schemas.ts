@@ -335,7 +335,7 @@ export interface ClusteringRunRequestApi {
     clustering_method?: ClusteringMethodEnumApi
     /**
      * Minimum cluster size as fraction of total samples (e.g., 0.05 = 5%)
-     * @minimum 0.01
+     * @minimum 0.05
      * @maximum 0.5
      */
     min_cluster_size_fraction?: number
