@@ -148,8 +148,11 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f"Found {len(cohorts)} realtime cohort(s) to process for team {team_id}"))
 
-        # Collect all cohorts and their filters
-        cohort_filters_list = []
+        # Collect and deduplicate filters across all cohorts
+        # Map: condition_hash -> (bytecode, [cohort_ids])
+        condition_map: dict[str, tuple[list, list[int]]] = {}
+        cohort_ids = []
+
         for cohort in cohorts:
             if cohort.cohort_type != CohortType.REALTIME:
                 self.stdout.write(
@@ -169,24 +172,55 @@ class Command(BaseCommand):
                 )
                 continue
 
-            self.stdout.write(
-                self.style.SUCCESS(f"Processing cohort {cohort.id}: found {len(filters)} person property filters")
-            )
+            cohort_ids.append(cohort.id)
+            self.stdout.write(self.style.SUCCESS(f"Cohort {cohort.id}: found {len(filters)} person property filters"))
+
+            # Deduplicate by condition_hash
             for f in filters:
-                self.stdout.write(f"  - conditionHash: {f.condition_hash}")
+                if f.condition_hash not in condition_map:
+                    condition_map[f.condition_hash] = (f.bytecode, [cohort.id])
+                    self.stdout.write(f"  + New condition: {f.condition_hash}")
+                else:
+                    # Condition already exists, just add this cohort ID
+                    condition_map[f.condition_hash][1].append(cohort.id)
+                    self.stdout.write(f"  = Duplicate condition: {f.condition_hash}")
 
-            # Add cohort filters to the list
-            cohort_filters_list.append(CohortFilters(cohort_id=cohort.id, filters=filters))
-
-        if not cohort_filters_list:
-            self.stdout.write(self.style.WARNING("No cohorts with person property filters found"))
+        if not condition_map:
+            self.stdout.write(self.style.WARNING("No person property filters found across any cohorts"))
             return
 
-        # Run single coordinator workflow for all cohorts
-        total_filters = sum(len(cf.filters) for cf in cohort_filters_list)
+        # Build deduplicated filter list and create cohort filters
+        deduplicated_filters = [
+            PersonPropertyFilter(
+                condition_hash=cond_hash,
+                bytecode=bytecode,
+            )
+            for cond_hash, (bytecode, _cids) in condition_map.items()
+        ]
+
+        # Create a single CohortFilters object with all deduplicated filters
+        # All cohorts will process the same deduplicated filter set
+        cohort_filters_list = [
+            CohortFilters(
+                cohort_id=cohort_id,
+                filters=deduplicated_filters,  # All cohorts get the same deduplicated filters
+            )
+            for cohort_id in cohort_ids
+        ]
+
         self.stdout.write(
             self.style.SUCCESS(
-                f"\nProcessing {len(cohort_filters_list)} cohorts with {total_filters} total filters in a single coordinator workflow"
+                f"\nDeduplicated {len(deduplicated_filters)} unique conditions across {len(cohort_ids)} cohorts"
+            )
+        )
+        for cond_hash, (_, cids) in condition_map.items():
+            self.stdout.write(f"  - {cond_hash} (used by cohorts: {cids})")
+
+        # Run single coordinator workflow for all cohorts with deduplicated filters
+        total_original_filters = sum(len(extract_person_property_filters(cohorts[i])) for i in range(len(cohort_ids)))
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"\nProcessing {len(cohort_ids)} cohorts: reduced {total_original_filters} filters to {len(deduplicated_filters)} unique conditions"
             )
         )
 
@@ -204,7 +238,7 @@ class Command(BaseCommand):
                 f"\nSuccessfully started single coordinator workflow for team {team_id}\n"
                 f"  Workflow ID: {workflow_id}\n"
                 f"  Cohorts: {[cf.cohort_id for cf in cohort_filters_list]}\n"
-                f"  Total filters: {total_filters}\n"
+                f"  Unique conditions: {len(deduplicated_filters)}\n"
                 f"  Parallelism: {parallelism} workers"
             )
         )
