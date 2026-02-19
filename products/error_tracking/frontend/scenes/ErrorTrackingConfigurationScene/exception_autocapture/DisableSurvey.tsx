@@ -37,13 +37,15 @@ export function DisableSurvey(): JSX.Element | null {
                                 />
                             )}
                             {question.type === SurveyQuestionType.Open && (
-                                <LemonTextArea
-                                    className="mt-2"
-                                    placeholder="Share your feedback..."
-                                    value={openResponse}
-                                    onChange={setOpenResponse}
-                                    rows={3}
-                                />
+                                <>
+                                    <div className="h-2" />
+                                    <LemonTextArea
+                                        placeholder="Share your feedback..."
+                                        value={openResponse}
+                                        onChange={setOpenResponse}
+                                        rows={3}
+                                    />
+                                </>
                             )}
                         </div>
                     ))}
