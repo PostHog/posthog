@@ -593,7 +593,7 @@ describe('processAiToolCallExtraction', () => {
 
     it('respects user-provided $ai_tools_called', () => {
         const event = createEvent('$ai_generation', {
-            $ai_tools_called: '["custom_tool"]',
+            $ai_tools_called: 'custom_tool',
             $ai_output_choices: [
                 {
                     message: {
@@ -605,7 +605,29 @@ describe('processAiToolCallExtraction', () => {
 
         const result = processAiToolCallExtraction(event)
 
-        expect(result.properties!['$ai_tools_called']).toBe('["custom_tool"]')
+        expect(result.properties!['$ai_tools_called']).toBe('custom_tool')
+    })
+
+    it('sets $ai_tool_call_count from user-provided $ai_tools_called when count is missing', () => {
+        const event = createEvent('$ai_generation', {
+            $ai_tools_called: 'tool_a,tool_b,tool_c',
+        })
+
+        const result = processAiToolCallExtraction(event)
+
+        expect(result.properties!['$ai_tools_called']).toBe('tool_a,tool_b,tool_c')
+        expect(result.properties!['$ai_tool_call_count']).toBe(3)
+    })
+
+    it('does not override user-provided $ai_tool_call_count', () => {
+        const event = createEvent('$ai_generation', {
+            $ai_tools_called: 'tool_a,tool_b',
+            $ai_tool_call_count: 5,
+        })
+
+        const result = processAiToolCallExtraction(event)
+
+        expect(result.properties!['$ai_tool_call_count']).toBe(5)
     })
 
     it('handles missing $ai_output_choices', () => {

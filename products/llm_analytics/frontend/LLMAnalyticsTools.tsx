@@ -59,8 +59,8 @@ export function LLMAnalyticsTools(): JSX.Element {
                                                     {
                                                         type: PropertyFilterType.Event,
                                                         key: '$ai_tools_called',
-                                                        operator: PropertyOperator.IContains,
-                                                        value: toolString,
+                                                        operator: PropertyOperator.Regex,
+                                                        value: `(^|,)${toolString}(,|$)`,
                                                     },
                                                 ],
                                             }).url

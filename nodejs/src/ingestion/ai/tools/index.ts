@@ -37,8 +37,15 @@ export function processAiToolCallExtraction<T extends PluginEvent>(event: T): T 
     }
 
     try {
-        // Respect user-provided values
+        // Respect user-provided $ai_tools_called, but ensure $ai_tool_call_count is set
         if (event.properties['$ai_tools_called'] !== undefined && event.properties['$ai_tools_called'] !== null) {
+            if (
+                event.properties['$ai_tool_call_count'] === undefined ||
+                event.properties['$ai_tool_call_count'] === null
+            ) {
+                const userTools = String(event.properties['$ai_tools_called'])
+                event.properties['$ai_tool_call_count'] = userTools.split(',').filter((s) => s.trim().length > 0).length
+            }
             return event
         }
 
