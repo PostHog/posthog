@@ -108,12 +108,13 @@ class _KafkaMessageCapture:
     def __init__(self):
         self.messages: list[dict] = []
 
+    def _capture_and_ack(self, topic, data, key=None, **kw):
+        self.messages.append(data)
+        return mock.MagicMock(get=mock.MagicMock(return_value=None))
+
     def get_mock_producer(self):
         producer = mock.MagicMock()
-        producer.produce.side_effect = lambda topic, data, key=None, **kw: (
-            self.messages.append(data),
-            mock.MagicMock(get=mock.MagicMock(return_value=None)),
-        )[1]
+        producer.produce.side_effect = self._capture_and_ack
         producer.flush.return_value = 0
         return producer
 
