@@ -466,6 +466,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             const tileFiltersOverride = searchParams['tile_filters_override']
 
             if (
+                initial ||
+                method === 'PUSH' ||
                 insightId !== values.insightId ||
                 insightMode !== values.insightMode ||
                 (itemId ?? null) !== values.itemId ||

@@ -98,6 +98,36 @@ describe('insightSceneLogic', () => {
         })
     })
 
+    it('reloads insight when navigating back to the same insight via PUSH', async () => {
+        const insightApiCall = jest
+            .fn()
+            .mockReturnValue([200, { results: [{ id: 42, short_id: Insight42, result: ['result from api'] }] }])
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': insightApiCall,
+            },
+            post: {
+                '/api/environments/:team_id/query/upgrade/': { query: {} },
+            },
+        })
+
+        logic = insightSceneLogic({ tabId })
+        logic.mount()
+
+        router.actions.push(urls.insightView(Insight42))
+        await expectLogic(logic).toMatchValues({ insightId: Insight42 })
+        await expectLogic(logic).delay(150) // wait for loadInsight debounce
+
+        const callCountAfterInitialLoad = insightApiCall.mock.calls.length
+
+        // Simulate navigating away and back to the same insight (e.g. from insights list)
+        router.actions.push(urls.insightView(Insight42))
+        await expectLogic(logic).delay(150)
+
+        // Should have reloaded the insight since this is a PUSH navigation
+        expect(insightApiCall.mock.calls.length).toBeGreaterThan(callCountAfterInitialLoad)
+    })
+
     it('does not reload insight when only the URL hash changes', async () => {
         const insightApiCall = jest
             .fn()
