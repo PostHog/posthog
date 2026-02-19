@@ -12,7 +12,7 @@ logger = structlog.get_logger(__name__)
 
 
 class SummarizeSignalsResponse(BaseModel):
-    title: str = Field(description="A short, descriptive title for the report (max 75 chars)")
+    title: str = Field(description="A short, descriptive title for the report (max 75 chars)", max_length=75)
     summary: str = Field(description="A 2-4 sentence summary of the key findings")
 
 
@@ -60,10 +60,6 @@ async def summarize_signals(signals: list[SignalData]) -> tuple[str, str]:
     def validate(text: str) -> tuple[str, str]:
         data = json.loads(text)
         result = SummarizeSignalsResponse.model_validate(data)
-
-        if len(result.title) > 75:
-            raise ValueError("Title exceeds maximum length")
-
         return result.title, result.summary
 
     return await call_llm(

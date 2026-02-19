@@ -4,7 +4,7 @@ from enum import Enum
 
 import structlog
 import temporalio
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.temporal.llm import call_llm
@@ -24,6 +24,13 @@ class ActionabilityJudgeResponse(BaseModel):
     explanation: str = Field(
         description="3-6 sentence explanation of the decision",
     )
+
+    @field_validator("explanation")
+    @classmethod
+    def explanation_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Explanation must not be empty")
+        return v
 
 
 # This is biased /in favour/ of kicking off coding agent runs, quite a bit. In (admittedly brief) testing, I found the model very hesitant to take autonomous actions,
@@ -96,12 +103,7 @@ async def judge_report_actionability(
 
     def validate(text: str) -> ActionabilityJudgeResponse:
         data = json.loads(text)
-        result = ActionabilityJudgeResponse.model_validate(data)
-
-        if not result.explanation.strip():
-            raise ValueError(f"Explanation is required for choice {result.choice.value}")
-
-        return result
+        return ActionabilityJudgeResponse.model_validate(data)
 
     return await call_llm(
         system_prompt=ACTIONABILITY_JUDGE_SYSTEM_PROMPT,

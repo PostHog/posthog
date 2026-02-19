@@ -228,12 +228,7 @@ async def generate_search_queries(
     def validate(text: str) -> list[str]:
         data = json.loads(text)
         result = QueryGenerationResponse.model_validate(data)
-
-        if len(result.queries) == 0:
-            raise ValueError("LLM returned empty queries list")
-
-        queries = result.queries[:MAX_QUERIES]
-        return [truncate_query_to_token_limit(q) for q in queries]
+        return [truncate_query_to_token_limit(q) for q in result.queries]
 
     return await call_llm(
         system_prompt=system_prompt,
