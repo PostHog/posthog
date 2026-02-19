@@ -182,7 +182,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 loadFeatureFlagsSuccess: (_, { featureFlags }) => {
                     return featureFlags.results
                 },
-                updateFeatureFlagSuccess: (state, { featureFlags }) => {
+                updateFeatureFlagSuccess: (_, { featureFlags }) => {
                     return featureFlags.results
                 },
                 updateFlag: (state, { flag }) => state.map((f) => (f.id === flag.id ? flag : f)),
