@@ -185,6 +185,21 @@ async def test_get_table_does_not_fail_with_additional_fields(snowflake_client, 
     assert test_table.fields == get_result.fields
 
 
+async def test_get_table_does_not_fail_with_missing_fields(snowflake_client, database, schema, test_table):
+    """Test getting a table when missing fields that are not part of the primary key."""
+    _ = await snowflake_client.execute_async_query(
+        f'ALTER TABLE "{test_table.name}" DROP COLUMN "text";',
+        timeout=60.0,
+    )
+
+    get_result = await snowflake_client.get_table(test_table)
+
+    assert test_table.name == get_result.name
+    # This time the fields will differ as we don't include missing fields
+    assert test_table.fields != get_result.fields
+    assert "text" not in get_result
+
+
 async def test_get_table_raises_incompatible_schema_on_missing_primary_key_fields(
     snowflake_client, database, schema, test_table
 ):
