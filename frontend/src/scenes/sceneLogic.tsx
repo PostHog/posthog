@@ -632,7 +632,12 @@ export const sceneLogic = kea<sceneLogicType>([
         lastSetScenePayload: [
             {} as Record<string, any>,
             {
-                setScene: (_, { sceneId, sceneKey, tabId, params }) => ({ sceneId, sceneKey, tabId, params }),
+                setScene: (_, { sceneId, sceneKey, tabId, params }) => ({
+                    sceneId,
+                    sceneKey,
+                    tabId,
+                    params,
+                }),
             },
         ],
         tabScrollDepths: [
@@ -1141,8 +1146,8 @@ export const sceneLogic = kea<sceneLogicType>([
                     return
                 }
 
-                // Redirect to org/project creation if there's no org/project respectively, unless using invite
                 if (sceneId !== Scene.InviteSignup) {
+                    // Redirect to org/project creation if there's no org/project respectively, unless using invite
                     if (organizationLogic.values.isCurrentOrganizationUnavailable) {
                         if (
                             location.pathname !== urls.organizationCreateFirst() &&
@@ -1174,6 +1179,8 @@ export const sceneLogic = kea<sceneLogicType>([
                             }
                         }
                     } else if (
+                        // Or redirect to onboarding in case we detect people have to do onboarding for their first project
+                        user.organization?.teams.length === 1 &&
                         teamLogic.values.currentTeam &&
                         !teamLogic.values.currentTeam.is_demo &&
                         !teamLogic.values.hasOnboardedAnyProduct &&
