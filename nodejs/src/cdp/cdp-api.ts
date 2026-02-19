@@ -7,6 +7,7 @@ import { ModifiedRequest } from '~/api/router'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS, KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
 
+import { KafkaProducerWrapper } from '../kafka/producer'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
 import { UUID, UUIDT, delay } from '../utils/utils'
@@ -75,6 +76,7 @@ export class CdpApi {
     private emailTrackingService: EmailTrackingService
     private recipientPreferencesService: RecipientPreferencesService
     private recipientTokensService: RecipientTokensService
+    private cdpKafkaProducer?: KafkaProducerWrapper
 
     constructor(private hub: CdpApiHub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
@@ -129,11 +131,12 @@ export class CdpApi {
     }
 
     async start(): Promise<void> {
+        this.cdpKafkaProducer = await KafkaProducerWrapper.create(this.hub.KAFKA_CLIENT_RACK, 'CDP_PRODUCER')
         await this.cdpSourceWebhooksConsumer.start()
     }
 
     async stop(): Promise<void> {
-        await Promise.all([this.cdpSourceWebhooksConsumer.stop()])
+        await Promise.all([this.cdpSourceWebhooksConsumer.stop(), this.cdpKafkaProducer?.disconnect()])
     }
 
     isHealthy(): HealthCheckResult {
@@ -541,14 +544,13 @@ export class CdpApi {
                 return res.status(404).json({ error: 'Workflow not found' })
             }
 
-            // Queue a message for the CDP batch producer to consume
-            const kafkaProducer = this.hub.kafkaProducer
-            if (!kafkaProducer) {
-                return res.status(500).json({ error: 'Kafka producer not available' })
-            }
-
             if (hogFlow.trigger.type !== 'batch') {
                 return res.status(400).json({ error: 'Only batch Workflows are supported for batch jobs' })
+            }
+
+            // Queue a message for the CDP batch producer to consume via the CDP-specific Kafka cluster
+            if (!this.cdpKafkaProducer) {
+                return res.status(500).json({ error: 'CDP Kafka producer not available' })
             }
 
             const batchHogFlowRequest = {
@@ -561,7 +563,7 @@ export class CdpApi {
                 },
             }
 
-            await kafkaProducer.produce({
+            await this.cdpKafkaProducer.produce({
                 topic: KAFKA_CDP_BATCH_HOGFLOW_REQUESTS,
                 value: Buffer.from(JSON.stringify(batchHogFlowRequest)),
                 key: `${team.id}_${hogFlow.id}`,
