@@ -378,6 +378,9 @@ export const ReverseProxyWaitingForDns = (): JSX.Element => {
 
     return <App />
 }
+ReverseProxyWaitingForDns.parameters = {
+    testOptions: { waitForLoadersToDisappear: false },
+}
 
 export const ReverseProxyVerified = (): JSX.Element => {
     useMountedLogic(onboardingLogic)
