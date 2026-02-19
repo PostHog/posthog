@@ -355,6 +355,7 @@ class TimeSensitiveActionPermission(BasePermission):
     """
 
     message = "This action requires you to be recently authenticated."
+    code = "sensitive_action_required_reauth"
 
     def has_permission(self, request, view) -> bool:
         if not isinstance(request.successful_authenticator, SessionAuthentication):
