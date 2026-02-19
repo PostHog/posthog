@@ -3420,6 +3420,16 @@ class TestPrinter(BaseTest):
             self._expr("event::unsupported_type")
         self.assertIn("Unsupported type cast", str(ctx.exception))
 
+    def test_cte_materialization_hint_not_supported(self):
+        with self.assertRaises(ImpossibleASTError) as ctx:
+            self._select(
+                """
+                WITH some_cte AS MATERIALIZED (SELECT event FROM events)
+                SELECT event FROM some_cte
+                """,
+            )
+        self.assertIn("not supported", str(ctx.exception))
+
 
 @snapshot_clickhouse_queries
 class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
@@ -4402,4 +4412,18 @@ class TestPostgresPrinter(BaseTest):
             self._select(query),
             "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT (nums.n + 1) FROM nums WHERE (nums.n < 5)) "
             "SELECT nums.n FROM nums LIMIT 50000",
+        )
+
+    def test_cte_materialization_hint_materialized(self):
+        query = "WITH events_cte AS MATERIALIZED (SELECT id FROM events) SELECT id FROM events_cte"
+        self.assertEqual(
+            self._select(query),
+            "WITH events_cte AS MATERIALIZED (SELECT id FROM events) SELECT id FROM events_cte LIMIT 50000",
+        )
+
+    def test_cte_materialization_hint_not_materialized(self):
+        query = "WITH events_cte AS NOT MATERIALIZED (SELECT id FROM events) SELECT id FROM events_cte"
+        self.assertEqual(
+            self._select(query),
+            "WITH events_cte AS NOT MATERIALIZED (SELECT id FROM events) SELECT id FROM events_cte LIMIT 50000",
         )
