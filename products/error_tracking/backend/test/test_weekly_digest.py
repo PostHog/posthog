@@ -172,6 +172,27 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         assert result[1]["occurrence_count"] == 2
         assert "/error_tracking/" in result[0]["url"]
 
+    def test_get_top_issues_sparkline_is_chronological(self):
+        issue = self._create_issue(name="SparklineTest")
+        self._create_exception_event(issue_id=issue.id, timestamp=_days_ago(5))
+        for _ in range(3):
+            self._create_exception_event(issue_id=issue.id, timestamp=_days_ago(3))
+        for _ in range(2):
+            self._create_exception_event(issue_id=issue.id, timestamp=_days_ago(1))
+        flush_persons_and_events()
+
+        result = get_top_issues_for_team(self.team)
+
+        assert len(result) == 1
+        sparkline = result[0]["sparkline"]
+        heights = [bar["height_percent"] for bar in sparkline]
+        # day -5 had 1 event, day -3 had 3 (max), day -1 had 2; others had 0
+        # chronological order means the peak (100) must come after the first nonzero value
+        nonzero = [(i, h) for i, h in enumerate(heights) if h > 0]
+        assert len(nonzero) == 3
+        assert nonzero[0][0] < nonzero[1][0] < nonzero[2][0]
+        assert nonzero[1][1] == 100  # day -3 is the max
+
     def test_get_top_issues_limits_to_5(self):
         for i in range(7):
             issue = self._create_issue(name=f"Error{i}")
