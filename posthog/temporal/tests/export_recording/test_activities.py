@@ -6,7 +6,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from posthog.models.exported_recording import ExportedRecording
-from posthog.storage.recordings.errors import BlockFetchError
+from posthog.session_recordings.recordings.errors import BlockFetchError
 from posthog.temporal.export_recording.activities import (
     _redis_key,
     _redis_url,
@@ -250,7 +250,7 @@ async def test_export_recording_data_success():
         patch("posthog.temporal.export_recording.activities.SessionRecording", return_value=mock_recording),
         patch("posthog.temporal.export_recording.activities.database_sync_to_async") as mock_db_sync,
         patch("posthog.temporal.export_recording.activities.list_blocks") as mock_list_blocks,
-        patch("posthog.temporal.export_recording.activities.encrypted_block_storage") as mock_storage_client,
+        patch("posthog.temporal.export_recording.activities.recording_api_client") as mock_storage_client,
         patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
     ):
         mock_db_sync.side_effect = lambda fn: AsyncMock(return_value=fn())
@@ -297,7 +297,7 @@ async def test_export_recording_data_no_blocks():
         patch("posthog.temporal.export_recording.activities.SessionRecording", return_value=mock_recording),
         patch("posthog.temporal.export_recording.activities.database_sync_to_async") as mock_db_sync,
         patch("posthog.temporal.export_recording.activities.list_blocks") as mock_list_blocks,
-        patch("posthog.temporal.export_recording.activities.encrypted_block_storage") as mock_storage_client,
+        patch("posthog.temporal.export_recording.activities.recording_api_client") as mock_storage_client,
         patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
     ):
         mock_db_sync.side_effect = lambda fn: AsyncMock(return_value=fn())
@@ -335,7 +335,7 @@ async def test_export_recording_data_malformed_url():
         patch("posthog.temporal.export_recording.activities.SessionRecording", return_value=mock_recording),
         patch("posthog.temporal.export_recording.activities.database_sync_to_async") as mock_db_sync,
         patch("posthog.temporal.export_recording.activities.list_blocks") as mock_list_blocks,
-        patch("posthog.temporal.export_recording.activities.encrypted_block_storage") as mock_storage_client,
+        patch("posthog.temporal.export_recording.activities.recording_api_client") as mock_storage_client,
         patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
     ):
         mock_db_sync.side_effect = lambda fn: AsyncMock(return_value=fn())
@@ -373,7 +373,7 @@ async def test_export_recording_data_block_fetch_error():
         patch("posthog.temporal.export_recording.activities.SessionRecording", return_value=mock_recording),
         patch("posthog.temporal.export_recording.activities.database_sync_to_async") as mock_db_sync,
         patch("posthog.temporal.export_recording.activities.list_blocks") as mock_list_blocks,
-        patch("posthog.temporal.export_recording.activities.encrypted_block_storage") as mock_storage_client,
+        patch("posthog.temporal.export_recording.activities.recording_api_client") as mock_storage_client,
         patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
     ):
         mock_db_sync.side_effect = lambda fn: AsyncMock(return_value=fn())
@@ -425,7 +425,7 @@ async def test_store_export_data_success(tmp_path):
         patch("posthog.temporal.export_recording.activities.shutil.make_archive") as mock_make_archive,
         patch("posthog.temporal.export_recording.activities.shutil.rmtree"),
         patch(
-            "posthog.temporal.export_recording.activities.file_storage.async_file_storage"
+            "posthog.temporal.export_recording.activities.recording_s3_client.async_recording_s3_client"
         ) as mock_export_storage_client,
         patch("posthog.temporal.export_recording.activities.ExportedRecording.objects") as mock_record_qs,
         patch("posthog.temporal.export_recording.activities.database_sync_to_async") as mock_db_sync,
@@ -487,7 +487,7 @@ async def test_store_export_data_s3_upload_failure():
         patch("posthog.temporal.export_recording.activities.Path") as mock_path_cls,
         patch("posthog.temporal.export_recording.activities.shutil.make_archive"),
         patch(
-            "posthog.temporal.export_recording.activities.file_storage.async_file_storage"
+            "posthog.temporal.export_recording.activities.recording_s3_client.async_recording_s3_client"
         ) as mock_export_storage_client,
     ):
         mock_get_async_client.return_value = mock_redis

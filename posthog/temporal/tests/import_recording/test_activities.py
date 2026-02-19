@@ -72,7 +72,9 @@ async def test_import_recording_data_success(tmp_path):
     mock_storage = AsyncMock()
 
     with (
-        patch("posthog.temporal.import_recording.activities.file_storage.async_file_storage") as mock_async_client,
+        patch(
+            "posthog.temporal.import_recording.activities.recording_s3_client.async_recording_s3_client"
+        ) as mock_async_client,
         patch("posthog.temporal.import_recording.activities.Path") as mock_path_cls,
     ):
         mock_async_client.return_value.__aenter__.return_value = mock_storage
