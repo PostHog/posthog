@@ -189,11 +189,11 @@ async def test_get_table_raises_incompatible_schema_on_missing_fields(snowflake_
     """Test attempting to get a table with an incompatible schema fails"""
     table = SnowflakeTable(
         name=test_table.name,
-        fields=test_table.fields
-        + [
+        fields=(
+            *test_table.fields,
             SnowflakeField("missing_one", SnowflakeType("INTEGER", False), pa.int64(), True),
             SnowflakeField("missing_two", SnowflakeType("INTEGER", False), pa.int64(), True),
-        ],
+        ),
         parents=test_table.parents,
     )
 
