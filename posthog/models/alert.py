@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 import pydantic
 
-from posthog.schema import AlertCalculationInterval, AlertState, InsightThreshold, InsightThresholdType
+from posthog.schema import AlertCalculationInterval, AlertState, InsightThreshold
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, UUIDTModel
@@ -46,26 +46,6 @@ class Threshold(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     name = models.CharField(max_length=255, blank=True)
     configuration = models.JSONField(default=dict)
-
-    @classmethod
-    def build_configuration(
-        cls,
-        *,
-        threshold_type: InsightThresholdType = InsightThresholdType.ABSOLUTE,
-        lower: float | None = None,
-        upper: float | None = None,
-        existing: dict | None = None,
-    ) -> dict:
-        config = dict(existing) if existing is not None else {}
-        bounds = dict(config.get("bounds", {}))
-        config["type"] = threshold_type
-
-        if lower is not None:
-            bounds["lower"] = lower
-        if upper is not None:
-            bounds["upper"] = upper
-        config["bounds"] = bounds
-        return config
 
     def clean(self):
         try:
