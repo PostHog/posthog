@@ -98,7 +98,7 @@ jobs:
                   bin/turbo --filter=@posthog/frontend prepare
 
             - name: Check formatting with oxfmt
-              run: pnpm --filter=@posthog/frontend format:check
+              run: pnpm run format:frontend:check
 
             - name: Lint with Stylelint
               run: pnpm run lint:css
