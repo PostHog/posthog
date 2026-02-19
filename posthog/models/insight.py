@@ -309,6 +309,9 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     def are_alerts_supported(self) -> bool:
         from posthog.schema_migrations.upgrade_manager import upgrade_query
 
+        if self.query is None:
+            return False
+
         with upgrade_query(self):
             query = self.query
             while query.get("source"):

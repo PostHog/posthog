@@ -50,15 +50,10 @@ class Threshold(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         upper: float | None = None,
         existing: dict | None = None,
     ) -> dict:
-        """Build a threshold configuration dict, optionally merging into existing config."""
-        if existing is not None:
-            config = dict(existing)
-            bounds = dict(config.get("bounds", {}))
-            if threshold_type is not None:
-                config["type"] = threshold_type
-        else:
-            config: dict = {"type": threshold_type}
-            bounds = {}
+        config = dict(existing) if existing is not None else {}
+        bounds = dict(config.get("bounds", {}))
+        if threshold_type is not None:
+            config["type"] = threshold_type
 
         if lower is not None:
             bounds["lower"] = lower
@@ -140,10 +135,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         )
 
     def mark_for_recheck(self, *, reset_state: bool = False) -> list[str]:
-        """Mark this alert for rechecking, optionally resetting state to NOT_FIRING.
-
-        Returns list of field names that were modified (for use with update_fields).
-        """
+        """Returns list of field names that were modified (for use with update_fields)."""
         updated: list[str] = []
         if reset_state:
             self.state = AlertState.NOT_FIRING
