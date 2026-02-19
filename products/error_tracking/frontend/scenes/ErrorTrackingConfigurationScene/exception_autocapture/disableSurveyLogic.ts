@@ -1,9 +1,11 @@
 import { actions, kea, listeners, path, reducers } from 'kea'
 import posthog from 'posthog-js'
 
+import { Survey, SurveyQuestion } from '~/types'
+
 import type { disableSurveyLogicType } from './disableSurveyLogicType'
 
-const SURVEY_ID = '019c72ac-3098-0000-8da2-c133ed9d9b9b'
+const SURVEY_ID = '019c7121-f593-0000-2a0f-963ae6b3f5df'
 
 export const disableSurveyLogic = kea<disableSurveyLogicType>([
     path(['scenes', 'error-tracking', 'configuration', 'disableSurveyLogic']),
@@ -11,7 +13,9 @@ export const disableSurveyLogic = kea<disableSurveyLogicType>([
     actions({
         showSurvey: true,
         hideSurvey: true,
-        setResponse: (response: string) => ({ response }),
+        setSurveyQuestions: (questions: SurveyQuestion[]) => ({ questions }),
+        setSelectedChoice: (choice: string) => ({ choice }),
+        setOpenResponse: (response: string) => ({ response }),
         submitResponse: true,
     }),
 
@@ -23,10 +27,23 @@ export const disableSurveyLogic = kea<disableSurveyLogicType>([
                 hideSurvey: () => false,
             },
         ],
-        response: [
+        surveyQuestions: [
+            [] as SurveyQuestion[],
+            {
+                setSurveyQuestions: (_, { questions }) => questions,
+            },
+        ],
+        selectedChoice: [
+            null as string | null,
+            {
+                setSelectedChoice: (_, { choice }) => choice,
+                hideSurvey: () => null,
+            },
+        ],
+        openResponse: [
             '',
             {
-                setResponse: (_, { response }) => response,
+                setOpenResponse: (_, { response }) => response,
                 hideSurvey: () => '',
             },
         ],
@@ -46,15 +63,27 @@ export const disableSurveyLogic = kea<disableSurveyLogicType>([
                 clearTimeout(cache.hideTimeout)
                 cache.hideTimeout = null
             }
+            posthog.getSurveys((surveys) => {
+                const survey = surveys.find((s: Survey) => s.id === SURVEY_ID) as Survey | undefined
+                if (survey) {
+                    actions.setSurveyQuestions(survey.questions)
+                }
+            })
             posthog.capture('survey shown', {
                 $survey_id: SURVEY_ID,
             })
         },
         submitResponse: () => {
-            posthog.capture('survey sent', {
+            const payload: Record<string, string> = {
                 $survey_id: SURVEY_ID,
-                $survey_response: values.response,
-            })
+            }
+            if (values.selectedChoice) {
+                payload.$survey_response = values.selectedChoice
+            }
+            if (values.openResponse.trim()) {
+                payload.$survey_response_1 = values.openResponse
+            }
+            posthog.capture('survey sent', payload)
             cache.hideTimeout = setTimeout(() => {
                 actions.hideSurvey()
                 cache.hideTimeout = null

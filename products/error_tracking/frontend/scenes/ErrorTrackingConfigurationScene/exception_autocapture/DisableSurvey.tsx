@@ -2,11 +2,15 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+
+import { SurveyQuestionType } from '~/types'
+
 import { disableSurveyLogic } from './disableSurveyLogic'
 
 export function DisableSurvey(): JSX.Element | null {
-    const { visible, response, submitted } = useValues(disableSurveyLogic)
-    const { setResponse, submitResponse } = useActions(disableSurveyLogic)
+    const { visible, surveyQuestions, selectedChoice, openResponse, submitted } = useValues(disableSurveyLogic)
+    const { setSelectedChoice, setOpenResponse, submitResponse } = useActions(disableSurveyLogic)
 
     if (!visible) {
         return null
@@ -18,21 +22,40 @@ export function DisableSurvey(): JSX.Element | null {
                 <p className="font-medium m-0">Thanks for your feedback!</p>
             ) : (
                 <div className="flex flex-col gap-3">
-                    <label htmlFor="disable-survey-feedback" className="font-medium m-0">
-                        Help us improve — why are you disabling exception autocapture?
-                    </label>
-                    <LemonTextArea
-                        id="disable-survey-feedback"
-                        placeholder="Share your feedback..."
-                        value={response}
-                        onChange={setResponse}
-                        rows={3}
-                    />
+                    {surveyQuestions.map((question, index) => (
+                        <div key={index}>
+                            <label className="font-medium m-0">{question.question}</label>
+                            {question.type === SurveyQuestionType.SingleChoice && (
+                                <LemonRadio
+                                    className="mt-2"
+                                    value={selectedChoice}
+                                    onChange={setSelectedChoice}
+                                    options={question.choices.map((choice) => ({
+                                        label: choice,
+                                        value: choice,
+                                    }))}
+                                />
+                            )}
+                            {question.type === SurveyQuestionType.Open && (
+                                <LemonTextArea
+                                    className="mt-2"
+                                    placeholder="Share your feedback..."
+                                    value={openResponse}
+                                    onChange={setOpenResponse}
+                                    rows={3}
+                                />
+                            )}
+                        </div>
+                    ))}
                     <div>
                         <LemonButton
                             type="primary"
                             size="small"
-                            disabledReason={!response.trim() ? 'Please enter some feedback' : undefined}
+                            disabledReason={
+                                !selectedChoice && !openResponse.trim()
+                                    ? 'Please select an option or enter feedback'
+                                    : undefined
+                            }
                             onClick={submitResponse}
                         >
                             Submit
