@@ -306,7 +306,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 if (groupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)) {
                     return TaxonomicFilterGroupType.SuggestedFilters
                 }
-                return propsGroupType || groupTypes[0]
+                return groupTypes[0]
             },
             {
                 setActiveTab: (_, { activeTab }) => activeTab,
