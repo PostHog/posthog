@@ -37,9 +37,9 @@ If you need canvas output for a specific story, enable it via story parameters:
 MyStory.parameters = {
   testOptions: {
     enableCanvasRendering: true,
-    waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    waitForSelector: '[data-attr=trend-line-graph]',
   },
 }
 ```
 
-When `enableCanvasRendering` is on and `waitForSelector` includes a `canvas` selector, the test runner waits for the chart canvas to report it has rendered before taking a snapshot.
+When `enableCanvasRendering` is on, the test runner automatically waits for a `canvas` selector and then waits for the chart canvas to report it has rendered before taking a snapshot.

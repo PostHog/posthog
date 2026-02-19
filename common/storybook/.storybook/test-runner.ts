@@ -225,6 +225,7 @@ async function expectStoryToMatchSnapshot(
     await page.waitForTimeout(300)
 
     const { waitForLoadersToDisappear = true, waitForSelector } = storyContext.parameters?.testOptions ?? {}
+    const waitForSelectors = getWaitForSelectors(waitForSelector, enableCanvasRendering)
 
     if (waitForLoadersToDisappear) {
         // The timeout allows loaders and toasts to disappear - toasts usually signify something wrong
@@ -235,13 +236,11 @@ async function expectStoryToMatchSnapshot(
         await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'hidden', timeout })
     }
 
-    if (typeof waitForSelector === 'string') {
-        await page.waitForSelector(waitForSelector)
-    } else if (Array.isArray(waitForSelector)) {
-        await Promise.all(waitForSelector.map((selector) => page.waitForSelector(selector)))
+    if (waitForSelectors.length > 0) {
+        await Promise.all(waitForSelectors.map((selector) => page.waitForSelector(selector)))
     }
 
-    await waitForCanvasRenderingSignal(page, enableCanvasRendering, waitForSelector)
+    await waitForCanvasRenderingSignal(page, enableCanvasRendering, waitForSelectors)
 
     // Snapshot both light and dark themes
     await takeSnapshotWithTheme(page, context, browser, 'light', storyContext)
@@ -272,13 +271,12 @@ async function setStorybookCanvasRendering(
 async function waitForCanvasRenderingSignal(
     page: Page,
     enableCanvasRendering: boolean,
-    waitForSelector?: string | string[]
+    waitForSelectors: string[]
 ): Promise<void> {
     if (!enableCanvasRendering) {
         return
     }
 
-    const waitForSelectors = typeof waitForSelector === 'string' ? [waitForSelector] : waitForSelector || []
     const canvasSelectors = waitForSelectors.filter((selector) => /\bcanvas\b/i.test(selector))
 
     if (canvasSelectors.length === 0) {
@@ -312,6 +310,15 @@ async function waitForCanvasRenderingSignal(
         [canvasSelectors, STORYBOOK_CANVAS_RENDERED_ATTRIBUTE],
         { timeout: 5000 }
     )
+}
+
+function getWaitForSelectors(waitForSelector: string | string[] | undefined, enableCanvasRendering: boolean): string[] {
+    const selectors = typeof waitForSelector === 'string' ? [waitForSelector] : waitForSelector || []
+    const includesCanvasSelector = selectors.some((selector) => /\bcanvas\b/i.test(selector))
+    if (enableCanvasRendering && !includesCanvasSelector) {
+        return [...new Set([...selectors, 'canvas'])]
+    }
+    return [...new Set(selectors)]
 }
 
 async function takeSnapshotWithTheme(
