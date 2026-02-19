@@ -1,17 +1,9 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
+import { TextMorph } from 'torph/react'
 
-import {
-    IconCopy,
-    IconEye,
-    IconFlask,
-    IconPause,
-    IconPlay,
-    IconPlusSmall,
-    IconRefresh,
-    IconStopFilled,
-} from '@posthog/icons'
+import { IconCopy, IconEye, IconFlask, IconPause, IconPlay, IconPlusSmall, IconRefresh } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -280,7 +272,7 @@ export function EllipsisAnimation(): JSX.Element {
         return () => clearInterval(interval)
     }, [isPageVisible])
 
-    return <span>{ellipsis}</span>
+    return <TextMorph as="span">{ellipsis}</TextMorph>
 }
 
 export function PageHeaderCustom(): JSX.Element {
@@ -305,8 +297,7 @@ export function PageHeaderCustom(): JSX.Element {
         updateExperiment,
         setHogfettiTrigger,
     } = useActions(experimentLogic)
-    const { openShipVariantModal, openStopExperimentModal, openPauseExperimentModal, openResumeExperimentModal } =
-        useActions(modalsLogic)
+    const { openFinishExperimentModal, openPauseExperimentModal, openResumeExperimentModal } = useActions(modalsLogic)
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
     const [surveyModalOpen, setSurveyModalOpen] = useState(false)
     const { newTab } = useActions(sceneLogic)
@@ -318,7 +309,7 @@ export function PageHeaderCustom(): JSX.Element {
 
     const exposureCohortId = experiment?.exposure_cohort
 
-    const shouldShowShipVariantButton =
+    const shouldShowFinishExperimentButton =
         !isExperimentDraft &&
         !isSingleVariantShipped &&
         hasMinimumExposureForResults &&
@@ -396,19 +387,19 @@ export function PageHeaderCustom(): JSX.Element {
                                 )}
                             </div>
                         )}
-                        {shouldShowShipVariantButton && (
+                        {shouldShowFinishExperimentButton && (
                             <>
-                                <Tooltip title="Choose a variant and roll it out to all users">
+                                <Tooltip title="Conclude this experiment and decide which variant to keep">
                                     <LemonButton
                                         type="primary"
                                         icon={<IconFlask />}
-                                        onClick={() => openShipVariantModal()}
+                                        onClick={() => openFinishExperimentModal()}
                                         size="small"
                                     >
-                                        <b>Ship a variant</b>
+                                        <b>End experiment</b>
                                     </LemonButton>
                                 </Tooltip>
-                                <ShipVariantModal />
+                                <FinishExperimentModal />
                             </>
                         )}
                         {experiment && (
@@ -480,8 +471,6 @@ export function PageHeaderCustom(): JSX.Element {
 
                         <LemonDivider />
 
-                        <ResetButton />
-
                         {!experiment.end_date &&
                             experiment.feature_flag &&
                             (experiment.feature_flag.active ? (
@@ -503,16 +492,8 @@ export function PageHeaderCustom(): JSX.Element {
                                 </ButtonPrimitive>
                             ))}
 
-                        {!experiment.end_date && (
-                            <ButtonPrimitive
-                                variant="danger"
-                                menuItem
-                                data-attr="stop-experiment"
-                                onClick={() => openStopExperimentModal()}
-                            >
-                                <IconStopFilled /> Stop
-                            </ButtonPrimitive>
-                        )}
+                        <ResetButton />
+
                         <PauseExperimentModal />
                         <ResumeExperimentModal />
                     </ScenePanelActionsSection>
@@ -630,58 +611,6 @@ export function EditConclusionModal(): JSX.Element {
     )
 }
 
-export function StopExperimentModal(): JSX.Element {
-    const { experiment } = useValues(experimentLogic)
-    const { endExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
-    const { closeStopExperimentModal } = useActions(modalsLogic)
-    const { isStopExperimentModalOpen } = useValues(modalsLogic)
-
-    return (
-        <LemonModal
-            isOpen={isStopExperimentModalOpen}
-            onClose={() => {
-                restoreUnmodifiedExperiment()
-                closeStopExperimentModal()
-            }}
-            title="Stop experiment"
-            width={600}
-            footer={
-                <div className="flex items-center gap-2">
-                    <LemonButton
-                        type="secondary"
-                        onClick={() => {
-                            restoreUnmodifiedExperiment()
-                            closeStopExperimentModal()
-                        }}
-                    >
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        onClick={() => endExperiment()}
-                        type="primary"
-                        disabledReason={!experiment.conclusion && 'Select a conclusion'}
-                    >
-                        Stop experiment
-                    </LemonButton>
-                </div>
-            }
-        >
-            <div className="space-y-4">
-                <div>
-                    Stopping the experiment will mark when to stop counting events in the results. Your feature flag
-                    will continue working normally and events will still be tracked. You can restart the experiment
-                    later if needed.
-                </div>
-                <div>
-                    To roll out a specific variant to all users instead, use the 'Ship a variant' button or adjust the
-                    feature flag settings.
-                </div>
-                <ConclusionForm />
-            </div>
-        </LemonModal>
-    )
-}
-
 export function PauseExperimentModal(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
     const { pauseExperiment } = useActions(experimentLogic)
@@ -759,11 +688,11 @@ export function ResumeExperimentModal(): JSX.Element {
     )
 }
 
-export function ShipVariantModal(): JSX.Element {
+export function FinishExperimentModal(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
-    const { shipVariant, restoreUnmodifiedExperiment } = useActions(experimentLogic)
-    const { closeShipVariantModal } = useActions(modalsLogic)
-    const { isShipVariantModalOpen } = useValues(modalsLogic)
+    const { finishExperiment, restoreUnmodifiedExperiment } = useActions(experimentLogic)
+    const { closeFinishExperimentModal } = useActions(modalsLogic)
+    const { isFinishExperimentModalOpen } = useValues(modalsLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
@@ -787,43 +716,43 @@ export function ShipVariantModal(): JSX.Element {
     return (
         <>
             <LemonModal
-                isOpen={isShipVariantModalOpen}
+                isOpen={isFinishExperimentModalOpen}
                 onClose={() => {
                     restoreUnmodifiedExperiment()
-                    closeShipVariantModal()
+                    closeFinishExperimentModal()
                 }}
                 width={600}
-                title="Ship a variant"
+                title="End experiment"
                 footer={
                     <div className="flex items-center gap-2">
                         <LemonButton
                             type="secondary"
                             onClick={() => {
                                 restoreUnmodifiedExperiment()
-                                closeShipVariantModal()
+                                closeFinishExperimentModal()
                             }}
                         >
                             Cancel
                         </LemonButton>
                         <LemonButton
                             onClick={() => {
-                                shipVariant({ selectedVariantKey, shouldStopExperiment: true })
+                                finishExperiment({ selectedVariantKey })
                             }}
                             type="primary"
                             disabledReason={!experiment.conclusion && 'Select a conclusion'}
                         >
-                            Ship variant
+                            End experiment
                         </LemonButton>
                     </div>
                 }
             >
-                <div className="deprecated-space-y-6">
-                    <div className="text-sm">
-                        This will roll out the selected variant to <b>100% of {aggregationTargetName}</b> and stop the
-                        experiment.
-                    </div>
-                    <div className="flex items-center">
-                        <div className="w-1/2 pr-4">
+                <div className="space-y-4">
+                    <div>
+                        <LemonLabel>Variant to keep</LemonLabel>
+                        <div className="text-sm text-secondary">
+                            The selected variant will be rolled out to <b>100% of {aggregationTargetName}</b>.
+                        </div>
+                        <div className="w-1/2">
                             <LemonSelect
                                 className="w-full"
                                 data-attr="metrics-selector"
@@ -869,7 +798,7 @@ export const ResetButton = (): JSX.Element => {
 
     const onClickReset = (): void => {
         LemonDialog.open({
-            title: 'Reset this experiment?',
+            title: 'Reset analysis?',
             content: (
                 <>
                     <div className="text-sm text-secondary max-w-md">
@@ -880,6 +809,9 @@ export const ResetButton = (): JSX.Element => {
                         <p>
                             All events collected thus far will still exist, but won't be applied to the experiment
                             unless you manually change the start date after launching the experiment again.
+                        </p>
+                        <p>
+                            The <b>feature flag remains untouched</b>, so variants stay visible to users.
                         </p>
                     </div>
                     {experiment.archived && (
@@ -903,7 +835,7 @@ export const ResetButton = (): JSX.Element => {
 
     return (
         <ButtonPrimitive variant="danger" menuItem onClick={onClickReset} data-attr="reset-experiment">
-            <IconRefresh /> Reset experiment
+            <IconRefresh /> Reset analysis
         </ButtonPrimitive>
     )
 }

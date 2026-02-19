@@ -50,6 +50,7 @@ import {
     ConsolidatedSurveyResults,
     EventPropertyFilter,
     FeatureFlagFilters,
+    HogFunctionType,
     IntervalType,
     MultipleSurveyQuestion,
     OpenQuestionProcessedResponses,
@@ -86,7 +87,7 @@ import {
 } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
 import { SurveyFeatureWarning, getSurveyWarnings } from './surveyVersionRequirements'
-import { surveysLogic } from './surveysLogic'
+import { getSurveyStatus, surveysLogic } from './surveysLogic'
 import {
     DATE_FORMAT,
     buildPartialResponsesFilter,
@@ -550,6 +551,10 @@ export const surveyLogic = kea<surveyLogicType>([
         setShowArchivedResponses: (show: boolean) => ({ show }),
         archiveResponse: (responseUuid: string) => ({ responseUuid }),
         unarchiveResponse: (responseUuid: string) => ({ responseUuid }),
+        toggleSurveyNotificationEnabled: (notificationId: string, enabled: boolean) => ({
+            notificationId,
+            enabled,
+        }),
     }),
     loaders(({ props, actions, values }) => ({
         surveyHeadline: [
@@ -612,6 +617,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             intent_context: ProductIntentContext.SURVEY_VIEWED,
                             metadata: {
                                 survey_id: survey.id,
+                                survey_status: getSurveyStatus(survey),
                             },
                         })
                         return survey
@@ -884,6 +890,40 @@ export const surveyLogic = kea<surveyLogicType>([
                 },
             },
         ],
+        surveyNotifications: [
+            [] as HogFunctionType[],
+            {
+                loadSurveyNotifications: async (): Promise<HogFunctionType[]> => {
+                    if (props.id === NEW_SURVEY.id) {
+                        return []
+                    }
+                    const response = await api.hogFunctions.list({
+                        filter_groups: [
+                            {
+                                events: [
+                                    {
+                                        id: SurveyEventName.SENT,
+                                        type: 'events',
+                                        properties: [
+                                            {
+                                                key: SurveyEventProperties.SURVEY_ID,
+                                                type: PropertyFilterType.Event,
+                                                value: props.id,
+                                                operator: PropertyOperator.Exact,
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        ],
+                        types: ['destination'],
+                        full: true,
+                    })
+
+                    return response.results
+                },
+            },
+        ],
     })),
     listeners(({ actions, values }) => {
         const reloadAllSurveyResults = debounce((): void => {
@@ -1063,6 +1103,24 @@ export const surveyLogic = kea<surveyLogicType>([
                         response: responseUuid,
                     })
                     actions.loadArchivedResponseUuids()
+                }
+            },
+            toggleSurveyNotificationEnabled: async ({ notificationId, enabled }) => {
+                const updatedNotifications = values.surveyNotifications.map((notification) =>
+                    notification.id === notificationId ? { ...notification, enabled } : notification
+                )
+                actions.loadSurveyNotificationsSuccess(updatedNotifications)
+
+                try {
+                    await api.hogFunctions.update(notificationId, { enabled })
+                } catch (error) {
+                    lemonToast.error('Failed to update notification')
+                    actions.loadSurveyNotifications()
+                    posthog.captureException(error, {
+                        action: 'toggle-survey-notification',
+                        survey: values.survey.id,
+                        notification: notificationId,
+                    })
                 }
             },
         }
@@ -2230,6 +2288,7 @@ export const surveyLogic = kea<surveyLogicType>([
     afterMount(({ props, actions }) => {
         if (props.id !== 'new') {
             actions.loadSurvey()
+            actions.loadSurveyNotifications()
         }
         if (props.id === 'new') {
             actions.resetSurvey()

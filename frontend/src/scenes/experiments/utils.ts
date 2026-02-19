@@ -18,6 +18,7 @@ import {
     ExperimentMetricSource,
     ExperimentMetricType,
     ExperimentTrendsQuery,
+    GroupNode,
     NodeKind,
     TrendsQuery,
     isExperimentFunnelMetric,
@@ -102,7 +103,7 @@ export function transformFiltersForWinningVariant(
             {
                 properties: [],
                 rollout_percentage: 100,
-                description: 'Added automatically when the experiment variant was shipped',
+                description: 'Added automatically when the experiment was ended to keep only one variant.',
             },
             // Preserve existing groups so that users can roll back this action
             // by deleting the newly added release condition
@@ -112,7 +113,7 @@ export function transformFiltersForWinningVariant(
 }
 
 function seriesToFilterLegacy(
-    series: AnyEntityNode,
+    series: AnyEntityNode | GroupNode,
     featureFlagKey: string,
     variantKey: string
 ): UniversalFiltersGroupValue | null {

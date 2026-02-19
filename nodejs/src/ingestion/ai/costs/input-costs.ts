@@ -64,7 +64,12 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
                 : bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.1), cacheReadTokens)
 
         const totalCacheCost = bigDecimal.add(writeCost, cacheReadCost)
-        const uncachedTokens = inclusiveInputTokens
+        // If inputTokens < cacheReadTokens + cacheWriteTokens, the tokens can't be inclusive
+        // (inclusive means cache tokens are a subset of input tokens). This guards against
+        // SDKs that report exclusive counts through the Vercel gateway.
+        const isActuallyInclusive =
+            inclusiveInputTokens && Number(inputTokens) >= Number(cacheReadTokens) + Number(cacheWriteTokens)
+        const uncachedTokens = isActuallyInclusive
             ? bigDecimal.subtract(bigDecimal.subtract(inputTokens, cacheReadTokens), cacheWriteTokens)
             : inputTokens
         const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, uncachedTokens)

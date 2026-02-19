@@ -120,6 +120,11 @@ export function HeatmapCanvas({
         }
     }, [heatmapColorPalette])
 
+    const heatmapJsDataRef = useRef(heatmapJsData)
+    heatmapJsDataRef.current = heatmapJsData
+    const heatmapJSColorGradientRef = useRef(heatmapJSColorGradient)
+    heatmapJSColorGradientRef.current = heatmapJSColorGradient
+
     const handleCanvasClick = useCallback(
         (e: React.MouseEvent<HTMLDivElement>): void => {
             const rect = e.currentTarget.getBoundingClientRect()
@@ -158,35 +163,32 @@ export function HeatmapCanvas({
         [heatmapElements, windowWidth, windowWidthOverride, setSelectedArea, isToolbar, scrollYRef]
     )
 
-    const updateHeatmapData = useCallback((): void => {
+    const setHeatmapContainer = useCallback((container: HTMLDivElement | null): void => {
+        heatmapsJsContainerRef.current = container
+        if (!container) {
+            return
+        }
+
+        heatmapsJsRef.current = heatmapsJs.create({
+            ...HEATMAP_CONFIG,
+            container,
+            gradient: heatmapJSColorGradientRef.current,
+        })
+
+        try {
+            heatmapsJsRef.current.setData(heatmapJsDataRef.current)
+        } catch (e) {
+            console.error('error setting data', e)
+        }
+    }, [])
+
+    useEffect(() => {
         try {
             heatmapsJsRef.current?.setData(heatmapJsData)
         } catch (e) {
             console.error('error setting data', e)
         }
     }, [heatmapJsData])
-
-    const setHeatmapContainer = useCallback(
-        (container: HTMLDivElement | null): void => {
-            heatmapsJsContainerRef.current = container
-            if (!container) {
-                return
-            }
-
-            heatmapsJsRef.current = heatmapsJs.create({
-                ...HEATMAP_CONFIG,
-                container,
-                gradient: heatmapJSColorGradient,
-            })
-
-            updateHeatmapData()
-        },
-        [updateHeatmapData, heatmapJSColorGradient]
-    )
-
-    useEffect(() => {
-        updateHeatmapData()
-    }, [heatmapJsData]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (!heatmapsJsContainerRef.current) {

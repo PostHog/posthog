@@ -613,7 +613,7 @@ mod tests {
         #[case(FlagError::SecretApiTokenInvalid, 401, "secret_api_token_invalid")]
         #[case(FlagError::NoAuthenticationProvided, 401, "no_authentication")]
         #[case(FlagError::RowNotFound, 500, "row_not_found")]
-        #[case(FlagError::RedisDataParsingError, 503, "redis_parsing_error")]
+        #[case(FlagError::DataParsingErrorWithContext("test".into()), 500, "flag_data_parsing_error")]
         #[case(FlagError::DeserializeFiltersError, 500, "deserialize_filters_error")]
         #[case(FlagError::RedisUnavailable, 503, "redis_unavailable")]
         #[case(FlagError::DatabaseUnavailable, 503, "database_unavailable")]
@@ -635,11 +635,11 @@ mod tests {
             500,
             "cohort_filters_parsing_error"
         )]
-        #[case(FlagError::PersonNotFound, 400, "person_not_found")]
-        #[case(FlagError::PropertiesNotInCache, 400, "properties_not_in_cache")]
+        #[case(FlagError::PersonNotFound, 503, "person_not_found")]
+        #[case(FlagError::PropertiesNotInCache, 503, "properties_not_in_cache")]
         #[case(
             FlagError::StaticCohortMatchesNotCached,
-            400,
+            503,
             "static_cohort_not_cached"
         )]
         #[case(FlagError::CacheMiss, 503, "cache_miss")]

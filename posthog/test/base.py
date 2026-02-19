@@ -683,6 +683,19 @@ class PostHogTestCase(SimpleTestCase):
         if preheader:
             self.assertIn(preheader, html_message)
 
+    @staticmethod
+    def ensure_url_patterns_loaded():
+        """Force Django's lazy URL pattern loading with current (default) settings.
+
+        Call this before any @override_settings that changes values used at
+        class-definition time in view modules (e.g. E2E_TESTING). Otherwise,
+        the first HTTP request under the override will import those modules
+        with the wrong settings values baked into class attributes.
+        """
+        from django.urls import get_resolver
+
+        _ = get_resolver().url_patterns
+
     @contextmanager
     def is_cloud(self, value: bool):
         with self.settings(CLOUD_DEPLOYMENT="US" if value else None):

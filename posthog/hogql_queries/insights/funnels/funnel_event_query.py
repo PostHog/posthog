@@ -9,9 +9,11 @@ from posthog.schema import (
     BreakdownAttributionType,
     DataWarehouseNode,
     EventsNode,
+    FilterLogicalOperator,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     FunnelMathType,
+    GroupNode,
     StepOrderValue,
 )
 
@@ -341,6 +343,10 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             event_expr = action_to_expr(action)
         elif isinstance(step_entity, DataWarehouseNode):
             event_expr = ast.Constant(value=1)
+        elif isinstance(step_entity, GroupNode):
+            child_exprs = [self._build_step_query(child, table_entity) for child in step_entity.nodes]
+            if step_entity.operator == FilterLogicalOperator.OR_:
+                event_expr = ast.Or(exprs=child_exprs)
         elif step_entity.event is None:
             # all events
             if isinstance(table_entity, DataWarehouseNode):
@@ -493,7 +499,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                             f"""tupleElement((
                                 throwIf(isNull({{id_field}}), {{exception_message}}),
                                 toUUIDOrDefault(
-                                    {{id_field}},
+                                    toString({{id_field}}),
                                     reinterpretAsUUID(md5(concat({{table_prefix}}, toString({{id_field}}))))
                                 )
                             ), 2)""",
@@ -595,6 +601,18 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                     raise ValidationError(f"Action ID {node.id} does not exist!")
             elif isinstance(node, DataWarehouseNode):
                 continue  # Data warehouse nodes aren't based on events
+            elif isinstance(node, GroupNode):
+                for child in node.nodes:
+                    if isinstance(child, EventsNode):
+                        events.add(child.event)
+                    elif isinstance(child, ActionsNode):
+                        try:
+                            action = Action.objects.get(pk=int(child.id), team__project_id=self.context.team.project_id)
+                            events.update(action.get_step_events())
+                        except Action.DoesNotExist:
+                            raise ValidationError(f"Action ID {child.id} does not exist!")
+                    elif isinstance(child, DataWarehouseNode):
+                        continue
             else:
                 raise ValidationError("Series and exclusions must be compose of action and event nodes")
 

@@ -5,7 +5,7 @@ from typing import Any, cast
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import models, transaction
 
-from posthog.models import Project, Team
+from posthog.models import Project, Team, User
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
 from posthog.models.resource_transfer.types import (
     ResourceKind,
@@ -25,12 +25,15 @@ def duplicate_resource_to_new_team(
     resource: Any,
     team: Team,
     substitutions: list[tuple[ResourceTransferKey, ResourceTransferKey]] | None = None,
+    *,
+    created_by: User,
 ) -> list[Any]:
     """
     Duplicate a resource and any relations it depends on to another team.
 
     :param resource: The resource to start the duplication with.
     :param team: The team to copy the resource to.
+    :param created_by: The user who initiated the transfer.
 
     :returns: A list of the newly created resources
     """
@@ -38,7 +41,9 @@ def duplicate_resource_to_new_team(
     with transaction.atomic():
         graph = list(build_resource_duplication_graph(resource, set()))
         dag = dag_sort_duplication_graph(graph)
-        return duplicate_resources_from_dag(dag, source_team, team, substitutions if substitutions is not None else [])
+        return duplicate_resources_from_dag(
+            dag, source_team, team, substitutions if substitutions is not None else [], created_by=created_by
+        )
 
 
 def duplicate_resources_from_dag(
@@ -46,6 +51,8 @@ def duplicate_resources_from_dag(
     source_team: Team,
     new_team: Team,
     substitutions: list[tuple[ResourceTransferKey, ResourceTransferKey]],
+    *,
+    created_by: User,
 ) -> list[Any]:
     """
     Given a DAG of vertices, execute the database operations to copy the resources described by each vertex into the new team.
@@ -55,6 +62,7 @@ def duplicate_resources_from_dag(
     :param source_team: The team the resources are being copied from.
     :param new_team: The team to copy the resources to.
     :param substitutions: A list of (source_key, destination_key) pairs representing substitutions to use.
+    :param created_by: The user who initiated the transfer.
 
     :returns: A list of the newly created resources
     """
@@ -88,6 +96,7 @@ def duplicate_resources_from_dag(
                 ResourceTransfer(
                     source_team=source_team,
                     destination_team=new_team,
+                    created_by=created_by,
                     resource_kind=visitor.kind,
                     resource_id=str(vertex.source_resource.pk),
                     duplicated_resource_id=str(vertex.duplicated_resource.pk),
@@ -234,33 +243,62 @@ def get_suggested_substitutions(
         if visitor.is_immutable():
             continue
 
-        transfer_record = (
-            ResourceTransfer.objects.filter(
-                resource_kind=visitor.kind,
-                resource_id=str(vertex.source_resource.pk),
-                destination_team=new_team,
-            )
-            .order_by("-last_transferred_at")
-            .first()
-        )
+        suggested_resource = _find_resource_with_transfer_record(visitor, vertex, new_team)
 
-        if transfer_record is None:
-            continue
+        if suggested_resource is None:
+            suggested_resource = _find_resource_with_same_name(visitor, vertex, new_team)
 
-        model = visitor.get_model()
-        try:
-            previously_duplicated_resource = model.objects.get(pk=transfer_record.duplicated_resource_id)
-        except ObjectDoesNotExist:
+        if suggested_resource is None:
             continue
 
         source_key: ResourceTransferKey = (visitor.kind, vertex.source_resource.pk)
         dest_key: ResourceTransferKey = (
-            cast(ResourceKind, transfer_record.resource_kind),
-            previously_duplicated_resource.pk,
+            cast(ResourceKind, visitor.kind),
+            suggested_resource.pk,
         )
         recommendations.append((source_key, dest_key))
 
     return recommendations
+
+
+def _find_resource_with_transfer_record(
+    visitor: type[ResourceTransferVisitor], vertex: ResourceTransferVertex, new_team: Team
+) -> Any | None:
+    transfer_record = (
+        ResourceTransfer.objects.filter(
+            resource_kind=visitor.kind,
+            resource_id=str(vertex.source_resource.pk),
+            destination_team=new_team,
+        )
+        .order_by("-last_transferred_at")
+        .first()
+    )
+
+    if transfer_record is None:
+        return None
+
+    model = visitor.get_model()
+    try:
+        previously_duplicated_resource = model.objects.get(pk=transfer_record.duplicated_resource_id)
+
+        return previously_duplicated_resource
+    except ObjectDoesNotExist:
+        return None
+
+
+def _find_resource_with_same_name(
+    visitor: type[ResourceTransferVisitor], vertex: ResourceTransferVertex, new_team: Team
+) -> Any | None:
+    model = visitor.get_model()
+
+    resource = cast(Any, vertex.source_resource)
+
+    if not hasattr(resource, "name") or not resource.name or not hasattr(resource, "team"):
+        return None
+
+    matching_resource = model.objects.filter(name=resource.name, team=new_team).first()
+
+    return matching_resource
 
 
 def _get_mapped_substitutions(
