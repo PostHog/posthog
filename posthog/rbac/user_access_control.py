@@ -180,14 +180,15 @@ def get_effective_access_level_for_role(
 
     levels = ordered_access_levels(resource)
     inherited = default_level
+    effective: AccessControlLevel | None = None
 
     if role_level is None:
         effective = inherited
     elif inherited is None:
         # using the role level if there's no default level
         effective = role_level
-    else:
-        effective = max(inherited, role_level, key=levels.index)
+    elif levels.index(role_level) > levels.index(inherited):
+        effective = role_level
 
     return EffectiveAccessResult(
         effective_access_level=effective,
@@ -223,6 +224,7 @@ def get_effective_access_level_for_member(
 
     inherited = default_level
     inherited_reason: InheritedAccessLevelReason = "project_default"
+    effective: AccessControlLevel | None = None
 
     for rl in role_levels:
         # using the role level if there's no default level or the role level is higher
@@ -235,8 +237,8 @@ def get_effective_access_level_for_member(
     elif inherited is None:
         # using the member level if both default and role levels are not set
         effective = member_level
-    else:
-        effective = max(inherited, member_level, key=levels.index)
+    elif levels.index(member_level) > levels.index(inherited):
+        effective = member_level
 
     return EffectiveAccessResult(
         effective_access_level=effective,
