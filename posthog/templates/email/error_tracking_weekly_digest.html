@@ -26,7 +26,7 @@
             <tr>
                 {% for day in daily_counts %}
                 <td align="center" valign="bottom" style="padding: 0 3px; height: 60px;">
-                    <div style="width: 100%; min-width: 20px; height: {{ day.height_pct }}%; {% if day.height_pct > 0 %}min-height: 3px;{% endif %} background-color: #9f9fa9; border-radius: 3px 3px 0 0;"></div>
+                    <div style="width: 100%; min-width: 20px; height: {{ day.height_percent }}%; {% if day.height_percent > 0 %}min-height: 3px;{% endif %} background-color: #9f9fa9; border-radius: 3px 3px 0 0;"></div>
                 </td>
                 {% endfor %}
             </tr>
@@ -62,8 +62,8 @@
 <!-- Section: Top issues -->
 {% if top_issues %}
 <div style="background-color: #ffffff; border-radius: 8px; padding: 20px; margin-bottom: 16px;">
-    <h3 style="margin: 0 0 4px 0; text-align: left;">Top issues</h3>
-    <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #6b7280; text-align: left;">The noisiest issues in your project this week, ranked by total occurrences.</p>
+    <h3 style="margin: 0 0 4px 0; text-align: left;">Top issues this week</h3>
+    <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #6b7280; text-align: left;">Issues ranked by occurrence count this week.</p>
     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse: collapse;">
         <thead>
             <tr style="border-bottom: 1px solid #e1e5e9;">
@@ -87,7 +87,7 @@
                         <tr>
                             {% for bar in issue.sparkline %}
                             <td valign="bottom" style="padding: 0 1px; height: 24px;">
-                                <div style="width: 8px; height: {{ bar.height_pct }}%; {% if bar.height_pct > 0 %}min-height: 2px;{% endif %} background-color: #9f9fa9; border-radius: 1px;"></div>
+                                <div style="width: 8px; height: {{ bar.height_percent }}%; {% if bar.height_percent > 0 %}min-height: 2px;{% endif %} background-color: #9f9fa9; border-radius: 1px;"></div>
                             </td>
                             {% endfor %}
                         </tr>
@@ -108,8 +108,8 @@
 <!-- Section: New issues -->
 {% if new_issues %}
 <div style="background-color: #ffffff; border-radius: 8px; padding: 20px; margin-bottom: 16px;">
-    <h3 style="margin: 0 0 4px 0; text-align: left;">Top new issues this week</h3>
-    <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #6b7280; text-align: left;">Issues first seen in the last 7 days. These may need triaging.</p>
+    <h3 style="margin: 0 0 4px 0; text-align: left;">Top issues first seen this week</h3>
+    <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #6b7280; text-align: left;">Issues first seen this week ranked by occurrence count.</p>
     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse: collapse;">
         <thead>
             <tr style="border-bottom: 1px solid #e1e5e9;">
@@ -133,7 +133,7 @@
                         <tr>
                             {% for bar in issue.sparkline %}
                             <td valign="bottom" style="padding: 0 1px; height: 24px;">
-                                <div style="width: 8px; height: {{ bar.height_pct }}%; {% if bar.height_pct > 0 %}min-height: 2px;{% endif %} background-color: #9f9fa9; border-radius: 1px;"></div>
+                                <div style="width: 8px; height: {{ bar.height_percent }}%; {% if bar.height_percent > 0 %}min-height: 2px;{% endif %} background-color: #9f9fa9; border-radius: 1px;"></div>
                             </td>
                             {% endfor %}
                         </tr>
@@ -157,7 +157,7 @@
         &#9888; {{ ingestion_failure_count|compact_number }} exceptions failed to ingest
     </p>
     <p style="margin: 0 0 16px 0; color: #664d03; font-size: 0.9em;">
-        Sometimes our ingestion pipeline fails to process exceptions. This is usually caused by malformed events being sent. You can inspect each failed exception to see what went wrong by expanding it.
+        This is usually caused by malformed events being sent. You can inspect each failed exception to see what went wrong by expanding it.
     </p>
     <table cellpadding="0" cellspacing="0" border="0" width="100%">
         <tr>

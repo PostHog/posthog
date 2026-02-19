@@ -11,7 +11,7 @@ logger = structlog.get_logger(__name__)
 
 
 def get_exception_counts(team_ids: list[int] | None = None) -> list:
-    """Query ClickHouse for exception counts and ingestion failures, optionally filtered to specific team IDs"""
+    """Exception counts and ingestion failures"""
     from posthog.clickhouse.client import sync_execute
 
     team_filter = ""
@@ -39,7 +39,7 @@ def get_exception_counts(team_ids: list[int] | None = None) -> list:
 
 
 def get_crash_free_sessions(team: Team) -> dict:
-    """Calculate crash free sessions rate for the last 7 days via HogQL"""
+    """Calculate crash free sessions rate for the last 7 days"""
     from posthog.hogql.query import execute_hogql_query
 
     try:
@@ -75,7 +75,7 @@ def get_crash_free_sessions(team: Team) -> dict:
 
 
 def get_daily_exception_counts(team_id: int) -> list[dict]:
-    """Get exception counts per day for the last 7 days from ClickHouse"""
+    """Get exception counts per day for the last 7 days"""
     from posthog.clickhouse.client import sync_execute
 
     try:
@@ -109,15 +109,15 @@ def get_daily_exception_counts(team_id: int) -> list[dict]:
 
     max_count = max((d["count"] for d in daily_counts), default=0)
     for d in daily_counts:
-        d["height_pct"] = int((d["count"] / max_count) * 100) if max_count > 0 else 0
-        if d["count"] > 0 and d["height_pct"] < 5:
-            d["height_pct"] = 5
+        d["height_percent"] = int((d["count"] / max_count) * 100) if max_count > 0 else 0
+        if d["count"] > 0 and d["height_percent"] < 5:
+            d["height_percent"] = 5
 
     return daily_counts
 
 
 def get_top_issues_for_team(team: Team) -> list[dict]:
-    """Query top 5 issues by occurrence count in the last 7 days via HogQL"""
+    """Query top 5 issues by occurrence count in the last 7 days with sparkline data"""
     from posthog.hogql.query import execute_hogql_query
 
     from products.error_tracking.backend.models import ErrorTrackingIssue
@@ -125,11 +125,18 @@ def get_top_issues_for_team(team: Team) -> list[dict]:
     try:
         response = execute_hogql_query(
             query="""
-                SELECT issue_id, count(*) as occurrence_count
-                FROM events
-                WHERE event = '$exception'
-                AND timestamp >= now() - INTERVAL 7 DAY
-                AND timestamp < now()
+                SELECT
+                    issue_id,
+                    count(*) as occurrence_count,
+                    groupArray(day_count) as daily_counts
+                FROM (
+                    SELECT issue_id, toDate(timestamp) as day, count(*) as day_count
+                    FROM events
+                    WHERE event = '$exception'
+                    AND timestamp >= toStartOfDay(now() - INTERVAL 7 DAY)
+                    AND timestamp < now()
+                    GROUP BY issue_id, day
+                )
                 GROUP BY issue_id
                 ORDER BY occurrence_count DESC
                 LIMIT 5
@@ -146,29 +153,11 @@ def get_top_issues_for_team(team: Team) -> list[dict]:
     issue_ids = [row[0] for row in response.results if row[0]]
     issues_by_id = {str(issue.id): issue for issue in ErrorTrackingIssue.objects.filter(team=team, id__in=issue_ids)}
 
-    sparklines = _get_issue_sparklines(team, issue_ids)
-
-    top_issues = []
-    for issue_id, occurrence_count in response.results:
-        if not issue_id:
-            continue
-        issue = issues_by_id.get(str(issue_id))
-        top_issues.append(
-            {
-                "id": issue_id,
-                "name": issue.name if issue else "Unknown issue",
-                "description": issue.description if issue else None,
-                "occurrence_count": occurrence_count,
-                "sparkline": sparklines.get(str(issue_id), []),
-                "url": f"{settings.SITE_URL}/project/{team.pk}/error_tracking/{issue_id}",
-            }
-        )
-
-    return top_issues
+    return _build_issues_list(response.results, issues_by_id, team)
 
 
 def get_new_issues_for_team(team: Team) -> list[dict]:
-    """Query top 5 issues first seen in the last 7 days, ranked by occurrence count"""
+    """Query top 5 issues first seen in the last 7 days ranked by occurrence count with sparkline data"""
     from posthog.hogql import ast
     from posthog.hogql.query import execute_hogql_query
 
@@ -186,7 +175,24 @@ def get_new_issues_for_team(team: Team) -> list[dict]:
 
     try:
         response = execute_hogql_query(
-            query="SELECT issue_id, count(*) as occurrence_count FROM events WHERE event = '$exception' AND timestamp >= now() - INTERVAL 7 DAY AND timestamp < now() AND issue_id IN {issue_ids} GROUP BY issue_id ORDER BY occurrence_count DESC LIMIT 5",
+            query="""
+                SELECT
+                    issue_id,
+                    count(*) as occurrence_count,
+                    groupArray(day_count) as daily_counts
+                FROM (
+                    SELECT issue_id, toDate(timestamp) as day, count(*) as day_count
+                    FROM events
+                    WHERE event = '$exception'
+                    AND timestamp >= toStartOfDay(now() - INTERVAL 7 DAY)
+                    AND timestamp < now()
+                    AND issue_id IN {issue_ids}
+                    GROUP BY issue_id, day
+                )
+                GROUP BY issue_id
+                ORDER BY occurrence_count DESC
+                LIMIT 5
+            """,
             team=team,
             placeholders={"issue_ids": ast.Constant(value=new_issue_ids)},
         )
@@ -202,68 +208,36 @@ def get_new_issues_for_team(team: Team) -> list[dict]:
         str(issue.id): issue for issue in ErrorTrackingIssue.objects.filter(team=team, id__in=result_issue_ids)
     }
 
-    sparklines = _get_issue_sparklines(team, result_issue_ids)
+    return _build_issues_list(response.results, issues_by_id, team)
 
-    new_issues = []
-    for issue_id, occurrence_count in response.results:
+
+def _build_issues_list(results: list, issues_by_id: dict, team: Team) -> list[dict]:
+    """Build issue dicts with sparkline from query results containing issue_id, occurrence_count, daily_counts"""
+    issues = []
+    for issue_id, occurrence_count, daily_counts in results:
         if not issue_id:
             continue
         issue = issues_by_id.get(str(issue_id))
-        new_issues.append(
+        sparkline = _daily_counts_to_sparkline(daily_counts)
+        issues.append(
             {
                 "id": issue_id,
                 "name": issue.name if issue else "Unknown issue",
                 "description": issue.description if issue else None,
                 "occurrence_count": occurrence_count,
-                "sparkline": sparklines.get(str(issue_id), []),
+                "sparkline": sparkline,
                 "url": f"{settings.SITE_URL}/project/{team.pk}/error_tracking/{issue_id}",
             }
         )
+    return issues
 
-    return new_issues
 
-
-def _get_issue_sparklines(team: Team, issue_ids: list[str]) -> dict[str, list[dict]]:
-    """Get daily occurrence counts per issue for sparkline bars"""
-    from posthog.hogql import ast
-    from posthog.hogql.query import execute_hogql_query
-
-    if not issue_ids:
-        return {}
-
-    try:
-        response = execute_hogql_query(
-            query="SELECT issue_id, toDate(timestamp) as day, count(*) as day_count FROM events WHERE event = '$exception' AND timestamp >= toStartOfDay(now() - INTERVAL 7 DAY) AND timestamp < now() AND issue_id IN {issue_ids} GROUP BY issue_id, day ORDER BY issue_id, day ASC",
-            team=team,
-            placeholders={"issue_ids": ast.Constant(value=issue_ids)},
-        )
-    except Exception:
-        logger.exception(f"Failed to query issue sparklines for team {team.pk}")
-        return {}
-
-    if not response.results:
-        return {}
-
-    counts_by_issue: dict[str, dict[str, int]] = {}
-    for issue_id, day, count in response.results:
-        issue_str = str(issue_id)
-        if issue_str not in counts_by_issue:
-            counts_by_issue[issue_str] = {}
-        day_str = day.isoformat() if hasattr(day, "isoformat") else str(day)
-        counts_by_issue[issue_str][day_str] = count
-
-    today = timezone.now().date()
-    sparklines: dict[str, list[dict]] = {}
-
-    for issue_id, daily_map in counts_by_issue.items():
-        bars = []
-        for i in range(7, 0, -1):
-            day = today - datetime.timedelta(days=i)
-            bars.append(daily_map.get(day.isoformat(), 0))
-        max_val = max(bars) if bars else 0
-        sparklines[issue_id] = [{"height_pct": int((v / max_val) * 100) if max_val > 0 else 0} for v in bars]
-
-    return sparklines
+def _daily_counts_to_sparkline(daily_counts: list[int]) -> list[dict]:
+    """Convert a list of daily counts into sparkline bar dicts with height percentages."""
+    if not daily_counts:
+        return []
+    max_val = max(daily_counts)
+    return [{"height_percent": int((v / max_val) * 100) if max_val > 0 else 0} for v in daily_counts]
 
 
 def build_ingestion_failures_url(team_id: int) -> str:
