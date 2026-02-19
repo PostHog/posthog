@@ -475,10 +475,10 @@ quality:
         cmd: pnpm exec oxfmt
         description: Format JSON, YAML files
     format:css:
-        cmd: pnpm stylelint --fix --allow-empty-input "$@" && pnpm exec oxfmt "$@"
+        cmd: pnpm stylelint --fix --allow-empty-input "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
         description: Format CSS/SCSS files
     format:js:
-        cmd: pnpm oxlint --fix --fix-suggestions --quiet "$@" && pnpm exec oxfmt "$@"
+        cmd: pnpm oxlint --fix --fix-suggestions --quiet "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
         description: Format JavaScript/TypeScript files (frontend)
     format:nodejs:
         cmd: pnpm --dir nodejs exec eslint --fix "$@" && pnpm --dir nodejs exec prettier
