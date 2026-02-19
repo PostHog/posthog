@@ -153,8 +153,12 @@ class EndpointVersion(models.Model):
     def get_columns(self) -> list[dict]:
         """Return columns, lazily populating from ClickHouse if not yet computed."""
         if self.columns is None:
-            self.columns = EndpointVersion.extract_columns(self.query, self.endpoint.team_id)
-            self.save(update_fields=["columns"])
+            columns = EndpointVersion.extract_columns(self.query, self.endpoint.team_id)
+            # Refresh from DB to check if another request already populated it
+            self.refresh_from_db(fields=["columns"])
+            if self.columns is None:
+                self.columns = columns
+                self.save(update_fields=["columns"])
         return self.columns
 
     def can_materialize(self) -> tuple[bool, str]:
