@@ -36,7 +36,6 @@ import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { captureIngestionWarning } from '../worker/ingestion/utils'
-import { KafkaMessageParser } from './kafka/message-parser'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
@@ -84,7 +83,6 @@ export class SessionRecordingIngester {
     private isDebugLoggingEnabled: ValueMatcher<number>
     private readonly promiseScheduler: PromiseScheduler
     private readonly sessionBatchManager: SessionBatchManager
-    private readonly kafkaParser: KafkaMessageParser
     private readonly redisPool: RedisPool
     private readonly restrictionRedisPool: RedisPool
     private readonly teamFilter: TeamFilter
@@ -156,7 +154,6 @@ export class SessionRecordingIngester {
         }
 
         this.topTracker = new TopTracker()
-        this.kafkaParser = new KafkaMessageParser(this.topTracker)
 
         // Session recording uses its own Redis instance with fallback to default
         this.redisPool = createRedisPoolFromConfig({
@@ -270,6 +267,7 @@ export class SessionRecordingIngester {
             overflowEnabled: !this.consumeOverflow,
             overflowTopic: this.overflowTopic,
             promiseScheduler: this.promiseScheduler,
+            topTracker: this.topTracker,
         })
     }
 
@@ -311,14 +309,14 @@ export class SessionRecordingIngester {
         SessionRecordingIngesterMetrics.observeKafkaBatchSize(batchSize)
         SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
 
-        // Apply event processing pipeline steps first
-        const messagesToProcess = await instrumentFn(
+        // Run messages through the pipeline (handles restrictions and parsing)
+        const pipelineOutputs = await instrumentFn(
             `recordingingesterv2.handleEachBatch.runPipeline`,
             async () => await runSessionReplayPipeline(this.sessionReplayPipeline, messages)
         )
 
-        const processedMessages = await instrumentFn(`recordingingesterv2.handleEachBatch.parseBatch`, async () => {
-            const parsedMessages = await this.kafkaParser.parseBatch(messagesToProcess)
+        const processedMessages = await instrumentFn(`recordingingesterv2.handleEachBatch.filterBatch`, async () => {
+            const parsedMessages = pipelineOutputs.map((output) => output.parsedMessage)
             const messagesWithTeam = await this.teamFilter.filterBatch(parsedMessages)
             const processedMessages = this.libVersionMonitor
                 ? await this.libVersionMonitor.processBatch(messagesWithTeam)
