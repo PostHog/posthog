@@ -14,6 +14,7 @@ import {
     LogEntryLevel,
     MinimalAppMetric,
     MinimalLogEntry,
+    WarehouseWebhookPayload,
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
@@ -154,6 +155,7 @@ export class HogFlowExecutorService {
         const metrics: MinimalAppMetric[] = []
         const logs: MinimalLogEntry[] = []
         const capturedPostHogEvents: HogFunctionCapturedEvent[] = []
+        const warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
 
         const earlyExitResult = await this.shouldExitEarly(invocation)
         if (earlyExitResult) {
@@ -181,6 +183,7 @@ export class HogFlowExecutorService {
             logs.push(...result.logs)
             metrics.push(...result.metrics)
             capturedPostHogEvents.push(...result.capturedPostHogEvents)
+            warehouseWebhookPayloads.push(...result.warehouseWebhookPayloads)
 
             if (this.shouldEndHogFlowExecution(result, logs)) {
                 break
@@ -190,6 +193,7 @@ export class HogFlowExecutorService {
         result.logs = logs
         result.metrics = metrics
         result.capturedPostHogEvents = capturedPostHogEvents
+        result.warehouseWebhookPayloads = warehouseWebhookPayloads
 
         return result
     }
