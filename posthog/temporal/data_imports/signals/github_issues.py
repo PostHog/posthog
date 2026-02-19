@@ -25,6 +25,8 @@ An issue is ACTIONABLE if it describes:
 - A feature request or suggestion for improvement
 - A usability issue or confusion about the product
 - A performance problem or regression
+- A question about how to use the product
+- and similar cases
 
 An issue is NOT_ACTIONABLE if it is:
 - A bot-generated issue (like dependency bumps)

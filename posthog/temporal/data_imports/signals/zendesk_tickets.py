@@ -26,6 +26,8 @@ A ticket is ACTIONABLE if it describes:
 - A feature request or suggestion for improvement
 - A usability issue or confusion about the product
 - A performance problem
+- A question about the product or product integrations
+- and similar cases
 
 A ticket is NOT_ACTIONABLE if it is:
 - Spam, abuse, or profanity with no real feedback
