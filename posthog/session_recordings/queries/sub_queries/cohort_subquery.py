@@ -7,15 +7,6 @@ from posthog.models import Cohort, Team
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 
 
-def _get_cohort_filter_info(prop: CohortPropertyFilter) -> tuple[int, bool]:
-    """
-    Extract cohort ID and whether it's a NOT IN filter from a cohort property filter.
-    Returns (cohort_id, is_negated).
-    """
-    is_negated = prop.operator == PropertyOperator.NOT_IN
-    return (prop.value, is_negated)
-
-
 class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
     """
     Builds a subquery that filters distinct_ids based on cohort membership.
@@ -50,16 +41,13 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
             if not isinstance(prop, CohortPropertyFilter):
                 continue
 
-            cohort_id, is_negated = _get_cohort_filter_info(prop)
+            cohort_id = prop.value
+            is_negated = prop.operator == PropertyOperator.NOT_IN
 
-            # Look up cohort to determine if it's static and get version
             try:
                 cohort = Cohort.objects.get(id=cohort_id, team__project_id=self._team.project_id, deleted=False)
-                is_static = cohort.is_static
-                version = cohort.version or 0
-                cohort_filters.append((cohort_id, is_negated, is_static, version))
+                cohort_filters.append((cohort_id, is_negated, cohort.is_static, cohort.version or 0))
             except Cohort.DoesNotExist:
-                # Skip invalid cohorts
                 continue
 
         return cohort_filters
@@ -73,63 +61,42 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
         For IN cohort: LEFT JOIN and filter WHERE cohort.matched = 1
         For NOT IN cohort: LEFT JOIN and filter WHERE cohort.matched != 1
 
-        The key is to filter by team_id and cohort_id INSIDE the subquery,
-        and only JOIN ON person_id. This avoids ClickHouse's limitations
-        with complex JOIN ON conditions.
+        Filters by cohort_id (and version for dynamic) inside the subquery,
+        joins only on person_id. HogQL automatically adds team_id filtering.
         """
-        if not cohort_filters:
-            return None
-
-        # Build the join subqueries and conditions
         join_clauses: list[str] = []
         where_conditions: list[str] = []
+        placeholders: dict[str, ast.Expr] = {
+            "team_id": ast.Constant(value=self._team.pk),
+        }
 
         for idx, (cohort_id, is_negated, is_static, version) in enumerate(cohort_filters):
             alias = f"cohort_{idx}"
+            cohort_id_placeholder = f"cohort_id_{idx}"
+            placeholders[cohort_id_placeholder] = ast.Constant(value=cohort_id)
 
-            # Build a subquery that filters by team_id, cohort_id (and version for dynamic)
-            # inside the subquery, then JOIN only on person_id
-            # Note: Use HogQL table names (static_cohort_people, raw_cohort_people),
-            # not ClickHouse table names (person_static_cohort, cohortpeople)
+            # HogQL automatically adds team_id filter, so we only need cohort_id (and version)
             if is_static:
-                # Static cohorts don't have version
-                subquery = (
-                    f"(SELECT person_id, 1 AS matched FROM static_cohort_people "
-                    f"WHERE team_id = {self._team.pk} AND cohort_id = {cohort_id})"
-                )
+                subquery = f"(SELECT person_id, 1 AS matched FROM static_cohort_people WHERE cohort_id = {{{cohort_id_placeholder}}})"
             else:
-                # Dynamic cohorts need version check
-                subquery = (
-                    f"(SELECT person_id, 1 AS matched FROM raw_cohort_people "
-                    f"WHERE team_id = {self._team.pk} AND cohort_id = {cohort_id} AND version = {version})"
-                )
+                version_placeholder = f"version_{idx}"
+                placeholders[version_placeholder] = ast.Constant(value=version)
+                subquery = f"(SELECT person_id, 1 AS matched FROM raw_cohort_people WHERE cohort_id = {{{cohort_id_placeholder}}} AND version = {{{version_placeholder}}})"
 
-            # JOIN only on person_id - the filtering is done inside the subquery
             join_clauses.append(f"LEFT JOIN {subquery} AS {alias} ON {alias}.person_id = pdi.person_id")
 
-            # Add the WHERE condition based on IN vs NOT IN
             if is_negated:
-                # NOT IN cohort: matched should be NULL or != 1
                 where_conditions.append(f"ifNull({alias}.matched, 0) != 1")
             else:
-                # IN cohort: matched should be 1
                 where_conditions.append(f"{alias}.matched = 1")
 
-        if not join_clauses or not where_conditions:
-            return None
-
-        # Combine conditions based on the property operand (AND vs OR)
         if self.property_operand == "AND":
             combined_where = " AND ".join(where_conditions)
         else:
             combined_where = " OR ".join(f"({cond})" for cond in where_conditions)
 
-        joins_sql = " ".join(join_clauses)
-
-        # Build the full query using LEFT JOINs
         query_template = f"""
-        SELECT
-            pdi.distinct_id AS distinct_id
+        SELECT pdi.distinct_id AS distinct_id
         FROM (
             SELECT
                 distinct_id,
@@ -140,13 +107,8 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
             GROUP BY distinct_id
             HAVING is_deleted = 0
         ) AS pdi
-        {joins_sql}
+        {" ".join(join_clauses)}
         WHERE {combined_where}
         """
 
-        return parse_select(
-            query_template,
-            {
-                "team_id": ast.Constant(value=self._team.pk),
-            },
-        )
+        return parse_select(query_template, placeholders)

@@ -940,7 +940,7 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                         team_id=self.team.id,
                     )
 
-                # Exclude both internal and beta users - should only return regular user
+                # Exclude both internal and beta users (AND) - should only return regular user
                 self._assert_query_matches_session_ids(
                     {
                         "properties": [
@@ -959,4 +959,106 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                         ]
                     },
                     [session_regular],
+                )
+
+    @snapshot_clickhouse_queries
+    def test_cohort_filter_with_or_operand(self) -> None:
+        """
+        Test cohort filtering with OR operand between cohorts.
+        With OR, sessions matching ANY cohort condition should be returned.
+        """
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            with freeze_time("2021-08-21T20:00:00.000Z"):
+                internal_user = "internal@company.com"
+                beta_user = "beta@customer.com"
+                regular_user = "regular@customer.com"
+
+                session_internal = "session-internal-or"
+                session_beta = "session-beta-or"
+                session_regular = "session-regular-or"
+
+                Person.objects.create(
+                    team=self.team,
+                    distinct_ids=[internal_user],
+                    properties={"is_internal": True, "is_beta": False},
+                )
+                Person.objects.create(
+                    team=self.team,
+                    distinct_ids=[beta_user],
+                    properties={"is_internal": False, "is_beta": True},
+                )
+                Person.objects.create(
+                    team=self.team,
+                    distinct_ids=[regular_user],
+                    properties={"is_internal": False, "is_beta": False},
+                )
+
+                internal_cohort = Cohort.objects.create(
+                    team=self.team,
+                    name="internal_users",
+                    groups=[{"properties": [{"key": "is_internal", "value": True, "type": "person"}]}],
+                )
+                internal_cohort.calculate_people_ch(pending_version=0)
+
+                beta_cohort = Cohort.objects.create(
+                    team=self.team,
+                    name="beta_users",
+                    groups=[{"properties": [{"key": "is_beta", "value": True, "type": "person"}]}],
+                )
+                beta_cohort.calculate_people_ch(pending_version=0)
+
+                for user, session_id in [
+                    (internal_user, session_internal),
+                    (beta_user, session_beta),
+                    (regular_user, session_regular),
+                ]:
+                    produce_replay_summary(
+                        distinct_id=user,
+                        session_id=session_id,
+                        first_timestamp=self.an_hour_ago,
+                        team_id=self.team.id,
+                    )
+
+                # IN internal OR IN beta - should return internal and beta sessions
+                self._assert_query_matches_session_ids(
+                    {
+                        "operand": "OR",
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": internal_cohort.pk,
+                                "operator": "in",
+                                "type": "cohort",
+                            },
+                            {
+                                "key": "id",
+                                "value": beta_cohort.pk,
+                                "operator": "in",
+                                "type": "cohort",
+                            },
+                        ],
+                    },
+                    [session_internal, session_beta],
+                )
+
+                # NOT IN internal OR NOT IN beta - should return all (everyone fails at least one NOT IN)
+                self._assert_query_matches_session_ids(
+                    {
+                        "operand": "OR",
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": internal_cohort.pk,
+                                "operator": "not_in",
+                                "type": "cohort",
+                            },
+                            {
+                                "key": "id",
+                                "value": beta_cohort.pk,
+                                "operator": "not_in",
+                                "type": "cohort",
+                            },
+                        ],
+                    },
+                    [session_internal, session_beta, session_regular],
                 )
