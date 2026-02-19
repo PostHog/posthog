@@ -17,6 +17,7 @@ SELECT
 FROM events
 WHERE event = '$ai_generation'
     AND properties.$ai_tool_call_count > 0
+    AND tool != ''
     AND {filters}
 GROUP BY tool
 ORDER BY __ORDER_BY__ __ORDER_DIRECTION__
