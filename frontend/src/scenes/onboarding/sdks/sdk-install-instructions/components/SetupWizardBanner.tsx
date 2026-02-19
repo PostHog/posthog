@@ -15,7 +15,7 @@ export function useWizardCommand(): { wizardCommand: string; isCloudOrDev: boole
     const region = preflight?.region || Region.US
     return {
         wizardCommand: `npx -y @posthog/wizard@latest${region === Region.EU ? ' --region eu' : ''}`,
-        isCloudOrDev,
+        isCloudOrDev: isCloudOrDev ?? false,
     }
 }
 
