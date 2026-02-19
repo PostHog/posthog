@@ -144,10 +144,10 @@ class HealthIssue(UUIDModel):
                 )
 
         if to_create:
-            cls.objects.bulk_create(to_create)
+            HealthIssue.objects.bulk_create(to_create)
 
         if to_update:
-            cls.objects.bulk_update(to_update, fields=["severity", "payload", "updated_at"])
+            HealthIssue.objects.bulk_update(to_update, fields=["severity", "payload", "updated_at"])
 
         return len(to_create) + len(to_update)
 

@@ -40,9 +40,7 @@ class BatchResult:
     def total_duration(self) -> float:
         return self.detect_duration + self.db_write_duration + self.resolve_duration
 
-    # Adds up all the fields without needing to be explicit
-    # This allows us to do things like batchresult = batchresult + 1
-    # to increment every value by 1
+    # Adds up all fields from another BatchResult, e.g. totals += batch_result
     def __iadd__(self, other: "BatchResult") -> "BatchResult":
         for f in dataclasses.fields(self):
             setattr(self, f.name, getattr(self, f.name) + getattr(other, f.name))
