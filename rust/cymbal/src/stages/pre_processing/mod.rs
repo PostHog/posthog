@@ -3,10 +3,14 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::{
-    error::{EventError, UnhandledError},
+    error::EventError,
     metric_consts::PRE_PROCESSING_STAGE,
     stages::pipeline::ExceptionEventPipelineItem,
-    types::{batch::Batch, exception_properties::ExceptionProperties, stage::Stage},
+    types::{
+        batch::Batch,
+        exception_properties::ExceptionProperties,
+        stage::{Stage, StageResult},
+    },
 };
 
 pub struct PreProcessingContext<T> {
@@ -40,13 +44,12 @@ impl<T: TryInto<ExceptionProperties, Error = EventError> + Clone> PreProcessingS
 impl<T: TryInto<ExceptionProperties, Error = EventError> + Clone> Stage for PreProcessingStage<T> {
     type Input = T;
     type Output = ExceptionEventPipelineItem;
-    type Error = UnhandledError;
 
     fn name(&self) -> &'static str {
         PRE_PROCESSING_STAGE
     }
 
-    async fn process(self, batch: Batch<Self::Input>) -> Result<Batch<Self::Output>, Self::Error> {
+    async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
         let mut ctx = self.ctx.lock().await;
         Ok(batch
             .into_iter()

@@ -6,7 +6,10 @@ use crate::{
     error::{EventError, UnhandledError},
     metric_consts::POST_PROCESSING_STAGE,
     stages::{pipeline::ExceptionEventPipelineItem, pre_processing::PreProcessingContext},
-    types::{batch::Batch, stage::Stage},
+    types::{
+        batch::Batch,
+        stage::{Stage, StageResult},
+    },
 };
 
 pub type PostProcessingHandler<I, O> =
@@ -33,16 +36,12 @@ pub struct PostProcessingError<T> {
 impl<T: Clone, O> Stage for PostProcessingStage<T, O> {
     type Input = ExceptionEventPipelineItem;
     type Output = O;
-    type Error = UnhandledError;
 
     fn name(&self) -> &'static str {
         POST_PROCESSING_STAGE
     }
 
-    async fn process(
-        self,
-        batch: Batch<Self::Input>,
-    ) -> Result<Batch<Self::Output>, UnhandledError> {
+    async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
         let mut ctx = self.ctx.lock().await;
         Ok(Batch::from(
             batch

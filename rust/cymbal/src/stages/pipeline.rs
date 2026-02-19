@@ -4,7 +4,7 @@ use common_types::ClickHouseEvent;
 
 use crate::{
     app_context::AppContext,
-    error::{EventError, UnhandledError},
+    error::EventError,
     metric_consts::EXCEPTION_PROCESSING_PIPELINE,
     stages::{
         alerting::AlertingStage,
@@ -14,7 +14,11 @@ use crate::{
         pre_processing::{PreProcessingContext, PreProcessingStage},
         resolution::ResolutionStage,
     },
-    types::{batch::Batch, exception_properties::ExceptionProperties, stage::Stage},
+    types::{
+        batch::Batch,
+        exception_properties::ExceptionProperties,
+        stage::{Stage, StageResult},
+    },
 };
 
 pub struct ExceptionEventPipeline {
@@ -35,16 +39,12 @@ pub type ExceptionEventPipelineItem = Result<ExceptionProperties, EventError>;
 impl Stage for ExceptionEventPipeline {
     type Input = ExceptionEventPipelineItem;
     type Output = ExceptionEventPipelineItem;
-    type Error = UnhandledError;
 
     fn name(&self) -> &'static str {
         EXCEPTION_PROCESSING_PIPELINE
     }
 
-    async fn process(
-        self,
-        batch: Batch<Self::Input>,
-    ) -> Result<Batch<Self::Output>, UnhandledError> {
+    async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
         batch
             // Resolve stack traces
             .apply_stage(ResolutionStage::from(&self.app_context))

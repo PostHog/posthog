@@ -9,7 +9,7 @@ use crate::{
         batch::Batch,
         event::{AnyEvent, PropertiesContainer},
         exception_properties::ExceptionProperties,
-        stage::Stage,
+        stage::{Stage, StageResult},
     },
 };
 
@@ -26,16 +26,12 @@ impl HttpEventPipeline {
 impl Stage for HttpEventPipeline {
     type Input = AnyEvent;
     type Output = Option<AnyEvent>;
-    type Error = UnhandledError;
 
     fn name(&self) -> &'static str {
         HTTP_EXCEPTION_PIPELINE
     }
 
-    async fn process(
-        self,
-        batch: Batch<Self::Input>,
-    ) -> Result<Batch<Self::Output>, UnhandledError> {
+    async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
         let (preprocess, postprocess) =
             create_pre_post_processing(batch.len(), Box::new(handle_result));
         batch

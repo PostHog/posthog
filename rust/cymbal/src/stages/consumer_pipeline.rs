@@ -7,8 +7,10 @@ use crate::{
     metric_consts::CONSUMER_EXCEPTION_PIPELINE,
     stages::pipeline::{create_pre_post_processing, ExceptionEventPipeline},
     types::{
-        batch::Batch, event::PropertiesContainer, exception_properties::ExceptionProperties,
-        stage::Stage,
+        batch::Batch,
+        event::PropertiesContainer,
+        exception_properties::ExceptionProperties,
+        stage::{Stage, StageResult},
     },
 };
 
@@ -25,16 +27,12 @@ impl ConsumerEventPipeline {
 impl Stage for ConsumerEventPipeline {
     type Input = PipelineResult;
     type Output = PipelineResult;
-    type Error = UnhandledError;
 
     fn name(&self) -> &'static str {
         CONSUMER_EXCEPTION_PIPELINE
     }
 
-    async fn process(
-        self,
-        batch: Batch<Self::Input>,
-    ) -> Result<Batch<Self::Output>, UnhandledError> {
+    async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
         let (preprocess, postprocess) =
             create_pre_post_processing(batch.len(), Box::new(handle_result));
         batch

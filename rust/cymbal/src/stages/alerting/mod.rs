@@ -4,7 +4,6 @@ mod spike_detection;
 
 use crate::{
     app_context::AppContext,
-    error::UnhandledError,
     metric_consts::ALERTING_STAGE,
     stages::{alerting::spike_alert::SpikeAlertStage, pipeline::ExceptionEventPipelineItem},
     types::{
@@ -29,7 +28,6 @@ impl From<&Arc<AppContext>> for AlertingStage {
 impl Stage for AlertingStage {
     type Input = ExceptionEventPipelineItem;
     type Output = ExceptionEventPipelineItem;
-    type Error = UnhandledError;
 
     fn name(&self) -> &'static str {
         ALERTING_STAGE

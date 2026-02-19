@@ -1,8 +1,11 @@
 use std::future::Future;
 
-use crate::types::{
-    operator::Operator,
-    stage::{Stage, StageResult},
+use crate::{
+    error::UnhandledError,
+    types::{
+        operator::Operator,
+        stage::{Stage, StageResult},
+    },
 };
 
 pub struct Batch<T>(Vec<T>);
@@ -135,10 +138,9 @@ impl<T> Batch<T> {
             let stage_name = stage.name();
             let res = stage.process(self).await?;
             let after_len = res.len();
-            assert_eq!(
-                before_len, after_len,
-                "Batch length mismatch while applying stage {stage_name}. before_len: {before_len}, after_len: {after_len}"
-            );
+            if before_len != after_len {
+                return Err(UnhandledError::Other(format!("Batch length mismatch while applying stage {stage_name}. before_len: {before_len}, after_len: {after_len}")));
+            }
             time.label("outcome", "success");
             Ok(res)
         }
