@@ -46,7 +46,7 @@ const mockQueryWithFilters: DataTableNode = {
 describe('dataTableSavedFiltersLogic', () => {
     let logic: ReturnType<typeof dataTableSavedFiltersLogic.build>
     let mockSetQuery: jest.Mock
-    let mockRouterPush: jest.SpyInstance
+    let mockRouterPush: jest.Spied<typeof router.actions.push>
 
     beforeEach(() => {
         initKeaTests()

@@ -3,19 +3,23 @@ import { TeamService } from './team-service'
 
 describe('TeamService', () => {
     let teamService: TeamService
-    let fetchSpy: jest.SpyInstance
+    let fetchSpy: jest.Spied<(typeof teamService)['fetchTeamTokensWithRecordings']>
 
     beforeEach(() => {
         jest.useFakeTimers()
         const mockPostgres = {} as jest.Mocked<PostgresRouter>
         teamService = new TeamService(mockPostgres)
 
-        fetchSpy = jest.spyOn(teamService as any, 'fetchTeamTokensWithRecordings').mockResolvedValue({
+        fetchSpy = (
+            jest.spyOn(teamService as any, 'fetchTeamTokensWithRecordings') as jest.Spied<
+                (typeof teamService)['fetchTeamTokensWithRecordings']
+            >
+        ).mockResolvedValue({
             tokenMap: {
                 'valid-token': { teamId: 1, consoleLogIngestionEnabled: true },
                 'valid-token-2': { teamId: 2, consoleLogIngestionEnabled: false },
             },
-            retentionMap: { 1: '30d', 2: '1y' },
+            retentionMap: { 1: '30d', 2: '1y' } as const,
             encryptionMap: { 1: true, 2: false },
         })
     })
@@ -43,7 +47,7 @@ describe('TeamService', () => {
                 tokenMap: {
                     token: { teamId: null as any, consoleLogIngestionEnabled: true },
                 },
-                retentionMap: { 1: '30d', 2: '1y' },
+                retentionMap: { 1: '30d', 2: '1y' } as const,
                 encryptionMap: { 1: true, 2: false },
             })
             const team = await teamService.getTeamByToken('token')
@@ -104,7 +108,7 @@ describe('TeamService', () => {
                 tokenMap: {
                     'valid-token': { teamId: 1, consoleLogIngestionEnabled: false },
                 },
-                retentionMap: { 1: '30d', 2: '1y' },
+                retentionMap: { 1: '30d', 2: '1y' } as const,
                 encryptionMap: { 1: true, 2: false },
             })
             fetchSpy.mockReturnValue(mockFetchPromise)
@@ -131,7 +135,7 @@ describe('TeamService', () => {
                 tokenMap: {
                     'valid-token-2': { teamId: 2, consoleLogIngestionEnabled: false }, // Remove valid-token
                 },
-                retentionMap: { 2: '1y' },
+                retentionMap: { 2: '1y' } as const,
                 encryptionMap: { 2: false },
             })
             fetchSpy.mockReturnValue(mockFetchPromise)

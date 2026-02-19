@@ -5,7 +5,7 @@ import { closeHub, createHub } from '~/utils/db/hub'
 import { deleteKeysWithPrefix } from '../../_tests/redis'
 import { BASE_REDIS_KEY, HogRateLimiterService } from './hog-rate-limiter.service'
 
-const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
+const mockNow: jest.Spied<typeof Date.now> = jest.spyOn(Date, 'now')
 
 describe('HogRateLimiter', () => {
     jest.retryTimes(3)

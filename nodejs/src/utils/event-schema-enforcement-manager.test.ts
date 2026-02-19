@@ -11,7 +11,7 @@ describe('EventSchemaEnforcementManager', () => {
     let postgres: PostgresRouter
     let teamId: Team['id']
     let projectId: Team['project_id']
-    let fetchSchemasSpy: jest.SpyInstance
+    let fetchSchemasSpy: jest.Spied<(typeof schemaManager)['fetchSchemas']>
 
     beforeEach(async () => {
         const now = Date.now()
@@ -25,7 +25,9 @@ describe('EventSchemaEnforcementManager', () => {
         const team = await getFirstTeam(hub)
         teamId = team.id
         projectId = team.project_id
-        fetchSchemasSpy = jest.spyOn(schemaManager as any, 'fetchSchemas')
+        fetchSchemasSpy = jest.spyOn(schemaManager as any, 'fetchSchemas') as jest.Spied<
+            (typeof schemaManager)['fetchSchemas']
+        >
     })
 
     afterEach(async () => {

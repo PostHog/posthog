@@ -8,7 +8,7 @@ import { logger } from '~/utils/logger'
 import { UUIDT } from '~/utils/utils'
 
 import { HogFlowAction } from '../../../schema/hogflow'
-import { RecipientsManagerService } from '../managers/recipients-manager.service'
+import { PreferenceStatus, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { RecipientPreferencesService } from './recipient-preferences.service'
 import { RecipientTokensService } from './recipient-tokens.service'
 
@@ -19,9 +19,11 @@ describe('RecipientPreferencesService', () => {
     let team: Team
     let service: RecipientPreferencesService
     let mockRecipientsManager: RecipientsManagerService
-    let mockRecipientsManagerGet: jest.SpyInstance
-    let mockRecipientsManagerGetPreference: jest.SpyInstance
-    let mockRecipientsManagerGetAllMarketingMessagingPreference: jest.SpyInstance
+    let mockRecipientsManagerGet: jest.Spied<typeof mockRecipientsManager.get>
+    let mockRecipientsManagerGetPreference: jest.Spied<typeof mockRecipientsManager.getPreference>
+    let mockRecipientsManagerGetAllMarketingMessagingPreference: jest.Spied<
+        typeof mockRecipientsManager.getAllMarketingMessagingPreference
+    >
 
     beforeEach(async () => {
         await resetTestDatabase()
@@ -45,12 +47,12 @@ describe('RecipientPreferencesService', () => {
 
     const createRecipient = (
         identifier: string,
-        preferences: Record<string, string> = {}
+        preferences: Record<string, PreferenceStatus> = {}
     ): {
         id: string
         team_id: number
         identifier: string
-        preferences: Record<string, string>
+        preferences: Record<string, PreferenceStatus>
         created_at: string
         updated_at: string
     } => ({

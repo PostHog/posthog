@@ -34,8 +34,9 @@ catalog:
     typescript: 5.4.5
     prettier: ^3.6.2
     # Testing
-    jest: ^29.7.0
-    '@types/jest': ^29.5.12
+    jest: ^30.0.0
+    '@jest/types': ^30.0.0
+    '@types/jest': ^30.0.0
     '@types/node': ^22.13.14
     # Storybook
     '@storybook/addon-actions': ^7.6.4

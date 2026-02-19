@@ -10,7 +10,7 @@ describe('ActionManagerCDP()', () => {
     let actionManager: ActionManagerCDP
     let postgres: PostgresRouter
     let teamId: Team['id']
-    let fetchActionsSpy: jest.SpyInstance
+    let fetchActionsSpy: jest.Spied<(typeof actionManager)['fetchActions']>
 
     beforeEach(async () => {
         const now = Date.now()
@@ -23,7 +23,9 @@ describe('ActionManagerCDP()', () => {
         actionManager = new ActionManagerCDP(postgres)
         const team = await getFirstTeam(hub)
         teamId = team.id
-        fetchActionsSpy = jest.spyOn(actionManager as any, 'fetchActions')
+        fetchActionsSpy = jest.spyOn(actionManager as any, 'fetchActions') as jest.Spied<
+            (typeof actionManager)['fetchActions']
+        >
     })
 
     afterEach(async () => {

@@ -283,7 +283,7 @@ describe('LazyLoader', () => {
     })
 
     describe('background refreshing', () => {
-        let loadSpy: jest.SpyInstance
+        let loadSpy: jest.Spied<(typeof lazyLoader)['load']>
 
         beforeEach(() => {
             lazyLoader = new LazyLoader({
@@ -294,7 +294,7 @@ describe('LazyLoader', () => {
                 refreshJitterMs: 0, // Simplify the tests
             })
 
-            loadSpy = jest.spyOn(lazyLoader as any, 'load')
+            loadSpy = jest.spyOn(lazyLoader as any, 'load') as jest.Spied<(typeof lazyLoader)['load']>
         })
 
         it('should refresh in the background if between ages', async () => {

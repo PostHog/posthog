@@ -9,9 +9,11 @@ import express from 'ultimate-express'
 import { setupExpressApp } from '~/api/router'
 import { insertHogFunction, insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
 import { CdpApi } from '~/cdp/cdp-api'
+import { HogExecutorService } from '~/cdp/services/hog-executor.service'
+import { CyclotronJobQueue } from '~/cdp/services/job-queue/job-queue'
 import { template as pixelTemplate } from '~/cdp/templates/_sources/pixel/pixel.template'
 import { template as incomingWebhookTemplate } from '~/cdp/templates/_sources/webhook/incoming_webhook.template'
-import { HogFunctionType } from '~/cdp/types'
+import { CyclotronJobInvocationHogFlow, HogFunctionType } from '~/cdp/types'
 import { HogFlow } from '~/schema/hogflow'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
@@ -48,8 +50,8 @@ describe('SourceWebhooksConsumer', () => {
         let hogFunctionPixel: HogFunctionType
         let server: Server
 
-        let mockExecuteSpy: jest.SpyInstance
-        let mockQueueInvocationsSpy: jest.SpyInstance
+        let mockExecuteSpy: jest.Spied<typeof HogExecutorService.prototype.execute>
+        let mockQueueInvocationsSpy: jest.Spied<typeof CyclotronJobQueue.prototype.queueInvocations>
 
         beforeEach(async () => {
             hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS = 50
@@ -199,7 +201,7 @@ describe('SourceWebhooksConsumer', () => {
                 })
 
                 const call = mockExecuteSpy.mock.calls[0][0]
-                expect(call.state.globals.request.headers).toEqual({
+                expect(call.state.globals.request!.headers).toEqual({
                     'accept-encoding': 'gzip, deflate',
                     connection: 'close',
                     'content-length': '0',
@@ -310,8 +312,8 @@ describe('SourceWebhooksConsumer', () => {
                 expect(res.status).toEqual(201)
                 expect(res.body).toEqual({ status: 'queued' })
                 expect(mockQueueInvocationsSpy).toHaveBeenCalledTimes(1)
-                const call = mockQueueInvocationsSpy.mock.calls[0][0][0]
-                expect(call.queueScheduledAt.toISO()).toEqual(scheduledAt)
+                const call = mockQueueInvocationsSpy.mock.calls[0][0][0] as CyclotronJobInvocationHogFlow
+                expect(call.queueScheduledAt!.toISO()).toEqual(scheduledAt)
                 await waitForBackgroundTasks()
                 expect(getLogs()).toEqual([
                     expect.stringContaining('[Action:trigger] Function completed in'),
@@ -340,7 +342,7 @@ describe('SourceWebhooksConsumer', () => {
                 })
                 expect(mockExecuteSpy).toHaveBeenCalledTimes(1)
                 expect(mockQueueInvocationsSpy).toHaveBeenCalledTimes(1)
-                const call = mockQueueInvocationsSpy.mock.calls[0][0][0]
+                const call = mockQueueInvocationsSpy.mock.calls[0][0][0] as CyclotronJobInvocationHogFlow
                 expect(call.queue).toEqual('hogflow')
                 expect(call.hogFlow).toMatchObject(hogFlow)
             })
@@ -396,9 +398,9 @@ describe('SourceWebhooksConsumer', () => {
 
                 // Verify the workflow invocation was queued
                 expect(mockQueueInvocationsSpy).toHaveBeenCalledTimes(1)
-                const invocation = mockQueueInvocationsSpy.mock.calls[0][0][0]
+                const invocation = mockQueueInvocationsSpy.mock.calls[0][0][0] as CyclotronJobInvocationHogFlow
 
-                expect(invocation.state.event).toMatchObject({
+                expect(invocation.state!.event).toMatchObject({
                     event: 'my-event',
                     distinct_id: 'test-distinct-id',
                     properties: expect.objectContaining({}),
@@ -406,7 +408,7 @@ describe('SourceWebhooksConsumer', () => {
 
                 // Explicitly check that $hog_function_execution_count is not in the properties
                 // this key prevents the infinite loop protection from triggering
-                expect(invocation.state.event.properties).not.toHaveProperty('$hog_function_execution_count')
+                expect(invocation.state!.event.properties).not.toHaveProperty('$hog_function_execution_count')
             })
 
             it('should add logs and metrics for a controlled failed hog flow', async () => {

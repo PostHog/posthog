@@ -19,7 +19,7 @@ describe('TeamManager()', () => {
     let teamId: Team['id']
     let teamToken: Team['api_token']
     let organizationId: Team['organization_id']
-    let fetchTeamsSpy: jest.SpyInstance
+    let fetchTeamsSpy: jest.Spied<(typeof teamManager)['fetchTeams']>
 
     beforeEach(async () => {
         const now = Date.now()
@@ -34,7 +34,7 @@ describe('TeamManager()', () => {
         teamId = team.id
         teamToken = team.api_token
         organizationId = team.organization_id
-        fetchTeamsSpy = jest.spyOn(teamManager as any, 'fetchTeams')
+        fetchTeamsSpy = jest.spyOn(teamManager as any, 'fetchTeams') as jest.Spied<(typeof teamManager)['fetchTeams']>
     })
 
     afterEach(async () => {

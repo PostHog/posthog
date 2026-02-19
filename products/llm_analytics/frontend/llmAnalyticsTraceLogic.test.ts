@@ -334,25 +334,9 @@ describe('llmAnalyticsTraceLogic', () => {
     })
 
     describe('setSearchQuery URL updates', () => {
-        let routerSpy: jest.SpyInstance
+        let routerSpy: jest.Spied<typeof router.actions.replace>
 
         beforeEach(() => {
-            const mockLocation = {
-                search: '',
-                pathname: '/test',
-                origin: 'http://localhost',
-                protocol: 'http:',
-                host: 'localhost',
-                hostname: 'localhost',
-                port: '',
-                href: 'http://localhost/test',
-                hash: '',
-            }
-            Object.defineProperty(window, 'location', {
-                value: mockLocation,
-                writable: true,
-                configurable: true,
-            })
             routerSpy = jest.spyOn(router.actions, 'replace').mockImplementation(() => {})
         })
 
@@ -379,9 +363,10 @@ describe('llmAnalyticsTraceLogic', () => {
         })
 
         it('removes search param from URL when query is cleared', async () => {
-            window.location.search = '?search=existing'
-            logic.actions.setTraceId('test-trace-123')
+            const traceUrl = combineUrl(urls.llmAnalyticsTrace('test-trace-123', { search: 'existing' }))
+            router.actions.push(addProjectIdIfMissing(traceUrl.url, MOCK_TEAM_ID))
             await expectLogic(logic).toFinishAllListeners()
+            routerSpy.mockClear()
 
             logic.actions.setSearchQuery('')
             await expectLogic(logic).toFinishAllListeners()
@@ -390,10 +375,9 @@ describe('llmAnalyticsTraceLogic', () => {
         })
 
         it('does not update URL when search query matches URL param', async () => {
-            window.location.search = '?search=existing'
-            logic.actions.setTraceId('test-trace-123')
+            const traceUrl = combineUrl(urls.llmAnalyticsTrace('test-trace-123', { search: 'existing' }))
+            router.actions.push(addProjectIdIfMissing(traceUrl.url, MOCK_TEAM_ID))
             await expectLogic(logic).toFinishAllListeners()
-
             routerSpy.mockClear()
 
             logic.actions.setSearchQuery('existing')

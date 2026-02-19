@@ -9,7 +9,7 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
 }))
 
 describe('scrollToFormError', () => {
-    let mockQuerySelector: jest.SpyInstance<Element | null, [selectors: string]>
+    let mockQuerySelector: jest.Spied<typeof document.querySelector>
     let mockScrollIntoView: jest.MockedFunction<(arg?: boolean | ScrollIntoViewOptions) => void>
 
     beforeEach(() => {
