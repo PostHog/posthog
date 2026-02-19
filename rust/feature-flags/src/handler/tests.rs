@@ -193,6 +193,7 @@ async fn test_evaluate_feature_flags() {
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -286,6 +287,7 @@ async fn test_evaluate_feature_flags_with_errors() {
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -693,6 +695,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -799,6 +802,7 @@ async fn test_evaluate_feature_flags_details() {
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -957,6 +961,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -1050,6 +1055,7 @@ async fn test_long_distinct_id() {
         optimize_experience_continuity_lookups: false,
         parallel_eval_threshold: 100,
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2),
+        skip_writes: false,
     };
 
     let request_id = Uuid::new_v4();
