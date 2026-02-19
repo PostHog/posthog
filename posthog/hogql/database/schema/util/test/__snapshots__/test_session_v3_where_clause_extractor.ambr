@@ -146,7 +146,7 @@
       GROUP BY
           raw_sessions_v3.session_id_v7) AS s__session ON equals(toUInt128(accurateCastOrNull(s.session_id, %(hogql_val_2)s)), s__session.session_id_v7)
   WHERE
-      and(equals(s.team_id, <TEAM_ID>), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_4)s), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_5)s), %(hogql_val_6)s), 0), ifNull(less(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s), now64(6, %(hogql_val_8)s)), 0))
+      and(equals(s.team_id, <TEAM_ID>), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_4)s), 0), greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_5)s), %(hogql_val_6)s), less(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s), now64(6, %(hogql_val_8)s)))
   GROUP BY
       s.session_id
   LIMIT 50000
