@@ -6,6 +6,7 @@
  * - OpenAI Chat (unwrapped): `[].tool_calls[].function.name` (no message wrapper)
  * - OpenAI Responses API: flat `[].type="function_call"` with `name` at top level
  * - Normalized SDK: `[].content[].type="function"` with `function.name`
+ * - Vercel AI SDK / OTel: `[].content[].type="tool-call"` with `function.name`
  * - Anthropic: `[].message.content[].type="tool_use"` with `name`
  * - Python repr (OpenAI Agents SDK): `ResponseFunctionToolCall(name='...')`
  */
@@ -79,8 +80,12 @@ function extractFromContentBlocks(content: unknown[], names: string[], cap: numb
         if (cb.type === 'tool_use' && cb.name && typeof cb.name === 'string') {
             pushSanitized(names, cb.name)
         }
-        // Normalized OpenAI: {type: "function", function: {name: "..."}}
-        else if (cb.type === 'function' && cb.function?.name && typeof cb.function.name === 'string') {
+        // Normalized OpenAI / Vercel AI SDK / OTel: {type: "function"|"tool-call", function: {name: "..."}}
+        else if (
+            (cb.type === 'function' || cb.type === 'tool-call') &&
+            cb.function?.name &&
+            typeof cb.function.name === 'string'
+        ) {
             pushSanitized(names, cb.function.name)
         }
     }
