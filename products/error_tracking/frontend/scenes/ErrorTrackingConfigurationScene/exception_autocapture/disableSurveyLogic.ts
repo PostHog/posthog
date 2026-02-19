@@ -1,7 +1,7 @@
 import { actions, kea, listeners, path, reducers } from 'kea'
 import posthog from 'posthog-js'
 
-import { Survey, SurveyQuestion } from '~/types'
+import { SurveyQuestion } from '~/types'
 
 import type { disableSurveyLogicType } from './disableSurveyLogicType'
 
@@ -64,7 +64,7 @@ export const disableSurveyLogic = kea<disableSurveyLogicType>([
                 cache.hideTimeout = null
             }
             posthog.getSurveys((surveys) => {
-                const survey = surveys.find((s: Survey) => s.id === SURVEY_ID) as Survey | undefined
+                const survey = surveys.find((s) => s.id === SURVEY_ID)
                 if (survey) {
                     actions.setSurveyQuestions(survey.questions)
                 }

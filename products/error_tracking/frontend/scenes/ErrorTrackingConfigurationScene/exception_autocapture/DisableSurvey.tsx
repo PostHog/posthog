@@ -28,7 +28,7 @@ export function DisableSurvey(): JSX.Element | null {
                             {question.type === SurveyQuestionType.SingleChoice && (
                                 <LemonRadio
                                     className="mt-2"
-                                    value={selectedChoice}
+                                    value={selectedChoice ?? undefined}
                                     onChange={setSelectedChoice}
                                     options={question.choices.map((choice) => ({
                                         label: choice,
