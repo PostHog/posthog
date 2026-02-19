@@ -45,6 +45,14 @@ import {
 } from '~/types'
 
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
+import { EXPERIMENT_VARIANT_MULTIPLE } from './constants'
+
+const MULTIPLE_VARIANT_SIGNIFICANCE_THRESHOLD = 0.5
+
+export function hasSignificantMultipleVariants(variants: Array<{ variant: string; percentage: number }>): boolean {
+    const multipleVariant = variants.find((v) => v.variant === EXPERIMENT_VARIANT_MULTIPLE)
+    return !!multipleVariant && multipleVariant.percentage > MULTIPLE_VARIANT_SIGNIFICANCE_THRESHOLD
+}
 
 export function isEventExposureConfig(config: ExperimentExposureConfig): config is ExperimentEventExposureConfig {
     return config.kind === NodeKind.ExperimentEventExposureConfig || 'event' in config
