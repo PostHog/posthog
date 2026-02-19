@@ -23,7 +23,7 @@ import { experimentLogic } from '../experimentLogic'
 import { commonActionFilterProps } from './Selectors'
 
 export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolean }): JSX.Element {
-    const { experiment, isExperimentRunning, editingPrimaryMetricUuid, editingSecondaryMetricUuid } =
+    const { experiment, isExperimentLaunched, editingPrimaryMetricUuid, editingSecondaryMetricUuid } =
         useValues(experimentLogic)
     const { setTrendsMetric, setTrendsExposureMetric, setExperiment } = useActions(experimentLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -128,7 +128,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                         fullWidth
                                     />
                                 </div>
-                                {isExperimentRunning && (
+                                {isExperimentLaunched && (
                                     <LemonBanner type="info" className="mt-3 mb-3">
                                         Preview insights are generated based on {EXPERIMENT_DEFAULT_DURATION} days of
                                         data. This can cause a mismatch between the preview and the actual results.
@@ -282,7 +282,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                                 fullWidth
                                             />
                                         </div>
-                                        {isExperimentRunning && (
+                                        {isExperimentLaunched && (
                                             <LemonBanner type="info" className="mt-3 mb-3">
                                                 Preview insights are generated based on {EXPERIMENT_DEFAULT_DURATION}{' '}
                                                 days of data. This can cause a mismatch between the preview and the

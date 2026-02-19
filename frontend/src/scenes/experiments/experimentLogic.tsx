@@ -2040,13 +2040,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 return !experiment?.start_date && !experiment?.end_date && !experiment?.archived
             },
         ],
-        isExperimentRunning: [
+        isExperimentLaunched: [
             (s) => [s.experiment],
             (experiment): boolean => {
                 return !!experiment?.start_date
             },
         ],
-        isExperimentRunningNotEnded: [
+        isExperimentRunning: [
             (s) => [s.experiment],
             (experiment): boolean => {
                 return !!experiment?.start_date && !hasEnded(experiment)
@@ -2401,7 +2401,7 @@ export const experimentLogic = kea<experimentLogicType>([
         experimentWarning: [
             (s) => [
                 s.experiment,
-                s.isExperimentRunningNotEnded,
+                s.isExperimentRunning,
                 s.isExperimentDraft,
                 s.isFlagActive,
                 s.isSingleVariantShipped,
@@ -2409,7 +2409,7 @@ export const experimentLogic = kea<experimentLogicType>([
             ],
             (
                 experiment: Experiment,
-                isExperimentRunningNotEnded: boolean,
+                isExperimentRunning: boolean,
                 isExperimentDraft: boolean,
                 isFlagActive: boolean,
                 singleVariantShipped: boolean,
@@ -2417,7 +2417,7 @@ export const experimentLogic = kea<experimentLogicType>([
             ): ExperimentWarning | null => {
                 const filters = experiment.feature_flag?.filters
 
-                if (isExperimentRunningNotEnded) {
+                if (isExperimentRunning) {
                     if (!isFlagActive) {
                         return { key: 'running_but_flag_disabled' }
                     } else if (singleVariantShipped) {

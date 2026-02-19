@@ -279,7 +279,7 @@ export function PageHeaderCustom(): JSX.Element {
     const {
         experiment,
         isExperimentDraft,
-        isExperimentRunning,
+        isExperimentLaunched,
         isExperimentStopped,
         isSingleVariantShipped,
         hasPrimaryMetricSet,
@@ -335,7 +335,7 @@ export function PageHeaderCustom(): JSX.Element {
                 saveOnBlur
                 actions={
                     <>
-                        {experiment && !isExperimentRunning && (
+                        {experiment && !isExperimentLaunched && (
                             <div className="flex items-center">
                                 <LemonButton
                                     type="primary"
@@ -352,7 +352,7 @@ export function PageHeaderCustom(): JSX.Element {
                                 </LemonButton>
                             </div>
                         )}
-                        {experiment && isExperimentRunning && (
+                        {experiment && isExperimentLaunched && (
                             <div className="flex flex-row gap-2">
                                 {isExperimentStopped && (
                                     <LemonButton
@@ -414,7 +414,7 @@ export function PageHeaderCustom(): JSX.Element {
             />
             <HogfettiComponent />
 
-            {experiment && isExperimentRunning && (
+            {experiment && isExperimentLaunched && (
                 <ScenePanel>
                     <ScenePanelActionsSection>
                         <ButtonPrimitive menuItem onClick={() => setDuplicateModalOpen(true)}>
