@@ -21,6 +21,32 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import conditional_l
 from products.data_warehouse.backend.models import ExternalDataJob
 from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exists
 
+# PyArrow's standard string/binary types use 32-bit offsets, limiting a single
+# array chunk to ~2 GB of data. When deltalake's merge() internally concatenates
+# arrays that exceed this limit, an "offset overflow" error is raised. Casting to
+# the large variants (64-bit offsets) before the merge avoids this.
+_SMALL_TO_LARGE_TYPES: dict[pa.DataType, pa.DataType] = {
+    pa.string(): pa.large_string(),
+    pa.binary(): pa.large_binary(),
+}
+
+
+def _cast_to_large_types(table: pa.Table) -> pa.Table:
+    new_fields: list[tuple[int, pa.Field]] = []
+    for i, field in enumerate(table.schema):
+        large_type = _SMALL_TO_LARGE_TYPES.get(field.type)
+        if large_type is not None:
+            new_fields.append((i, field.with_type(large_type)))
+
+    if not new_fields:
+        return table
+
+    new_schema = table.schema
+    for i, field in new_fields:
+        new_schema = new_schema.set(i, field)
+
+    return table.cast(new_schema)
+
 
 class DeltaTableHelper:
     _resource_name: str
@@ -188,7 +214,7 @@ class DeltaTableHelper:
                     def _do_merge(filtered_table: pa.Table, predicate: str):
                         return (
                             delta_table.merge(
-                                source=filtered_table,
+                                source=_cast_to_large_types(filtered_table),
                                 source_alias="source",
                                 target_alias="target",
                                 predicate=predicate,
@@ -207,7 +233,7 @@ class DeltaTableHelper:
                 def _do_merge_unpartitioned(data: pa.Table, predicate_ops: list[str]):
                     return (
                         delta_table.merge(
-                            source=data,
+                            source=_cast_to_large_types(data),
                             source_alias="source",
                             target_alias="target",
                             predicate=" AND ".join(predicate_ops),

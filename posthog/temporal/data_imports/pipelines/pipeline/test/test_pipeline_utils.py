@@ -12,6 +12,7 @@ import structlog
 from dateutil import parser
 from structlog.types import FilteringBoundLogger
 
+from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import _cast_to_large_types
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _evolve_pyarrow_schema,
     _get_max_decimal_type,
@@ -424,3 +425,32 @@ def test_append_partition_key_to_table_does_not_type_error(name: str, data: list
         )
     except TypeError:
         pytest.fail(f"raised TypeError for case {name} with data: {data}")
+
+
+@pytest.mark.parametrize(
+    "schema, expected_schema",
+    [
+        (
+            pa.schema([("str_col", pa.string()), ("int_col", pa.int64())]),
+            pa.schema([("str_col", pa.large_string()), ("int_col", pa.int64())]),
+        ),
+        (
+            pa.schema([("bin_col", pa.binary()), ("str_col", pa.string())]),
+            pa.schema([("bin_col", pa.large_binary()), ("str_col", pa.large_string())]),
+        ),
+        (
+            pa.schema([("int_col", pa.int64()), ("float_col", pa.float64())]),
+            pa.schema([("int_col", pa.int64()), ("float_col", pa.float64())]),
+        ),
+    ],
+    ids=["string_to_large_string", "binary_and_string", "no_change_needed"],
+)
+def test_cast_to_large_types(schema: pa.Schema, expected_schema: pa.Schema):
+    table = pa.table(
+        {field.name: pa.array([], type=field.type) for field in schema},
+        schema=schema,
+    )
+
+    result = _cast_to_large_types(table)
+
+    assert result.schema.equals(expected_schema)
