@@ -370,8 +370,9 @@ export function Exposures(): JSX.Element {
                                     <h3 className="card-secondary">Total exposures</h3>
                                     <LemonTable
                                         dataSource={[
-                                            ...(exposures?.timeseries || []).filter((series) =>
-                                                filteredVariants.some((v) => v.variant === series.variant)
+                                            ...(exposures?.timeseries || []).filter(
+                                                (series: ExperimentExposureTimeSeries) =>
+                                                    filteredVariants.some((v) => v.variant === series.variant)
                                             ),
                                             { variant: '__total__', isTotal: true },
                                         ]}
