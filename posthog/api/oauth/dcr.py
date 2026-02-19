@@ -17,6 +17,7 @@ from django.core.validators import RegexValidator
 from django.utils import timezone
 
 import structlog
+from oauth2_provider.generators import generate_client_secret
 from oauth2_provider.models import AbstractApplication
 from rest_framework import serializers, status
 from rest_framework.request import Request
@@ -132,23 +133,29 @@ class DynamicClientRegistrationView(APIView):
         is_confidential = data.get("token_endpoint_auth_method") == "client_secret_post"
         client_type = AbstractApplication.CLIENT_CONFIDENTIAL if is_confidential else AbstractApplication.CLIENT_PUBLIC
 
+        # For confidential clients, generate the secret before create() so we
+        # can return the plaintext. The model's ClientSecretField.pre_save()
+        # will hash it automatically on save.
+        plaintext_secret = generate_client_secret() if is_confidential else None
+
         # Create the OAuth application
         # Model's clean() validates redirect URIs (HTTPS, loopback, custom schemes)
         try:
-            app = OAuthApplication.objects.create(
-                name=data.get("client_name", "MCP Client"),
-                redirect_uris=" ".join(data["redirect_uris"]),
-                client_type=client_type,
-                authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE,
-                algorithm="RS256",
-                skip_authorization=False,
-                # DCR-specific fields
-                is_dcr_client=True,
-                dcr_client_id_issued_at=now,
-                # No organization or user - DCR clients are anonymous
-                organization=None,
-                user=None,
-            )
+            create_kwargs: dict[str, Any] = {
+                "name": data.get("client_name", "MCP Client"),
+                "redirect_uris": " ".join(data["redirect_uris"]),
+                "client_type": client_type,
+                "authorization_grant_type": AbstractApplication.GRANT_AUTHORIZATION_CODE,
+                "algorithm": "RS256",
+                "skip_authorization": False,
+                "is_dcr_client": True,
+                "dcr_client_id_issued_at": now,
+                "organization": None,
+                "user": None,
+            }
+            if plaintext_secret:
+                create_kwargs["client_secret"] = plaintext_secret
+            app = OAuthApplication.objects.create(**create_kwargs)
         except ValidationError as e:
             # Only expose redirect_uri validation errors to clients
             # Other validation errors (like missing RSA key) are internal and should not be leaked
@@ -194,8 +201,8 @@ class DynamicClientRegistrationView(APIView):
             "client_id_issued_at": int(now.timestamp()),
         }
 
-        if is_confidential:
-            response_data["client_secret"] = app.client_secret
+        if is_confidential and plaintext_secret:
+            response_data["client_secret"] = plaintext_secret
             response_data["client_secret_expires_at"] = 0  # 0 = never expires per RFC 7591
 
         if data.get("client_name"):
