@@ -40,6 +40,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
@@ -511,6 +512,7 @@ const ReplayFiltersTab = ({
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
+    const { hasPageview, hasScreen } = getProjectEventExistence()
 
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.Replay,
@@ -521,6 +523,10 @@ const ReplayFiltersTab = ({
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.SessionProperties,
         ...groupsTaxonomicTypes,
+        ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
+        ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
+        TaxonomicFilterGroupType.EmailAddresses,
+        TaxonomicFilterGroupType.AutocaptureEvents,
     ]
 
     if (allowReplayHogQLFilters) {
