@@ -17,6 +17,8 @@ from posthog.temporal.ai.video_segment_clustering.models import (
     PrimeSessionEmbeddingsActivityInputs,
 )
 
+from products.signals.backend.models import SignalSourceConfig
+
 from ee.hogai.session_summaries.constants import MIN_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S
 from ee.models.session_summaries import SingleSessionSummary
 
@@ -79,8 +81,6 @@ async def get_sessions_to_prime_activity(
 
 
 def _load_user_recording_filters(team_id: int) -> dict | None:
-    from products.signals.backend.models import SignalSourceConfig
-
     try:
         config = SignalSourceConfig.objects.get(
             team_id=team_id,
