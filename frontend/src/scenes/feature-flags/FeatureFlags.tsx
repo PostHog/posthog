@@ -49,6 +49,7 @@ import {
     FeatureFlagType,
 } from '~/types'
 
+import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
@@ -357,6 +358,8 @@ export function OverViewTab({
         useValues(flagLogic)
     const { setFeatureFlagsFilters } = useActions(flagLogic)
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
+    const featureFlagsV2Enabled = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
+    const newFeatureFlagUrl = featureFlagsV2Enabled ? urls.featureFlagTemplates() : urls.featureFlag('new')
 
     const {
         selectedCount,
@@ -548,11 +551,12 @@ export function OverViewTab({
                 thingName="feature flag"
                 description="Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once."
                 docsURL="https://posthog.com/docs/feature-flags/manual"
-                action={() => router.actions.push(urls.featureFlag('new'))}
+                action={() => router.actions.push(newFeatureFlagUrl)}
                 isEmpty={shouldShowEmptyState}
                 customHog={FeatureFlagHog}
                 className={cn('my-0')}
             />
+            <ApprovalsPromoBanner />
             <div>{filtersSection}</div>
             <LemonDivider className="my-0" />
             <div className="flex items-center justify-between min-h-9">
@@ -648,6 +652,9 @@ export function OverViewTab({
 export function FeatureFlags(): JSX.Element {
     const { activeTab } = useValues(featureFlagsLogic)
     const { setActiveTab } = useActions(featureFlagsLogic)
+    const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
+    const featureFlagsV2Enabled = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
+    const newFeatureFlagUrl = featureFlagsV2Enabled ? urls.featureFlagTemplates() : urls.featureFlag('new')
 
     return (
         <SceneContent className="feature_flags">
@@ -670,7 +677,7 @@ export function FeatureFlags(): JSX.Element {
                         >
                             <LemonButton
                                 type="primary"
-                                to={urls.featureFlag('new')}
+                                to={newFeatureFlagUrl}
                                 data-attr="new-feature-flag"
                                 size="small"
                                 icon={<IconPlusSmall />}

@@ -13,7 +13,7 @@
 export type EvaluationTypeEnumApi = (typeof EvaluationTypeEnumApi)[keyof typeof EvaluationTypeEnumApi]
 
 export const EvaluationTypeEnumApi = {
-    llm_judge: 'llm_judge',
+    LlmJudge: 'llm_judge',
 } as const
 
 /**
@@ -22,7 +22,7 @@ export const EvaluationTypeEnumApi = {
 export type OutputTypeEnumApi = (typeof OutputTypeEnumApi)[keyof typeof OutputTypeEnumApi]
 
 export const OutputTypeEnumApi = {
-    boolean: 'boolean',
+    Boolean: 'boolean',
 } as const
 
 /**
@@ -30,14 +30,16 @@ export const OutputTypeEnumApi = {
  * `anthropic` - Anthropic
  * `gemini` - Gemini
  * `openrouter` - Openrouter
+ * `fireworks` - Fireworks
  */
 export type ProviderEnumApi = (typeof ProviderEnumApi)[keyof typeof ProviderEnumApi]
 
 export const ProviderEnumApi = {
-    openai: 'openai',
-    anthropic: 'anthropic',
-    gemini: 'gemini',
-    openrouter: 'openrouter',
+    Openai: 'openai',
+    Anthropic: 'anthropic',
+    Gemini: 'gemini',
+    Openrouter: 'openrouter',
+    Fireworks: 'fireworks',
 } as const
 
 /**
@@ -66,14 +68,14 @@ export interface ModelConfigurationApi {
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
 export const RoleAtOrganizationEnumApi = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
@@ -149,8 +151,8 @@ export type EmbeddingNormalizationEnumApi =
     (typeof EmbeddingNormalizationEnumApi)[keyof typeof EmbeddingNormalizationEnumApi]
 
 export const EmbeddingNormalizationEnumApi = {
-    none: 'none',
-    l2: 'l2',
+    None: 'none',
+    L2: 'l2',
 } as const
 
 /**
@@ -162,9 +164,9 @@ export type DimensionalityReductionMethodEnumApi =
     (typeof DimensionalityReductionMethodEnumApi)[keyof typeof DimensionalityReductionMethodEnumApi]
 
 export const DimensionalityReductionMethodEnumApi = {
-    none: 'none',
-    umap: 'umap',
-    pca: 'pca',
+    None: 'none',
+    Umap: 'umap',
+    Pca: 'pca',
 } as const
 
 /**
@@ -174,8 +176,8 @@ export const DimensionalityReductionMethodEnumApi = {
 export type ClusteringMethodEnumApi = (typeof ClusteringMethodEnumApi)[keyof typeof ClusteringMethodEnumApi]
 
 export const ClusteringMethodEnumApi = {
-    hdbscan: 'hdbscan',
-    kmeans: 'kmeans',
+    Hdbscan: 'hdbscan',
+    Kmeans: 'kmeans',
 } as const
 
 /**
@@ -186,9 +188,9 @@ export const ClusteringMethodEnumApi = {
 export type VisualizationMethodEnumApi = (typeof VisualizationMethodEnumApi)[keyof typeof VisualizationMethodEnumApi]
 
 export const VisualizationMethodEnumApi = {
-    umap: 'umap',
-    pca: 'pca',
-    tsne: 'tsne',
+    Umap: 'umap',
+    Pca: 'pca',
+    Tsne: 'tsne',
 } as const
 
 /**
@@ -277,10 +279,10 @@ export interface ClusteringRunRequestApi {
 export type FilterEnumApi = (typeof FilterEnumApi)[keyof typeof FilterEnumApi]
 
 export const FilterEnumApi = {
-    all: 'all',
-    pass: 'pass',
-    fail: 'fail',
-    na: 'na',
+    All: 'all',
+    Pass: 'pass',
+    Fail: 'fail',
+    Na: 'na',
 } as const
 
 /**
@@ -337,10 +339,10 @@ export interface EvaluationSummaryResponseApi {
 export type LLMProviderKeyStateEnumApi = (typeof LLMProviderKeyStateEnumApi)[keyof typeof LLMProviderKeyStateEnumApi]
 
 export const LLMProviderKeyStateEnumApi = {
-    unknown: 'unknown',
-    ok: 'ok',
-    invalid: 'invalid',
-    error: 'error',
+    Unknown: 'unknown',
+    Ok: 'ok',
+    Invalid: 'invalid',
+    Error: 'error',
 } as const
 
 export interface LLMProviderKeyApi {
@@ -393,8 +395,8 @@ export interface PatchedLLMProviderKeyApi {
 export type SummarizeTypeEnumApi = (typeof SummarizeTypeEnumApi)[keyof typeof SummarizeTypeEnumApi]
 
 export const SummarizeTypeEnumApi = {
-    trace: 'trace',
-    event: 'event',
+    Trace: 'trace',
+    Event: 'event',
 } as const
 
 /**
@@ -404,8 +406,8 @@ export const SummarizeTypeEnumApi = {
 export type Mode02aEnumApi = (typeof Mode02aEnumApi)[keyof typeof Mode02aEnumApi]
 
 export const Mode02aEnumApi = {
-    minimal: 'minimal',
-    detailed: 'detailed',
+    Minimal: 'minimal',
+    Detailed: 'detailed',
 } as const
 
 export interface SummarizeRequestApi {
@@ -497,10 +499,10 @@ export interface BatchCheckResponseApi {
 export type EventTypeEnumApi = (typeof EventTypeEnumApi)[keyof typeof EventTypeEnumApi]
 
 export const EventTypeEnumApi = {
-    $ai_generation: '$ai_generation',
-    $ai_span: '$ai_span',
-    $ai_embedding: '$ai_embedding',
-    $ai_trace: '$ai_trace',
+    AiGeneration: '$ai_generation',
+    AiSpan: '$ai_span',
+    AiEmbedding: '$ai_embedding',
+    AiTrace: '$ai_trace',
 } as const
 
 export interface TextReprOptionsApi {
@@ -688,23 +690,12 @@ export type EvaluationsListParams = {
 * `name` - Name
 * `-name` - Name (descending)
  */
-    order_by?: EvaluationsListOrderByItem[]
+    order_by?: string[]
     /**
      * Search in name or description
      */
     search?: string
 }
-
-export type EvaluationsListOrderByItem = (typeof EvaluationsListOrderByItem)[keyof typeof EvaluationsListOrderByItem]
-
-export const EvaluationsListOrderByItem = {
-    '-created_at': '-created_at',
-    '-name': '-name',
-    '-updated_at': '-updated_at',
-    created_at: 'created_at',
-    name: 'name',
-    updated_at: 'updated_at',
-} as const
 
 export type LlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown }
 
@@ -777,18 +768,9 @@ export type DatasetsListParams = {
 * `updated_at` - Updated At
 * `-updated_at` - Updated At (descending)
  */
-    order_by?: DatasetsListOrderByItem[]
+    order_by?: string[]
     /**
      * Search in name, description, or metadata
      */
     search?: string
 }
-
-export type DatasetsListOrderByItem = (typeof DatasetsListOrderByItem)[keyof typeof DatasetsListOrderByItem]
-
-export const DatasetsListOrderByItem = {
-    '-created_at': '-created_at',
-    '-updated_at': '-updated_at',
-    created_at: 'created_at',
-    updated_at: 'updated_at',
-} as const
