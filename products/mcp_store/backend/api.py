@@ -273,7 +273,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             "state": state,
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
-                return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+        }
         if scopes := server.oauth_metadata.get("scopes_supported"):
             query_params["scope"] = " ".join(scopes)
 
@@ -286,7 +286,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         )
         return response
 
-            return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+    def _get_or_register_dcr_server(
         self,
         *,
         metadata: dict,
@@ -306,7 +306,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 client_id = register_dcr_client(metadata, redirect_uri)
             except Exception as e:
                 logger.exception("DCR registration failed", error=str(e))
-                return Response({"detail": f"OAuth registration failed: {e}"}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
             metadata["dcr_redirect_uri"] = redirect_uri
             existing_server.oauth_metadata = metadata
             existing_server.oauth_client_id = client_id
@@ -317,7 +317,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             client_id = register_dcr_client(metadata, redirect_uri)
         except Exception as e:
             logger.exception("DCR registration failed", error=str(e))
-            return Response({"detail": f"OAuth registration failed: {e}"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
         metadata["dcr_redirect_uri"] = redirect_uri
 
         if existing_server:
@@ -407,7 +407,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 client_id = register_dcr_client(metadata, redirect_uri)
             except Exception as e:
                 logger.exception("DCR registration failed", server_url=server.url, error=str(e))
-                return Response({"detail": f"OAuth discovery/registration failed"}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"detail": "OAuth discovery/registration failed."}, status=status.HTTP_400_BAD_REQUEST)
             metadata["dcr_redirect_uri"] = redirect_uri
             server.oauth_metadata = metadata
             server.oauth_client_id = client_id
