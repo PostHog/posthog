@@ -157,7 +157,7 @@ If you see "Exit Code 137" or out-of-memory errors, your Docker container doesn'
 If you see `Error while fetching server API version: 500 Server Error for http+docker://localhost/version`, make sure Docker (or OrbStack) is actually running.
 
 **Port conflicts**
-If you see a port binding error for 5432, you have Postgres running locally. Use `lsof -i :5432` to find the process, then `sudo service postgresql stop` to stop it.
+If you see a port binding error for 5432, you have Postgres running locally. Use `lsof -i :5432` to find the process, then `sudo service postgresql stop` to stop it. You may also see errors like `role "posthog" does not exist`, which could indicate that a local PostgreSQL instance is being used instead of the expected containerized one.
 
 **GeoLite database missing**
 The feature-flags container needs the GeoLite database in `/share`. If it's missing, run `./bin/download-mmdb` and then `chmod 0755 ./share/GeoLite2-City.mmdb`.
@@ -227,7 +227,7 @@ pnpm --filter=@posthog/frontend test
 You can narrow the run down to only files under matching paths:
 
 ```bash
-pnpm jest --testPathPattern=frontend/src/lib/components/IntervalFilter/intervalFilterLogic.test.ts
+pnpm jest --testPathPattern=frontend/src/lib/components/DateFilter/DateFilter.test.tsx
 ```
 
 To update all visual regression test snapshots, make sure Storybook is running on your machine (you can start it with `pnpm storybook` in a separate Terminal tab). You may also need to install Playwright with `pnpm exec playwright install`. And then run:
