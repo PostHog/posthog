@@ -13,6 +13,7 @@ import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writ
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
+import { TopHogWrapper } from '../pipelines/extensions/tophog'
 import { OkResultWithContext } from '../pipelines/filter-map-batch-pipeline'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { ok } from '../pipelines/results'
@@ -62,6 +63,7 @@ export interface JoinedIngestionPipelineConfig {
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupId: string
+    topHog: TopHogWrapper
 }
 
 export interface JoinedIngestionPipelineInput {
@@ -130,6 +132,7 @@ export function createJoinedIngestionPipeline<
         teamManager,
         groupTypeManager,
         groupId,
+        topHog,
     } = config
 
     const pipelineConfig: PipelineConfig = {
@@ -162,6 +165,7 @@ export function createJoinedIngestionPipeline<
         groupStore,
         kafkaProducer,
         groupId,
+        topHog,
     }
 
     return builder
