@@ -112,24 +112,28 @@ export function cleanupTooltip(id: string): void {
     }
 }
 
+const TOOLTIP_MAX_WIDTH = 480
+
 export function positionTooltip(tooltipEl: HTMLElement, canvasBounds: DOMRect, caretX: number, caretY: number): void {
     tooltipEl.style.position = 'absolute'
     tooltipEl.style.maxWidth = ''
 
-    let left = canvasBounds.left + window.scrollX + caretX + 8
+    const caretLeft = canvasBounds.left + window.scrollX + caretX
+    let left = caretLeft + 8
     const top = canvasBounds.top + window.scrollY + caretY + 8
 
     const viewportRight = window.scrollX + document.documentElement.clientWidth
-    if (tooltipEl.offsetWidth > 0 && left + tooltipEl.offsetWidth > viewportRight - 8) {
-        left = canvasBounds.left + window.scrollX + caretX - tooltipEl.offsetWidth - 8
+    const tooltipWidth = tooltipEl.offsetWidth || TOOLTIP_MAX_WIDTH
+    if (left + tooltipWidth > viewportRight - 8) {
+        left = caretLeft - tooltipWidth - 8
     }
+    left = Math.max(window.scrollX + 8, left)
 
     const viewportBottom = window.scrollY + document.documentElement.clientHeight
-    const clampedTop = Math.min(top, viewportBottom - tooltipEl.offsetHeight - 8)
+    const clampedTop = Math.min(top, viewportBottom - Math.max(tooltipEl.offsetHeight, 0) - 8)
 
     tooltipEl.style.left = `${left}px`
     tooltipEl.style.top = `${clampedTop}px`
-    tooltipEl.style.maxWidth = `${viewportRight - left - 8}px`
 }
 
 export function useInsightTooltip(): {
