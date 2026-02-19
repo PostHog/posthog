@@ -293,6 +293,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
             {shouldRenderPortal && (
                 <FloatingPortal root={floatingContainer}>
                     <CSSTransition
+                        nodeRef={floatingRef as React.RefObject<HTMLDivElement>}
                         in={visible}
                         timeout={delayMs}
                         classNames="Popover-"
