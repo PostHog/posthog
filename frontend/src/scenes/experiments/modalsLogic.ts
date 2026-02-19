@@ -20,8 +20,6 @@ export const modalsLogic = kea<modalsLogicType>([
         closeExposureCriteriaModal: true,
         openShipVariantModal: true,
         closeShipVariantModal: true,
-        openStopExperimentModal: true,
-        closeStopExperimentModal: true,
         openPauseExperimentModal: true,
         closePauseExperimentModal: true,
         openResumeExperimentModal: true,
@@ -79,13 +77,6 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openShipVariantModal: () => true,
                 closeShipVariantModal: () => false,
-            },
-        ],
-        isStopExperimentModalOpen: [
-            false,
-            {
-                openStopExperimentModal: () => true,
-                closeStopExperimentModal: () => false,
             },
         ],
         isPauseExperimentModalOpen: [

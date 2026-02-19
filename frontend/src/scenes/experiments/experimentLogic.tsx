@@ -456,8 +456,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 'closeSecondaryMetricModal',
                 'openPrimarySharedMetricModal',
                 'openSecondarySharedMetricModal',
-                'openStopExperimentModal',
-                'closeStopExperimentModal',
                 'closePauseExperimentModal',
                 'closeResumeExperimentModal',
                 'closeShipVariantModal',
@@ -1284,7 +1282,6 @@ export const experimentLogic = kea<experimentLogicType>([
                         ? values.isPrimaryMetricSignificant(values.experiment.metrics[0].uuid)
                         : false
                 )
-            actions.closeStopExperimentModal()
             values.experiment && eventUsageLogic.actions.reportExperimentStopped(values.experiment)
         },
         pauseExperiment: async () => {
@@ -1384,10 +1381,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
         },
-        shipVariantSuccess: ({ payload }) => {
+        shipVariantSuccess: () => {
             lemonToast.success('Experiment ended. The selected variant has been rolled out to all users.')
             actions.closeShipVariantModal()
-            if (payload.shouldStopExperiment && !values.isExperimentStopped) {
+            if (!values.isExperimentStopped) {
                 actions.endExperiment()
             }
             actions.reportExperimentVariantShipped(values.experiment)
@@ -1949,7 +1946,7 @@ export const experimentLogic = kea<experimentLogicType>([
         featureFlag: [
             null as FeatureFlagType | null,
             {
-                shipVariant: async ({ selectedVariantKey, shouldStopExperiment }) => {
+                shipVariant: async ({ selectedVariantKey }) => {
                     if (!values.experiment.feature_flag) {
                         throw new Error('Experiment does not have a feature flag linked')
                     }
@@ -1962,7 +1959,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         { filters: newFilters }
                     )
 
-                    return shouldStopExperiment
+                    return null
                 },
             },
         ],
