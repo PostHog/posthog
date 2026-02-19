@@ -92,6 +92,56 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
     }, [updatingDataWarehouseSavedQuery, changesToSave, response])
     const isMaterializedView = editingView?.is_materialized === true
 
+    const actionsRow = (
+        <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b py-1">
+            <div className="flex items-center gap-2">
+                <RunButton />
+                <LemonDivider vertical />
+                <QueryVariablesMenu disabledReason={editingView ? 'Variables are not allowed in views.' : undefined} />
+            </div>
+
+            <div className="ml-auto flex items-center gap-2">
+                <FixErrorButton type="secondary" size="small" source="action-bar" />
+                {vimModeFeatureEnabled && (
+                    <LemonSwitch
+                        checked={editorVimModeEnabled}
+                        onChange={setEditorVimModeEnabled}
+                        label="Vim"
+                        size="small"
+                        bordered
+                        data-attr="sql-editor-vim-toggle"
+                    />
+                )}
+                {isRemovingSidePanelFlag && (
+                    <SceneTitlePanelButton
+                        buttonClassName="size-[26px]"
+                        maxToolProps={{
+                            identifier: 'execute_sql',
+                            context: {
+                                current_query: queryInput,
+                            },
+                            contextDescription: {
+                                text: 'Current query',
+                                icon: iconForType('sql_editor'),
+                            },
+                            callback: (toolOutput: string) => {
+                                setSuggestedQueryInput(toolOutput, 'max_ai')
+                            },
+                            suggestions: [],
+                            onMaxOpen: () => {
+                                reportAIQueryPromptOpen()
+                            },
+                            introOverride: {
+                                headline: 'What data do you want to analyze?',
+                                description: 'Let me help you quickly write SQL, and tweak it.',
+                            },
+                        }}
+                    />
+                )}
+            </div>
+        </div>
+    )
+
     return (
         <div className="flex grow flex-col overflow-hidden">
             {!isEmbeddedMode && (
@@ -180,6 +230,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                     }
                 />
             )}
+            {actionsRow}
 
             <QueryPane
                 originalValue={originalQueryInput ?? ''}
@@ -216,55 +267,6 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                 }}
             />
 
-            <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b py-1">
-                <div className="flex items-center gap-2">
-                    <RunButton />
-                    <LemonDivider vertical />
-                    <QueryVariablesMenu
-                        disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
-                    />
-                </div>
-
-                <div className="ml-auto flex items-center gap-2">
-                    <FixErrorButton type="secondary" size="small" source="action-bar" />
-                    {vimModeFeatureEnabled && (
-                        <LemonSwitch
-                            checked={editorVimModeEnabled}
-                            onChange={setEditorVimModeEnabled}
-                            label="Vim"
-                            size="small"
-                            bordered
-                            data-attr="sql-editor-vim-toggle"
-                        />
-                    )}
-                    {isRemovingSidePanelFlag && (
-                        <SceneTitlePanelButton
-                            buttonClassName="size-[26px]"
-                            maxToolProps={{
-                                identifier: 'execute_sql',
-                                context: {
-                                    current_query: queryInput,
-                                },
-                                contextDescription: {
-                                    text: 'Current query',
-                                    icon: iconForType('sql_editor'),
-                                },
-                                callback: (toolOutput: string) => {
-                                    setSuggestedQueryInput(toolOutput, 'max_ai')
-                                },
-                                suggestions: [],
-                                onMaxOpen: () => {
-                                    reportAIQueryPromptOpen()
-                                },
-                                introOverride: {
-                                    headline: 'What data do you want to analyze?',
-                                    description: 'Let me help you quickly write SQL, and tweak it.',
-                                },
-                            }}
-                        />
-                    )}
-                </div>
-            </div>
             <InternalQueryWindow tabId={tabId} />
 
             <QueryHistoryModal />
