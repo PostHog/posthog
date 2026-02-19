@@ -91,7 +91,7 @@ fn convert_event(ice: &InternallyCapturedEvent) -> Result<Event, Error> {
 fn is_retryable(err: &posthog_rs::Error) -> bool {
     matches!(
         err,
-        posthog_rs::Error::RateLimit { .. } | posthog_rs::Error::ServerError { .. }
+        posthog_rs::Error::RateLimit | posthog_rs::Error::ServerError { .. }
     )
 }
 
@@ -127,14 +127,7 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
             match self.client.capture_batch(events.clone(), true).await {
                 Ok(()) => break,
                 Err(e) if is_retryable(&e) && attempt < MAX_RETRIES => {
-                    // Prefer the server's Retry-After hint when present (capped
-                    // to our max delay), otherwise fall back to exponential backoff.
-                    let delay = match &e {
-                        posthog_rs::Error::RateLimit {
-                            retry_after: Some(ra),
-                        } => (*ra).min(self.retry_policy.max_delay),
-                        _ => self.retry_policy.next_delay(attempt),
-                    };
+                    let delay = self.retry_policy.next_delay(attempt);
                     warn!(
                         "transient capture error, retrying (attempt {attempt}/{MAX_RETRIES}, delay {delay:?}): {e}"
                     );
@@ -268,9 +261,7 @@ mod tests {
 
     #[test]
     fn test_is_retryable() {
-        assert!(is_retryable(&posthog_rs::Error::RateLimit {
-            retry_after: None
-        }));
+        assert!(is_retryable(&posthog_rs::Error::RateLimit));
         assert!(is_retryable(&posthog_rs::Error::ServerError {
             status: 500,
             message: "internal".to_string()
