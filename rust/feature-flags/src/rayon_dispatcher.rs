@@ -1,5 +1,11 @@
 use std::sync::Arc;
+
+use common_metrics::{gauge, histogram};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+
+use crate::metrics::consts::{
+    RAYON_DISPATCHER_AVAILABLE_PERMITS, RAYON_DISPATCHER_SEMAPHORE_WAIT_TIME,
+};
 
 /// Bounds concurrent batch dispatches to the Rayon thread pool.
 ///
@@ -38,7 +44,20 @@ impl RayonDispatcher {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
+        gauge(
+            RAYON_DISPATCHER_AVAILABLE_PERMITS,
+            &[],
+            self.available_permits() as f64,
+        );
+
+        let wait_start = std::time::Instant::now();
         let permit = self.acquire().await;
+        histogram(
+            RAYON_DISPATCHER_SEMAPHORE_WAIT_TIME,
+            &[],
+            wait_start.elapsed().as_secs_f64() * 1000.0,
+        );
+
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         rayon::spawn(move || {

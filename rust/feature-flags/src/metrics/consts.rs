@@ -82,6 +82,17 @@ pub const TOMBSTONE_COUNTER: &str = "posthog_tombstone_total";
 // Labels: team_id, operation_type (person_query, cohort_query, group_query)
 pub const FLAG_DB_OPERATIONS_PER_REQUEST: &str = "flags_db_operations_per_request";
 
+// Rayon dispatcher metrics
+// These track semaphore backpressure on the parallel evaluation path.
+
+// Time spent waiting for a semaphore permit before entering the Rayon pool (histogram, ms).
+// Near-zero means the pool is not saturated; high values mean batches are queueing.
+pub const RAYON_DISPATCHER_SEMAPHORE_WAIT_TIME: &str = "flags_rayon_dispatcher_semaphore_wait_ms";
+
+// Number of semaphore permits available at dispatch time (gauge).
+// Consistently 0 means the Rayon pool is fully saturated.
+pub const RAYON_DISPATCHER_AVAILABLE_PERMITS: &str = "flags_rayon_dispatcher_available_permits";
+
 // Flag batch evaluation metrics
 // These track the performance difference between sequential and parallel evaluation strategies.
 // Used for A/B testing and tuning the PARALLEL_EVAL_THRESHOLD.
