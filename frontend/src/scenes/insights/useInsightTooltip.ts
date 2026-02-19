@@ -137,7 +137,7 @@ export function positionTooltip(
     left = Math.max(window.scrollX + 8, left)
 
     const viewportBottom = window.scrollY + document.documentElement.clientHeight
-    const clampedTop = Math.min(top, viewportBottom - Math.max(tooltipEl.offsetHeight, 0) - 8)
+const clampedTop = Math.min(Math.max(window.scrollY + 8, top), viewportBottom - Math.max(tooltipEl.offsetHeight, 0) - 8)
 
     tooltipEl.style.left = `${left}px`
     tooltipEl.style.top = `${clampedTop}px`
