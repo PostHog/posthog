@@ -31,12 +31,17 @@ function buildProductManifests() {
     const buildScript = fileURLToPath(import.meta.url)
 
     const hash = createHash('sha256')
+
+    // hash the build script first
     hash.update(fse.readFileSync(buildScript))
+
+    // hash all input file content
     for (const f of allSourceFiles) {
         hash.update(fse.readFileSync(f))
     }
     const digest = hash.digest('hex')
 
+    // if we've already seen this hash digest, we have no recent changes
     if (!process.env.BUILD_PRODUCTS_NO_CACHE) {
         try {
             if (
@@ -47,7 +52,7 @@ function buildProductManifests() {
                 return
             }
         } catch {
-            // Cache file missing or unreadable -- continue with build
+            // Cache file missing or unreadable, so continue with build
         }
     }
 
