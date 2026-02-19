@@ -160,9 +160,9 @@ def access_level_satisfied_for_resource(
 
 @dataclass(frozen=True)
 class EffectiveAccessResult:
-    effective_access_level: AccessControlLevel
-    inherited_access_level: AccessControlLevel
-    inherited_access_level_reason: InheritedAccessLevelReason
+    effective_access_level: AccessControlLevel | None
+    inherited_access_level: AccessControlLevel | None
+    inherited_access_level_reason: InheritedAccessLevelReason | None
 
 
 def get_effective_access_level_for_role(
