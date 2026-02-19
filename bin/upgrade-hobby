@@ -316,7 +316,6 @@ cat > compose/start <<EOF
 #!/bin/bash
 ./compose/wait
 ./bin/migrate
-bash ./bin/migrate-persons
 ./bin/docker-server
 EOF
 
