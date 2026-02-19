@@ -607,7 +607,7 @@ jobs:
                       }
 
                       const reportLink = reportUrl ? ` · [View test results →](${reportUrl})` : '';
-                      const footer = '\n\n---\n*Annoyed by this comment? Make the tests green and it\'ll disappear!*';
+                      const footer = '\n\n\n*These issues are not necessarily caused by your changes.*\n*Annoyed by this comment? Help fix flakies and failures and it\'ll disappear!*';
                       const body = `${marker}\n🎭 Playwright report${reportLink}${extraLines}${footer}`;
 
                       if (existing) {
