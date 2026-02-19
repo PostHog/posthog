@@ -29,7 +29,7 @@ from posthog.models.activity_logging.activity_log import ActivityContextBase, De
 from posthog.models.exported_recording import ExportedRecording
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import DEPRECATED_ATTRS
-from posthog.storage.recordings import file_storage
+from posthog.session_recordings.recordings import recording_s3_client
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.delete_recordings.types import (
     DeletionConfig,
@@ -573,7 +573,7 @@ class TeamAdmin(admin.ModelAdmin):
                 messages.error(request, "Export content not available yet")
                 return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
 
-            content = file_storage.file_storage().download_file(export.export_location)
+            content = recording_s3_client.recording_s3_client().download_file(export.export_location)
 
             response = HttpResponse(content, content_type="application/zip")
             filename = f"export-{export.session_id}.zip"

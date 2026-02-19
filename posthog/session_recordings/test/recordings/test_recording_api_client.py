@@ -4,22 +4,22 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import snappy
 import aiohttp
 
-from posthog.storage.recordings.block_storage import EncryptedBlockStorage, encrypted_block_storage
-from posthog.storage.recordings.errors import BlockFetchError, RecordingDeletedError
+from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
+from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
 
 
-class TestEncryptedBlockStorage:
+class TestRecordingApiClient:
     @pytest.fixture
     def mock_session(self):
         return MagicMock(spec=aiohttp.ClientSession)
 
     @pytest.fixture
     def client(self, mock_session):
-        return EncryptedBlockStorage(mock_session, "http://localhost:6740")
+        return RecordingApiClient(mock_session, "http://localhost:6740")
 
     @pytest.fixture
     def client_with_trailing_slash(self, mock_session):
-        return EncryptedBlockStorage(mock_session, "http://localhost:6740/")
+        return RecordingApiClient(mock_session, "http://localhost:6740/")
 
     def test_init_strips_trailing_slash(self, client_with_trailing_slash):
         assert client_with_trailing_slash.base_url == "http://localhost:6740"
@@ -32,7 +32,7 @@ class TestFetchBlockBytes:
 
     @pytest.fixture
     def client(self, mock_session):
-        return EncryptedBlockStorage(mock_session, "http://localhost:6740")
+        return RecordingApiClient(mock_session, "http://localhost:6740")
 
     @pytest.mark.asyncio
     async def test_successful_fetch(self, client, mock_session):
@@ -123,7 +123,7 @@ class TestFetchBlock:
 
     @pytest.fixture
     def client(self, mock_session):
-        return EncryptedBlockStorage(mock_session, "http://localhost:6740")
+        return RecordingApiClient(mock_session, "http://localhost:6740")
 
     @pytest.mark.asyncio
     async def test_successful_fetch_and_decompress(self, client, mock_session):
@@ -230,7 +230,7 @@ class TestDeleteRecording:
 
     @pytest.fixture
     def client(self, mock_session):
-        return EncryptedBlockStorage(mock_session, "http://localhost:6740")
+        return RecordingApiClient(mock_session, "http://localhost:6740")
 
     @pytest.mark.asyncio
     async def test_successful_delete(self, client, mock_session):
@@ -286,7 +286,7 @@ class TestBulkDeleteRecordings:
 
     @pytest.fixture
     def client(self, mock_session):
-        return EncryptedBlockStorage(mock_session, "http://localhost:6740")
+        return RecordingApiClient(mock_session, "http://localhost:6740")
 
     @pytest.mark.asyncio
     async def test_successful_bulk_delete(self, client, mock_session):
@@ -348,41 +348,43 @@ class TestBulkDeleteRecordings:
         assert result == ["s1", "s2"]
 
 
-class TestEncryptedBlockStorageContextManager:
+class TestRecordingApiClientContextManager:
     @pytest.mark.asyncio
     async def test_raises_error_when_url_not_configured(self):
-        with patch("posthog.storage.recordings.block_storage.settings") as mock_settings:
+        with patch("posthog.session_recordings.recordings.recording_api_client.settings") as mock_settings:
             mock_settings.RECORDING_API_URL = None
 
             with pytest.raises(RuntimeError, match="RECORDING_API_URL is not configured"):
-                async with encrypted_block_storage():
+                async with recording_api_client():
                     pass
 
     @pytest.mark.asyncio
     async def test_raises_error_when_url_is_empty_string(self):
-        with patch("posthog.storage.recordings.block_storage.settings") as mock_settings:
+        with patch("posthog.session_recordings.recordings.recording_api_client.settings") as mock_settings:
             mock_settings.RECORDING_API_URL = ""
 
             with pytest.raises(RuntimeError, match="RECORDING_API_URL is not configured"):
-                async with encrypted_block_storage():
+                async with recording_api_client():
                     pass
 
     @pytest.mark.asyncio
     async def test_creates_client_with_configured_url(self):
-        with patch("posthog.storage.recordings.block_storage.settings") as mock_settings:
+        with patch("posthog.session_recordings.recordings.recording_api_client.settings") as mock_settings:
             mock_settings.RECORDING_API_URL = "http://test-api:8080"
             mock_settings.INTERNAL_API_SECRET = ""
             mock_settings.DEBUG = True
 
-            with patch("posthog.storage.recordings.block_storage.aiohttp.ClientSession") as mock_client_session:
+            with patch(
+                "posthog.session_recordings.recordings.recording_api_client.aiohttp.ClientSession"
+            ) as mock_client_session:
                 mock_session = AsyncMock()
                 mock_session.__aenter__ = AsyncMock(return_value=mock_session)
                 mock_session.__aexit__ = AsyncMock(return_value=None)
                 mock_client_session.return_value = mock_session
 
-                async with encrypted_block_storage() as storage:
-                    assert storage.base_url == "http://test-api:8080"
-                    assert storage.session == mock_session
+                async with recording_api_client() as client:
+                    assert client.base_url == "http://test-api:8080"
+                    assert client.session == mock_session
 
                 mock_client_session.assert_called_once()
                 call_kwargs = mock_client_session.call_args[1]
@@ -393,9 +395,11 @@ class TestEncryptedBlockStorageContextManager:
     @pytest.mark.asyncio
     async def test_warns_when_secret_missing_in_production(self):
         with (
-            patch("posthog.storage.recordings.block_storage.settings") as mock_settings,
-            patch("posthog.storage.recordings.block_storage.logger") as mock_logger,
-            patch("posthog.storage.recordings.block_storage.aiohttp.ClientSession") as mock_client_session,
+            patch("posthog.session_recordings.recordings.recording_api_client.settings") as mock_settings,
+            patch("posthog.session_recordings.recordings.recording_api_client.logger") as mock_logger,
+            patch(
+                "posthog.session_recordings.recordings.recording_api_client.aiohttp.ClientSession"
+            ) as mock_client_session,
         ):
             mock_settings.RECORDING_API_URL = "http://test-api:8080"
             mock_settings.INTERNAL_API_SECRET = ""
@@ -406,25 +410,27 @@ class TestEncryptedBlockStorageContextManager:
             mock_session.__aexit__ = AsyncMock(return_value=None)
             mock_client_session.return_value = mock_session
 
-            async with encrypted_block_storage():
+            async with recording_api_client():
                 pass
 
-            mock_logger.warning.assert_called_once_with("encrypted_block_storage.missing_internal_api_secret")
+            mock_logger.warning.assert_called_once_with("recording_api_client.missing_internal_api_secret")
 
     @pytest.mark.asyncio
     async def test_passes_internal_api_secret_header(self):
-        with patch("posthog.storage.recordings.block_storage.settings") as mock_settings:
+        with patch("posthog.session_recordings.recordings.recording_api_client.settings") as mock_settings:
             mock_settings.RECORDING_API_URL = "http://test-api:8080"
             mock_settings.INTERNAL_API_SECRET = "test-secret"
 
-            with patch("posthog.storage.recordings.block_storage.aiohttp.ClientSession") as mock_client_session:
+            with patch(
+                "posthog.session_recordings.recordings.recording_api_client.aiohttp.ClientSession"
+            ) as mock_client_session:
                 mock_session = AsyncMock()
                 mock_session.__aenter__ = AsyncMock(return_value=mock_session)
                 mock_session.__aexit__ = AsyncMock(return_value=None)
                 mock_client_session.return_value = mock_session
 
-                async with encrypted_block_storage() as storage:
-                    assert storage.session == mock_session
+                async with recording_api_client() as client:
+                    assert client.session == mock_session
 
                 call_kwargs = mock_client_session.call_args[1]
                 assert call_kwargs["headers"] == {"X-Internal-Api-Secret": "test-secret"}

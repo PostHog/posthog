@@ -1,7 +1,6 @@
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Protocol, runtime_checkable
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -10,31 +9,17 @@ import snappy
 import aiohttp
 import structlog
 
-from posthog.storage.recordings.errors import BlockFetchError, RecordingDeletedError
+from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
 
 logger = structlog.get_logger(__name__)
 
 
-@runtime_checkable
-class BlockStorage(Protocol):
-    """Protocol for fetching recording blocks via the Recording API."""
-
-    async def fetch_decompressed_block(self, block_url: str, session_id: str, team_id: int) -> str:
-        """Fetch and decompress a recording block. Returns decompressed content."""
-        ...
-
-    async def fetch_compressed_block(self, block_url: str, session_id: str, team_id: int) -> bytes:
-        """Fetch a recording block. Returns compressed bytes."""
-        ...
-
-
-class EncryptedBlockStorage:
+class RecordingApiClient:
     """
     Async client for fetching recording blocks via the Recording API.
 
     The Recording API handles decryption transparently - encrypted sessions are
     decrypted using KMS, while unencrypted sessions pass through unchanged.
-    This allows gradual migration from direct S3 reads to API-based reads.
     """
 
     def __init__(self, session: aiohttp.ClientSession, base_url: str):
@@ -78,7 +63,7 @@ class EncryptedBlockStorage:
                     data = await response.json()
                     deleted_at = data.get("deleted_at")
                     logger.info(
-                        "encrypted_block_storage.recording_deleted",
+                        "recording_api_client.recording_deleted",
                         session_id=session_id,
                         team_id=team_id,
                         deleted_at=deleted_at,
@@ -90,7 +75,7 @@ class EncryptedBlockStorage:
             raise
         except aiohttp.ClientError as e:
             logger.exception(
-                "encrypted_block_storage.fetch_compressed_block_failed",
+                "recording_api_client.fetch_compressed_block_failed",
                 url=url,
                 session_id=session_id,
                 team_id=team_id,
@@ -117,7 +102,7 @@ class EncryptedBlockStorage:
             raise
         except Exception as e:
             logger.exception(
-                "encrypted_block_storage.fetch_block_failed",
+                "recording_api_client.fetch_block_failed",
                 session_id=session_id,
                 team_id=team_id,
                 error=str(e),
@@ -147,7 +132,7 @@ class EncryptedBlockStorage:
             raise
         except aiohttp.ClientError as e:
             logger.exception(
-                "encrypted_block_storage.delete_recording_failed",
+                "recording_api_client.delete_recording_failed",
                 url=url,
                 session_id=session_id,
                 team_id=team_id,
@@ -171,7 +156,7 @@ class EncryptedBlockStorage:
                 return [f["session_id"] for f in data.get("failed", [])]
         except aiohttp.ClientError as e:
             logger.exception(
-                "encrypted_block_storage.bulk_delete_failed",
+                "recording_api_client.bulk_delete_failed",
                 url=url,
                 team_id=team_id,
                 session_count=len(session_ids),
@@ -182,13 +167,13 @@ class EncryptedBlockStorage:
 
 
 @asynccontextmanager
-async def encrypted_block_storage() -> AsyncIterator[EncryptedBlockStorage]:
+async def recording_api_client() -> AsyncIterator[RecordingApiClient]:
     """
-    Async context manager for creating a EncryptedBlockStorage.
+    Async context manager for creating a RecordingApiClient instance.
 
     Usage:
-        async with encrypted_block_storage() as storage:
-            content = await storage.fetch_decompressed_block(block_url, session_id, team_id)
+        async with recording_api_client() as client:
+            content = await client.fetch_decompressed_block(block_url, session_id, team_id)
     """
     if not settings.RECORDING_API_URL:
         raise RuntimeError("RECORDING_API_URL is not configured")
@@ -197,8 +182,8 @@ async def encrypted_block_storage() -> AsyncIterator[EncryptedBlockStorage]:
     if settings.INTERNAL_API_SECRET:
         headers["X-Internal-Api-Secret"] = settings.INTERNAL_API_SECRET
     elif not settings.DEBUG:
-        logger.warning("encrypted_block_storage.missing_internal_api_secret")
+        logger.warning("recording_api_client.missing_internal_api_secret")
 
     timeout = aiohttp.ClientTimeout(total=30, connect=5)
     async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
-        yield EncryptedBlockStorage(session, settings.RECORDING_API_URL)
+        yield RecordingApiClient(session, settings.RECORDING_API_URL)
