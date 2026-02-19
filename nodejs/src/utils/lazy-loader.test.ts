@@ -283,7 +283,7 @@ describe('LazyLoader', () => {
     })
 
     describe('background refreshing', () => {
-        let loadSpy: jest.Spied
+        let loadSpy: jest.Spied<(typeof lazyLoader)['load']>
 
         beforeEach(() => {
             lazyLoader = new LazyLoader({

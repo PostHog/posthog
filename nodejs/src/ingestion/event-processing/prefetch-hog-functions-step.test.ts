@@ -173,7 +173,7 @@ describe('prefetchHogFunctionsStep', () => {
     })
 
     describe('sampling rate', () => {
-        let mockRandom: jest.Spied
+        let mockRandom: jest.Spied<typeof Math.random>
 
         beforeEach(() => {
             mockRandom = jest.spyOn(Math, 'random')

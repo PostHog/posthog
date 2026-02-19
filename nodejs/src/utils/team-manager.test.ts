@@ -19,7 +19,7 @@ describe('TeamManager()', () => {
     let teamId: Team['id']
     let teamToken: Team['api_token']
     let organizationId: Team['organization_id']
-    let fetchTeamsSpy: jest.Spied
+    let fetchTeamsSpy: jest.Spied<(typeof teamManager)['fetchTeams']>
 
     beforeEach(async () => {
         const now = Date.now()

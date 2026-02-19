@@ -10,7 +10,7 @@ import { createExperimentLogic } from './createExperimentLogic'
 
 describe('ExperimentForm Integration', () => {
     let logic: ReturnType<typeof createExperimentLogic.build>
-    let routerPushSpy: jest.Spied
+    let routerPushSpy: jest.Spied<typeof router.actions.push>
 
     beforeEach(() => {
         // Clear localStorage to prevent persisted state from affecting tests

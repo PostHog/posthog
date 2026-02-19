@@ -10,7 +10,7 @@ describe('ActionManagerCDP()', () => {
     let actionManager: ActionManagerCDP
     let postgres: PostgresRouter
     let teamId: Team['id']
-    let fetchActionsSpy: jest.Spied
+    let fetchActionsSpy: jest.Spied<(typeof actionManager)['fetchActions']>
 
     beforeEach(async () => {
         const now = Date.now()

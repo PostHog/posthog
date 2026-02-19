@@ -5,7 +5,7 @@ import { closeHub, createHub } from '~/utils/db/hub'
 
 import { BASE_REDIS_KEY, LogsRateLimiterService } from './logs-rate-limiter.service'
 
-const mockNow: jest.Spied = jest.spyOn(Date, 'now')
+const mockNow: jest.Spied<typeof Date.now> = jest.spyOn(Date, 'now')
 
 describe('LogsRateLimiterService', () => {
     jest.retryTimes(3)

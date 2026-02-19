@@ -16,7 +16,7 @@ jest.mock('lib/components/AutoSizer', () => ({
 }))
 
 describe('PropertyValue', () => {
-    let loadPropertyValuesSpy: jest.Spied
+    let loadPropertyValuesSpy: jest.Spied<typeof propertyDefinitionsModel.actions.loadPropertyValues>
 
     beforeEach(() => {
         useMocks({

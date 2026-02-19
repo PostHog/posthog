@@ -15,6 +15,7 @@ import { closeHub, createHub } from '../../utils/db/hub'
 import { createHogFunction, insertHogFunction } from '../_tests/fixtures'
 import { posthogPluginGeoip } from '../legacy-plugins/_transformations/posthog-plugin-geoip/template'
 import { propertyFilterPlugin } from '../legacy-plugins/_transformations/property-filter-plugin/template'
+import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionTemplate } from '../types'
 import { HogTransformerService } from './hog-transformer.service'
@@ -928,7 +929,7 @@ describe('HogTransformer', () => {
     })
 
     describe('legacy plugins', () => {
-        let executeSpy: jest.Spied
+        let executeSpy: jest.Spied<typeof LegacyPluginExecutorService.prototype.execute>
 
         beforeEach(async () => {
             const filterOutPlugin = createHogFunction({

@@ -270,7 +270,7 @@ describe('CdpCyclotronWorker', () => {
         })
 
         describe('e2e lag metrics tracking', () => {
-            let dateNowSpy: jest.Spied
+            let dateNowSpy: jest.Spied<typeof Date.now>
             const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
 
             beforeEach(() => {
