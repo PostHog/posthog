@@ -142,6 +142,7 @@ class EntitySearchContext:
             self,  # type: ignore
             ENTITY_MAP,
         )
+        assert counts is not None
         return results, counts
 
     async def list_entities(
@@ -162,6 +163,7 @@ class EntitySearchContext:
             Tuple of (entities list, total count)
         """
         all_entities: list[dict[str, Any]] = []
+        total_count: int = 0
 
         if entity_type == "artifact":
             (
