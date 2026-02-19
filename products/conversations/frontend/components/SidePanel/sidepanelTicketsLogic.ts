@@ -260,12 +260,13 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             actions.markAsRead(ticket.id)
         },
         requestRestoreLink: async ({ email }) => {
-            if (!posthog.conversations?.requestRestoreLink) {
+            const conversations = posthog.conversations as any
+            if (!conversations?.requestRestoreLink) {
                 return
             }
             actions.setRestoreState('sending')
             try {
-                await posthog.conversations.requestRestoreLink(email)
+                await conversations.requestRestoreLink(email)
                 actions.setRestoreState('sent')
             } catch (e: any) {
                 const message =
@@ -277,11 +278,12 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
         },
         restoreFromUrlToken: async () => {
-            if (!posthog.conversations?.restoreFromUrlToken) {
+            const conversations = posthog.conversations as any
+            if (!conversations?.restoreFromUrlToken) {
                 return
             }
             try {
-                const result = await posthog.conversations.restoreFromUrlToken()
+                const result = await conversations.restoreFromUrlToken()
                 if (result?.status === 'success') {
                     const count = result.migrated_ticket_ids?.length ?? 0
                     if (count > 0) {
