@@ -35,6 +35,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, A
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.hogql_queries.web_analytics.traffic_type import get_traffic_category_expr, get_traffic_type_expr
 from posthog.models import Action, User
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.rbac.user_access_control import UserAccessControl
@@ -444,6 +445,16 @@ WHERE
             return path_expr
 
         return apply_path_cleaning(path_expr, self.team)
+
+    def _get_traffic_type_expr(self, user_agent_expr: ast.Expr | None = None) -> ast.Expr:
+        if user_agent_expr is None:
+            user_agent_expr = ast.Field(chain=["events", "properties", "$raw_user_agent"])
+        return get_traffic_type_expr(user_agent_expr)
+
+    def _get_traffic_category_expr(self, user_agent_expr: ast.Expr | None = None) -> ast.Expr:
+        if user_agent_expr is None:
+            user_agent_expr = ast.Field(chain=["events", "properties", "$raw_user_agent"])
+        return get_traffic_category_expr(user_agent_expr)
 
     def _unsample(self, n: Optional[int | float], _row: Optional[list[int | float]] = None):
         if n is None:
