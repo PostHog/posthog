@@ -1363,8 +1363,15 @@ class SessionRecordingViewSet(
         return bool(
             posthoganalytics.feature_enabled(
                 "session-replay-use-recording-api",
-                str(self.team.id),
-                groups={"organization": str(self.team.organization_id)},
+                str(self.team.uuid),
+                groups={
+                    "organization": str(self.team.organization_id),
+                    "project": str(self.team.id),
+                },
+                group_properties={
+                    "organization": {"id": str(self.team.organization_id)},
+                    "project": {"id": str(self.team.id)},
+                },
                 only_evaluate_locally=True,
                 send_feature_flag_events=False,
             )
