@@ -1,17 +1,15 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { forms } from 'kea-forms'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import {
     HOG_FUNCTION_SUB_TEMPLATES,
     HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES,
 } from 'scenes/hog-functions/sub-templates/sub-templates'
 
-import { HogFunctionType, IntegrationType } from '~/types'
+import { CyclotronJobInputType, HogFunctionTemplateType, HogFunctionType } from '~/types'
 
 import type { errorTrackingAlertWizardLogicType } from './errorTrackingAlertWizardLogicType'
 
@@ -24,7 +22,7 @@ export interface DestinationOption {
     name: string
     description: string
     icon: string
-    templatePrefix: string
+    templateId: string
 }
 
 const ALL_DESTINATIONS: DestinationOption[] = [
@@ -33,35 +31,35 @@ const ALL_DESTINATIONS: DestinationOption[] = [
         name: 'Slack',
         description: 'Send a message to a channel',
         icon: '/static/services/slack.png',
-        templatePrefix: 'template-slack',
+        templateId: 'template-slack',
     },
     {
         key: 'discord',
         name: 'Discord',
         description: 'Post a notification via webhook',
         icon: '/static/services/discord.png',
-        templatePrefix: 'template-discord',
+        templateId: 'template-discord',
     },
     {
         key: 'github',
         name: 'GitHub',
         description: 'Create an issue in a repository',
         icon: '/static/services/github.png',
-        templatePrefix: 'template-github',
+        templateId: 'template-github',
     },
     {
         key: 'microsoft-teams',
         name: 'Microsoft Teams',
         description: 'Send a message to a channel',
         icon: '/static/services/microsoft-teams.png',
-        templatePrefix: 'template-microsoft-teams',
+        templateId: 'template-microsoft-teams',
     },
     {
         key: 'linear',
         name: 'Linear',
         description: 'Create an issue in a project',
         icon: '/static/services/linear.png',
-        templatePrefix: 'template-linear',
+        templateId: 'template-linear',
     },
 ]
 
@@ -91,7 +89,7 @@ function extractDestinationFromTemplateId(templateId: string | undefined): Wizar
         return null
     }
     for (const dest of ALL_DESTINATIONS) {
-        if (templateId.startsWith(dest.templatePrefix)) {
+        if (templateId.startsWith(dest.templateId)) {
             return dest.key
         }
     }
@@ -101,16 +99,14 @@ function extractDestinationFromTemplateId(templateId: string | undefined): Wizar
 export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicType>([
     path(['products', 'error_tracking', 'frontend', 'alerting', 'errorTrackingAlertWizardLogic']),
 
-    connect(() => ({
-        values: [integrationsLogic, ['slackIntegrations', 'slackAvailable', 'integrations']],
-    })),
-
     actions({
         setStep: (step: WizardStep) => ({ step }),
         setDestination: (destination: WizardDestination) => ({ destination }),
         setTrigger: (trigger: WizardTrigger) => ({ trigger }),
+        setInputValue: (key: string, value: CyclotronJobInputType) => ({ key, value }),
         resetWizard: true,
         createAlertSuccess: true,
+        submitConfiguration: true,
     }),
 
     reducers({
@@ -143,6 +139,23 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
                 resetWizard: () => false,
             },
         ],
+        inputValues: [
+            {} as Record<string, CyclotronJobInputType>,
+            {
+                setInputValue: (state, { key, value }) => ({ ...state, [key]: value }),
+                resetWizard: () => ({}),
+                // Reset inputs when switching destination or trigger
+                setDestination: () => ({}),
+                setTrigger: () => ({}),
+            },
+        ],
+        submitting: [
+            false,
+            {
+                submitConfiguration: () => true,
+                createAlertSuccess: () => false,
+            },
+        ],
     }),
 
     loaders({
@@ -161,6 +174,14 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
                         limit: 100,
                     })
                     return response.results
+                },
+            },
+        ],
+        selectedTemplate: [
+            null as HogFunctionTemplateType | null,
+            {
+                loadTemplate: async (templateId: string) => {
+                    return await api.hogFunctions.getTemplate(templateId)
                 },
             },
         ],
@@ -184,119 +205,94 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
             },
         ],
 
-        githubIntegrations: [
-            (s) => [s.integrations],
-            (integrations): IntegrationType[] => {
-                return integrations?.filter((x) => x.kind === 'github') || []
+        activeSubTemplate: [
+            (s) => [s.selectedDestination, s.selectedTrigger],
+            (selectedDestination, selectedTrigger) => {
+                if (!selectedDestination || !selectedTrigger) {
+                    return null
+                }
+                const destOption = ALL_DESTINATIONS.find((d) => d.key === selectedDestination)
+                if (!destOption) {
+                    return null
+                }
+                const subTemplates = HOG_FUNCTION_SUB_TEMPLATES[selectedTrigger]
+                return subTemplates?.find((t) => t.template_id === destOption.templateId) ?? null
             },
         ],
 
-        linearIntegrations: [
-            (s) => [s.integrations],
-            (integrations): IntegrationType[] => {
-                return integrations?.filter((x) => x.kind === 'linear') || []
+        requiredInputsSchema: [
+            (s) => [s.selectedTemplate, s.activeSubTemplate],
+            (selectedTemplate, activeSubTemplate) => {
+                if (!selectedTemplate) {
+                    return []
+                }
+                const prefilledKeys = new Set(Object.keys(activeSubTemplate?.inputs ?? {}))
+                return (selectedTemplate.inputs_schema ?? []).filter(
+                    (s) =>
+                        s.required &&
+                        !prefilledKeys.has(s.key) &&
+                        (s.type === 'integration' || s.type === 'integration_field' || s.type === 'string')
+                )
             },
+        ],
+
+        configuration: [
+            (s) => [s.selectedTemplate, s.inputValues],
+            (selectedTemplate, inputValues) => ({
+                inputs_schema: selectedTemplate?.inputs_schema ?? [],
+                inputs: inputValues,
+            }),
         ],
     }),
 
-    forms(({ values, actions }) => ({
-        configForm: {
-            defaults: {
-                discordWebhookUrl: '' as string,
-                microsoftTeamsWebhookUrl: '' as string,
-                slackWorkspaceId: undefined as number | undefined,
-                slackChannelId: undefined as string | undefined,
-                githubIntegrationId: undefined as number | undefined,
-                githubRepository: '' as string,
-                linearIntegrationId: undefined as number | undefined,
-                linearTeamId: '' as string,
-            },
-
-            errors: (values_form) => {
-                const dest = values.selectedDestination
-                return {
-                    discordWebhookUrl:
-                        dest === 'discord' && !values_form.discordWebhookUrl
-                            ? 'Please enter a Discord webhook URL'
-                            : undefined,
-                    microsoftTeamsWebhookUrl:
-                        dest === 'microsoft-teams' && !values_form.microsoftTeamsWebhookUrl
-                            ? 'Please enter a Microsoft Teams webhook URL'
-                            : undefined,
-                    slackChannelId:
-                        dest === 'slack' && !values_form.slackChannelId ? 'Please choose a Slack channel' : undefined,
-                    githubRepository:
-                        dest === 'github' && !values_form.githubRepository ? 'Please select a repository' : undefined,
-                    linearTeamId: dest === 'linear' && !values_form.linearTeamId ? 'Please select a team' : undefined,
-                }
-            },
-
-            submit: async (formValues) => {
-                const dest = values.selectedDestination
-                const trigger = values.selectedTrigger
-
-                if (!dest || !trigger) {
-                    return
-                }
-
+    listeners(({ values, actions }) => ({
+        setTrigger: () => {
+            const dest = values.selectedDestination
+            if (dest) {
                 const destOption = ALL_DESTINATIONS.find((d) => d.key === dest)!
-                const subTemplates = HOG_FUNCTION_SUB_TEMPLATES[trigger]
-                const subTemplate = subTemplates.find((t) => t.template_id === destOption.templatePrefix)
+                actions.loadTemplate(destOption.templateId)
+            }
+            actions.setStep('configure')
+        },
 
-                if (!subTemplate) {
-                    lemonToast.error('Template not found for this combination')
-                    return
-                }
+        submitConfiguration: async () => {
+            const dest = values.selectedDestination
+            const trigger = values.selectedTrigger
 
-                const configuration: Record<string, any> = {
-                    type: 'internal_destination',
-                    template_id: destOption.templatePrefix,
-                    filters: subTemplate.filters,
-                    enabled: true,
-                    masking: null,
-                    inputs: { ...subTemplate.inputs },
-                }
+            if (!dest || !trigger) {
+                return
+            }
 
-                if (dest === 'slack') {
-                    configuration.inputs = {
-                        ...configuration.inputs,
-                        slack_workspace: { value: formValues.slackWorkspaceId },
-                        channel: { value: formValues.slackChannelId },
-                    }
-                } else if (dest === 'discord') {
-                    configuration.inputs = {
-                        ...configuration.inputs,
-                        webhookUrl: { value: formValues.discordWebhookUrl },
-                    }
-                } else if (dest === 'microsoft-teams') {
-                    configuration.inputs = {
-                        ...configuration.inputs,
-                        webhookUrl: { value: formValues.microsoftTeamsWebhookUrl },
-                    }
-                } else if (dest === 'github') {
-                    configuration.inputs = {
-                        ...configuration.inputs,
-                        github_integration: { value: formValues.githubIntegrationId },
-                        repositories: { value: formValues.githubRepository ? [formValues.githubRepository] : [] },
-                    }
-                } else if (dest === 'linear') {
-                    configuration.inputs = {
-                        ...configuration.inputs,
-                        linear_integration: { value: formValues.linearIntegrationId },
-                        teamIds: { value: formValues.linearTeamId ? [formValues.linearTeamId] : [] },
-                    }
-                }
+            const destOption = ALL_DESTINATIONS.find((d) => d.key === dest)!
+            const subTemplates = HOG_FUNCTION_SUB_TEMPLATES[trigger]
+            const subTemplate = subTemplates.find((t) => t.template_id === destOption.templateId)
 
+            if (!subTemplate) {
+                lemonToast.error('Template not found for this combination')
+                return
+            }
+
+            const mergedInputs: Record<string, any> = { ...subTemplate.inputs }
+            for (const [key, val] of Object.entries(values.inputValues)) {
+                mergedInputs[key] = val
+            }
+
+            const configuration: Record<string, any> = {
+                type: 'internal_destination',
+                template_id: destOption.templateId,
+                filters: subTemplate.filters,
+                enabled: true,
+                masking: null,
+                inputs: mergedInputs,
+            }
+
+            try {
                 await api.hogFunctions.create(configuration)
                 lemonToast.success('Alert created successfully')
                 actions.createAlertSuccess()
-            },
-        },
-    })),
-
-    listeners(({ actions }) => ({
-        setTrigger: () => {
-            actions.setStep('configure')
+            } catch (e: any) {
+                lemonToast.error(e.detail || 'Failed to create alert')
+            }
         },
     })),
 

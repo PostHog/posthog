@@ -1,18 +1,16 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
 
 import { IconArrowLeft } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
-import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelpers'
-import { LinearTeamPicker } from 'lib/integrations/LinearIntegrationHelpers'
-import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { CyclotronJobInputIntegration } from 'lib/components/CyclotronJob/integrations/CyclotronJobInputIntegration'
+import { CyclotronJobInputIntegrationField } from 'lib/components/CyclotronJob/integrations/CyclotronJobInputIntegrationField'
+import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
 
-import { IntegrationType } from '~/types'
+import { CyclotronJobInputSchemaType } from '~/types'
 
 import {
     DestinationOption,
@@ -129,26 +127,22 @@ function TriggerStep(): JSX.Element {
 }
 
 function ConfigureStep(): JSX.Element {
-    const {
-        selectedDestination,
-        slackIntegrations,
-        slackAvailable,
-        githubIntegrations,
-        linearIntegrations,
-        isConfigFormSubmitting,
-        configForm,
-    } = useValues(errorTrackingAlertWizardLogic)
-    const { setStep } = useActions(errorTrackingAlertWizardLogic)
+    const { requiredInputsSchema, configuration, selectedTemplateLoading, submitting } =
+        useValues(errorTrackingAlertWizardLogic)
+    const { setStep, setInputValue, submitConfiguration } = useActions(errorTrackingAlertWizardLogic)
 
-    const selectedSlackIntegration = (slackIntegrations || []).find(
-        (i: IntegrationType) => i.id === configForm.slackWorkspaceId
-    )
-    const selectedGithubIntegration = githubIntegrations.find(
-        (i: IntegrationType) => i.id === configForm.githubIntegrationId
-    )
-    const selectedLinearIntegration = linearIntegrations.find(
-        (i: IntegrationType) => i.id === configForm.linearIntegrationId
-    )
+    if (selectedTemplateLoading) {
+        return (
+            <div className="space-y-4">
+                <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} onClick={() => setStep('trigger')}>
+                    Choose trigger
+                </LemonButton>
+                <h2 className="text-xl font-semibold mb-1 mt-2">Configure your alert</h2>
+                <LemonSkeleton className="h-10" />
+                <LemonSkeleton className="h-10" />
+            </div>
+        )
+    }
 
     return (
         <div className="space-y-4">
@@ -160,237 +154,71 @@ function ConfigureStep(): JSX.Element {
                 <p className="text-secondary text-sm">Fill in the details to complete setup</p>
             </div>
 
-            <Form logic={errorTrackingAlertWizardLogic} formKey="configForm" enableFormOnSubmit className="space-y-4">
-                {selectedDestination === 'slack' && (
-                    <SlackConfigFields
-                        slackIntegrations={slackIntegrations}
-                        slackAvailable={slackAvailable}
-                        selectedSlackIntegration={selectedSlackIntegration}
-                    />
-                )}
-                {selectedDestination === 'discord' && <DiscordConfigFields />}
-                {selectedDestination === 'microsoft-teams' && <TeamsConfigFields />}
-                {selectedDestination === 'github' && (
-                    <GitHubConfigFields
-                        githubIntegrations={githubIntegrations}
-                        selectedIntegration={selectedGithubIntegration}
-                    />
-                )}
-                {selectedDestination === 'linear' && (
-                    <LinearConfigFields
-                        linearIntegrations={linearIntegrations}
-                        selectedIntegration={selectedLinearIntegration}
-                    />
-                )}
+            <div className="space-y-4">
+                {requiredInputsSchema.map((schema: CyclotronJobInputSchemaType) => (
+                    <LemonField.Pure key={schema.key} label={schema.label}>
+                        <SchemaInput
+                            schema={schema}
+                            value={configuration.inputs?.[schema.key]?.value}
+                            onChange={(val) => setInputValue(schema.key, { value: val })}
+                            configuration={configuration}
+                            onInputChange={setInputValue}
+                        />
+                    </LemonField.Pure>
+                ))}
+            </div>
 
-                <div className="flex justify-end">
-                    <LemonButton type="primary" htmlType="submit" loading={isConfigFormSubmitting}>
-                        Create alert
-                    </LemonButton>
-                </div>
-            </Form>
+            <div className="flex justify-end">
+                <LemonButton type="primary" onClick={submitConfiguration} loading={submitting}>
+                    Create alert
+                </LemonButton>
+            </div>
         </div>
     )
 }
 
-function SlackConfigFields({
-    slackIntegrations,
-    slackAvailable,
-    selectedSlackIntegration,
+function SchemaInput({
+    schema,
+    value,
+    onChange,
+    configuration,
+    onInputChange,
 }: {
-    slackIntegrations: IntegrationType[] | undefined
-    slackAvailable: boolean | undefined
-    selectedSlackIntegration: IntegrationType | undefined
-}): JSX.Element | null {
-    if (!slackAvailable) {
-        return (
-            <div className="rounded-lg border border-border p-4 text-secondary text-sm">
-                Slack is not configured for this project.{' '}
-                <Link
-                    to={api.integrations.authorizeUrl({
-                        kind: 'slack',
-                        next: window.location.pathname + window.location.search,
-                    })}
-                    disableClientSideRouting
-                >
-                    Connect Slack
-                </Link>
-            </div>
-        )
-    }
-
-    if (!slackIntegrations || slackIntegrations.length === 0) {
-        return (
-            <div className="rounded-lg border border-border p-4 text-secondary text-sm">
-                No Slack workspaces connected.{' '}
-                <Link
-                    to={api.integrations.authorizeUrl({
-                        kind: 'slack',
-                        next: window.location.pathname + window.location.search,
-                    })}
-                    disableClientSideRouting
-                >
-                    Connect Slack
-                </Link>
-            </div>
-        )
-    }
-
-    return (
-        <>
-            <LemonField name="slackWorkspaceId" label="Workspace">
-                <LemonSelect
-                    options={slackIntegrations.map((integration) => ({
-                        label: integration.display_name,
-                        value: integration.id,
-                    }))}
-                />
-            </LemonField>
-            {selectedSlackIntegration && (
-                <LemonField name="slackChannelId" label="Channel">
-                    {({ value, onChange }) => (
-                        <SlackChannelPicker value={value} onChange={onChange} integration={selectedSlackIntegration} />
-                    )}
-                </LemonField>
-            )}
-        </>
-    )
-}
-
-function DiscordConfigFields(): JSX.Element {
-    return (
-        <LemonField
-            name="discordWebhookUrl"
-            label="Webhook URL"
-            help={
-                <span className="text-secondary text-xs">
-                    Learn how to create a webhook:{' '}
-                    <Link to="https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks">
-                        Discord webhooks guide
-                    </Link>
-                </span>
-            }
-        >
-            <LemonInput placeholder="https://discord.com/api/webhooks/..." />
-        </LemonField>
-    )
-}
-
-function TeamsConfigFields(): JSX.Element {
-    return (
-        <LemonField
-            name="microsoftTeamsWebhookUrl"
-            label="Webhook URL"
-            help={
-                <span className="text-secondary text-xs">
-                    Learn how to create a webhook:{' '}
-                    <Link to="https://support.microsoft.com/en-us/office/create-incoming-webhooks-with-workflows-for-microsoft-teams-8ae491c7-0394-4861-ba59-055e33f75498">
-                        Microsoft Teams webhooks guide
-                    </Link>
-                </span>
-            }
-        >
-            <LemonInput placeholder="https://outlook.office.com/webhook/..." />
-        </LemonField>
-    )
-}
-
-function GitHubConfigFields({
-    githubIntegrations,
-    selectedIntegration,
-}: {
-    githubIntegrations: IntegrationType[]
-    selectedIntegration: IntegrationType | undefined
+    schema: CyclotronJobInputSchemaType
+    value: any
+    onChange: (value: any) => void
+    configuration: { inputs_schema: CyclotronJobInputSchemaType[]; inputs: Record<string, any> | null }
+    onInputChange: (key: string, value: any) => void
 }): JSX.Element {
-    if (githubIntegrations.length === 0) {
+    if (schema.type === 'integration') {
         return (
-            <div className="rounded-lg border border-border p-4 text-secondary text-sm">
-                No GitHub integrations connected.{' '}
-                <Link
-                    to={api.integrations.authorizeUrl({
-                        kind: 'github',
-                        next: window.location.pathname + window.location.search,
-                    })}
-                    disableClientSideRouting
-                >
-                    Connect GitHub
-                </Link>
-            </div>
+            <CyclotronJobInputIntegration
+                schema={schema}
+                value={value}
+                onChange={(newValue) => {
+                    configuration.inputs_schema
+                        .filter((s) => s.type === 'integration_field' && s.integration_key === schema.key)
+                        .forEach((field) => {
+                            onInputChange(field.key, { value: null })
+                        })
+                    onChange(newValue)
+                }}
+            />
         )
     }
 
-    return (
-        <>
-            <LemonField name="githubIntegrationId" label="GitHub connection">
-                <LemonSelect
-                    options={githubIntegrations.map((integration) => ({
-                        label: integration.display_name,
-                        value: integration.id,
-                    }))}
-                />
-            </LemonField>
-            {selectedIntegration && (
-                <LemonField name="githubRepository" label="Repository">
-                    {({ value, onChange }) => (
-                        <GitHubRepositoryPicker
-                            value={value}
-                            onChange={onChange}
-                            integrationId={selectedIntegration.id}
-                        />
-                    )}
-                </LemonField>
-            )}
-        </>
-    )
-}
-
-function LinearConfigFields({
-    linearIntegrations,
-    selectedIntegration,
-}: {
-    linearIntegrations: IntegrationType[]
-    selectedIntegration: IntegrationType | undefined
-}): JSX.Element {
-    if (linearIntegrations.length === 0) {
+    if (schema.type === 'integration_field') {
         return (
-            <div className="rounded-lg border border-border p-4 text-secondary text-sm">
-                No Linear integrations connected.{' '}
-                <Link
-                    to={api.integrations.authorizeUrl({
-                        kind: 'linear',
-                        next: window.location.pathname + window.location.search,
-                    })}
-                    disableClientSideRouting
-                >
-                    Connect Linear
-                </Link>
-            </div>
+            <CyclotronJobInputIntegrationField
+                schema={schema}
+                value={value}
+                onChange={onChange}
+                configuration={configuration}
+            />
         )
     }
 
-    return (
-        <>
-            <LemonField name="linearIntegrationId" label="Linear connection">
-                <LemonSelect
-                    options={linearIntegrations.map((integration) => ({
-                        label: integration.display_name,
-                        value: integration.id,
-                    }))}
-                />
-            </LemonField>
-            {selectedIntegration && (
-                <LemonField name="linearTeamId" label="Team">
-                    {({ value, onChange }) => (
-                        <LinearTeamPicker
-                            value={value}
-                            onChange={(v) => onChange(v || '')}
-                            integration={selectedIntegration}
-                        />
-                    )}
-                </LemonField>
-            )}
-        </>
-    )
+    return <LemonInput value={value ?? ''} onChange={onChange} placeholder={schema.description || schema.label || ''} />
 }
 
 export interface ErrorTrackingAlertWizardProps {
