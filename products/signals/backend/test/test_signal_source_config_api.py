@@ -166,6 +166,20 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         response = self.client.get(self._url(str(config.id)))
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_update_other_teams_config_forbidden(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        config = SignalSourceConfig.objects.create(
+            team=other_team,
+            source_type="session_analysis",
+            created_by=self.user,
+        )
+        response = self.client.patch(
+            self._url(str(config.id)),
+            data={"enabled": False},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     # --- Update ---
 
     def test_update_enabled(self):
@@ -231,6 +245,17 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         config.refresh_from_db()
         # Should either be rejected or keep original value
         assert config.source_type == "session_analysis" or response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_delete_other_teams_config_forbidden(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        config = SignalSourceConfig.objects.create(
+            team=other_team,
+            source_type="session_analysis",
+            created_by=self.user,
+        )
+        response = self.client.delete(self._url(str(config.id)))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert SignalSourceConfig.objects.filter(id=config.id).exists()
 
     # --- Delete ---
 
