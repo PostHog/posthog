@@ -1,4 +1,5 @@
 import math
+import random
 import asyncio
 import datetime as dt
 import dataclasses
@@ -28,8 +29,6 @@ class WorkflowConfig(TypedDict):
 
     id: str
     inputs: RealtimeCohortCalculationWorkflowInputs
-    offset: int
-    limit: int
     index: int
 
 
@@ -40,8 +39,26 @@ class RealtimeCohortCalculationCoordinatorWorkflowInputs:
     parallelism: int = 10  # Number of child workflows to spawn
     workflows_per_batch: int = 5  # Number of workflows to start per batch
     batch_delay_minutes: int = 5  # Delay between batches in minutes
-    team_id: Optional[int] = None  # Filter by team_id (optional)
     cohort_id: Optional[int] = None  # Filter to a specific cohort_id (optional)
+    # Teams that should process all cohorts, and global percentage for teams not in team_ids
+    team_ids: Optional[set[int]] = (
+        None  # Teams that process all cohorts (if empty/None, all teams use global_percentage)
+    )
+    global_percentage: Optional[float] = (
+        None  # Percentage of cohorts for non-listed teams, or for all teams if team_ids is empty/None
+    )
+
+    def __post_init__(self):
+        """Load default configuration from environment if not provided."""
+        if self.team_ids is None:
+            from posthog.settings.schedules import REALTIME_COHORT_CALCULATION_TEAMS
+
+            self.team_ids = REALTIME_COHORT_CALCULATION_TEAMS.copy()
+
+        if self.global_percentage is None:
+            from posthog.settings.schedules import REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE
+
+            self.global_percentage = REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -49,35 +66,89 @@ class RealtimeCohortCalculationCoordinatorWorkflowInputs:
             "parallelism": self.parallelism,
             "workflows_per_batch": self.workflows_per_batch,
             "batch_delay_minutes": self.batch_delay_minutes,
-            "team_id": self.team_id,
             "cohort_id": self.cohort_id,
+            "team_ids": list(self.team_ids) if self.team_ids else [],
+            "global_percentage": self.global_percentage,
         }
 
 
 @dataclasses.dataclass
-class RealtimeCohortCalculationCountResult:
-    """Result from counting total cohorts."""
+class RealtimeCohortSelectionResult:
+    """Result from selecting cohorts with filtering applied."""
 
-    count: int
+    cohort_ids: list[int]
 
 
 @temporalio.activity.defn
-async def get_realtime_cohort_calculation_count_activity(
+async def get_realtime_cohort_selection_activity(
     inputs: RealtimeCohortCalculationCoordinatorWorkflowInputs,
-) -> RealtimeCohortCalculationCountResult:
-    """Get the total count of realtime cohorts."""
+) -> RealtimeCohortSelectionResult:
+    """Get the actual list of cohort IDs to process based on filtering criteria."""
 
     @database_sync_to_async
-    def get_cohort_count():
-        queryset = Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME)
-        if inputs.team_id is not None:
-            queryset = queryset.filter(team_id=inputs.team_id)
+    def get_selected_cohort_ids():
+        # If cohort_id is specified, just return that specific cohort ID if it exists
         if inputs.cohort_id is not None:
-            queryset = queryset.filter(id=inputs.cohort_id)
-        return queryset.count()
+            cohort_exists = Cohort.objects.filter(
+                deleted=False, cohort_type=CohortType.REALTIME, id=inputs.cohort_id
+            ).exists()
+            return [inputs.cohort_id] if cohort_exists else []
 
-    count = await get_cohort_count()
-    return RealtimeCohortCalculationCountResult(count=count)
+        selected_cohort_ids = []
+
+        # Step 1: Add cohort IDs for teams that should process everything
+        if inputs.team_ids:
+            # Filter out invalid team IDs
+            valid_team_ids = [team_id for team_id in inputs.team_ids if isinstance(team_id, int) and team_id > 0]
+
+            if valid_team_ids:
+                # Single query for all valid teams instead of N queries
+                team_cohort_ids = list(
+                    Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME, team_id__in=valid_team_ids)
+                    .order_by("id")
+                    .values_list("id", flat=True)
+                )
+                selected_cohort_ids.extend(team_cohort_ids)
+
+        # Step 2: Add sampled cohort IDs for global percentage (other teams)
+        if inputs.global_percentage and inputs.global_percentage > 0.0 and inputs.global_percentage <= 1.0:
+            # Get cohort IDs from teams not in the force list
+            if inputs.team_ids:
+                other_teams_cohort_ids = list(
+                    Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME)
+                    .exclude(team_id__in=inputs.team_ids)
+                    .order_by("id")
+                    .values_list("id", flat=True)
+                )
+            else:
+                other_teams_cohort_ids = list(
+                    Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME)
+                    .order_by("id")
+                    .values_list("id", flat=True)
+                )
+
+            if other_teams_cohort_ids:
+                # Apply global percentage with random sampling
+                num_to_include = int(len(other_teams_cohort_ids) * inputs.global_percentage)
+                if num_to_include > 0:
+                    # Randomly sample cohorts to ensure fair distribution over time
+                    selected_other_cohort_ids = random.sample(other_teams_cohort_ids, num_to_include)
+                    selected_cohort_ids.extend(selected_other_cohort_ids)
+
+        # Step 3: Remove duplicates while preserving order
+        seen_ids = set()
+        unique_cohort_ids = []
+        for cohort_id in selected_cohort_ids:
+            if cohort_id not in seen_ids:
+                seen_ids.add(cohort_id)
+                unique_cohort_ids.append(cohort_id)
+
+        # Step 4: Sort by ID for consistent distribution
+        unique_cohort_ids.sort()
+        return unique_cohort_ids
+
+    cohort_ids = await get_selected_cohort_ids()
+    return RealtimeCohortSelectionResult(cohort_ids=cohort_ids)
 
 
 @temporalio.workflow.defn(name="realtime-cohort-calculation-coordinator")
@@ -95,47 +166,50 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
         workflow_logger = temporalio.workflow.logger
         workflow_logger.info(f"Starting realtime cohort calculation coordinator with parallelism={inputs.parallelism}")
 
-        # Step 1: Get total count of cohorts
-        count_result = await temporalio.workflow.execute_activity(
-            get_realtime_cohort_calculation_count_activity,
+        # Step 1: Get selected cohort IDs based on filtering criteria
+        selection_result = await temporalio.workflow.execute_activity(
+            get_realtime_cohort_selection_activity,
             inputs,
-            start_to_close_timeout=dt.timedelta(minutes=1),
+            start_to_close_timeout=dt.timedelta(minutes=2),
             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
         )
 
-        total_cohorts = count_result.count
-        if total_cohorts == 0:
-            workflow_logger.warning("No realtime cohorts found")
+        all_cohort_ids = selection_result.cohort_ids
+        if not all_cohort_ids:
+            workflow_logger.warning("No realtime cohorts found matching selection criteria")
             return
 
+        total_cohorts = len(all_cohort_ids)
         workflow_logger.info(
-            f"Scheduling {total_cohorts} cohorts across {inputs.parallelism} child workflows "
+            f"Distributing {total_cohorts} selected cohorts across {inputs.parallelism} child workflows "
             f"in batches of {inputs.workflows_per_batch} every {inputs.batch_delay_minutes} minutes"
         )
 
-        # Step 2: Calculate ranges for each child workflow
+        # Step 2: Distribute cohort IDs across workers
         cohorts_per_workflow = math.ceil(total_cohorts / inputs.parallelism)
 
-        # Step 3: Prepare all workflow configs
+        # Step 3: Prepare all workflow configs with specific cohort ID lists
         workflow_configs: list[WorkflowConfig] = []
         for i in range(inputs.parallelism):
-            offset = i * cohorts_per_workflow
-            limit = min(cohorts_per_workflow, total_cohorts - offset)
+            start_idx = i * cohorts_per_workflow
+            end_idx = min(start_idx + cohorts_per_workflow, total_cohorts)
 
-            if limit <= 0:
+            if start_idx >= total_cohorts:
                 break
+
+            # Get the specific cohort IDs for this worker
+            worker_cohort_ids = all_cohort_ids[start_idx:end_idx]
+
+            if not worker_cohort_ids:
+                continue  # Skip empty ranges
 
             workflow_configs.append(
                 WorkflowConfig(
                     id=get_child_workflow_id(temporalio.workflow.info().workflow_id, i),
                     inputs=RealtimeCohortCalculationWorkflowInputs(
-                        limit=limit,
-                        offset=offset,
-                        team_id=inputs.team_id,
-                        cohort_id=inputs.cohort_id,
+                        cohort_ids=worker_cohort_ids,
+                        cohort_id=inputs.cohort_id,  # Keep for backward compatibility
                     ),
-                    offset=offset,
-                    limit=limit,
                     index=i + 1,
                 )
             )
@@ -168,9 +242,15 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
                 child_workflow_handles.append(child_handle)
                 workflows_scheduled += 1
 
-                workflow_logger.info(
-                    f"Scheduled workflow {config['index']} for cohorts {config['offset']}-{config['offset'] + config['limit'] - 1}"
-                )
+                cohort_ids = config["inputs"].cohort_ids
+                if cohort_ids is not None:
+                    workflow_logger.info(
+                        f"Scheduled workflow {config['index']} for {len(cohort_ids)} cohorts: {cohort_ids[:5]}{'...' if len(cohort_ids) > 5 else ''}"
+                    )
+                else:
+                    workflow_logger.info(
+                        f"Scheduled workflow {config['index']} for single cohort: {config['inputs'].cohort_id}"
+                    )
 
             workflow_logger.info(
                 f"Batch {batch_number}/{total_batches} completed: {len(batch_configs)} workflows started "

@@ -59,6 +59,7 @@ function truncateString(str: string, num: number): string {
 }
 
 const RESOLVED_COLOR_MAP = new Map<string, string>()
+const INCOMPLETE_SEGMENT_BORDER_DASH = [10, 10]
 export function resolveVariableColor(color: string | undefined): string | undefined {
     if (!color) {
         return color
@@ -226,6 +227,7 @@ export interface LineGraphProps {
     hideAnnotations?: boolean
     hideXAxis?: boolean
     hideYAxis?: boolean
+    inCardView?: boolean
     legend?: DeepPartial<LegendOptions<ChartType>>
     yAxisScaleType?: string | null
     showMultipleYAxes?: boolean | null
@@ -270,6 +272,7 @@ export function LineGraph_({
     hideAnnotations,
     hideXAxis,
     hideYAxis,
+    inCardView,
     yAxisScaleType,
     showMultipleYAxes = false,
     legend = { display: false },
@@ -350,6 +353,8 @@ export function LineGraph_({
 
     function processDataset(dataset: ChartDataset<any>, index: number): ChartDataset<any> {
         const isPrevious = !!dataset.compare && dataset.compare_label === 'previous'
+        const isActiveSeries = !dataset.compare || dataset.compare_label !== 'previous'
+        const incompleteStartIndex = dataset.data.length + incompletenessOffsetFromEnd
 
         const themeColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
@@ -385,6 +390,20 @@ export function LineGraph_({
             adjustedData = adjustedData.map((value) => (typeof value === 'number' ? (value / count) * 100 : value))
         }
 
+        const shouldShowIncompleteLineSegment = type === GraphType.Line && isInProgress && isActiveSeries
+        const shouldShowIncompleteAreaSegment = shouldShowIncompleteLineSegment && isArea
+        const areaIncompletePattern = shouldShowIncompleteAreaSegment
+            ? createPinstripePattern(hexToRGBA(mainColor, 0.5), isDarkModeOn)
+            : undefined
+        const incompleteSegmentBorderDash = shouldShowIncompleteLineSegment
+            ? (ctx: ScriptableLineSegmentContext) =>
+                  ctx.p1DataIndex >= incompleteStartIndex ? INCOMPLETE_SEGMENT_BORDER_DASH : undefined
+            : undefined
+        const incompleteSegmentBackgroundColor = shouldShowIncompleteAreaSegment
+            ? (ctx: ScriptableLineSegmentContext) =>
+                  ctx.p1DataIndex >= incompleteStartIndex ? areaIncompletePattern : undefined
+            : undefined
+
         // `horizontalBar` colors are set in `ActionsHorizontalBar.tsx` and overridden in spread of `dataset` below
         return {
             borderColor: mainColor,
@@ -393,30 +412,8 @@ export function LineGraph_({
             fill: isArea ? 'origin' : false,
             backgroundColor,
             segment: {
-                borderDash: (ctx: ScriptableLineSegmentContext) => {
-                    // If chart is line graph, show dotted lines for incomplete data
-                    if (!(type === GraphType.Line && isInProgress)) {
-                        return undefined
-                    }
-
-                    const isIncomplete = ctx.p1DataIndex >= dataset.data.length + incompletenessOffsetFromEnd
-                    const isActive = !dataset.compare || dataset.compare_label != 'previous'
-                    // if last date is still active show dotted line
-                    return isIncomplete && isActive ? [10, 10] : undefined
-                },
-                backgroundColor: (ctx: ScriptableLineSegmentContext) => {
-                    // If chart is area graph, show pinstripe pattern for incomplete data
-                    if (!(type === GraphType.Line && isInProgress && isArea)) {
-                        return undefined
-                    }
-
-                    const isIncomplete = ctx.p1DataIndex >= dataset.data.length + incompletenessOffsetFromEnd
-                    const isActive = !dataset.compare || dataset.compare_label != 'previous'
-                    // if last date is still active show dotted line
-                    const areaBackgroundColor = hexToRGBA(mainColor, 0.5)
-                    const areaIncompletePattern = createPinstripePattern(areaBackgroundColor, isDarkModeOn)
-                    return isIncomplete && isActive ? areaIncompletePattern : undefined
-                },
+                borderDash: incompleteSegmentBorderDash,
+                backgroundColor: incompleteSegmentBackgroundColor,
             },
             borderWidth: isBar ? 0 : 2,
             pointRadius: Array.isArray(adjustedData) && adjustedData.length === 1 ? 4 : 0,
@@ -457,7 +454,7 @@ export function LineGraph_({
     function generateYaxesForLineGraph(
         dataSetCount: number,
         seriesNonZeroMin: number,
-        goalLinesWithColor: GoalLine[],
+        goalLineColorByValue: Map<number | string, string | undefined>,
         tickOptions: Partial<TickOptions>,
         precision: number,
         gridOptions: Partial<GridLineOptions>
@@ -475,11 +472,11 @@ export function LineGraph_({
                 ...(yAxisScaleType !== 'log10' && { precision }), // Precision is not supported for the log scale
                 callback: formatYAxisTick,
                 color: (context: any) => {
-                    if (context.tick) {
-                        for (const annotation of goalLinesWithColor) {
-                            if (context.tick.value === annotation.value) {
-                                return resolveVariableColor(annotation.borderColor)
-                            }
+                    const tickValue = context.tick?.value
+                    if (tickValue !== undefined) {
+                        const goalLineColor = goalLineColorByValue.get(tickValue)
+                        if (goalLineColor) {
+                            return goalLineColor
                         }
                     }
 
@@ -524,19 +521,50 @@ export function LineGraph_({
             }
 
             const processedDatasets = filteredDatasets.map(processDataset)
-
-            const seriesNonZeroMax = Math.max(
-                ...processedDatasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO)
-            )
-            const seriesNonZeroMin = Math.min(
-                ...processedDatasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO)
-            )
+            let seriesNonZeroMax = Number.NEGATIVE_INFINITY
+            let seriesNonZeroMin = Number.POSITIVE_INFINITY
+            for (const dataset of processedDatasets) {
+                if (!Array.isArray(dataset.data)) {
+                    continue
+                }
+                for (const rawValue of dataset.data) {
+                    const value = Number(rawValue)
+                    if (!value || value === LOG_ZERO || Number.isNaN(value)) {
+                        continue
+                    }
+                    if (value > seriesNonZeroMax) {
+                        seriesNonZeroMax = value
+                    }
+                    if (value < seriesNonZeroMin) {
+                        seriesNonZeroMin = value
+                    }
+                }
+            }
             const precision = seriesNonZeroMax < 2 ? 2 : seriesNonZeroMax < 5 ? 1 : 0
             const goalLines = (_goalLines || []).filter(
                 (goalLine) => goalLine.displayIfCrossed !== false || goalLine.value >= seriesNonZeroMax
             )
-            const goalLinesY = goalLines.map((a) => a.value)
+            const goalLineValueSet = new Set<number | string>(goalLines.map((goalLine) => goalLine.value))
             const goalLinesWithColor = goalLines.filter((goalLine) => Boolean(goalLine.borderColor))
+            const goalLineColorByValue = new Map<number | string, string | undefined>()
+            for (const goalLine of goalLinesWithColor) {
+                if (!goalLineColorByValue.has(goalLine.value)) {
+                    goalLineColorByValue.set(goalLine.value, resolveVariableColor(goalLine.borderColor))
+                }
+            }
+            const hasAnyDottedDataset = processedDatasets.some((dataset) => dataset.dotted)
+            const datalabelTotalsByDatasetIndex = processedDatasets.map((dataset) => {
+                const totalResponses = (dataset as any).totalResponses
+                if (totalResponses !== undefined && totalResponses !== null) {
+                    return totalResponses
+                }
+                return Array.isArray(dataset.data)
+                    ? dataset.data.reduce(
+                          (sum: number, value: unknown) => sum + (typeof value === 'number' ? value : 0),
+                          0
+                      )
+                    : 0
+            })
 
             const tickOptions: Partial<TickOptions> = {
                 color: colors.axisLabel as Color,
@@ -548,14 +576,14 @@ export function LineGraph_({
             }
             const gridOptions: Partial<GridLineOptions> = {
                 color: (context) => {
-                    if (goalLinesY.includes(context.tick?.value) || showMultipleYAxes) {
+                    if (goalLineValueSet.has(context.tick?.value) || showMultipleYAxes) {
                         return 'transparent'
                     }
 
                     return colors.axisLine as Color
                 },
                 tickColor: (context) => {
-                    if (goalLinesY.includes(context.tick?.value)) {
+                    if (goalLineValueSet.has(context.tick?.value)) {
                         return 'transparent'
                     }
 
@@ -605,12 +633,8 @@ export function LineGraph_({
                         },
                         formatter: (value: number, context) => {
                             if (value !== 0 && inSurveyView && showValuesOnSeries) {
-                                const dataset = context.dataset as any
                                 // Use totalResponses if provided (for per-respondent %), otherwise sum of values
-                                const total =
-                                    dataset.totalResponses ??
-                                    dataset.data?.reduce((sum: number, val: number) => sum + val, 0) ??
-                                    1
+                                const total = datalabelTotalsByDatasetIndex[context.datasetIndex] ?? 1
                                 const percentage = ((value / total) * 100).toFixed(1)
                                 return `${value} (${percentage}%)`
                             }
@@ -696,7 +720,7 @@ export function LineGraph_({
                                     }
 
                                     const hasDotted =
-                                        processedDatasets.some((d) => d.dotted) &&
+                                        hasAnyDottedDataset &&
                                         dp.dataIndex - processedDatasets?.[dp.datasetIndex]?.data?.length >=
                                             incompletenessOffsetFromEnd
                                     return (
@@ -855,7 +879,7 @@ export function LineGraph_({
                 },
             }
 
-            const truncateRows = !inSurveyView && !!insightProps.dashboardId
+            const truncateRows = !inSurveyView && !!inCardView
 
             if (type === GraphType.Bar) {
                 if (hideXAxis || hideYAxis) {
@@ -919,7 +943,7 @@ export function LineGraph_({
                         (showMultipleYAxes && new Set(processedDatasets.map((d) => d.yAxisID)).size) ||
                             processedDatasets.length,
                         seriesNonZeroMin,
-                        goalLinesWithColor,
+                        goalLineColorByValue,
                         tickOptions,
                         precision,
                         gridOptions
