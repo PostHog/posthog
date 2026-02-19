@@ -471,8 +471,6 @@ export function PageHeaderCustom(): JSX.Element {
 
                         <LemonDivider />
 
-                        <ResetButton />
-
                         {!experiment.end_date &&
                             experiment.feature_flag &&
                             (experiment.feature_flag.active ? (
@@ -493,6 +491,8 @@ export function PageHeaderCustom(): JSX.Element {
                                     <IconPlay /> Resume experiment
                                 </ButtonPrimitive>
                             ))}
+
+                        <ResetButton />
 
                         <PauseExperimentModal />
                         <ResumeExperimentModal />
