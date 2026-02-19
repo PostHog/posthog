@@ -1,23 +1,32 @@
+from django.contrib.postgres.operations import AddIndexConcurrently
 from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
+    atomic = False
+
     dependencies = [
         ("signals", "0003_alter_signalreport_status_and_more"),
     ]
 
     operations = [
-        migrations.RemoveField(
+        migrations.RenameField(
             model_name="signalreportartefact",
-            name="content",
+            old_name="content",
+            new_name="text_content",
         ),
-        migrations.AddField(
-            model_name="signalreportartefact",
-            name="text_content",
-            field=models.TextField(default="{}"),
-            preserve_default=False,
+        migrations.RunSQL(
+            sql="ALTER TABLE signals_signalreportartefact ALTER COLUMN text_content TYPE text USING convert_from(text_content, 'UTF8');",
+            reverse_sql="ALTER TABLE signals_signalreportartefact ALTER COLUMN text_content TYPE bytea USING text_content::bytea;",
+            state_operations=[
+                migrations.AlterField(
+                    model_name="signalreportartefact",
+                    name="text_content",
+                    field=models.TextField(),
+                ),
+            ],
         ),
-        migrations.AddIndex(
+        AddIndexConcurrently(
             model_name="signalreportartefact",
             index=models.Index(fields=["report"], name="signals_sig_report__idx"),
         ),
