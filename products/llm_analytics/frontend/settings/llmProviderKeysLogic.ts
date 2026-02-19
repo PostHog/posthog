@@ -116,7 +116,6 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
             null as KeyValidationResult | null,
             {
                 preValidateKeySuccess: (_, { preValidationResult }) => preValidationResult,
-                preValidateKeyFailure: () => ({ state: 'error' as const, error_message: 'Validation request failed' }),
                 clearPreValidation: () => null,
                 setNewKeyModalOpen: () => null,
                 setEditingKey: () => null,

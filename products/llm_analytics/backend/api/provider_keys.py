@@ -32,8 +32,8 @@ def validate_provider_key(provider: str, api_key: str) -> tuple[str, str | None]
     """Validate an API key for any supported provider using the unified client."""
     try:
         return Client.validate_key(provider, api_key)
-    except Exception as e:
-        logger.exception(f"Provider key validation failed for provider '{provider}': {e}")
+    except Exception:
+        logger.exception(f"Provider key validation failed for provider '{provider}'")
         return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
 
 

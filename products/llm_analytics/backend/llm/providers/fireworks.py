@@ -63,8 +63,8 @@ class FireworksAdapter(OpenAIAdapter):
             return (LLMProviderKey.State.ERROR, "Rate limited, please try again later")
         except openai.APIConnectionError:
             return (LLMProviderKey.State.ERROR, "Could not connect to Fireworks")
-        except Exception as e:
-            logger.exception(f"Fireworks key validation error: {e}")
+        except Exception:
+            logger.exception("Fireworks key validation error")
             return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
 
     @staticmethod
@@ -80,8 +80,8 @@ class FireworksAdapter(OpenAIAdapter):
                 timeout=OpenAIConfig.TIMEOUT,
             )
             return sorted(m.id for m in client.models.list())
-        except Exception as e:
-            logger.exception(f"Error listing Fireworks models: {e}")
+        except Exception:
+            logger.exception("Error listing Fireworks models")
             return []
 
     @staticmethod

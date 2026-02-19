@@ -44,6 +44,21 @@ class TestFireworksValidateKey:
         assert state == "error"
         assert message == "Could not connect to Fireworks"
 
+    @patch("products.llm_analytics.backend.llm.providers.fireworks.openai.OpenAI")
+    def test_validate_key_rate_limit_returns_error(self, mock_openai):
+        mock_client = MagicMock()
+        mock_client.models.list.side_effect = openai.RateLimitError(
+            message="Rate limited",
+            response=MagicMock(),
+            body={},
+        )
+        mock_openai.return_value = mock_client
+
+        state, message = FireworksAdapter.validate_key("fw-test-key")
+
+        assert state == "error"
+        assert message == "Rate limited, please try again later"
+
 
 class TestFireworksListModels:
     def test_list_models_without_key_returns_empty(self):
