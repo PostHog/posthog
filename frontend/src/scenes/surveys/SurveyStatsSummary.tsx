@@ -4,6 +4,8 @@ import { memo } from 'react'
 import { LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber, percentage, pluralize } from 'lib/utils'
 import { CopySurveyLink } from 'scenes/surveys/CopySurveyLink'
 import { StackedBar, StackedBarSegment, StackedBarSkeleton } from 'scenes/surveys/components/StackedBar'
@@ -12,28 +14,39 @@ import { SurveyEventName, SurveyRates, SurveyStats, SurveyType } from '~/types'
 
 import { surveyLogic } from './surveyLogic'
 
-interface StatCardProps {
+interface StatRowItem {
     title: string
     value: string | number
     description: string | React.ReactNode
-    isLoading?: boolean
+    valueClassName?: string
 }
 
-function StatCard({ title, value, description, isLoading }: StatCardProps): JSX.Element {
+function StatRow({ items, isLoading }: { items: StatRowItem[]; isLoading?: boolean }): JSX.Element {
     return (
-        <div className="p-4 border rounded bg-bg-light flex-1 min-w-[180px] flex flex-col gap-1">
-            <div className="text-xs font-semibold uppercase text-text-secondary">{title}</div>
-            {isLoading ? (
-                <>
-                    <LemonSkeleton className="h-9 w-16" />
-                    <LemonSkeleton className="h-4 w-32" />
-                </>
-            ) : (
-                <>
-                    <div className="text-3xl font-bold">{value}</div>
-                    <div className="text-sm text-text-secondary">{description}</div>
-                </>
-            )}
+        <div className="flex flex-wrap sm:flex-nowrap items-stretch border rounded bg-bg-light/40">
+            {items.map((item, index) => (
+                <div
+                    key={item.title}
+                    className={`flex-1 min-w-[160px] px-3 py-2 flex flex-col items-center text-center ${
+                        index > 0 ? 'sm:border-l border-border' : ''
+                    }`}
+                >
+                    <div className="text-xs font-semibold uppercase text-text-secondary">{item.title}</div>
+                    {isLoading ? (
+                        <>
+                            <LemonSkeleton className="h-6 w-16 mt-1" />
+                            <LemonSkeleton className="h-3 w-24 mt-1" />
+                        </>
+                    ) : (
+                        <>
+                            <div className={`text-2xl font-semibold leading-tight ${item.valueClassName ?? ''}`}>
+                                {item.value}
+                            </div>
+                            <div className="text-xs text-text-secondary">{item.description}</div>
+                        </>
+                    )}
+                </div>
+            ))}
         </div>
     )
 }
@@ -42,28 +55,30 @@ function UsersCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRates }
     const uniqueUsersShown = stats[SurveyEventName.SHOWN].unique_persons
     const uniqueUsersSent = stats[SurveyEventName.SENT].unique_persons
     const { answerFilterHogQLExpression } = useValues(surveyLogic)
+    const filterNote = answerFilterHogQLExpression ? ' · filtered' : ''
     return (
-        <div className="flex flex-wrap gap-4">
-            <StatCard
-                title="Total Impressions by Unique Users"
-                value={humanFriendlyNumber(uniqueUsersShown)}
-                description={`Unique ${pluralize(uniqueUsersShown, 'user', 'users', false)}`}
-            />
-            <StatCard
-                title="Responses"
-                value={humanFriendlyNumber(uniqueUsersSent)}
-                description={`Sent by unique ${pluralize(uniqueUsersSent, 'user', 'users', false)}${
-                    answerFilterHogQLExpression ? ` with the applied answer filters` : ''
-                }`}
-            />
-            <StatCard
-                title="Conversion rate by unique users"
-                value={`${humanFriendlyNumber(rates.unique_users_response_rate)}%`}
-                description={`${humanFriendlyNumber(uniqueUsersSent)} submitted / ${humanFriendlyNumber(
-                    uniqueUsersShown
-                )} shown`}
-            />
-        </div>
+        <StatRow
+            items={[
+                {
+                    title: 'Shown',
+                    value: humanFriendlyNumber(uniqueUsersShown),
+                    description: `Unique ${pluralize(uniqueUsersShown, 'user', 'users', false)}`,
+                    valueClassName: 'text-text-primary',
+                },
+                {
+                    title: 'Responses',
+                    value: humanFriendlyNumber(uniqueUsersSent),
+                    description: `Unique users${filterNote}`,
+                    valueClassName: 'text-success',
+                },
+                {
+                    title: 'Conversion',
+                    value: `${humanFriendlyNumber(rates.unique_users_response_rate)}%`,
+                    description: `${humanFriendlyNumber(uniqueUsersSent)} / ${humanFriendlyNumber(uniqueUsersShown)}`,
+                    valueClassName: 'text-primary',
+                },
+            ]}
+        />
     )
 }
 
@@ -71,27 +86,31 @@ function ResponsesCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRat
     const impressions = stats[SurveyEventName.SHOWN].total_count
     const sent = stats[SurveyEventName.SENT].total_count
     const { answerFilterHogQLExpression } = useValues(surveyLogic)
+    const filterNote = answerFilterHogQLExpression ? ' · filtered' : ''
 
     return (
-        <div className="flex flex-wrap gap-4">
-            <StatCard
-                title="Total Impressions"
-                value={humanFriendlyNumber(impressions)}
-                description="How many times the survey was shown"
-            />
-            <StatCard
-                title="Responses"
-                value={humanFriendlyNumber(sent)}
-                description={`Sent by all users${
-                    answerFilterHogQLExpression ? ` with the applied answer filters` : ''
-                }`}
-            />
-            <StatCard
-                title="Conversion rate by impressions"
-                value={`${humanFriendlyNumber(rates.response_rate)}%`}
-                description={`${humanFriendlyNumber(sent)} submitted / ${humanFriendlyNumber(impressions)} shown`}
-            />
-        </div>
+        <StatRow
+            items={[
+                {
+                    title: 'Shown',
+                    value: humanFriendlyNumber(impressions),
+                    description: 'Impressions',
+                    valueClassName: 'text-text-primary',
+                },
+                {
+                    title: 'Responses',
+                    value: humanFriendlyNumber(sent),
+                    description: `Responses${filterNote}`,
+                    valueClassName: 'text-success',
+                },
+                {
+                    title: 'Conversion',
+                    value: `${humanFriendlyNumber(rates.response_rate)}%`,
+                    description: `${humanFriendlyNumber(sent)} / ${humanFriendlyNumber(impressions)}`,
+                    valueClassName: 'text-primary',
+                },
+            ]}
+        />
     )
 }
 
@@ -157,7 +176,7 @@ function SurveyStatsStackedBar({
         },
     ]
 
-    return <StackedBar segments={segments} />
+    return <StackedBar segments={segments} size="sm" />
 }
 
 function SurveyStatsContainer({ children }: { children: React.ReactNode }): JSX.Element {
@@ -188,27 +207,34 @@ function SurveyStatsContainer({ children }: { children: React.ReactNode }): JSX.
                 </div>
             </div>
             {survey.start_date && (
-                <div className="flex items-center text-sm text-secondary">
-                    <div className="flex gap-2 items-center">
-                        <span className="inline-flex items-center gap-1">
-                            Started: <TZLabel time={survey.start_date} />
-                        </span>
-                        <span className="text-border-dark">•</span>
-                        {survey.end_date ? (
-                            <span className="inline-flex items-center gap-1">
-                                <span className="h-2 w-2 rounded-full bg-danger/50" />
-                                Ended: <TZLabel time={survey.end_date} />
-                            </span>
-                        ) : (
-                            <span className="inline-flex items-center gap-1 text-success">
-                                <span className="h-2 w-2 rounded-full bg-success animate-pulse" />
-                                Active
-                            </span>
-                        )}
-                    </div>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-secondary">
+                    <span
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
+                            survey.end_date ? 'bg-danger/10 text-danger' : 'bg-success/10 text-success'
+                        }`}
+                    >
+                        <span
+                            className={`h-1.5 w-1.5 rounded-full ${
+                                survey.end_date ? 'bg-danger' : 'bg-success animate-pulse'
+                            }`}
+                        />
+                        {survey.end_date ? 'Ended' : 'Active'}
+                    </span>
+                    <span className="text-border-dark">•</span>
+                    <Tooltip title={<TZLabel time={survey.start_date} />}>
+                        <span>Started {dayjs(survey.start_date).fromNow()}</span>
+                    </Tooltip>
+                    {survey.end_date && (
+                        <>
+                            <span className="text-border-dark">•</span>
+                            <Tooltip title={<TZLabel time={survey.end_date} />}>
+                                <span>Ended {dayjs(survey.end_date).fromNow()}</span>
+                            </Tooltip>
+                        </>
+                    )}
                 </div>
             )}
-            <div className="flex flex-col gap-4">{children}</div>
+            <div className="flex flex-col gap-3">{children}</div>
         </div>
     )
 }
@@ -219,7 +245,7 @@ function DemoStatsContainer({ children }: { children: React.ReactNode }): JSX.El
             <div className="flex items-center gap-2 justify-between">
                 <h3 className="mb-0">Survey performance</h3>
             </div>
-            <div className="flex flex-col gap-4">{children}</div>
+            <div className="flex flex-col gap-3">{children}</div>
         </div>
     )
 }
@@ -227,27 +253,27 @@ function DemoStatsContainer({ children }: { children: React.ReactNode }): JSX.El
 function SurveyStatsSummarySkeleton(): JSX.Element {
     return (
         <SurveyStatsContainer>
-            <div className="flex flex-wrap gap-4">
-                <StatCard
-                    title="Total Impressions by Unique Users"
-                    value={0}
-                    description={`Unique ${pluralize(0, 'user', 'users', false)}`}
-                    isLoading={true}
-                />
-                <StatCard
-                    title="Responses"
-                    value={0}
-                    description={`Sent by unique ${pluralize(0, 'user', 'users', false)}`}
-                    isLoading={true}
-                />
-                <StatCard
-                    title="Conversion rate by unique users"
-                    value="0%"
-                    description="0 submitted / 0 shown"
-                    isLoading={true}
-                />
-            </div>
-            <StackedBarSkeleton />
+            <StatRow
+                isLoading
+                items={[
+                    {
+                        title: 'Shown',
+                        value: 0,
+                        description: `Unique ${pluralize(0, 'user', 'users', false)}`,
+                    },
+                    {
+                        title: 'Responses',
+                        value: 0,
+                        description: `Unique ${pluralize(0, 'user', 'users', false)}`,
+                    },
+                    {
+                        title: 'Conversion',
+                        value: '0%',
+                        description: '0 / 0',
+                    },
+                ]}
+            />
+            <StackedBarSkeleton size="sm" />
         </SurveyStatsContainer>
     )
 }
