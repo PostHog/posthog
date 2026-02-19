@@ -6,6 +6,9 @@ settings:
 
 catalogs:
   default:
+    '@jest/types':
+      specifier: ^30.0.0
+      version: 30.2.0
     '@parcel/packager-ts':
       specifier: 2.13.3
       version: 2.13.3
@@ -1090,6 +1093,9 @@ importers:
       '@babel/traverse':
         specifier: ^7.24.0
         version: 7.26.4
+      '@jest/types':
+        specifier: 'catalog:'
+        version: 30.2.0
       '@parcel/packager-ts':
         specifier: 'catalog:'
         version: 2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))
