@@ -29,6 +29,29 @@ describe('calculating tile layouts', () => {
         })
     })
 
+    it('new tile without layout is placed below existing tiles, not in gaps', () => {
+        const existingTile = textTileWithLayout(
+            {
+                sm: { x: 6, y: 0, w: 6, h: 5 },
+                xs: { x: 0, y: 0, w: 1, h: 5 },
+            },
+            1
+        )
+        const newTile = {
+            id: 2,
+            text: 'new',
+            layouts: {},
+        } as unknown as DashboardTile<QueryBasedInsightModel>
+
+        const actual = calculateLayouts([existingTile, newTile])
+
+        const newSmLayout = actual.sm?.find((l) => l.i === '2')
+        expect(newSmLayout?.y).toBe(5)
+
+        const newXsLayout = actual.xs?.find((l) => l.i === '2')
+        expect(newXsLayout?.y).toBe(5)
+    })
+
     it('when the tiles have only 2-col layouts, 1 col layout is calculated', () => {
         // sm layouts have been re-ordered
         // they are not in creation order when read left to right.
