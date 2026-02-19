@@ -2,6 +2,7 @@ import { Meta } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { router } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -9,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import billingUnsubscribedJson from '~/mocks/fixtures/_billing_unsubscribed.json'
+import domainConnectJson from '~/mocks/fixtures/_domain_connect_check.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
@@ -22,6 +24,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
+        featureFlags: [FEATURE_FLAGS.ONBOARDING_REVERSE_PROXY],
     },
     decorators: [
         mswDecorator({
@@ -36,6 +39,7 @@ const meta: Meta = {
                 '/api/billing/': {
                     ...billingJson,
                 },
+                '/api/environments/:team_id/integrations/domain-connect/check': domainConnectJson,
                 '/api/environments/:team_id/external_data_sources/wizard': () => {
                     return [
                         200,
@@ -322,12 +326,84 @@ export const InviteTeammates = (): JSX.Element => {
 
 export const ReverseProxy = (): JSX.Element => {
     useMountedLogic(onboardingLogic)
+
+    useStorybookMocks({
+        get: {
+            '/api/organizations/:organization_id/proxy_records': {
+                results: [],
+                max_proxy_records: 2,
+            },
+        },
+    })
+
     const { setProduct } = useActions(onboardingLogic)
 
     useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.FEATURE_FLAGS])
+        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
         router.actions.push(
-            urls.onboarding({ productKey: ProductKey.FEATURE_FLAGS, stepKey: OnboardingStepKey.REVERSE_PROXY })
+            urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.REVERSE_PROXY })
+        )
+    })
+
+    return <App />
+}
+
+export const ReverseProxyWaitingForDns = (): JSX.Element => {
+    useMountedLogic(onboardingLogic)
+
+    useStorybookMocks({
+        get: {
+            '/api/organizations/:organization_id/proxy_records': {
+                results: [
+                    {
+                        id: 'proxy-1',
+                        domain: 't.example.com',
+                        status: 'waiting',
+                        target_cname: 't-example-com.proxy.posthog.cc',
+                    },
+                ],
+                max_proxy_records: 2,
+            },
+        },
+    })
+
+    const { setProduct } = useActions(onboardingLogic)
+
+    useDelayedOnMountEffect(() => {
+        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
+        router.actions.push(
+            urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.REVERSE_PROXY })
+        )
+    })
+
+    return <App />
+}
+
+export const ReverseProxyVerified = (): JSX.Element => {
+    useMountedLogic(onboardingLogic)
+
+    useStorybookMocks({
+        get: {
+            '/api/organizations/:organization_id/proxy_records': {
+                results: [
+                    {
+                        id: 'proxy-1',
+                        domain: 't.example.com',
+                        status: 'valid',
+                        target_cname: 't-example-com.proxy.posthog.cc',
+                    },
+                ],
+                max_proxy_records: 2,
+            },
+        },
+    })
+
+    const { setProduct } = useActions(onboardingLogic)
+
+    useDelayedOnMountEffect(() => {
+        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
+        router.actions.push(
+            urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.REVERSE_PROXY })
         )
     })
 
