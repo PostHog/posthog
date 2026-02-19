@@ -2886,6 +2886,7 @@ export type FileSystemIconType =
     | 'link'
     | 'live_debugger'
     | 'logs'
+    | 'tracing'
     | 'workflows'
     | 'notebook'
     | 'action'
@@ -5419,6 +5420,7 @@ export enum ProductKey {
     LLM_EVALUATIONS = 'llm_evaluations',
     LLM_PROMPTS = 'llm_prompts',
     LOGS = 'logs',
+    TRACING = 'tracing',
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     MOBILE_REPLAY = 'mobile_replay',
