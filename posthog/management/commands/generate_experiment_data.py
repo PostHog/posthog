@@ -540,6 +540,23 @@ class Command(BaseCommand):
                 },
             )
 
+            # # TEMPORARY: 2% of users get an additional exposure with a different variant
+            # if random.random() < 0.02:
+            #     other_variants = [v for v in variants if v != variant]
+            #     if other_variants:
+            #         other_variant = random.choice(other_variants)
+            #         posthoganalytics.capture(
+            #             distinct_id=distinct_id,
+            #             event="$feature_flag_called",
+            #             timestamp=random_timestamp + timedelta(minutes=1),
+            #             properties={
+            #                 feature_flag_property: other_variant,
+            #                 "$feature_flag_response": other_variant,
+            #                 "$feature_flag": experiment_id,
+            #                 "$session_id": session_id,
+            #             },
+            #         )
+
             should_stop = False
             minutes_after_exposure = 0
             for action in experiment_config.variants[variant].actions:
