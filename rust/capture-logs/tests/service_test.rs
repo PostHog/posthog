@@ -579,7 +579,9 @@ fn test_otel_log_row_overridden_timestamp_tracking() {
     };
 
     // Test with a timestamp far in the past (should be overridden)
-    let far_past_nanos = (Utc::now() - TimeDelta::hours(48)).timestamp_nanos_opt().unwrap();
+    let far_past_nanos = (Utc::now() - TimeDelta::hours(48))
+        .timestamp_nanos_opt()
+        .unwrap();
     let log_record_overridden = LogRecord {
         time_unix_nano: far_past_nanos as u64,
         severity_text: "INFO".to_string(),
@@ -590,12 +592,15 @@ fn test_otel_log_row_overridden_timestamp_tracking() {
         ..Default::default()
     };
 
-    let (row_overridden, was_overridden) = KafkaLogRow::new(log_record_overridden, None, None).unwrap();
+    let (row_overridden, was_overridden) =
+        KafkaLogRow::new(log_record_overridden, None, None).unwrap();
     assert!(was_overridden);
     assert!(row_overridden.attributes.contains_key("$originalTimestamp"));
 
     // Test with a timestamp far in the future (should be overridden)
-    let far_future_nanos = (Utc::now() + TimeDelta::hours(25)).timestamp_nanos_opt().unwrap();
+    let far_future_nanos = (Utc::now() + TimeDelta::hours(25))
+        .timestamp_nanos_opt()
+        .unwrap();
     let log_record_overridden = LogRecord {
         time_unix_nano: far_future_nanos as u64,
         severity_text: "INFO".to_string(),
@@ -606,12 +611,15 @@ fn test_otel_log_row_overridden_timestamp_tracking() {
         ..Default::default()
     };
 
-    let (row_overridden, was_overridden) = KafkaLogRow::new(log_record_overridden, None, None).unwrap();
+    let (row_overridden, was_overridden) =
+        KafkaLogRow::new(log_record_overridden, None, None).unwrap();
     assert!(was_overridden);
     assert!(row_overridden.attributes.contains_key("$originalTimestamp"));
 
     // Test with a recent timestamp (should not be overridden)
-    let recent_nanos = (Utc::now() - TimeDelta::hours(1)).timestamp_nanos_opt().unwrap();
+    let recent_nanos = (Utc::now() - TimeDelta::hours(1))
+        .timestamp_nanos_opt()
+        .unwrap();
     let log_record_recent = LogRecord {
         time_unix_nano: recent_nanos as u64,
         severity_text: "INFO".to_string(),
