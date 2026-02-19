@@ -69,7 +69,7 @@
         "@posthog/hedgehog-mode": "^0.0.48",
         "@posthog/hogql-parser": "workspace:*",
         "@posthog/hogvm": "workspace:*",
-        "@posthog/icons": "^0.36.5",
+        "@posthog/icons": "^0.36.6",
         "@posthog/products-actions": "workspace:*",
         "@posthog/products-cohorts": "workspace:*",
         "@posthog/products-conversations": "workspace:*",

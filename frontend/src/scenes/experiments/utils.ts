@@ -103,7 +103,7 @@ export function transformFiltersForWinningVariant(
             {
                 properties: [],
                 rollout_percentage: 100,
-                description: 'Added automatically when the experiment variant was shipped',
+                description: 'Added automatically when the experiment was ended to keep only one variant.',
             },
             // Preserve existing groups so that users can roll back this action
             // by deleting the newly added release condition
