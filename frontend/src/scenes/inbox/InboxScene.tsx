@@ -53,12 +53,13 @@ function ReportListItem({ report }: { report: SignalReport }): JSX.Element {
                       }
                     : undefined
             }
-            className={`w-full text-left px-3 py-2.5 flex items-start gap-2 cursor-pointer rounded border border-primary ${
+            className={clsx(
+                `w-full text-left px-3 py-2.5 flex items-start gap-2 cursor-pointer rounded border border-primary`,
                 isSelected ? 'bg-surface-primary' : 'bg-surface-secondary hover:bg-surface-tertiary'
-            }`}
+            )}
         >
             <div className="flex-1 min-w-0">
-                <h4 className="text-sm font-medium m-0 truncate flex-1">{report.title || 'Untitled report'}</h4>
+                <h4 className="text-sm font-medium m-0 truncate flex-1">{report.title || <i>Untitled report</i>}</h4>
 
                 {report.summary && (
                     <p
@@ -70,7 +71,8 @@ function ReportListItem({ report }: { report: SignalReport }): JSX.Element {
                         {report.summary}
                     </p>
                 )}
-                <div className="flex items-center gap-2 mt-1.5 text-xs text-tertiary  whitespace-nowrap">
+
+                <div className="flex items-center gap-2 mt-1.5 text-xs text-tertiary whitespace-nowrap">
                     {report.relevant_user_count !== null && report.relevant_user_count > 0 && (
                         <span>
                             {report.relevant_user_count} {report.relevant_user_count === 1 ? 'user' : 'users'}
@@ -131,9 +133,9 @@ function ReportListPane(): JSX.Element {
         if (!el) {
             return
         }
-        const check = (): void => setIsScrollable(el.scrollHeight > el.clientHeight)
-        check()
-        const observer = new ResizeObserver(check)
+        const scrollabilityCheck = (): void => setIsScrollable(el.scrollHeight > el.clientHeight)
+        scrollabilityCheck()
+        const observer = new ResizeObserver(scrollabilityCheck)
         observer.observe(el)
         return () => observer.disconnect()
     }, [filteredReports.length])
@@ -155,7 +157,7 @@ function ReportListPane(): JSX.Element {
                 type="search"
                 placeholder="Search reports..."
                 prefix={<IconSearch />}
-                className="sticky top-0 z-10 bg-primary/50 backdrop-blur-xl mb-2"
+                className="sticky top-0 z-10 bg-primary/50 backdrop-blur-xl mb-2" // z-index to overlay reports
                 value={searchQuery}
                 onChange={setSearchQuery}
                 size="small"

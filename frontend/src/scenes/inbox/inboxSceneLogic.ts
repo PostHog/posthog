@@ -118,7 +118,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 return [
                     ...state,
                     {
-                        id: 'optimistic',
+                        id: `new_${SignalSourceType.SESSION_ANALYSIS}`,
                         source_type: SignalSourceType.SESSION_ANALYSIS,
                         enabled: true,
                         config: {},
@@ -202,7 +202,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             const config = values.sessionAnalysisConfig
             const desiredEnabled = config?.enabled ?? true
             try {
-                if (config && config.id !== 'optimistic') {
+                if (config && config.id !== `new_${SignalSourceType.SESSION_ANALYSIS}`) {
                     await api.signalSourceConfigs.update(config.id, { enabled: desiredEnabled })
                 } else {
                     await api.signalSourceConfigs.create({
@@ -246,7 +246,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         clearSessionAnalysisFilters: async () => {
             try {
                 const existing = values.sessionAnalysisConfig
-                if (existing && existing.id !== 'optimistic') {
+                if (existing && existing.id !== `new_${SignalSourceType.SESSION_ANALYSIS}`) {
                     await api.signalSourceConfigs.update(existing.id, { config: {}, enabled: true })
                 }
                 lemonToast.success('Session analysis filters cleared')
