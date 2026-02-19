@@ -161,6 +161,10 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             (s) => [s.sessionAnalysisConfig],
             (config: SignalSourceConfig | null): boolean => !!config?.enabled,
         ],
+        enabledSourcesCount: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[]): number => sourceConfigs.filter((c) => c.enabled).length,
+        ],
     }),
 
     listeners(({ actions, values }) => ({

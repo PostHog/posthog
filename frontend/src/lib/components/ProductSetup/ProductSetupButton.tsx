@@ -130,7 +130,7 @@ const ExpandedButton = forwardRef<HTMLButtonElement, ExpandedButtonProps>(functi
             data-attr="global-product-setup-button"
             sideIcon={
                 showBadge && remainingCount > 0 ? (
-                    <LemonBadge.Number count={remainingCount} status="warning" size="medium" />
+                    <LemonBadge.Number count={remainingCount} status="warning" size="small" />
                 ) : undefined
             }
         >

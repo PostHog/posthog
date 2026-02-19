@@ -1,17 +1,20 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { createContext, useEffect } from 'react'
+import posthog from 'posthog-js'
+import { createContext, useEffect, useState } from 'react'
 
-import { IconArrowLeft, IconGithub, IconRewindPlay } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconGithub, IconLinear } from '@posthog/icons'
+import { LemonButton, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand/Logomark'
 import { RecordingsUniversalFiltersDisplay } from 'lib/components/Cards/InsightCard/RecordingsUniversalFiltersDisplay'
+import { IconSlack } from 'lib/lemon-ui/icons'
 import { Thread } from 'scenes/max/Thread'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
 import { ThreadAutoScroller } from 'scenes/max/components/ThreadAutoScroller'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { RecordingUniversalFilters } from '~/types'
 
@@ -49,22 +52,41 @@ type SourceProps =
           onConfigClick: () => void
       }
 
+function NotifyMeButton({ source }: { source: string }): JSX.Element {
+    const [notified, setNotified] = useState(false)
+
+    return (
+        <LemonButton
+            type="secondary"
+            size="xsmall"
+            disabledReason={notified ? "We'll let you know!" : undefined}
+            onClick={() => {
+                posthog.capture('signals source interest', { source })
+                setNotified(true)
+            }}
+            className="-my-4" // Prevent the button's height from affecting the row's height
+        >
+            {notified ? "We'll notify you!" : 'Notify me when available'}
+        </LemonButton>
+    )
+}
+
 function Source(props: SourceProps): JSX.Element {
     const isComingSoon = props.variant === 'coming-soon'
 
     return (
-        <div className={`flex gap-3 pb-3 last:pb-0 px-1 ${isComingSoon ? 'items-center opacity-60' : 'items-start'}`}>
-            <div className="shrink-0 mt-0.5">{props.icon}</div>
+        <div className="flex gap-3 pb-3 last:pb-0 px-1 items-start">
+            <div className="shrink-0 mt-2">{props.icon}</div>
             <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2">
                     <div className="font-medium text-sm">{props.title}</div>
                     {isComingSoon ? (
-                        <LemonTag size="small">Coming soon</LemonTag>
+                        <NotifyMeButton source={props.title} />
                     ) : (
                         <LemonSwitch checked={props.checked} onChange={props.onToggle} />
                     )}
                 </div>
-                <p className="text-xs text-secondary m-0">{props.description}</p>
+                <p className="text-xs text-secondary mt-0.25 mb-0">{props.description}</p>
                 {!isComingSoon && props.checked && (
                     <div className="mt-2 border rounded">
                         <div className="flex items-center justify-between px-2 pt-2">
@@ -90,9 +112,13 @@ function SourcesList(): JSX.Element {
     return (
         <div className="divide-y space-y-3">
             <Source
-                icon={<IconRewindPlay className="text-secondary size-5" />}
-                title="Session analysis"
-                description="Recorded sessions + analytics → Signals"
+                icon={
+                    <div className="flex *:text-xl group/colorful-product-icons colorful-product-icons-true">
+                        {iconForType('session_replay')}
+                    </div>
+                }
+                title="PostHog Session Replay"
+                description="Session recordings + event data → Signals"
                 variant="available"
                 checked={hasSessionAnalysisSource}
                 onToggle={() => toggleSessionAnalysis()}
@@ -121,20 +147,23 @@ function SourcesList(): JSX.Element {
             />
 
             <Source
-                icon={
-                    <svg className="size-5" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M2.42 11.06a10.1 10.1 0 0 0 10.52 10.52L2.42 11.06Zm-.95 2.17a10.15 10.15 0 0 0 9.3 9.3l-9.3-9.3Zm21.06-2.46a10.15 10.15 0 0 0-9.3-9.3l9.3 9.3ZM12 2a10.04 10.04 0 0 0-7.46 3.35l14.11 14.11A10.03 10.03 0 0 0 22 12c0-5.52-4.48-10-10-10Z" />
-                    </svg>
-                }
+                icon={<IconLinear className="size-5" />}
                 title="Linear"
-                description="New issues and updates on them → Signals"
+                description="New issues and updates → Signals"
                 variant="coming-soon"
             />
 
             <Source
                 icon={<IconGithub className="size-5" />}
                 title="GitHub Issues"
-                description="New issues and updates on them → Signals"
+                description="New issues and updates → Signals"
+                variant="coming-soon"
+            />
+
+            <Source
+                icon={<IconSlack className="size-5 grayscale" />}
+                title="Slack"
+                description="Messages and threads from channels → Signals"
                 variant="coming-soon"
             />
         </div>
@@ -252,7 +281,7 @@ export function SourcesModal(): JSX.Element {
             width={sessionAnalysisSetupOpen ? '48rem' : '32rem'}
         >
             <LemonModal.Header>
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2">
                     {sessionAnalysisSetupOpen && (
                         <LemonButton
                             type="tertiary"
@@ -265,11 +294,9 @@ export function SourcesModal(): JSX.Element {
                         {sessionAnalysisSetupOpen ? 'Session analysis filters' : 'Signal sources'}
                     </h3>
                 </div>
-                <p className="text-xs text-secondary m-0">
-                    {sessionAnalysisSetupOpen
-                        ? 'Configure the filters for your session analysis.'
-                        : 'Set up sources feeding the Inbox.'}
-                </p>
+                {!sessionAnalysisSetupOpen && (
+                    <p className="text-xs text-secondary mt-1 mb-0">Set up sources feeding the Inbox.</p>
+                )}
             </LemonModal.Header>
             <LemonModal.Content>
                 {sessionAnalysisSetupOpen ? (
