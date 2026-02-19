@@ -182,6 +182,9 @@ class HogQLPrinter(Visitor[str]):
         ctes = [self.visit(cte) for cte in node.ctes.values()] if node.ctes else None
         has_recursive_cte = any(cte.recursive for cte in node.ctes.values()) if node.ctes else False
 
+        if has_recursive_cte and self.dialect != "postgres":
+            raise ImpossibleASTError("Recursive CTEs are only supported in PostgreSQL dialect")
+
         window = (
             ", ".join(
                 [f"{self._print_identifier(name)} AS ({self.visit(expr)})" for name, expr in node.window_exprs.items()]

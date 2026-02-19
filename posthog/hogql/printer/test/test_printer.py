@@ -4142,6 +4142,18 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             not_in_matches = {d for (d,) in not_in_result.results}
             assert not_in_matches == not_in_expected, f"NOT IN {in_values}"
 
+    def test_recursive_cte_raises(self):
+        query = """
+        WITH RECURSIVE cte AS (
+            SELECT 1 AS n
+            UNION ALL
+            SELECT n + 1 FROM cte WHERE n < 5
+        )
+        SELECT * FROM cte;
+        """
+        with self.assertRaises(ImpossibleASTError):
+            execute_hogql_query(team=self.team, query=query)
+
 
 class TestPrinted(APIBaseTest):
     def test_can_call_parametric_function(self):
