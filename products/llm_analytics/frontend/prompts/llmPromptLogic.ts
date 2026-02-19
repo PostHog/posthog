@@ -18,6 +18,7 @@ import { combineUrl, router, urlToAction } from 'kea-router'
 
 import api from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
+import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import {
     DataTableNode,
