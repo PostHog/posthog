@@ -42,6 +42,14 @@ impl<T> Batch<T> {
         )
     }
 
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     pub fn filter_map<O>(self, func: impl FnMut(T) -> Option<O>) -> Batch<O> {
         Batch::from(self.0.into_iter().filter_map(func).collect::<Vec<_>>())
     }
@@ -123,7 +131,14 @@ impl<T> Batch<T> {
     {
         async {
             let time = common_metrics::timing_guard(stage.name(), &[]);
+            let before_len = self.len();
+            let stage_name = stage.name();
             let res = stage.process(self).await?;
+            let after_len = res.len();
+            assert_eq!(
+                before_len, after_len,
+                "Batch length mismatch while applying stage {stage_name}. before_len: {before_len}, after_len: {after_len}"
+            );
             time.label("outcome", "success");
             Ok(res)
         }

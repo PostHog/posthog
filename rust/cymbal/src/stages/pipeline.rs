@@ -1,18 +1,17 @@
-use std::{
-    fmt::{Debug, Display},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use common_types::ClickHouseEvent;
-use thiserror::Error;
-use uuid::Uuid;
 
 use crate::{
     app_context::AppContext,
     error::{EventError, UnhandledError},
     metric_consts::EXCEPTION_PROCESSING_PIPELINE,
     stages::{
-        alerting::AlertingStage, grouping::GroupingStage, linking::LinkingStage,
+        alerting::AlertingStage,
+        grouping::GroupingStage,
+        linking::LinkingStage,
+        post_processing::{PostProcessingHandler, PostProcessingStage},
+        pre_processing::{PreProcessingContext, PreProcessingStage},
         resolution::ResolutionStage,
     },
     types::{batch::Batch, exception_properties::ExceptionProperties, stage::Stage},
@@ -29,26 +28,9 @@ impl ExceptionEventPipeline {
 }
 
 pub type EventPipelineItem = Result<ClickHouseEvent, EventError>;
+pub type HandledError = EventError;
 
-#[derive(Error, Debug)]
-pub struct ExceptionEventHandledError {
-    pub uuid: Uuid,
-    pub error: EventError,
-}
-
-impl ExceptionEventHandledError {
-    pub fn new(uuid: Uuid, error: EventError) -> Self {
-        Self { uuid, error }
-    }
-}
-
-impl Display for ExceptionEventHandledError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.error, f)
-    }
-}
-
-pub type ExceptionEventPipelineItem = Result<ExceptionProperties, ExceptionEventHandledError>;
+pub type ExceptionEventPipelineItem = Result<ExceptionProperties, EventError>;
 
 impl Stage for ExceptionEventPipeline {
     type Input = ExceptionEventPipelineItem;
@@ -77,4 +59,17 @@ impl Stage for ExceptionEventPipeline {
             .apply_stage(AlertingStage::from(&self.app_context))
             .await
     }
+}
+
+pub fn create_pre_post_processing<
+    T: TryInto<ExceptionProperties, Error = EventError> + Clone,
+    O,
+>(
+    capacity: usize,
+    handler: PostProcessingHandler<T, O>,
+) -> (PreProcessingStage<T>, PostProcessingStage<T, O>) {
+    let preprocess_ctx = PreProcessingContext::new(capacity);
+    let preprocessing_stage = PreProcessingStage::new(preprocess_ctx.clone());
+    let postprocessing_stage = PostProcessingStage::new(preprocess_ctx.clone(), handler);
+    (preprocessing_stage, postprocessing_stage)
 }

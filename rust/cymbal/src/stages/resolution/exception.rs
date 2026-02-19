@@ -2,7 +2,7 @@ use crate::{
     error::UnhandledError,
     frames::RawFrame,
     metric_consts::EXCEPTION_RESOLVER_OPERATOR,
-    stages::{pipeline::ExceptionEventHandledError, resolution::ResolutionStage},
+    stages::{pipeline::HandledError, resolution::ResolutionStage},
     types::{
         batch::Batch,
         exception_properties::ExceptionProperties,
@@ -35,7 +35,7 @@ impl ExceptionResolver {
 impl ValueOperator for ExceptionResolver {
     type Context = ResolutionStage;
     type Item = ExceptionProperties;
-    type HandledError = ExceptionEventHandledError;
+    type HandledError = HandledError;
     type UnhandledError = UnhandledError;
 
     fn name(&self) -> &'static str {

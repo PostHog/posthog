@@ -1,12 +1,10 @@
-use std::{collections::HashMap, sync::Arc};
-
-use uuid::Uuid;
+use std::sync::Arc;
 
 use crate::{
     app_context::AppContext,
     error::{EventError, UnhandledError},
     metric_consts::HTTP_EXCEPTION_PIPELINE,
-    stages::pipeline::{ExceptionEventHandledError, ExceptionEventPipeline},
+    stages::pipeline::{create_pre_post_processing, ExceptionEventPipeline, HandledError},
     types::{
         batch::Batch,
         event::{AnyEvent, PropertiesContainer},
@@ -27,7 +25,7 @@ impl HttpEventPipeline {
 
 impl Stage for HttpEventPipeline {
     type Input = AnyEvent;
-    type Output = AnyEvent;
+    type Output = Option<AnyEvent>;
     type Error = UnhandledError;
 
     fn name(&self) -> &'static str {
@@ -38,47 +36,34 @@ impl Stage for HttpEventPipeline {
         self,
         batch: Batch<Self::Input>,
     ) -> Result<Batch<Self::Output>, UnhandledError> {
-        let mut events_by_id: HashMap<_, _> = HashMap::new();
+        let (preprocess, postprocess) =
+            create_pre_post_processing(batch.len(), Box::new(handle_result));
         batch
-            .map(any_to_props, &mut events_by_id)
+            .apply_stage(preprocess)
+            .await?
             .apply_stage(ExceptionEventPipeline::new(self.app_context.clone()))
             .await?
-            .try_filter_map(handle_res, &mut events_by_id)
+            .apply_stage(postprocess)
+            .await
     }
 }
 
-fn any_to_props(
-    evt: AnyEvent,
-    map: &mut HashMap<Uuid, AnyEvent>,
-) -> Result<ExceptionProperties, ExceptionEventHandledError> {
-    let item_uuid = evt.uuid;
-    map.insert(item_uuid, evt.clone());
-    ExceptionProperties::try_from(evt)
-        .map_err(|err| ExceptionEventHandledError::new(item_uuid, err))
-}
-
-fn handle_res(
-    res: Result<ExceptionProperties, ExceptionEventHandledError>,
-    events_by_id: &mut HashMap<Uuid, AnyEvent>,
+fn handle_result(
+    mut original: AnyEvent,
+    processed: Result<ExceptionProperties, HandledError>,
 ) -> Result<Option<AnyEvent>, UnhandledError> {
-    let item: Option<AnyEvent> = match res {
-        Err(ExceptionEventHandledError { uuid, error }) => match error {
+    let item: Option<AnyEvent> = match processed {
+        Ok(props) => {
+            original.set_properties(props)?;
+            Some(original)
+        }
+        Err(err) => match err {
             EventError::Suppressed(_) => None,
             err => {
-                let mut original_evt = events_by_id
-                    .remove(&uuid)
-                    .ok_or(UnhandledError::Other("missing event".into()))?;
-                original_evt.attach_error(err.to_string())?;
-                Some(original_evt)
+                original.attach_error(err.to_string())?;
+                Some(original)
             }
         },
-        Ok(props) => {
-            let mut original_evt = events_by_id
-                .remove(&props.uuid)
-                .ok_or(UnhandledError::Other("missing event".into()))?;
-            original_evt.set_properties(props)?;
-            Some(original_evt)
-        }
     };
     Ok(item)
 }
