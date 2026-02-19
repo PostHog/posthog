@@ -125,10 +125,11 @@ export interface PatchedErrorTrackingAutoCaptureControlsApi {
  * `azure-blob` - Azure Blob
  * `firebase` - Firebase
  * `jira` - Jira
+ * `pinterest-ads` - Pinterest Ads
  */
-export type KindCf2EnumApi = (typeof KindCf2EnumApi)[keyof typeof KindCf2EnumApi]
+export type KindE61EnumApi = (typeof KindE61EnumApi)[keyof typeof KindE61EnumApi]
 
-export const KindCf2EnumApi = {
+export const KindE61EnumApi = {
     slack: 'slack',
     salesforce: 'salesforce',
     hubspot: 'hubspot',
@@ -154,11 +155,12 @@ export const KindCf2EnumApi = {
     'azure-blob': 'azure-blob',
     firebase: 'firebase',
     jira: 'jira',
+    'pinterest-ads': 'pinterest-ads',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
     readonly id: number
-    readonly kind: KindCf2EnumApi
+    readonly kind: KindE61EnumApi
     readonly display_name: string
 }
 
