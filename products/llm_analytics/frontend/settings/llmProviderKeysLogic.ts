@@ -1,20 +1,21 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { llmProviderKeysLogicType } from './llmProviderKeysLogicType'
 
 export type LLMProviderKeyState = 'unknown' | 'ok' | 'invalid' | 'error'
-export type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'openrouter'
+export type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'openrouter' | 'fireworks'
 
 export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     openai: 'OpenAI',
     anthropic: 'Anthropic',
     gemini: 'Google Gemini',
     openrouter: 'OpenRouter',
+    fireworks: 'Fireworks',
 }
 
 export interface LLMProviderKey {
@@ -115,7 +116,6 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
             null as KeyValidationResult | null,
             {
                 preValidateKeySuccess: (_, { preValidationResult }) => preValidationResult,
-                preValidateKeyFailure: () => ({ state: 'error' as const, error_message: 'Validation request failed' }),
                 clearPreValidation: () => null,
                 setNewKeyModalOpen: () => null,
                 setEditingKey: () => null,
@@ -163,11 +163,24 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return { state: 'error', error_message: 'No team selected' }
                     }
-                    const response = await api.create(
-                        `/api/environments/${teamId}/llm_analytics/provider_key_validations/`,
-                        { api_key: apiKey, provider }
-                    )
-                    return response
+                    try {
+                        const response = await api.create(
+                            `/api/environments/${teamId}/llm_analytics/provider_key_validations/`,
+                            { api_key: apiKey, provider }
+                        )
+                        return response
+                    } catch (error) {
+                        if (error instanceof ApiError) {
+                            return {
+                                state: 'error',
+                                error_message: error.detail || error.data?.error || error.message,
+                            }
+                        }
+                        if (error instanceof Error) {
+                            return { state: 'error', error_message: error.message }
+                        }
+                        return { state: 'error', error_message: 'Validation request failed' }
+                    }
                 },
             },
         ],

@@ -516,6 +516,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     anthropic: [],
                     gemini: [],
                     openrouter: [],
+                    fireworks: [],
                 }
                 for (const key of providerKeys) {
                     if (key.provider in byProvider) {

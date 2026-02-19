@@ -13,6 +13,10 @@
         }
     }
 
+    &.empty-infinite-list--start {
+        align-items: start;
+    }
+
     .taxonomic-list-row {
         display: flex;
         align-items: center;

@@ -211,7 +211,7 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
         return []
     }
 
-    const [rules, setRules] = useState<ConditionRule[]>(parseExistingConditions())
+    const [rules, setRules] = useState<ConditionRule[]>(parseExistingConditions)
 
     useEffect(() => {
         loadAllMembers()
