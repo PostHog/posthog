@@ -114,13 +114,20 @@ export function cleanupTooltip(id: string): void {
 
 const TOOLTIP_MAX_WIDTH = 480
 
-export function positionTooltip(tooltipEl: HTMLElement, canvasBounds: DOMRect, caretX: number, caretY: number): void {
+export function positionTooltip(
+    tooltipEl: HTMLElement,
+    canvasBounds: DOMRect,
+    caretX: number,
+    caretY: number,
+    centerVertically = false
+): void {
     tooltipEl.style.position = 'absolute'
     tooltipEl.style.maxWidth = ''
 
     const caretLeft = canvasBounds.left + window.scrollX + caretX
     let left = caretLeft + 8
-    const top = canvasBounds.top + window.scrollY + caretY + 8
+    const verticalOffset = centerVertically ? -tooltipEl.clientHeight / 2 : 8
+    const top = canvasBounds.top + window.scrollY + caretY + verticalOffset
 
     const viewportRight = window.scrollX + document.documentElement.clientWidth
     const tooltipWidth = tooltipEl.offsetWidth || TOOLTIP_MAX_WIDTH

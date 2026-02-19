@@ -215,7 +215,7 @@ export function PieChart({
                                                         )}
                                                         <div className="flex flex-col">
                                                             {hasBreakdown && !formula && datum.breakdown_value}
-                                                            {value}
+                                                            "This_is_a_very_long_value_that_should_be_wrapped_to_the_next_line"
                                                         </div>
                                                     </div>
                                                 )
