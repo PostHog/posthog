@@ -127,7 +127,7 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
     listeners(() => ({
         loadAIEventDefinitionSuccess: ({ hasSentAiEvent }) => {
             if (hasSentAiEvent) {
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ingest_first_llm_event)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.IngestFirstLlmEvent)
             }
         },
     })),
@@ -249,7 +249,7 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
 
     afterMount(({ actions, values }) => {
         actions.loadAIEventDefinition()
-        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.track_costs)
+        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.TrackCosts)
 
         // Track product intent when dashboard is viewed
         if (values.activeTab === 'dashboard') {

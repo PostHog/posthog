@@ -467,7 +467,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 })
 
                 // Once we've finished streaming - successfuly - mark the task as completed
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.run_ai_playground)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunAiPlayground)
 
                 actions.finalizeAssistantMessage()
             } catch (error) {

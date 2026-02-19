@@ -699,7 +699,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setSourceId(id)
                 actions.resetSourceConnectionDetails()
                 actions.loadSources(null)
-                actions.markTaskAsCompleted(SetupTaskId.connect_source)
+                actions.markTaskAsCompleted(SetupTaskId.ConnectSource)
                 actions.onNext()
             } catch (e: any) {
                 lemonToast.error(e.data?.message ?? e.message)

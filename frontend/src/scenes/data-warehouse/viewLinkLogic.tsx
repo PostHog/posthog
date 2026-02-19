@@ -298,7 +298,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                         actions.loadDatabase()
 
                         posthog.capture('join created')
-                        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.join_external_data)
+                        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.JoinExternalData)
                     } catch (error: any) {
                         actions.setError(error.detail)
                     }

@@ -500,7 +500,7 @@ const WebAnalyticsSurveyModal = (): JSX.Element | null => {
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
     useOnMountEffect(() => {
-        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.review_web_analytics_dashboard)
+        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ReviewWebAnalyticsDashboard)
     })
 
     return (
@@ -566,10 +566,10 @@ const WebAnalyticsTabs = (): JSX.Element => {
 
     useEffect(() => {
         if (productTab === ProductTab.ANALYTICS) {
-            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.review_web_analytics_dashboard)
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ReviewWebAnalyticsDashboard)
         }
         if (productTab === ProductTab.WEB_VITALS) {
-            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.visit_web_vitals_dashboard)
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.VisitWebVitalsDashboard)
         }
     }, [productTab])
 

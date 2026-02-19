@@ -289,7 +289,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         },
         loadFeatureFlagsSuccess: () => {
             if (values.featureFlags.results.length > 0) {
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.create_feature_flag)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFeatureFlag)
             }
         },
     })),

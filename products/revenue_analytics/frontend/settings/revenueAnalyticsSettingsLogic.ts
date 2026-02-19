@@ -319,7 +319,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         return {
             addGoal: () => {
                 updateCurrentTeam()
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.set_up_revenue_goal)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpRevenueGoal)
             },
             deleteGoal: updateCurrentTeam,
             updateGoal: updateCurrentTeam,
@@ -328,7 +328,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
 
                 // Mark ConnectRevenueSource as completed when saving with events configured
                 if ((values.revenueAnalyticsConfig?.events?.length ?? 0) > 0) {
-                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.connect_revenue_source)
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ConnectRevenueSource)
                 }
             },
             updateFilterTestAccounts: ({ filterTestAccounts }) => {
@@ -343,7 +343,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
 
                 // Mark ConnectRevenueSource as completed when enabling a data source
                 if (config.enabled) {
-                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.connect_revenue_source)
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ConnectRevenueSource)
                 }
 
                 return func(source.source_type)

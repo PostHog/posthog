@@ -175,13 +175,13 @@ export const teamLogic = kea<teamLogicType>([
                     const setupLogic = globalSetupLogic.findMounted()
                     if (setupLogic) {
                         if (payload.autocapture_web_vitals_opt_in) {
-                            setupLogic.actions.markTaskAsCompleted(SetupTaskId.set_up_web_vitals)
+                            setupLogic.actions.markTaskAsCompleted(SetupTaskId.SetUpWebVitals)
                         }
                         if (payload.session_recording_opt_in) {
-                            setupLogic.actions.markTaskAsCompleted(SetupTaskId.setup_session_recordings)
+                            setupLogic.actions.markTaskAsCompleted(SetupTaskId.SetupSessionRecordings)
                         }
                         if (payload.capture_console_log_opt_in) {
-                            setupLogic.actions.markTaskAsCompleted(SetupTaskId.enable_console_logs)
+                            setupLogic.actions.markTaskAsCompleted(SetupTaskId.EnableConsoleLogs)
                         }
                         if (
                             payload.session_recording_sample_rate ||
@@ -189,7 +189,7 @@ export const teamLogic = kea<teamLogicType>([
                             payload.session_recording_linked_flag ||
                             payload.session_recording_network_payload_capture_config
                         ) {
-                            setupLogic.actions.markTaskAsCompleted(SetupTaskId.configure_recording_settings)
+                            setupLogic.actions.markTaskAsCompleted(SetupTaskId.ConfigureRecordingSettings)
                         }
                     }
 
@@ -327,9 +327,7 @@ export const teamLogic = kea<teamLogicType>([
 
             // Detect managed viewsets to mark them as completed in the product setup
             if (currentTeam?.managed_viewsets?.['revenue_analytics']) {
-                globalSetupLogic
-                    .findMounted()
-                    ?.actions.markTaskAsCompleted(SetupTaskId.enable_revenue_analytics_viewset)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.EnableRevenueAnalyticsViewset)
             }
         },
         updateCurrentTeamSuccess: () => {
