@@ -58,8 +58,7 @@ class Threshold(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     ) -> dict:
         config = dict(existing) if existing is not None else {}
         bounds = dict(config.get("bounds", {}))
-        if threshold_type is not None:
-            config["type"] = threshold_type
+        config["type"] = threshold_type
 
         if lower is not None:
             bounds["lower"] = lower
