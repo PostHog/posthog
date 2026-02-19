@@ -171,29 +171,27 @@ def get_effective_access_level_for_role(
     role_level: AccessControlLevel | None,
 ) -> EffectiveAccessResult:
     """Compute effective access for a role from role override and default."""
-    if default_level is None and role_level is None:
-        return EffectiveAccessResult(
-            effective_access_level=None,
-            inherited_access_level=None,
-            inherited_access_level_reason=None,
-        )
-
-    levels = ordered_access_levels(resource)
-    inherited = default_level
     effective: AccessControlLevel | None = None
+    inherited: AccessControlLevel | None = None
+    inherited_reason: InheritedAccessLevelReason | None = None
 
-    if role_level is None:
-        effective = inherited
-    elif inherited is None:
-        # using the role level if there's no default level
+    if default_level is None:
         effective = role_level
-    elif levels.index(role_level) > levels.index(inherited):
-        effective = role_level
+    elif role_level is None:
+        effective = default_level
+        inherited = default_level
+        inherited_reason = "project_default"
+    elif role_level and default_level:
+        inherited = default_level
+        inherited_reason = "project_default"
+
+        levels = ordered_access_levels(resource)
+        effective = role_level if levels.index(role_level) > levels.index(default_level) else default_level
 
     return EffectiveAccessResult(
         effective_access_level=effective,
         inherited_access_level=inherited,
-        inherited_access_level_reason="project_default",
+        inherited_access_level_reason=inherited_reason,
     )
 
 
@@ -205,40 +203,38 @@ def get_effective_access_level_for_member(
     is_org_admin: bool,
 ) -> EffectiveAccessResult:
     """Compute effective access for a member from member override, default, and role levels."""
-    if default_level is None and not role_levels and member_level is None:
-        return EffectiveAccessResult(
-            effective_access_level=None,
-            inherited_access_level=None,
-            inherited_access_level_reason=None,
-        )
+    effective: AccessControlLevel | None = None
+    inherited: AccessControlLevel | None = None
+    inherited_reason: InheritedAccessLevelReason | None = None
 
     if is_org_admin:
-        top = highest_access_level(resource)
-        return EffectiveAccessResult(
-            effective_access_level=top,
-            inherited_access_level=top,
-            inherited_access_level_reason="organization_admin",
-        )
-
-    levels = ordered_access_levels(resource)
-
-    inherited = default_level
-    inherited_reason: InheritedAccessLevelReason = "project_default"
-    effective: AccessControlLevel | None = None
-
-    for rl in role_levels:
-        # using the role level if there's no default level or the role level is higher
-        if inherited is None or levels.index(rl) > levels.index(inherited):
-            inherited = rl
-            inherited_reason = "role_override"
-
-    if member_level is None:
-        effective = inherited
-    elif inherited is None:
-        # using the member level if both default and role levels are not set
+        highest = highest_access_level(resource)
+        effective = highest
+        inherited = highest
+        inherited_reason = "organization_admin"
+    elif default_level and not role_levels and not member_level:
+        effective = default_level
+        inherited = default_level
+        inherited_reason = "project_default"
+    elif default_level is None and not role_levels and member_level:
         effective = member_level
-    elif levels.index(member_level) > levels.index(inherited):
-        effective = member_level
+    else:
+        levels = ordered_access_levels(resource)
+
+        inherited = default_level
+        inherited_reason = "project_default" if default_level else None
+
+        # checking if any role level is higher than the default level
+        for rl in role_levels:
+            if inherited is None or levels.index(rl) > levels.index(inherited):
+                inherited = rl
+                inherited_reason = "role_override"
+
+        # checking if the member level is higher than the default and role levels
+        if member_level and levels.index(member_level) > levels.index(cast(AccessControlLevel, inherited)):
+            effective = member_level
+        else:
+            effective = inherited
 
     return EffectiveAccessResult(
         effective_access_level=effective,
