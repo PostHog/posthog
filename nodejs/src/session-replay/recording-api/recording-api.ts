@@ -93,7 +93,7 @@ export class RecordingApi {
         })
         const retentionService = new RetentionService(this.redisPool, teamService)
 
-        const keyStore: KeyStore = getKeyStore(teamService, retentionService, s3Region, {
+        const keyStore: KeyStore = getKeyStore(retentionService, s3Region, {
             kmsEndpoint: this.hub.SESSION_RECORDING_KMS_ENDPOINT,
             dynamoDBEndpoint: this.hub.SESSION_RECORDING_DYNAMODB_ENDPOINT,
         })
