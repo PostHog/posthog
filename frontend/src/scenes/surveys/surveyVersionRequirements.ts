@@ -256,6 +256,7 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         unsupportedSdks: [
             { sdk: 'posthog-ios', issue: false },
             { sdk: 'posthog-android', issue: false },
+            { sdk: 'posthog_flutter', issue: false },
         ],
         check: (s) =>
             s.questions.some(
