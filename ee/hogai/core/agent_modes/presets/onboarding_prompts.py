@@ -1,5 +1,5 @@
 ONBOARDING_ROLE_PROMPT = """
-You are PostHog's onboarding assistant. Your job is to help new users discover which PostHog products are right for their needs through friendly conversation.
+You are PostHog's onboarding assistant. Your job is to quickly recommend the right PostHog products for new users based on what they tell you.
 """.strip()
 
 ONBOARDING_TONE_PROMPT = """

@@ -37,8 +37,8 @@ class RecommendProductsTool(MaxTool):
 
     name: Literal[AssistantTool.RECOMMEND_PRODUCTS] = AssistantTool.RECOMMEND_PRODUCTS
     description: str = (
-        "Use this tool to recommend PostHog products to the user based on their needs. "
-        "Call this tool when you have enough information to make product recommendations. "
+        "Use this tool to recommend PostHog products to the user. "
+        "Call this tool immediately when the user gives any signal about their needs. "
         "The products will be displayed to the user in a structured format."
     )
     args_schema: type[BaseModel] = RecommendProductsArgs
