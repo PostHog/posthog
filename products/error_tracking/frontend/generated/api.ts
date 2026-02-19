@@ -365,7 +365,7 @@ export const getErrorTrackingExternalReferencesCreateUrl = (projectId: string) =
 
 export const errorTrackingExternalReferencesCreate = async (
     projectId: string,
-    errorTrackingExternalReferenceApi: NonReadonly<ErrorTrackingExternalReferenceApi>,
+    errorTrackingExternalReferenceApi: ErrorTrackingExternalReferenceApi,
     options?: RequestInit
 ): Promise<ErrorTrackingExternalReferenceApi> => {
     return apiMutator<ErrorTrackingExternalReferenceApi>(getErrorTrackingExternalReferencesCreateUrl(projectId), {
@@ -398,7 +398,7 @@ export const getErrorTrackingExternalReferencesUpdateUrl = (projectId: string, i
 export const errorTrackingExternalReferencesUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingExternalReferenceApi: NonReadonly<ErrorTrackingExternalReferenceApi>,
+    errorTrackingExternalReferenceApi: ErrorTrackingExternalReferenceApi,
     options?: RequestInit
 ): Promise<ErrorTrackingExternalReferenceApi> => {
     return apiMutator<ErrorTrackingExternalReferenceApi>(getErrorTrackingExternalReferencesUpdateUrl(projectId, id), {

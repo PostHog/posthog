@@ -31,9 +31,10 @@ export const CAPABILITIES_REALTIME_COHORTS: PluginServerCapabilities = {
     cdpCohortMembership: true,
 }
 
-/** Session Replay - recording ingestion */
+/** Session Replay - recording ingestion + serving */
 export const CAPABILITIES_SESSION_REPLAY: PluginServerCapabilities = {
     sessionRecordingBlobIngestionV2: true,
+    recordingApi: true,
 }
 
 /** Session Replay Overflow - overflow recording ingestion */

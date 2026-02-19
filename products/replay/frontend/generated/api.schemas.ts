@@ -286,27 +286,3 @@ export type SessionRecordingsListParams = {
      */
     offset?: number
 }
-
-export type SessionRecordingPlaylistsList2Params = {
-    created_by?: number
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    short_id?: string
-}
-
-export type SessionRecordingsList2Params = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}

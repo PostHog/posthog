@@ -1,10 +1,10 @@
-import { AnyEntityNode, EventsNode, FunnelsQuery, InsightVizNode } from '~/queries/schema/schema-general'
+import { AnyEntityNode, EventsNode, FunnelsQuery, GroupNode, InsightVizNode } from '~/queries/schema/schema-general'
 import { DashboardTile, QueryBasedInsightModel, SurveyEventsWithProperties } from '~/types'
 
 export interface FunnelContext {
     insightName: string
     conversionRate: number
-    steps: AnyEntityNode[]
+    steps: (AnyEntityNode | GroupNode)[]
 }
 
 interface FunnelStepResult {

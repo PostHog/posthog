@@ -205,8 +205,8 @@ RUN apt-get update && \
     "libxmlsec1-dev=1.2.37-2" \
     "libxml2" \
     "ffmpeg=7:5.1.8-0+deb12u1" \
-    "libssl-dev=3.0.17-1~deb12u2" \
-    "libssl3=3.0.17-1~deb12u2" \
+    "libssl-dev=3.0.18-1~deb12u2" \
+    "libssl3=3.0.18-1~deb12u2" \
     "libjemalloc2" \
     && \
     rm -rf /var/lib/apt/lists/*
@@ -313,6 +313,8 @@ COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_trans
 
 # Add in custom bin files and Django deps.
 COPY --chown=posthog:posthog ./bin ./bin/
+# Persons SQL migration files (read by apply_persons_migrations management command for hobby deploys)
+COPY --chown=posthog:posthog ./rust/persons_migrations ./rust/persons_migrations/
 COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/

@@ -528,20 +528,19 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         """
         Allow self-introspection without the introspection scope.
 
-        Only access tokens can self-introspect (they're the only token type
-        usable as Bearer credentials). We validate the Bearer token is a valid
-        access token before granting access.
+        Per RFC 7662, expired tokens should get {"active": false} rather than
+        a 401/403 rejection. We allow self-introspection for any token that
+        exists in the database, regardless of expiry. The get_token_response
+        method handles returning active: false for expired tokens.
         """
         if self._is_self_introspection(request):
             bearer_token = request.headers.get("Authorization", "")[7:]
             token_checksum = hashlib.sha256(bearer_token.encode("utf-8")).hexdigest()
             try:
-                access_token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
+                OAuthAccessToken.objects.get(token_checksum=token_checksum)
             except OAuthAccessToken.DoesNotExist:
                 return False, request
-            if access_token.is_valid():
-                return True, request
-            return False, request
+            return True, request
         return super().verify_request(request)
 
     @staticmethod
