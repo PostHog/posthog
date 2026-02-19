@@ -201,6 +201,7 @@ class EntitySearchContext:
             )
             all_entities.extend(db_results)
 
+        assert total_count is not None
         return all_entities, total_count
 
     def format_entities(self, entities: list[dict]) -> str:
