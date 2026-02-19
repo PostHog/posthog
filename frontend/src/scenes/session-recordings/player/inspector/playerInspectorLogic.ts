@@ -1316,10 +1316,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 actions.reportRecordingInspectorItemExpanded(item.type, index)
 
                 if (item.type === 'events') {
-                    const eventsToLoad = [item.data]
-                    if (item.groupedEvents) {
-                        eventsToLoad.push(...item.groupedEvents.map((e) => e.data))
-                    }
+                    const eventsToLoad = item.groupedEvents ? item.groupedEvents.map((e) => e.data) : [item.data]
                     actions.loadFullEventData(eventsToLoad)
                 }
             }

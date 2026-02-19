@@ -38,22 +38,10 @@ describe('collapseAdjacentItems', () => {
         expect((result[0] as InspectorListItemEvent).groupedEvents).toBeUndefined()
     })
 
-    it('collapses 2 identical events into one group', () => {
-        const result = collapseAdjacentItems([makeEvent(), makeEvent()])
+    it.each([2, 3, 5])('collapses %i identical events into one group', (n) => {
+        const result = collapseAdjacentItems(Array.from({ length: n }, () => makeEvent()))
         expect(result).toHaveLength(1)
-        expect((result[0] as InspectorListItemEvent).groupedEvents).toHaveLength(2)
-    })
-
-    it('collapses 3 identical events into one group', () => {
-        const result = collapseAdjacentItems([makeEvent(), makeEvent(), makeEvent()])
-        expect(result).toHaveLength(1)
-        expect((result[0] as InspectorListItemEvent).groupedEvents).toHaveLength(3)
-    })
-
-    it('collapses 5 identical events into one group', () => {
-        const result = collapseAdjacentItems(Array.from({ length: 5 }, () => makeEvent()))
-        expect(result).toHaveLength(1)
-        expect((result[0] as InspectorListItemEvent).groupedEvents).toHaveLength(5)
+        expect((result[0] as InspectorListItemEvent).groupedEvents).toHaveLength(n)
     })
 
     it('breaks the run when the event name changes', () => {
