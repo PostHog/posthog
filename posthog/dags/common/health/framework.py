@@ -1,10 +1,11 @@
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import Literal, Union, cast, overload
+from typing import cast
 
 import dagster
 
 from posthog.dags.common.common import JobOwners, check_for_concurrent_runs
+from posthog.dags.common.health.detectors import HealthDetector, resolve_execution_policy
 from posthog.dags.common.health.processing import _process_batch_detection, _process_per_team_detection
 from posthog.dags.common.health.types import (
     BatchDetectFn,
@@ -69,18 +70,13 @@ def _get_teams_per_second(result: BatchResult) -> float:
     return result.batch_size / result.total_duration if result.total_duration > 0 else 0
 
 
-def _create_check_batch_op(
-    name: str,
-    kind: str,
-    detect_fn: Union[BatchDetectFn, TeamDetectFn],
-    per_team: bool,
-) -> dagster.OpDefinition:
+def _create_check_batch_op(name: str, kind: str, detector: HealthDetector) -> dagster.OpDefinition:
     @dagster.op(name=f"{name}_check_batch", retry_policy=_default_retry_policy)
     def check_batch_op(context: dagster.OpExecutionContext, team_ids: list[int]) -> BatchResult:
-        if per_team:
-            result = _process_per_team_detection(team_ids, kind, cast(TeamDetectFn, detect_fn), context)
+        if detector.per_team:
+            result = _process_per_team_detection(team_ids, kind, cast(TeamDetectFn, detector.detect_fn), context)
         else:
-            result = _process_batch_detection(team_ids, kind, cast(BatchDetectFn, detect_fn), context)
+            result = _process_batch_detection(team_ids, kind, cast(BatchDetectFn, detector.detect_fn), context)
 
         teams_per_second = _get_teams_per_second(result)
 
@@ -137,48 +133,17 @@ def _create_aggregate_op(
     return aggregate_op
 
 
-@overload
 def create_health_check(
     name: str,
     kind: str,
-    detect_fn: BatchDetectFn,
+    detector: HealthDetector,
     owner: JobOwners,
     *,
-    team_ids: list[int] | None = ...,
-    schedule: str | None = ...,
-    batch_size: int = ...,
-    max_concurrent: int = ...,
-    not_processed_threshold: float = ...,
-) -> HealthCheckDefinition: ...
-
-
-@overload
-def create_health_check(
-    name: str,
-    kind: str,
-    detect_fn: TeamDetectFn,
-    owner: JobOwners,
-    *,
-    per_team: Literal[True],
-    team_ids: list[int] | None = ...,
-    schedule: str | None = ...,
-    batch_size: int = ...,
-    max_concurrent: int = ...,
-    not_processed_threshold: float = ...,
-) -> HealthCheckDefinition: ...
-
-
-def create_health_check(
-    name: str,
-    kind: str,
-    detect_fn: Union[BatchDetectFn, TeamDetectFn],
-    owner: JobOwners,
-    *,
-    per_team: bool = False,
     team_ids: list[int] | None = None,
     schedule: str | None = None,
-    batch_size: int = 1000,
-    max_concurrent: int = 5,
+    batch_size: int | None = None,
+    max_concurrent: int | None = None,
+    rollout_percentage: float | None = None,
     not_processed_threshold: float = 0.1,
 ) -> HealthCheckDefinition:
     """Create a complete health check pipeline as a Dagster job.
@@ -186,18 +151,13 @@ def create_health_check(
     Args:
         name: Unique name for the health check (used in Dagster op/job names).
         kind: The health issue kind string written to the health_issues table.
-        detect_fn: Function used to detect the health issue.
+        detector: Detector definition used to detect health issues.
         owner: The team that owns this health check for Slack alert routing.
-        per_team: If `True`, `detect_fn` is called once per team with fault isolation and a
-            single team's exception is caught and logged without affecting other teams.
-            If `False` (default), `detect_fn` receives a batch of team IDs in a single call,
-            which is more efficient but means an unhandled exception fails the entire batch.
-            Use `per_team=True` when `detect_fn` may raise for individual teams.
-            Use `per_team=False` when the detection logic is a single bulk query.
         team_ids: If provided, only process these team IDs. If None, processes all teams.
         schedule: Optional cron expression for scheduling.
-        batch_size: Number of team IDs per batch.
-        max_concurrent: Maximum parallel batch operations.
+        batch_size: Optional override for detector default batch size.
+        max_concurrent: Optional override for detector default concurrency.
+        rollout_percentage: Optional deterministic team rollout percentage (0-100, supports decimals).
         not_processed_threshold: Fail if this fraction of teams are skipped or failed.
 
     Returns:
@@ -208,12 +168,20 @@ def create_health_check(
         raise ValueError(f"Health check kind '{kind}' already registered by '{existing}'")
     _REGISTERED_KINDS[kind] = name
 
-    batch_op = _create_check_batch_op(name, kind, detect_fn, per_team)
+    policy = resolve_execution_policy(
+        detector,
+        batch_size=batch_size,
+        max_concurrent=max_concurrent,
+    )
+
+    batch_op = _create_check_batch_op(name, kind, detector)
     aggregate_op = _create_aggregate_op(name, kind, not_processed_threshold)
 
-    op_config: dict = {"batch_size": batch_size}
+    op_config: dict = {"batch_size": policy.batch_size}
     if team_ids is not None:
         op_config["team_ids"] = team_ids
+    if rollout_percentage is not None:
+        op_config["rollout_percentage"] = rollout_percentage
 
     job_config = {
         "ops": {
@@ -226,7 +194,7 @@ def create_health_check(
     @dagster.job(
         name=f"{name}_health_check_job",
         description=f"Health check: {kind}",
-        executor_def=dagster.multiprocess_executor.configured({"max_concurrent": max_concurrent}),
+        executor_def=dagster.multiprocess_executor.configured({"max_concurrent": policy.max_concurrent}),
         tags={"owner": owner.value},
         config=job_config,
     )

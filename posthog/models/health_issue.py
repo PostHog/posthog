@@ -3,7 +3,6 @@ import hashlib
 from typing import Any, Optional
 
 from django.db import models
-from django.db.models import Q
 from django.utils import timezone
 
 from posthog.models.utils import UUIDModel
@@ -140,19 +139,36 @@ class HealthIssue(UUIDModel):
 
         now = timezone.now()
 
-        qs = cls.objects.filter(
-            kind=kind,
-            status=cls.Status.ACTIVE,
-            team_id__in=team_ids,
-        )
+        if not keep_hashes:
+            return cls.objects.filter(
+                kind=kind,
+                status=cls.Status.ACTIVE,
+                team_id__in=team_ids,
+            ).update(status=cls.Status.RESOLVED, resolved_at=now, updated_at=now)
 
-        if keep_hashes:
-            keep_q = Q()
-            for team_id, hashes in keep_hashes.items():
-                keep_q |= Q(team_id=team_id, unique_hash__in=hashes)
-            qs = qs.exclude(keep_q)
+        keep_hashes_by_team = {team_id: hashes for team_id, hashes in keep_hashes.items() if team_id in team_ids}
+        team_ids_without_keep_hashes = team_ids - set(keep_hashes_by_team.keys())
 
-        return qs.update(status=cls.Status.RESOLVED, resolved_at=now, updated_at=now)
+        resolved = 0
+
+        if team_ids_without_keep_hashes:
+            resolved += cls.objects.filter(
+                kind=kind,
+                status=cls.Status.ACTIVE,
+                team_id__in=team_ids_without_keep_hashes,
+            ).update(status=cls.Status.RESOLVED, resolved_at=now, updated_at=now)
+
+        for team_id, hashes in keep_hashes_by_team.items():
+            team_qs = cls.objects.filter(
+                kind=kind,
+                status=cls.Status.ACTIVE,
+                team_id=team_id,
+            )
+            if hashes:
+                team_qs = team_qs.exclude(unique_hash__in=hashes)
+            resolved += team_qs.update(status=cls.Status.RESOLVED, resolved_at=now, updated_at=now)
+
+        return resolved
 
     def resolve(self) -> None:
         if self.status != self.Status.ACTIVE:
