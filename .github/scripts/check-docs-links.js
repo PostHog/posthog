@@ -4,7 +4,8 @@
 // 1. Relative links (./foo, ../bar) must resolve to existing files
 //    - published/ docs: links must stay within docs/published/ (they get served on posthog.com)
 //    - internal/ docs: links can point anywhere in the repo (GitHub-only)
-// 2. Absolute posthog.com links must return HTTP 200/301/302
+// 2. Absolute posthog.com links that point to local docs should be relative instead
+// 3. Absolute posthog.com links must return HTTP 200/301/302
 
 const fs = require('fs')
 const path = require('path')
@@ -73,6 +74,40 @@ function resolveRelativeLink(fromFile, link) {
     }
 
     return { file: path.relative(DOCS_ROOT, fromFile), link, resolved: path.relative(DOCS_ROOT, resolved) }
+}
+
+// Build a set of URL paths that map to local published docs.
+// e.g. "handbook/engineering/project-structure" if published/handbook/engineering/project-structure.md exists
+function buildPublishedUrlIndex() {
+    const index = new Set()
+    if (!fs.existsSync(PUBLISHED_ROOT)) return index
+
+    for (const file of findMarkdownFiles(PUBLISHED_ROOT)) {
+        let rel = path.relative(PUBLISHED_ROOT, file)
+        // Strip .md/.mdx extension
+        rel = rel.replace(/\.(mdx?)$/, '')
+        // Strip /index suffix (index files map to the directory path)
+        rel = rel.replace(/\/index$/, '')
+        index.add(rel)
+    }
+    return index
+}
+
+function findAbsoluteLinksToLocalDocs(files, publishedIndex) {
+    const issues = []
+    for (const file of files) {
+        const content = fs.readFileSync(file, 'utf8')
+        let match
+        const re = new RegExp(POSTHOG_URL_RE.source, 'g')
+        while ((match = re.exec(content)) !== null) {
+            const url = match[0].replace(/[,.)]+$/, '')
+            const urlPath = url.replace('https://posthog.com/', '').split('#')[0].replace(/\/$/, '')
+            if (publishedIndex.has(urlPath)) {
+                issues.push({ file: path.relative(DOCS_ROOT, file), url })
+            }
+        }
+    }
+    return issues
 }
 
 function collectPosthogUrls(files) {
@@ -169,7 +204,22 @@ async function main() {
         console.log(`  ✅ All relative links resolve to existing files\n`)
     }
 
-    // 2. Check posthog.com links
+    // 2. Check for absolute links to local docs (should be relative)
+    console.log('--- Checking for absolute links to local docs ---')
+    const publishedIndex = buildPublishedUrlIndex()
+    const shouldBeRelative = findAbsoluteLinksToLocalDocs(files, publishedIndex)
+
+    if (shouldBeRelative.length > 0) {
+        for (const { file, url } of shouldBeRelative) {
+            console.log(`  ❌ ${file}: ${url} (exists locally, use a relative link instead)`)
+        }
+        console.log(`\n${shouldBeRelative.length} link(s) should be relative.\n`)
+        exitCode = 1
+    } else {
+        console.log(`  ✅ No absolute links to local docs found\n`)
+    }
+
+    // 3. Check posthog.com links
     console.log('--- Checking posthog.com links ---')
     const urls = collectPosthogUrls(files)
 
