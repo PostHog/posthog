@@ -223,7 +223,7 @@ class FunnelBase(ABC):
         elif isinstance(step, DataWarehouseNode):
             step_type = "data_warehouse"
         elif isinstance(step, GroupNode):
-            step_type = "events"  # TODO: Set proper type
+            step_type = "group"
         else:
             raise TypeError(f"Unsupported step type {type(step)}")
 
@@ -246,8 +246,22 @@ class FunnelBase(ABC):
             name = f"{step.table_name}.{step.distinct_id_field}"
             action_id = None
         elif isinstance(step, GroupNode):
-            name = step.name
-            action_id = None
+            action_ids = [int(node.id) for node in step.nodes if isinstance(node, ActionsNode)]
+            actions_by_id = {}
+            if action_ids:
+                actions = Action.objects.filter(pk__in=action_ids, team__project_id=self.context.team.project_id)
+                actions_by_id = {action.pk: action.name or "Unnamed action" for action in actions}
+
+            events = []
+            for node in step.nodes:
+                if isinstance(node, EventsNode):
+                    events.append(node.event if node.event is not None else "All events")
+                elif isinstance(node, ActionsNode):
+                    events.append(actions_by_id.get(int(node.id), "Unnamed action"))
+                elif isinstance(node, DataWarehouseNode):
+                    events.append(node.table_name)
+            name = ", ".join(events)
+            action_id = name
         else:
             action = Action.objects.get(pk=step.id, team__project_id=self.context.team.project_id)
             name = action.name
