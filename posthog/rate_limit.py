@@ -634,3 +634,30 @@ class MCPOAuthBurstThrottle(UserRateThrottle):
 class MCPOAuthSustainedThrottle(UserRateThrottle):
     scope = "mcp_oauth_sustained"
     rate = "50/hour"
+
+
+class RestoreRequestThrottle(SimpleRateThrottle):
+    """Rate limit restore link requests per email hash to prevent abuse."""
+
+    scope = "widget_restore_request"
+    rate = "3/hour"
+
+    def get_cache_key(self, request, view):
+        # Throttle by email hash
+        email = request.data.get("email", "") if isinstance(request.data, dict) else ""
+        if email:
+            ident = hashlib.sha256(email.lower().strip().encode()).hexdigest()
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class RestoreRedeemThrottle(SimpleRateThrottle):
+    """Rate limit restore token redemption per IP to prevent brute force."""
+
+    scope = "widget_restore_redeem"
+    rate = "10/minute"
+
+    def get_cache_key(self, request, view):
+        # Throttle by IP
+        return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}

@@ -20,14 +20,14 @@
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
 export const RoleAtOrganizationEnumApi = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
@@ -76,11 +76,11 @@ export interface UserBasicApi {
 export type CohortTypeEnumApi = (typeof CohortTypeEnumApi)[keyof typeof CohortTypeEnumApi]
 
 export const CohortTypeEnumApi = {
-    static: 'static',
-    person_property: 'person_property',
-    behavioral: 'behavioral',
-    realtime: 'realtime',
-    analytical: 'analytical',
+    Static: 'static',
+    PersonProperty: 'person_property',
+    Behavioral: 'behavioral',
+    Realtime: 'realtime',
+    Analytical: 'analytical',
 } as const
 
 export interface CohortApi {
@@ -311,6 +311,6 @@ export type CohortsPersonsRetrieveFormat =
     (typeof CohortsPersonsRetrieveFormat)[keyof typeof CohortsPersonsRetrieveFormat]
 
 export const CohortsPersonsRetrieveFormat = {
-    csv: 'csv',
-    json: 'json',
+    Csv: 'csv',
+    Json: 'json',
 } as const
