@@ -71,6 +71,7 @@ import {
 } from '~/types'
 
 import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
+import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
@@ -1763,7 +1764,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }> => [
                 {
                     id: 'simple',
-                    name: 'Simple flag',
+                    name: TEMPLATE_NAMES.simple,
                     description: 'On/off for all users',
                     getValues: (flag) => ({
                         key: 'my-feature',
@@ -1777,7 +1778,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
                 {
                     id: 'targeted',
-                    name: 'Targeted release',
+                    name: TEMPLATE_NAMES.targeted,
                     description: 'Release to specific users',
                     getValues: (flag) => ({
                         key: 'targeted-release',
@@ -1804,7 +1805,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
                 {
                     id: 'multivariate',
-                    name: 'Multivariate',
+                    name: TEMPLATE_NAMES.multivariate,
                     description: 'Multiple variants',
                     getValues: (flag) => ({
                         key: 'multivariate-flag',
@@ -1823,7 +1824,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
                 {
                     id: 'targeted-multivariate',
-                    name: 'Targeted multivariate',
+                    name: TEMPLATE_NAMES['targeted-multivariate'],
                     description: 'Variants for specific users',
                     getValues: (flag) => ({
                         key: 'targeted-multivariate',

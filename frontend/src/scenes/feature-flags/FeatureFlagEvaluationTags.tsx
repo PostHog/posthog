@@ -111,7 +111,8 @@ export function FeatureFlagEvaluationTags({
                 {localTags.length > 0 && (
                     <div className="flex flex-col gap-2">
                         <div className="text-xs text-muted">
-                            Click the bolt icon on a tag to restrict flag evaluation to that context.
+                            Click the bolt to mark a tag as an evaluation context, restricting where this flag
+                            evaluates.
                         </div>
                         <div className="flex flex-wrap gap-1.5">
                             {localTags.map((tag: string) => {
@@ -121,12 +122,12 @@ export function FeatureFlagEvaluationTags({
                                         key={tag}
                                         title={
                                             isEvaluationTag
-                                                ? 'Restricts where flag evaluates. Click to remove restriction.'
-                                                : 'Click to restrict evaluation to this context'
+                                                ? 'Evaluation context – click to remove'
+                                                : 'Click to mark as evaluation context'
                                         }
                                     >
                                         <LemonTag
-                                            type={isEvaluationTag ? 'primary' : colorForString(tag)}
+                                            type={isEvaluationTag ? 'success' : colorForString(tag)}
                                             icon={
                                                 <IconBolt
                                                     className={clsx(
@@ -180,9 +181,9 @@ export function FeatureFlagEvaluationTags({
                 tags.map((tag) => {
                     const isEvaluationTag = evaluationTags.includes(tag)
                     return (
-                        <Tooltip key={tag} title={isEvaluationTag ? 'Restricts where flag evaluates' : undefined}>
+                        <Tooltip key={tag} title={isEvaluationTag ? 'Evaluation context' : undefined}>
                             <LemonTag
-                                type={isEvaluationTag ? 'primary' : colorForString(tag)}
+                                type={isEvaluationTag ? 'success' : colorForString(tag)}
                                 icon={isEvaluationTag ? <IconBolt /> : undefined}
                             >
                                 {tag}

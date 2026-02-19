@@ -214,7 +214,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 <LemonField
                                     name="key"
                                     label="Flag key"
-                                    info="The key is used to identify the feature flag in the code. Must be unique."
+                                    info="Unique identifier used in your code. Cannot be changed after creation."
                                 >
                                     {({ value, onChange }) => (
                                         <LemonInput
@@ -249,7 +249,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                             label={
                                                 <span className="flex items-center gap-1">
                                                     <span>Enabled</span>
-                                                    <Tooltip title="When enabled, this flag evaluates according to your release conditions. When disabled, this flag will not be evaluated and PostHog SDKs default to returning false.">
+                                                    <Tooltip title="When disabled, all SDKs return false without checking release conditions.">
                                                         <IconInfo className="text-secondary text-base" />
                                                     </Tooltip>
                                                 </span>
@@ -288,10 +288,9 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                             title={
                                                                 hasEvaluationTags ? (
                                                                     <>
-                                                                        Use tags to organize flags. Mark tags as
-                                                                        evaluation contexts to control when flags
-                                                                        evaluate – flags only evaluate when the SDK
-                                                                        provides matching environment tags.{' '}
+                                                                        Use tags to organize flags. Mark a tag as an
+                                                                        evaluation context to restrict where this flag
+                                                                        can evaluate.{' '}
                                                                         <Link
                                                                             to="https://posthog.com/docs/feature-flags/evaluation-contexts"
                                                                             target="_blank"
@@ -300,9 +299,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                         </Link>
                                                                     </>
                                                                 ) : (
-                                                                    'Use tags to organize and filter your feature flags.'
+                                                                    'Organize and filter your flags.'
                                                                 )
                                                             }
+                                                            interactive={hasEvaluationTags}
                                                         >
                                                             <IconInfo className="text-secondary text-base" />
                                                         </Tooltip>
@@ -360,10 +360,8 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     labelClassName="text-sm font-medium"
                                                     info={
                                                         <>
-                                                            Controls where your feature flag can be evaluated. If you
-                                                            try to use a flag in a runtime where it's not allowed (e.g.,
-                                                            using a server-only flag in client-side code), it won't
-                                                            evaluate.{' '}
+                                                            Control whether this flag evaluates on client, server, or
+                                                            both.{' '}
                                                             <Link
                                                                 to="https://posthog.com/docs/feature-flags/creating-feature-flags#step-5-configure-evaluation-runtime-and-environments-optional"
                                                                 target="_blank"
@@ -432,10 +430,8 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     labelClassName="text-sm font-medium"
                                                     info={
                                                         <>
-                                                            If your feature flag is applied before identifying the user,
-                                                            use this to ensure that the flag value remains consistent
-                                                            for the same user. This requires creating profiles for
-                                                            anonymous users.{' '}
+                                                            Keep flag values consistent before and after login. Requires
+                                                            anonymous user profiles.{' '}
                                                             <Link
                                                                 to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
                                                                 target="_blank"
@@ -468,7 +464,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                             {/* Flag type card */}
                             <div className="rounded border p-3 bg-bg-light gap-4 flex flex-col">
                                 <div className="flex flex-col gap-2">
-                                    <LemonLabel info="Changing flag type may clear existing configuration. Switching from Multivariate will remove all variants and their payloads. Switching from Remote config or Boolean will remove the payload.">
+                                    <LemonLabel info="Changing type may remove existing variants or payloads.">
                                         Flag type
                                     </LemonLabel>
                                     <LemonSelect
@@ -648,7 +644,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                             data-attr={`feature-flag-variant-description-${index}`}
                                                         />
 
-                                                        <LemonLabel info="Optionally specify a JSON payload to be returned when this variant is selected.">
+                                                        <LemonLabel info="Optionally return JSON data when this variant matches.">
                                                             Payload
                                                         </LemonLabel>
                                                         <JSONEditorInput
@@ -709,7 +705,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 {/* Payload section - for boolean and remote config flags */}
                                 {!multivariateEnabled && featureFlag.is_remote_configuration && (
                                     <div className="flex flex-col gap-2">
-                                        <LemonLabel info="Specify a JSON payload to be returned for this remote config flag.">
+                                        <LemonLabel info="JSON data returned by this remote config.">
                                             Payload
                                         </LemonLabel>
                                         <div className="text-secondary text-xs mb-1">

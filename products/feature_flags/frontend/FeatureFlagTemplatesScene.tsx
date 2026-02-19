@@ -8,6 +8,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { TEMPLATE_NAMES, TemplateKey } from './featureFlagTemplateConstants'
 import { featureFlagTemplatesSceneLogic } from './featureFlagTemplatesSceneLogic'
 
 export const scene: SceneExport = {
@@ -15,11 +16,8 @@ export const scene: SceneExport = {
     logic: featureFlagTemplatesSceneLogic,
 }
 
-export type TemplateKey = 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
-
 interface FeatureFlagTemplate {
     key: TemplateKey
-    name: string
     description: string
     icon: JSX.Element
 }
@@ -27,25 +25,21 @@ interface FeatureFlagTemplate {
 const TEMPLATES: FeatureFlagTemplate[] = [
     {
         key: 'simple',
-        name: 'Percentage rollout',
         description: 'Roll out to a percentage of all users',
         icon: <IconToggle className="w-6 h-6 text-primary-3000" />,
     },
     {
         key: 'targeted',
-        name: 'Targeted release',
         description: 'Release to specific users or group segments',
         icon: <IconPeople className="w-6 h-6 text-primary-3000" />,
     },
     {
         key: 'multivariate',
-        name: 'A/B test variants',
         description: 'Test multiple variants with different payloads',
         icon: <IconTestTube className="w-6 h-6 text-primary-3000" />,
     },
     {
         key: 'targeted-multivariate',
-        name: 'Targeted A/B test',
         description: 'Test variants for specific user or group segments',
         icon: <IconFlask className="w-6 h-6 text-primary-3000" />,
     },
@@ -84,7 +78,7 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
                 </div>
                 <div className="flex-1 flex flex-col justify-start">
                     <h3 className="text-base font-semibold text-default mb-2">
-                        {isBlank ? 'Start from scratch' : template.name}
+                        {isBlank ? 'Start from scratch' : TEMPLATE_NAMES[template.key]}
                     </h3>
                     <p className="text-sm text-secondary leading-relaxed">
                         {isBlank ? 'Default settings, customize everything yourself' : template.description}
