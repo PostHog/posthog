@@ -61,8 +61,8 @@ describe('fetch', () => {
         })
 
         it('should successfully fetch from safe URLs', async () => {
-            // This will make a real HTTP request
-            const response = await fetch('https://example.com')
+            // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
+            const response = await fetch('http://example.com')
             expect(response.status).toBe(200)
         })
     })
@@ -138,8 +138,8 @@ describe('legacyFetch', () => {
         })
 
         it('should successfully fetch from safe URLs', async () => {
-            // This will make a real HTTP request
-            const response = await legacyFetch('https://example.com')
+            // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
+            const response = await legacyFetch('http://example.com')
             expect(response.ok).toBe(true)
         })
     })

@@ -40,6 +40,7 @@ class TestGetLlmaWorkflowConfig:
         config = _get_llma_workflow_config()
 
         assert config.guaranteed_team_ids == DEFAULT_GUARANTEED_TEAM_IDS
+        assert config.skip_team_ids == []
         assert config.sample_percentage == DEFAULT_SAMPLE_PERCENTAGE
         assert config.discovery_lookback_days == DEFAULT_DISCOVERY_LOOKBACK_DAYS
 
@@ -47,6 +48,7 @@ class TestGetLlmaWorkflowConfig:
     def test_valid_payload(self, mock_ff):
         mock_ff.return_value = {
             "guaranteed_team_ids": [100, 200],
+            "skip_team_ids": [300, 400],
             "sample_percentage": 0.5,
             "discovery_lookback_days": 7,
         }
@@ -54,6 +56,7 @@ class TestGetLlmaWorkflowConfig:
         config = _get_llma_workflow_config()
 
         assert config.guaranteed_team_ids == [100, 200]
+        assert config.skip_team_ids == [300, 400]
         assert config.sample_percentage == 0.5
         assert config.discovery_lookback_days == 7
 
@@ -64,6 +67,7 @@ class TestGetLlmaWorkflowConfig:
         config = _get_llma_workflow_config()
 
         assert config.guaranteed_team_ids == [42]
+        assert config.skip_team_ids == []
         assert config.sample_percentage == DEFAULT_SAMPLE_PERCENTAGE
         assert config.discovery_lookback_days == DEFAULT_DISCOVERY_LOOKBACK_DAYS
 
@@ -71,6 +75,8 @@ class TestGetLlmaWorkflowConfig:
         [
             ("string_ids", {"guaranteed_team_ids": "not a list"}, "guaranteed_team_ids"),
             ("mixed_ids", {"guaranteed_team_ids": [1, "two", 3]}, "guaranteed_team_ids"),
+            ("string_skip", {"skip_team_ids": "not a list"}, "skip_team_ids"),
+            ("mixed_skip", {"skip_team_ids": [1, "two", 3]}, "skip_team_ids"),
             ("string_pct", {"sample_percentage": "high"}, "sample_percentage"),
             ("negative_pct", {"sample_percentage": -0.1}, "sample_percentage"),
             ("pct_above_one", {"sample_percentage": 1.5}, "sample_percentage"),
@@ -89,6 +95,8 @@ class TestGetLlmaWorkflowConfig:
 
         if bad_field == "guaranteed_team_ids":
             assert config.guaranteed_team_ids == DEFAULT_GUARANTEED_TEAM_IDS
+        if bad_field == "skip_team_ids":
+            assert config.skip_team_ids == []
         if bad_field == "sample_percentage":
             assert config.sample_percentage == DEFAULT_SAMPLE_PERCENTAGE
         if bad_field == "discovery_lookback_days":
@@ -101,6 +109,7 @@ class TestGetLlmaWorkflowConfig:
         config = _get_llma_workflow_config()
 
         assert config.guaranteed_team_ids == DEFAULT_GUARANTEED_TEAM_IDS
+        assert config.skip_team_ids == []
         assert config.sample_percentage == DEFAULT_SAMPLE_PERCENTAGE
         assert config.discovery_lookback_days == DEFAULT_DISCOVERY_LOOKBACK_DAYS
 
@@ -212,3 +221,46 @@ class TestGetTeamIdsForLlmAnalytics:
         result = await get_team_ids_for_llm_analytics(inputs)
 
         assert result == [42]
+
+    @patch("posthog.tasks.llm_analytics_usage_report.get_teams_with_ai_events")
+    async def test_skip_team_ids_excludes_from_sampled(self, mock_get_teams, mock_ff):
+        mock_ff.return_value = {
+            "guaranteed_team_ids": [1],
+            "skip_team_ids": [9999],
+            "sample_percentage": 1.0,
+        }
+        mock_get_teams.return_value = [9999, 8888, 7777]
+        inputs = TeamDiscoveryInput()
+
+        result = await get_team_ids_for_llm_analytics(inputs)
+
+        assert 9999 not in result
+        assert 8888 in result
+        assert 7777 in result
+
+    @patch("posthog.tasks.llm_analytics_usage_report.get_teams_with_ai_events")
+    async def test_skip_team_ids_excludes_from_guaranteed(self, mock_get_teams, mock_ff):
+        mock_ff.return_value = {
+            "guaranteed_team_ids": [1, 2, 3],
+            "skip_team_ids": [2],
+            "sample_percentage": 0.0,
+        }
+        mock_get_teams.return_value = []
+        inputs = TeamDiscoveryInput()
+
+        result = await get_team_ids_for_llm_analytics(inputs)
+
+        assert result == [1, 3]
+
+    @patch("posthog.tasks.llm_analytics_usage_report.get_teams_with_ai_events")
+    async def test_skip_team_ids_applied_in_fallback(self, mock_get_teams, mock_ff):
+        mock_ff.return_value = {
+            "guaranteed_team_ids": [1, 2, 3],
+            "skip_team_ids": [2],
+        }
+        mock_get_teams.side_effect = Exception("ClickHouse down")
+        inputs = TeamDiscoveryInput()
+
+        result = await get_team_ids_for_llm_analytics(inputs)
+
+        assert result == [1, 3]

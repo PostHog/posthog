@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { IconPencil, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTabs, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
@@ -15,9 +15,10 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { Query } from '~/queries/Query/Query'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, LLMPrompt } from '~/types'
 
 import { useTracesQueryContext } from '../LLMAnalyticsTracesScene'
 import { PromptLogicProps, PromptMode, isPrompt, llmPromptLogic } from './llmPromptLogic'
@@ -44,6 +45,8 @@ export function LLMPromptScene(): JSX.Element {
         isViewMode,
         prompt,
     } = useValues(llmPromptLogic)
+    const { searchParams } = useValues(router)
+    const activeViewTab = searchParams?.tab === 'usage' ? 'usage' : 'overview'
 
     const { submitPromptForm, deletePrompt, setMode } = useActions(llmPromptLogic)
 
@@ -104,9 +107,37 @@ export function LLMPromptScene(): JSX.Element {
                     }
                 />
 
-                <PromptViewDetails />
-
-                <PromptRelatedTraces />
+                {prompt && isPrompt(prompt) ? (
+                    <LemonTabs
+                        activeKey={activeViewTab}
+                        onChange={(tab) =>
+                            router.actions.replace(urls.llmAnalyticsPrompt(prompt.name), { ...searchParams, tab })
+                        }
+                        tabs={[
+                            {
+                                key: 'overview',
+                                label: 'Overview',
+                                content: (
+                                    <>
+                                        <PromptViewDetails />
+                                        <PromptRelatedTraces />
+                                    </>
+                                ),
+                            },
+                            {
+                                key: 'usage',
+                                label: 'Usage',
+                                content: <PromptUsage prompt={prompt} />,
+                            },
+                        ]}
+                        sceneInset
+                    />
+                ) : (
+                    <>
+                        <PromptViewDetails />
+                        <PromptRelatedTraces />
+                    </>
+                )}
             </SceneContent>
         )
     }
@@ -124,7 +155,7 @@ export function LLMPromptScene(): JSX.Element {
                                 type="secondary"
                                 onClick={() => {
                                     if (isNewPrompt) {
-                                        router.actions.push(urls.llmAnalyticsPrompts())
+                                        router.actions.push(combineUrl(urls.llmAnalyticsPrompts(), searchParams).url)
                                     } else {
                                         setMode(PromptMode.View)
                                     }
@@ -251,9 +282,37 @@ function PromptRelatedTraces(): JSX.Element {
                     setQuery={() => {}}
                     context={tracesQueryContext}
                     uniqueKey="prompt-related-traces"
-                    attachTo={llmPromptLogic}
                 />
             )}
+        </div>
+    )
+}
+
+function PromptUsage({ prompt }: { prompt: LLMPrompt }): JSX.Element {
+    const { promptUsageLogQuery, promptUsageTrendQuery } = useValues(llmPromptLogic)
+
+    return (
+        <div data-attr="prompt-usage-container">
+            <LemonBanner type="info" className="mb-4">
+                During the alpha and beta period, each prompt fetch is currently charged as a Product analytics event.
+                See the{' '}
+                <Link to="https://posthog.com/pricing" target="_blank">
+                    pricing page
+                </Link>
+                .
+            </LemonBanner>
+
+            <div className="mb-4">
+                <b>Trend</b>
+                <div className="text-secondary">{`Prompt fetches for "${prompt.name}" over time`}</div>
+            </div>
+            <Query query={promptUsageTrendQuery} />
+
+            <div className="mt-6 mb-4">
+                <b>Log</b>
+                <div className="text-secondary">{`Prompt fetch events for "${prompt.name}"`}</div>
+            </div>
+            <Query query={promptUsageLogQuery} />
         </div>
     )
 }

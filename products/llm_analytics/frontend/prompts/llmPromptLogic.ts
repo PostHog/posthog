@@ -14,15 +14,28 @@ import {
 } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { combineUrl, router, urlToAction } from 'kea-router'
 
 import api from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
-import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
-import { DataTableNode, NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import {
+    DataTableNode,
+    InsightVizNode,
+    NodeKind,
+    ProductIntentContext,
+    ProductKey,
+} from '~/queries/schema/schema-general'
 import { teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
-import { Breadcrumb, LLMPrompt, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    AnyPropertyFilter,
+    Breadcrumb,
+    ChartDisplayType,
+    LLMPrompt,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import type { llmPromptLogicType } from './llmPromptLogicType'
 import { llmPromptsLogic } from './llmPromptsLogic'
@@ -35,7 +48,6 @@ export enum PromptMode {
 export interface PromptLogicProps {
     promptName: string | 'new'
     mode?: PromptMode
-    tabId?: string
 }
 
 export interface PromptFormValues {
@@ -52,10 +64,12 @@ const DEFAULT_PROMPT_FORM_VALUES: PromptFormValues = {
     prompt: '',
 }
 
+const PROMPT_FETCHED_EVENT = '$llm_prompt_fetched'
+
 export const llmPromptLogic = kea<llmPromptLogicType>([
     path(['scenes', 'llm-analytics', 'llmPromptLogic']),
     props({ promptName: 'new' } as PromptLogicProps),
-    key(({ promptName, tabId }) => `prompt-${promptName}::${tabId ?? 'default'}`),
+    key(({ promptName }) => `prompt-${promptName}`),
     connect(() => ({
         actions: [teamLogic, ['addProductIntent']],
     })),
@@ -85,7 +99,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     loaders(({ props }) => ({
         prompt: {
             __default: null as LLMPrompt | PromptFormValues | null,
-            loadPrompt: () => api.llmPrompts.getByName(props.promptName),
+            loadPrompt: () => api.llmPrompts.resolveByName(props.promptName),
         },
     })),
 
@@ -197,11 +211,11 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         ],
 
         breadcrumbs: [
-            (s) => [s.prompt],
-            (prompt): Breadcrumb[] => [
+            (s) => [s.prompt, router.selectors.searchParams],
+            (prompt: LLMPrompt | PromptFormValues | null, searchParams: Record<string, any>): Breadcrumb[] => [
                 {
                     name: 'Prompts',
-                    path: urls.llmAnalyticsPrompts(),
+                    path: combineUrl(urls.llmAnalyticsPrompts(), searchParams).url,
                     key: 'LLMAnalyticsPrompts',
                     iconType: 'llm_prompts',
                 },
@@ -280,6 +294,59 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 return `${urls.llmAnalyticsTraces()}?filters=${encodeURIComponent(JSON.stringify(filters))}`
             },
         ],
+
+        promptUsagePropertyFilter: [
+            (s) => [s.prompt],
+            (prompt): AnyPropertyFilter[] => {
+                if (!isPrompt(prompt)) {
+                    return []
+                }
+
+                return [
+                    {
+                        key: 'prompt_id',
+                        type: PropertyFilterType.Event,
+                        value: prompt.id,
+                        operator: PropertyOperator.Exact,
+                    },
+                ]
+            },
+        ],
+
+        promptUsageTrendQuery: [
+            (s) => [s.promptUsagePropertyFilter],
+            (promptUsagePropertyFilter): InsightVizNode => ({
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [{ kind: NodeKind.EventsNode, event: PROMPT_FETCHED_EVENT, name: PROMPT_FETCHED_EVENT }],
+                    properties: promptUsagePropertyFilter,
+                    dateRange: { date_from: '-30d', explicitDate: false },
+                    interval: 'day',
+                    trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+                },
+                full: false,
+                showLastComputation: true,
+                showLastComputationRefresh: true,
+            }),
+        ],
+
+        promptUsageLogQuery: [
+            (s) => [s.promptUsagePropertyFilter],
+            (promptUsagePropertyFilter): DataTableNode => ({
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    event: PROMPT_FETCHED_EVENT,
+                    properties: promptUsagePropertyFilter,
+                    select: [...defaultDataTableColumns(NodeKind.EventsQuery), 'properties.prompt_name'],
+                    after: '-30d',
+                },
+                full: false,
+                showDateRange: true,
+                showReload: true,
+            }),
+        ],
     }),
 
     listeners(({ actions, props, values }) => ({
@@ -288,7 +355,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 try {
                     await api.llmPrompts.update(values.prompt.id, { deleted: true })
                     lemonToast.info(`${values.prompt.name || 'Prompt'} has been deleted.`)
-                    router.actions.replace(urls.llmAnalyticsPrompts())
+                    router.actions.replace(urls.llmAnalyticsPrompts(), router.values.searchParams)
                 } catch {
                     lemonToast.error('Failed to delete prompt')
                 }
@@ -356,7 +423,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         }
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         '/llm-analytics/prompts/:name': (_, __, ___, { method }) => {
             if (method === 'PUSH' && !values.isNewPrompt) {
                 actions.loadPrompt()

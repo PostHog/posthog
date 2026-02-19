@@ -70,6 +70,22 @@ def normalize_step(step: dict) -> dict:
     return step
 
 
+def _validate_launch(steps: list[dict]):
+    [_validate_step_targeting(step, idx) for idx, step in enumerate(steps)]
+
+
+def _validate_step_targeting(step: dict, idx: int):
+    targeting = step.get("elementTargeting")
+    if not targeting:
+        return
+
+    if targeting == "manual" and not step.get("selector"):
+        raise serializers.ValidationError(f"Step {idx + 1} is missing an element selector")
+
+    if targeting == "auto" and not step.get("inferenceData"):
+        raise serializers.ValidationError(f"Step {idx + 1} requires an element to be selected")
+
+
 class TourStepContent(BaseModel):
     """A single step in the generated tour."""
 
@@ -223,7 +239,14 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
     def validate(self, data):
         from posthog.models.feature_flag import FeatureFlag
 
-        linked_flag_id = data.get("linked_flag_id")
+        # For partial updates (PATCH), fall back to the instance's existing
+        # linked_flag_id when the field wasn't included in the request.
+        # "linked_flag_id" absent from data = not sent; present as None = explicitly cleared.
+        if "linked_flag_id" not in data and self.instance is not None:
+            linked_flag_id = self.instance.linked_flag_id
+        else:
+            linked_flag_id = data.get("linked_flag_id")
+
         linked_flag = None
         if linked_flag_id:
             try:
@@ -250,6 +273,14 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         elif linked_flag_variant and not linked_flag_id:
             raise serializers.ValidationError("linkedFlagVariant can only be used when a linked_flag_id is specified")
 
+        # Block launching or updating a live tour with incomplete element targeting
+        is_launching = "start_date" in data and data["start_date"] is not None
+        is_launched = self.instance is not None and self.instance.start_date is not None
+        if is_launching or is_launched:
+            launch_content = data.get("content") or (self.instance.content if self.instance else None) or {}
+            steps = launch_content.get("steps", [])
+            _validate_launch(steps)
+
         return data
 
     @transaction.atomic
@@ -258,6 +289,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         team = self.context["get_team"]()
 
         creation_context = validated_data.pop("creation_context", "app")
+        targeting_flag_filters = validated_data.pop("targeting_flag_filters", None)
 
         validated_data["team"] = team
         validated_data["created_by"] = request.user
@@ -267,6 +299,8 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         # Only create internal targeting flag if auto_launch is enabled
         if instance.auto_launch:
             self._create_internal_targeting_flag(instance)
+            if targeting_flag_filters and instance.internal_targeting_flag:
+                self._update_targeting_flag_filters(instance, targeting_flag_filters)
 
         # Create linked surveys for any survey steps
         self._sync_survey_steps(instance)
@@ -669,7 +703,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
 
 class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "product_tour"
-    queryset = ProductTour.objects.select_related("internal_targeting_flag", "linked_flag", "created_by").all()
+    queryset = ProductTour.all_objects.select_related("internal_targeting_flag", "linked_flag", "created_by").all()
     filter_backends = [filters.SearchFilter]
     search_fields = ["name", "description"]
     authentication_classes = [TemporaryTokenAuthentication]
@@ -683,13 +717,16 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
         return queryset.filter(team_id=self.team_id)
 
     def perform_destroy(self, instance: ProductTour) -> None:
-        """Soft delete: archive the tour instead of deleting."""
+        """Hard delete the tour and clean up related resources."""
         from django.utils import timezone
+
+        instance_id = str(instance.id)
+        instance_name = instance.name
+        analytics_metadata = instance.get_analytics_metadata()
 
         # Delete the internal targeting flag
         if instance.internal_targeting_flag:
             instance.internal_targeting_flag.delete()
-            instance.internal_targeting_flag = None
 
         # End any linked surveys
         content = instance.content or {}
@@ -704,24 +741,23 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
                 except Survey.DoesNotExist:
                     pass
 
-        instance.archived = True
-        instance.save(update_fields=["archived", "internal_targeting_flag", "updated_at"])
+        instance.delete()
 
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=cast(User, self.request.user),
             was_impersonated=is_impersonated_session(self.request),
-            item_id=str(instance.id),
+            item_id=instance_id,
             scope="ProductTour",
             activity="deleted",
-            detail=Detail(name=instance.name),
+            detail=Detail(name=instance_name),
         )
 
         report_user_action(
             cast(User, self.request.user),
             ProductTourEventName.DELETED,
-            instance.get_analytics_metadata(),
+            analytics_metadata,
             self.team,
         )
 

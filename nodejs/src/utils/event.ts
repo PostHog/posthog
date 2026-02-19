@@ -125,10 +125,6 @@ export function normalizeProcessPerson<T extends PipelineEvent | PluginEvent>(ev
 export function sanitizeEvent<T extends PipelineEvent | PluginEvent>(event: T): T {
     event.distinct_id = sanitizeString(String(event.distinct_id))
 
-    if ('token' in event) {
-        event.token = sanitizeString(String(event.token))
-    }
-
     const properties = event.properties ?? {}
     if (event['$set']) {
         properties['$set'] = { ...properties['$set'], ...event['$set'] }

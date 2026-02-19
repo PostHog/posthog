@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
@@ -17,11 +18,13 @@ import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsSessionsViewLogic } from './tabs/llmAnalyticsSessionsViewLogic'
-import { formatLLMCost, getTraceTimestamp } from './utils'
+import { formatLLMCost, getTraceTimestamp, sanitizeTraceUrlSearchParams } from './utils'
 
 export function LLMAnalyticsSessionsScene(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
     const { dateFilter } = useValues(llmAnalyticsSharedLogic)
+    const { searchParams } = useValues(router)
+    const traceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
 
     const { setSessionsSort, toggleSessionExpanded, toggleTraceExpanded, toggleGenerationExpanded } =
         useActions(llmAnalyticsSessionsViewLogic)
@@ -41,7 +44,6 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
 
     return (
         <DataTable
-            attachTo={llmAnalyticsSharedLogic}
             query={{
                 ...sessionsQuery,
                 showSavedFilters: true,
@@ -230,9 +232,12 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
                                                                 </LemonTag>
                                                             )}
                                                             <Link
-                                                                to={urls.llmAnalyticsTrace(trace.id, {
-                                                                    timestamp: getTraceTimestamp(trace.createdAt),
-                                                                })}
+                                                                to={
+                                                                    combineUrl(urls.llmAnalyticsTrace(trace.id), {
+                                                                        ...traceSearchParams,
+                                                                        timestamp: getTraceTimestamp(trace.createdAt),
+                                                                    }).url
+                                                                }
                                                                 onClick={(e) => e.stopPropagation()}
                                                                 className="text-xs"
                                                             >

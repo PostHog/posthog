@@ -43,7 +43,15 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
                 annotationsModel,
                 ['annotations', 'annotationsLoading'],
                 snapshotLogic,
-                ['snapshotSources', 'snapshotsBySources', 'snapshotsLoading', 'snapshotsLoaded', 'isLoadingSnapshots'],
+                [
+                    'snapshotSources',
+                    'snapshotsBySources',
+                    'snapshotsLoading',
+                    'snapshotsLoaded',
+                    'isLoadingSnapshots',
+                    'isRecordingDeleted',
+                    'recordingDeletedAt',
+                ],
                 registryLogic,
                 ['uuidToIndex', 'getWindowId'],
             ],
@@ -80,6 +88,8 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
                 if (!props.sessionRecordingId) {
                     return null
                 }
+                // Cancel orphaned loaders from StrictMode's unmounted logic
+                await breakpoint(1)
                 const headers: Record<string, string> = {}
                 if (props.accessToken) {
                     headers.Authorization = `Bearer ${props.accessToken}`

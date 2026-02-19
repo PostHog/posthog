@@ -31,10 +31,10 @@ export function SidePanelPaneHeader({
     return (
         <header
             className={cn(
-                'border-b shrink-0 flex items-center justify-end',
+                'scene-panel-pane-header border-b shrink-0 flex items-center justify-end',
                 !modalMode ? 'sticky top-0 z-10 bg-surface-secondary p-1 h-10' : 'pb-2 mt-2 mx-3',
                 isRemovingSidePanelFlag &&
-                    'sticky top-0 h-[50px] bg-primary border-b-0 py-0 px-2 pb-px rounded justify-between m-0 mb-5',
+                    'sticky top-0 h-[40px] bg-primary border-b-0 py-0 px-2 pb-px rounded justify-between m-0 mb-5 z-60 border border-primary/30',
                 className
             )}
         >

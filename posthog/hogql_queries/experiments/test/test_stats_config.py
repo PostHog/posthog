@@ -15,6 +15,12 @@ from posthog.schema import (
 
 from posthog.hogql_queries.experiments.utils import get_bayesian_experiment_result, get_frequentist_experiment_result
 
+INSUFFICIENT_DATA_CASES = [
+    ("very_small_sample", {"control": (1, 0.5, 0.25), "test": (1, 0.3, 0.09)}),
+    ("zero_baseline_sum", {"control": (100, 0.0, 0.0), "test": (100, 50.0, 2600.0)}),
+    ("zero_variance", {"control": (100, 100.0, 100.0), "test": (100, 100.0, 100.0)}),
+]
+
 
 class TestStatsConfig(APIBaseTest):
     def create_mean_metric(self) -> ExperimentMeanMetric:
@@ -213,3 +219,107 @@ class TestStatsConfig(APIBaseTest):
         assert result.variant_results is not None
         variant = cast(ExperimentVariantResultBayesian, result.variant_results[0])
         assert variant.credible_interval is not None
+
+    @parameterized.expand(INSUFFICIENT_DATA_CASES)
+    def test_frequentist_insufficient_data_returns_raw_values_without_stats(self, _name, data):
+        metric = self.create_mean_metric()
+        control = self.create_variant(
+            "control", sum_val=data["control"][1], sum_squares=data["control"][2], samples=data["control"][0]
+        )
+        test = self.create_variant(
+            "test", sum_val=data["test"][1], sum_squares=data["test"][2], samples=data["test"][0]
+        )
+
+        result = get_frequentist_experiment_result(
+            metric=metric,
+            control_variant=control,
+            test_variants=[test],
+            stats_config=None,
+        )
+
+        assert result.baseline is not None
+        self.assertEqual(result.baseline.key, "control")
+        self.assertEqual(result.baseline.number_of_samples, data["control"][0])
+        self.assertEqual(result.baseline.sum, data["control"][1])
+        self.assertEqual(result.baseline.sum_squares, data["control"][2])
+
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+        variant = cast(ExperimentVariantResultFrequentist, result.variant_results[0])
+        self.assertEqual(variant.key, "test")
+        self.assertEqual(variant.number_of_samples, data["test"][0])
+        self.assertEqual(variant.sum, data["test"][1])
+        self.assertEqual(variant.sum_squares, data["test"][2])
+        self.assertIsNone(variant.p_value)
+        self.assertIsNone(variant.confidence_interval)
+        self.assertIsNone(variant.significant)
+
+    @parameterized.expand(INSUFFICIENT_DATA_CASES)
+    def test_bayesian_insufficient_data_returns_raw_values_without_stats(self, _name, data):
+        metric = self.create_mean_metric()
+        control = self.create_variant(
+            "control", sum_val=data["control"][1], sum_squares=data["control"][2], samples=data["control"][0]
+        )
+        test = self.create_variant(
+            "test", sum_val=data["test"][1], sum_squares=data["test"][2], samples=data["test"][0]
+        )
+
+        result = get_bayesian_experiment_result(
+            metric=metric,
+            control_variant=control,
+            test_variants=[test],
+            stats_config=None,
+        )
+
+        assert result.baseline is not None
+        self.assertEqual(result.baseline.key, "control")
+        self.assertEqual(result.baseline.number_of_samples, data["control"][0])
+        self.assertEqual(result.baseline.sum, data["control"][1])
+        self.assertEqual(result.baseline.sum_squares, data["control"][2])
+
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+        variant = cast(ExperimentVariantResultBayesian, result.variant_results[0])
+        self.assertEqual(variant.key, "test")
+        self.assertEqual(variant.number_of_samples, data["test"][0])
+        self.assertEqual(variant.sum, data["test"][1])
+        self.assertEqual(variant.sum_squares, data["test"][2])
+        self.assertIsNone(variant.chance_to_win)
+        self.assertIsNone(variant.credible_interval)
+        self.assertIsNone(variant.significant)
+
+    def test_frequentist_sufficient_data_returns_stats(self):
+        metric = self.create_mean_metric()
+        control = self.create_variant("control", sum_val=100.0, sum_squares=10500.0, samples=1000)
+        test = self.create_variant("test", sum_val=120.0, sum_squares=14500.0, samples=1000)
+
+        result = get_frequentist_experiment_result(
+            metric=metric,
+            control_variant=control,
+            test_variants=[test],
+            stats_config=None,
+        )
+
+        assert result.variant_results is not None
+        variant = cast(ExperimentVariantResultFrequentist, result.variant_results[0])
+        self.assertIsNotNone(variant.p_value)
+        self.assertIsNotNone(variant.confidence_interval)
+        self.assertIsNotNone(variant.significant)
+
+    def test_bayesian_sufficient_data_returns_stats(self):
+        metric = self.create_mean_metric()
+        control = self.create_variant("control", sum_val=100.0, sum_squares=10500.0, samples=1000)
+        test = self.create_variant("test", sum_val=120.0, sum_squares=14500.0, samples=1000)
+
+        result = get_bayesian_experiment_result(
+            metric=metric,
+            control_variant=control,
+            test_variants=[test],
+            stats_config=None,
+        )
+
+        assert result.variant_results is not None
+        variant = cast(ExperimentVariantResultBayesian, result.variant_results[0])
+        self.assertIsNotNone(variant.chance_to_win)
+        self.assertIsNotNone(variant.credible_interval)
+        self.assertIsNotNone(variant.significant)
