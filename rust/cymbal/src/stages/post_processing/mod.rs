@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::{
-    error::{EventError, UnhandledError},
+    error::UnhandledError,
     metric_consts::POST_PROCESSING_STAGE,
     stages::{pipeline::ExceptionEventPipelineItem, pre_processing::PreProcessingContext},
     types::{
@@ -27,10 +27,6 @@ impl<T: Clone, O> PostProcessingStage<T, O> {
     ) -> Self {
         Self { ctx, handler }
     }
-}
-pub struct PostProcessingError<T> {
-    pub original: T,
-    pub error: EventError,
 }
 
 impl<T: Clone, O> Stage for PostProcessingStage<T, O> {
