@@ -335,28 +335,15 @@ describe('llmAnalyticsTraceLogic', () => {
 
     describe('setSearchQuery URL updates', () => {
         let routerSpy: jest.Spied
-        let searchDescriptor: PropertyDescriptor | undefined
-
-        function setLocationSearch(value: string): void {
-            Object.defineProperty(window.location, 'search', {
-                get: () => value,
-                configurable: true,
-            })
-        }
 
         beforeEach(() => {
-            searchDescriptor =
-                Object.getOwnPropertyDescriptor(window.location, 'search') ??
-                Object.getOwnPropertyDescriptor(Object.getPrototypeOf(window.location), 'search')
-            setLocationSearch('')
+            history.replaceState(null, '', '/')
             routerSpy = jest.spyOn(router.actions, 'replace').mockImplementation(() => {})
         })
 
         afterEach(() => {
             routerSpy.mockRestore()
-            if (searchDescriptor) {
-                Object.defineProperty(window.location, 'search', searchDescriptor)
-            }
+            history.replaceState(null, '', '/')
         })
 
         it('updates URL when search query changes and includes event and timestamp in URL update', async () => {
@@ -378,7 +365,7 @@ describe('llmAnalyticsTraceLogic', () => {
         })
 
         it('removes search param from URL when query is cleared', async () => {
-            setLocationSearch('?search=existing')
+            history.replaceState(null, '', '?search=existing')
             logic.actions.setTraceId('test-trace-123')
             await expectLogic(logic).toFinishAllListeners()
 
@@ -389,7 +376,7 @@ describe('llmAnalyticsTraceLogic', () => {
         })
 
         it('does not update URL when search query matches URL param', async () => {
-            setLocationSearch('?search=existing')
+            history.replaceState(null, '', '?search=existing')
             logic.actions.setTraceId('test-trace-123')
             await expectLogic(logic).toFinishAllListeners()
 
