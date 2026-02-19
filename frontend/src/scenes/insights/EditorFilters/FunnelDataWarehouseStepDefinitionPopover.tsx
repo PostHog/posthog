@@ -1,5 +1,12 @@
-import { DefinitionPopoverRendererProps } from 'lib/components/TaxonomicFilter/types'
+import { DefinitionPopoverRendererProps, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-export function FunnelDataWarehouseStepDefinitionPopover({}: DefinitionPopoverRendererProps): JSX.Element | null {
+export function FunnelDataWarehouseStepDefinitionPopover({
+    group,
+    defaultView,
+}: DefinitionPopoverRendererProps): JSX.Element | null {
+    if (group.type !== TaxonomicFilterGroupType.DataWarehouse) {
+        return defaultView
+    }
+
     return <div>DataWarehouseFunnelStepDefinitionPopover</div>
 }
