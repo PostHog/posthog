@@ -109,12 +109,12 @@ potential → candidate → in_progress → ready
 
 Binary artefacts attached to reports. Used for video segments and judge results.
 
-| Field     | Type              | Description                                |
-| --------- | ----------------- | ------------------------------------------ |
-| `team`    | FK → Team         | Owning team                                |
-| `report`  | FK → SignalReport | Parent report (`related_name="artefacts"`) |
-| `type`    | CharField         | Artefact type (see `ArtefactType` enum)    |
-| `content` | BinaryField       | JSON content stored as bytes               |
+| Field          | Type              | Description                                |
+| -------------- | ----------------- | ------------------------------------------ |
+| `team`         | FK → Team         | Owning team                                |
+| `report`       | FK → SignalReport | Parent report (`related_name="artefacts"`) |
+| `type`         | CharField         | Artefact type (see `ArtefactType` enum)    |
+| `text_content` | TextField         | JSON content stored as text                |
 
 **Artefact types** (`SignalReportArtefact.ArtefactType` enum):
 
@@ -190,9 +190,8 @@ await emit_signal(
 **Guards:**
 
 - Team must have `is_ai_data_processing_approved` on their organization
-- Feature flag `product-autonomy` must be enabled for the team
 
-Starts an `EmitSignalWorkflow` via Temporal with `ALLOW_DUPLICATE_FAILED_ONLY` reuse policy.
+Uses `signal_with_start` to atomically create the per-team `TeamSignalGroupingWorkflow` if it doesn't exist, or send a signal to the running instance.
 
 ### REST Endpoints
 
@@ -243,7 +242,7 @@ Key behaviours:
 
 Generates 1-3 search queries from different angles (feature/component, behavior/issue, business impact). Accepts `signal_type_examples` — one example per `(source_product, source_type)` pair from the last month — which are included in the system prompt to give the LLM context about the heterogeneous signal landscape. The prompt explicitly instructs the LLM to generate queries that search _across_ signal types rather than generating one query per type. Queries are truncated to 2048 tokens for embedding. Temperature: 0.7.
 
-#### `match_signal_with_llm()`
+#### `match_signal_to_report()`
 
 Discriminated union response:
 
@@ -256,7 +255,7 @@ Temperature: 0.2 (more deterministic).
 
 #### `summarize_signals()` (`backend/temporal/summarize_signals.py`)
 
-Takes a list of signals and produces a title (max 100 chars) + 2-4 sentence summary. The report is designed for consumption by both humans and coding agents. Temperature: 0.2.
+Takes a list of signals and produces a title (max 75 chars) + 2-4 sentence summary. The report is designed for consumption by both humans and coding agents. Temperature: 0.2.
 
 #### `judge_report_safety()` (`backend/temporal/safety_judge.py`)
 
@@ -333,7 +332,8 @@ products/signals/
 │   ├── migrations/
 │   │   ├── 0001_initial.py
 │   │   ├── 0002_signalreport_clustering_fields.py
-│   │   └── 0003_alter_signalreport_status_and_more.py
+│   │   ├── 0003_alter_signalreport_status_and_more.py
+│   │   └── 0004_rename_content_to_text_content.py
 │   └── temporal/
 │       ├── __init__.py             # Registers all workflows and activities (WORKFLOWS + ACTIVITIES lists)
 │       ├── grouping.py             # EmitSignalWorkflow + grouping activities
