@@ -49,7 +49,7 @@ export const endpointLogic = kea<endpointLogicType>([
         setDuplicateEndpoint: (endpoint: EndpointType | null) => ({ endpoint }),
         createEndpoint: (request: EndpointRequest) => ({ request }),
         createEndpointSuccess: (response: any) => ({ response }),
-        createEndpointFailure: (isHogQLError?: boolean) => ({ isHogQLError }),
+        createEndpointFailure: (queryError?: string | null) => ({ queryError }),
         updateEndpoint: (
             name: string,
             request: Partial<EndpointRequest>,
@@ -68,7 +68,7 @@ export const endpointLogic = kea<endpointLogicType>([
             endpointName,
             options,
         }),
-        updateEndpointFailure: (isHogQLError?: boolean) => ({ isHogQLError }),
+        updateEndpointFailure: (queryError?: string | null) => ({ queryError }),
         deleteEndpoint: (name: string) => ({ name }),
         deleteEndpointSuccess: (response: any) => ({ response }),
         clearMaterializationStatus: true,
@@ -190,8 +190,8 @@ export const endpointLogic = kea<endpointLogicType>([
                     actions.createEndpointSuccess(response)
                 } catch (error: any) {
                     console.error('Failed to create endpoint:', error)
-                    const isHogQLError = error.attr === 'query' && error.detail?.startsWith('Invalid HogQL query')
-                    actions.createEndpointFailure(isHogQLError)
+                    const queryError = error.attr === 'query' ? error.detail : null
+                    actions.createEndpointFailure(queryError)
                 }
             },
             createEndpointSuccess: ({ response }) => {
@@ -223,11 +223,9 @@ export const endpointLogic = kea<endpointLogicType>([
                     intent_context: intentContext,
                 })
             },
-            createEndpointFailure: ({ isHogQLError }) => {
-                if (isHogQLError) {
-                    lemonToast.error(
-                        'Invalid HogQL query. Try running it first and fix any errors before creating an endpoint.'
-                    )
+            createEndpointFailure: ({ queryError }) => {
+                if (queryError) {
+                    lemonToast.error(`Failed to create endpoint: ${queryError}`)
                 } else {
                     lemonToast.error('Failed to create endpoint')
                 }
@@ -238,8 +236,8 @@ export const endpointLogic = kea<endpointLogicType>([
                     actions.updateEndpointSuccess(response, name, options)
                 } catch (error: any) {
                     console.error('Failed to update endpoint:', error)
-                    const isHogQLError = error.attr === 'query' && error.detail?.startsWith('Invalid HogQL query')
-                    actions.updateEndpointFailure(isHogQLError)
+                    const queryError = error.attr === 'query' ? error.detail : null
+                    actions.updateEndpointFailure(queryError)
                 }
             },
             updateEndpointSuccess: ({ response, endpointName, options }) => {
@@ -268,11 +266,9 @@ export const endpointLogic = kea<endpointLogicType>([
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ConfigureEndpoint)
                 }
             },
-            updateEndpointFailure: ({ isHogQLError }) => {
-                if (isHogQLError) {
-                    lemonToast.error(
-                        'Invalid HogQL query. Try running it first and fix any errors before updating the endpoint.'
-                    )
+            updateEndpointFailure: ({ queryError }) => {
+                if (queryError) {
+                    lemonToast.error(`Failed to update endpoint: ${queryError}`)
                 } else {
                     lemonToast.error('Failed to update endpoint')
                 }

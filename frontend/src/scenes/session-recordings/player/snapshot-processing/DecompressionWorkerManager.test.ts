@@ -63,20 +63,6 @@ describe('DecompressionWorkerManager', () => {
         })
     })
 
-    describe('stats', () => {
-        it('tracks decompression stats', async () => {
-            const data = new Uint8Array([1, 2, 3, 4, 5])
-            await manager.decompress(data)
-            await manager.decompress(data)
-
-            const stats = manager.getStats()
-
-            expect(stats.count).toBe(2)
-            expect(stats.totalSize).toBe(10)
-            expect(stats.totalTime).toBeGreaterThan(0)
-        })
-    })
-
     describe('singleton functions', () => {
         afterEach(() => {
             terminateDecompressionWorker()

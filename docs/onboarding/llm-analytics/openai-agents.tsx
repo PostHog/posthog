@@ -1,174 +1,186 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { StepDefinition } from '../steps'
 
-export const OpenAIAgentsInstallation = (): JSX.Element => {
-    const {
-        Steps,
-        Step,
-        CodeBlock,
-        ProductScreenshot,
-        OSButton,
-        Markdown,
-        Blockquote,
-        dedent,
-        snippets,
-    } = useMDXComponents()
+export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
 
     const NotableGenerationProperties = snippets?.NotableGenerationProperties
-    return (
-        <Steps>
-            <Step title="Install the PostHog SDK" badge="required">
-                <Markdown>
-                    Install the PostHog Python SDK with the OpenAI Agents SDK.
-                </Markdown>
 
-                <CodeBlock
-                    blocks={[
-                        {
-                            language: 'bash',
-                            file: 'Terminal',
-                            code: dedent`
-                                pip install posthog openai-agents
-                            `,
-                        },
-                    ]}
-                />
-            </Step>
-
-            <Step title="Initialize PostHog tracing" badge="required">
-                <Markdown>
-                    Import and call the `instrument()` helper to register PostHog tracing with the OpenAI Agents SDK. This automatically captures all agent traces, spans, and LLM generations.
-                </Markdown>
-
-                <CodeBlock
-                    blocks={[
-                        {
-                            language: 'python',
-                            file: 'Python',
-                            code: dedent`
-                                from posthog import Posthog
-                                from posthog.ai.openai_agents import instrument
-
-                                posthog = Posthog(
-                                    "<ph_project_api_key>",
-                                    host="<ph_client_api_host>"
-                                )
-
-                                # Register PostHog tracing with OpenAI Agents SDK
-                                instrument(
-                                    client=posthog,
-                                    distinct_id="user_123",  # optional
-                                    privacy_mode=False,  # optional - redact inputs/outputs
-                                    groups={"company": "company_id"},  # optional
-                                    properties={"environment": "production"},  # optional
-                                )
-                            `,
-                        },
-                    ]}
-                />
-
-                <Blockquote>
+    return [
+        {
+            title: 'Install the PostHog SDK',
+            badge: 'required',
+            content: (
+                <>
                     <Markdown>
-                        **Note:** If you want to capture LLM events anonymously, **don't** pass a distinct ID to `instrument()`. See our docs on [anonymous vs identified events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
+                        Setting up analytics starts with installing the PostHog Python SDK.
                     </Markdown>
-                </Blockquote>
-            </Step>
 
-            <Step title="Run your agents" badge="required">
-                <Markdown>
-                    Run your OpenAI agents as normal. PostHog automatically captures traces for agent execution, tool calls, handoffs, and LLM generations.
-                </Markdown>
+                    <CodeBlock
+                        language="bash"
+                        code={dedent`
+                            pip install posthog
+                        `}
+                    />
+                </>
+            ),
+        },
+        {
+            title: 'Install the OpenAI Agents SDK',
+            badge: 'required',
+            content: (
+                <>
+                    <Markdown>
+                        Install the OpenAI Agents SDK. PostHog instruments your agent runs by registering a tracing
+                        processor. The PostHog SDK **does not** proxy your calls.
+                    </Markdown>
 
-                <CodeBlock
-                    blocks={[
-                        {
-                            language: 'python',
-                            file: 'Python',
-                            code: dedent`
-                                from agents import Agent, Runner
+                    <CodeBlock
+                        language="bash"
+                        code={dedent`
+                            pip install openai-agents
+                        `}
+                    />
 
-                                agent = Agent(
-                                    name="Assistant",
-                                    instructions="You are a helpful assistant."
-                                )
+                    <CalloutBox type="fyi" icon="IconInfo" title="Proxy note">
+                        <Markdown>
+                            These SDKs **do not** proxy your calls. They only fire off an async call to PostHog in the
+                            background to send the data. You can also use LLM analytics with other SDKs or our API, but
+                            you will need to capture the data in the right format. See the schema in the [manual capture
+                            section](https://posthog.com/docs/llm-analytics/installation/manual-capture) for more
+                            details.
+                        </Markdown>
+                    </CalloutBox>
+                </>
+            ),
+        },
+        {
+            title: 'Initialize PostHog tracing',
+            badge: 'required',
+            content: (
+                <>
+                    <Markdown>
+                        Initialize PostHog with your project API key and host from [your project
+                        settings](https://app.posthog.com/settings/project), then call `instrument()` to register
+                        PostHog tracing with the OpenAI Agents SDK. This automatically captures all agent traces,
+                        spans, and LLM generations.
+                    </Markdown>
 
-                                result = Runner.run_sync(agent, "Tell me a joke about programming")
-                                print(result.final_output)
-                            `,
-                        },
-                    ]}
-                />
+                    <CodeBlock
+                        language="python"
+                        code={dedent`
+                            from posthog import Posthog
+                            from posthog.ai.openai_agents import instrument
 
-                <Markdown>
-                    PostHog automatically captures `$ai_generation` events for LLM calls and `$ai_span` events for agent execution, tool calls, and handoffs.
-                </Markdown>
+                            posthog = Posthog(
+                                "<ph_project_api_key>",
+                                host="<ph_client_api_host>"
+                            )
 
-                {NotableGenerationProperties && <NotableGenerationProperties />}
-            </Step>
+                            instrument(
+                                client=posthog,
+                                distinct_id="user_123", # optional
+                                privacy_mode=False, # optional
+                                groups={"company": "company_id_in_your_db"}, # optional
+                                properties={"conversation_id": "abc123"}, # optional
+                            )
+                        `}
+                    />
 
-            <Step title="Multi-agent and tool usage" badge="optional">
-                <Markdown>
-                    PostHog captures the full trace hierarchy for complex agent workflows including handoffs and tool calls.
-                </Markdown>
+                    <Blockquote>
+                        <Markdown>
+                            **Note:** If you want to capture LLM events anonymously, **don't** pass a distinct ID to
+                            `instrument()`. See our docs on [anonymous vs identified
+                            events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
+                        </Markdown>
+                    </Blockquote>
+                </>
+            ),
+        },
+        {
+            title: 'Run your agents',
+            badge: 'required',
+            content: (
+                <>
+                    <Markdown>
+                        Run your OpenAI agents as normal. PostHog automatically captures `$ai_generation` events for
+                        LLM calls and `$ai_span` events for agent execution, tool calls, and handoffs.
+                    </Markdown>
 
-                <CodeBlock
-                    blocks={[
-                        {
-                            language: 'python',
-                            file: 'Python',
-                            code: dedent`
-                                from agents import Agent, Runner, function_tool
+                    <CodeBlock
+                        language="python"
+                        code={dedent`
+                            from agents import Agent, Runner
 
-                                @function_tool
-                                def get_weather(city: str) -> str:
-                                    """Get the weather for a city."""
-                                    return f"The weather in {city} is sunny, 72F"
+                            agent = Agent(
+                                name="Assistant",
+                                instructions="You are a helpful assistant.",
+                            )
 
-                                weather_agent = Agent(
-                                    name="WeatherAgent",
-                                    instructions="You help with weather queries.",
-                                    tools=[get_weather]
-                                )
+                            result = Runner.run_sync(agent, "Tell me a fun fact about hedgehogs")
+                            print(result.final_output)
+                        `}
+                    />
 
-                                triage_agent = Agent(
-                                    name="TriageAgent",
-                                    instructions="Route weather questions to the weather agent.",
-                                    handoffs=[weather_agent]
-                                )
+                    <Markdown>
+                        {dedent`
+                            You can expect captured \`$ai_generation\` events to have the following properties:
+                        `}
+                    </Markdown>
 
-                                result = Runner.run_sync(triage_agent, "What's the weather in San Francisco?")
-                            `,
-                        },
-                    ]}
-                />
+                    {NotableGenerationProperties && <NotableGenerationProperties />}
+                </>
+            ),
+        },
+        {
+            title: 'Multi-agent and tool usage',
+            badge: 'optional',
+            content: (
+                <>
+                    <Markdown>
+                        PostHog captures the full trace hierarchy for complex agent workflows including handoffs and
+                        tool calls.
+                    </Markdown>
 
-                <Markdown>
-                    This captures:
-                    - Agent spans for `TriageAgent` and `WeatherAgent`
-                    - Handoff spans showing the routing between agents
-                    - Tool spans for `get_weather` function calls
-                    - Generation spans for all LLM calls
-                </Markdown>
-            </Step>
+                    <CodeBlock
+                        language="python"
+                        code={dedent`
+                            from agents import Agent, Runner, function_tool
 
-            <Step checkpoint title="Verify traces and generations" subtitle="Confirm LLM events are being sent to PostHog" docsOnly>
-                <Markdown>
-                    Under **LLM analytics**, you should see rows of data appear in the **Traces** and **Generations** tabs.
-                </Markdown>
+                            @function_tool
+                            def get_weather(city: str) -> str:
+                                """Get the weather for a city."""
+                                return f"The weather in {city} is sunny, 72F"
 
-                <br />
-                <ProductScreenshot
-                    imageLight="https://res.cloudinary.com/dmukukwp6/image/upload/SCR_20250807_syne_ecd0801880.png"
-                    imageDark="https://res.cloudinary.com/dmukukwp6/image/upload/SCR_20250807_syjm_5baab36590.png"
-                    alt="LLM generations in PostHog"
-                    classes="rounded"
-                    className="mt-10"
-                    padding={false}
-                />
+                            weather_agent = Agent(
+                                name="WeatherAgent",
+                                instructions="You help with weather queries.",
+                                tools=[get_weather]
+                            )
 
-                <OSButton variant="secondary" asLink className="my-2" size="sm" to="https://app.posthog.com/llm-analytics/generations" external>
-                    Check for LLM events in PostHog
-                </OSButton>
-            </Step>
-        </Steps>
-    )
+                            triage_agent = Agent(
+                                name="TriageAgent",
+                                instructions="Route weather questions to the weather agent.",
+                                handoffs=[weather_agent]
+                            )
+
+                            result = Runner.run_sync(triage_agent, "What's the weather in San Francisco?")
+                        `}
+                    />
+
+                    <Markdown>
+                        {dedent`
+                            This captures:
+                            - Agent spans for \`TriageAgent\` and \`WeatherAgent\`
+                            - Handoff spans showing the routing between agents
+                            - Tool spans for \`get_weather\` function calls
+                            - Generation spans for all LLM calls
+                        `}
+                    </Markdown>
+                </>
+            ),
+        },
+    ]
 }
+
+export const OpenAIAgentsInstallation = createInstallation(getOpenAIAgentsSteps)

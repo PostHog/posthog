@@ -1469,6 +1469,64 @@ export interface PaginatedBatchExportListApi {
 }
 
 /**
+ * Serializer for a BatchExport model.
+ */
+export interface PatchedBatchExportApi {
+    readonly id?: string
+    /** The team this belongs to. */
+    readonly team_id?: number
+    /** A human-readable name for this BatchExport. */
+    name?: string
+    /** Which model this BatchExport is exporting.
+
+* `events` - Events
+* `persons` - Persons
+* `sessions` - Sessions */
+    model?: ModelEnumApi | BlankEnumApi | NullEnumApi | null
+    destination?: BatchExportDestinationApi
+    interval?: IntervalEnumApi
+    /** Whether this BatchExport is paused or not. */
+    paused?: boolean
+    /** The timestamp at which this BatchExport was created. */
+    readonly created_at?: string
+    /** The timestamp at which this BatchExport was last updated. */
+    readonly last_updated_at?: string
+    /**
+     * The timestamp at which this BatchExport was last paused.
+     * @nullable
+     */
+    last_paused_at?: string | null
+    /**
+     * Time before which any Batch Export runs won't be triggered.
+     * @nullable
+     */
+    start_at?: string | null
+    /**
+     * Time after which any Batch Export runs won't be triggered.
+     * @nullable
+     */
+    end_at?: string | null
+    readonly latest_runs?: readonly BatchExportRunApi[]
+    hogql_query?: string
+    /** A schema of custom fields to select when exporting data. */
+    readonly schema?: unknown | null
+    filters?: unknown | null
+    timezone?: TimezoneEnumApi | NullEnumApi | null
+    /**
+     * @minimum 0
+     * @maximum 6
+     * @nullable
+     */
+    offset_day?: number | null
+    /**
+     * @minimum 0
+     * @maximum 23
+     * @nullable
+     */
+    offset_hour?: number | null
+}
+
+/**
  * * `Cancelled` - Cancelled
  * `Completed` - Completed
  * `ContinuedAsNew` - Continued As New
@@ -1550,65 +1608,18 @@ export interface PaginatedBatchExportRunListApi {
     results: BatchExportRunApi[]
 }
 
-/**
- * Serializer for a BatchExport model.
- */
-export interface PatchedBatchExportApi {
-    readonly id?: string
-    /** The team this belongs to. */
-    readonly team_id?: number
-    /** A human-readable name for this BatchExport. */
-    name?: string
-    /** Which model this BatchExport is exporting.
-
-* `events` - Events
-* `persons` - Persons
-* `sessions` - Sessions */
-    model?: ModelEnumApi | BlankEnumApi | NullEnumApi | null
-    destination?: BatchExportDestinationApi
-    interval?: IntervalEnumApi
-    /** Whether this BatchExport is paused or not. */
-    paused?: boolean
-    /** The timestamp at which this BatchExport was created. */
-    readonly created_at?: string
-    /** The timestamp at which this BatchExport was last updated. */
-    readonly last_updated_at?: string
+export type BatchExportsListParams = {
     /**
-     * The timestamp at which this BatchExport was last paused.
-     * @nullable
+     * Number of results to return per page.
      */
-    last_paused_at?: string | null
+    limit?: number
     /**
-     * Time before which any Batch Export runs won't be triggered.
-     * @nullable
+     * The initial index from which to return the results.
      */
-    start_at?: string | null
-    /**
-     * Time after which any Batch Export runs won't be triggered.
-     * @nullable
-     */
-    end_at?: string | null
-    readonly latest_runs?: readonly BatchExportRunApi[]
-    hogql_query?: string
-    /** A schema of custom fields to select when exporting data. */
-    readonly schema?: unknown | null
-    filters?: unknown | null
-    timezone?: TimezoneEnumApi | NullEnumApi | null
-    /**
-     * @minimum 0
-     * @maximum 6
-     * @nullable
-     */
-    offset_day?: number | null
-    /**
-     * @minimum 0
-     * @maximum 23
-     * @nullable
-     */
-    offset_hour?: number | null
+    offset?: number
 }
 
-export type BatchExportsListParams = {
+export type BatchExportsList2Params = {
     /**
      * Number of results to return per page.
      */
@@ -1631,50 +1642,6 @@ export type BatchExportsBackfillsListParams = {
 }
 
 export type BatchExportsRunsListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string
-}
-
-export type BatchExportsList2Params = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type BatchExportsList3Params = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type BatchExportsBackfillsList2Params = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string
-}
-
-export type BatchExportsRunsList2Params = {
     /**
      * The pagination cursor value.
      */

@@ -9,6 +9,7 @@ interface ColorInputProps {
     value?: string
     onChange: (value: string) => void
     disabled?: boolean
+    colorList?: string[]
 }
 
 // Survey-appropriate preset colors
@@ -61,7 +62,7 @@ function ColorGlyph({ color }: { color: string }): JSX.Element {
     )
 }
 
-export function ColorInput({ value = '', onChange, disabled }: ColorInputProps): JSX.Element {
+export function ColorInput({ value = '', onChange, disabled, colorList }: ColorInputProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
 
     const showCssVariableWarning = isCssVariable(value)
@@ -75,7 +76,7 @@ export function ColorInput({ value = '', onChange, disabled }: ColorInputProps):
                     overlay={
                         <div className="p-2">
                             <LemonColorList
-                                colors={SURVEY_PRESET_COLORS}
+                                colors={colorList ?? SURVEY_PRESET_COLORS}
                                 selectedColor={value}
                                 onSelectColor={(color) => {
                                     onChange(color)

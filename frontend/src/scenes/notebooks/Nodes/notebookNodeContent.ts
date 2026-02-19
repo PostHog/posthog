@@ -19,6 +19,14 @@ export type DuckSqlNodeSummary = {
     title: string
 }
 
+export type HogqlSqlNodeSummary = {
+    nodeId: string
+    code: string
+    returnVariable: string
+    hogqlSqlIndex: number
+    title: string
+}
+
 export type NotebookDependencyUsage = {
     nodeId: string
     nodeType: NotebookNodeType
@@ -49,6 +57,24 @@ export type NotebookDependencyGraph = {
 
 const stripSqlComments = (sql: string): string => {
     return sql.replace(/--.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')
+}
+
+export const extractHogqlPlaceholders = (sql: string): string[] => {
+    const cleanedSql = stripSqlComments(sql || '')
+    const placeholders: string[] = []
+    const placeholderPattern = /\{([A-Za-z_][\w$]*)\}/g
+    const excludedPlaceholderNames = new Set([
+        'filters', // Reserved for auto-injected global date/property filters in HogQL notebook queries.
+    ])
+    let match = placeholderPattern.exec(cleanedSql)
+    while (match) {
+        const name = match[1]
+        if (name && !excludedPlaceholderNames.has(name) && !placeholders.includes(name)) {
+            placeholders.push(name)
+        }
+        match = placeholderPattern.exec(cleanedSql)
+    }
+    return placeholders
 }
 
 const extractCteNames = (sql: string): Set<string> => {
@@ -150,6 +176,53 @@ export const getUniqueDuckSqlReturnVariable = (
     return resolvedReturnVariable
 }
 
+export const resolveHogqlReturnVariable = (returnVariable: string): string => {
+    return returnVariable.trim() || 'hogql_df'
+}
+
+const buildUniqueHogqlReturnVariable = (baseReturnVariable: string, used: Set<string>): string => {
+    const normalizedBase = normalizeSqlIdentifier(baseReturnVariable)
+    if (!used.has(normalizedBase)) {
+        return baseReturnVariable
+    }
+
+    let suffix = 2
+    while (true) {
+        const candidate = `${baseReturnVariable}_${suffix}`
+        if (!used.has(normalizeSqlIdentifier(candidate))) {
+            return candidate
+        }
+        suffix += 1
+    }
+}
+
+export const getUniqueHogqlReturnVariable = (
+    nodes: HogqlSqlNodeSummary[],
+    nodeId: string,
+    fallbackReturnVariable: string
+): string => {
+    const used = new Set<string>()
+    let resolvedReturnVariable = resolveHogqlReturnVariable(fallbackReturnVariable)
+    let resolvedFromNodes = false
+
+    nodes.forEach((node) => {
+        const baseReturnVariable = resolveHogqlReturnVariable(node.returnVariable)
+        const uniqueReturnVariable = buildUniqueHogqlReturnVariable(baseReturnVariable, used)
+        used.add(normalizeSqlIdentifier(uniqueReturnVariable))
+
+        if (node.nodeId === nodeId) {
+            resolvedReturnVariable = uniqueReturnVariable
+            resolvedFromNodes = true
+        }
+    })
+
+    if (!resolvedFromNodes) {
+        resolvedReturnVariable = buildUniqueHogqlReturnVariable(resolvedReturnVariable, used)
+    }
+
+    return resolvedReturnVariable
+}
+
 export const collectPythonNodes = (content?: JSONContent | null): PythonNodeSummary[] => {
     if (!content || typeof content !== 'object') {
         return []
@@ -168,6 +241,43 @@ export const collectPythonNodes = (content?: JSONContent | null): PythonNodeSumm
                 code: typeof attrs.code === 'string' ? attrs.code : '',
                 globalsUsed: Array.isArray(attrs.globalsUsed) ? attrs.globalsUsed : [],
                 pythonIndex: nodes.length + 1,
+                title: typeof attrs.title === 'string' ? attrs.title : '',
+            })
+        }
+        if (Array.isArray(node.content)) {
+            node.content.forEach(walk)
+        }
+    }
+
+    walk(content)
+    return nodes
+}
+
+export const collectHogqlSqlNodes = (content?: JSONContent | null): HogqlSqlNodeSummary[] => {
+    if (!content || typeof content !== 'object') {
+        return []
+    }
+
+    const nodes: HogqlSqlNodeSummary[] = []
+    const usedReturnVariables = new Set<string>()
+
+    const walk = (node: any): void => {
+        if (!node || typeof node !== 'object') {
+            return
+        }
+        if (node.type === NotebookNodeType.HogQLSQL) {
+            const attrs = node.attrs ?? {}
+            const code = typeof attrs.code === 'string' ? attrs.code : ''
+            const baseReturnVariable = resolveHogqlReturnVariable(
+                typeof attrs.returnVariable === 'string' ? attrs.returnVariable : 'hogql_df'
+            )
+            const returnVariable = buildUniqueHogqlReturnVariable(baseReturnVariable, usedReturnVariables)
+            usedReturnVariables.add(normalizeSqlIdentifier(returnVariable))
+            nodes.push({
+                nodeId: attrs.nodeId ?? '',
+                code,
+                returnVariable,
+                hogqlSqlIndex: nodes.length + 1,
                 title: typeof attrs.title === 'string' ? attrs.title : '',
             })
         }
@@ -247,7 +357,9 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
     const nodes: NotebookDependencyNode[] = []
     let pythonIndex = 0
     let duckSqlIndex = 0
+    let hogqlSqlIndex = 0
     const usedDuckSqlReturnVariables = new Set<string>()
+    const usedHogqlReturnVariables = new Set<string>()
 
     const walk = (node: any): void => {
         if (!node || typeof node !== 'object') {
@@ -287,6 +399,27 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
                 title: typeof attrs.title === 'string' ? attrs.title : '',
                 exports: returnVariable ? [returnVariable] : [],
                 uses: extractDuckSqlTables(code),
+                code,
+                returnVariable,
+            })
+        }
+
+        if (node.type === NotebookNodeType.HogQLSQL) {
+            const attrs = node.attrs ?? {}
+            hogqlSqlIndex += 1
+            const baseReturnVariable = resolveHogqlReturnVariable(
+                typeof attrs.returnVariable === 'string' ? attrs.returnVariable : 'hogql_df'
+            )
+            const returnVariable = buildUniqueHogqlReturnVariable(baseReturnVariable, usedHogqlReturnVariables)
+            usedHogqlReturnVariables.add(normalizeSqlIdentifier(returnVariable))
+            const code = typeof attrs.code === 'string' ? attrs.code : ''
+            nodes.push({
+                nodeId: attrs.nodeId ?? '',
+                nodeType: NotebookNodeType.HogQLSQL,
+                nodeIndex: hogqlSqlIndex,
+                title: typeof attrs.title === 'string' ? attrs.title : '',
+                exports: returnVariable ? [returnVariable] : [],
+                uses: extractHogqlPlaceholders(code),
                 code,
                 returnVariable,
             })

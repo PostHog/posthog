@@ -16,6 +16,7 @@ from posthog.schema import (
     EventPropertyFilter,
     HogQLFilters,
     HogQLQueryModifiers,
+    HogQLVariable,
     QueryTiming,
     SessionPropertyFilter,
 )
@@ -34,6 +35,7 @@ from posthog.errors import InternalCHQueryError
 from posthog.models import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
+from posthog.models.insight_variable import InsightVariable
 from posthog.models.utils import UUIDT, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -1498,6 +1500,29 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(QueryError) as e:
             execute_hogql_query(query, team=self.team)
         self.assertEqual(str(e.exception), "Table 'events' does not accept arguments")
+
+    def test_variables_missing_from_query_with_suggestion(self):
+        insight_variable = InsightVariable.objects.create(
+            team=self.team,
+            name="Variable One",
+            code_name="variable_one",
+            type=InsightVariable.Type.STRING,
+        )
+        variables = {
+            "variable_one": HogQLVariable(
+                code_name="variable_one",
+                value="value",
+                variableId=str(insight_variable.id),
+            )
+        }
+
+        query = "SELECT {variables.variable_two}"
+        with self.assertRaises(QueryError) as e:
+            execute_hogql_query(query, team=self.team, variables=variables)
+        self.assertEqual(
+            str(e.exception),
+            "Variable variable_two is missing from query. Did you mean: variable_one?",
+        )
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_query_filters(self):

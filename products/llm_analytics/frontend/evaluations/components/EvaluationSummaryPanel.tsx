@@ -191,11 +191,11 @@ export function EvaluationSummaryPanel({ runsLookup }: EvaluationSummaryPanelPro
                     {evaluationSummary.recommendations.length > 0 && (
                         <div>
                             <h4 className="font-semibold mb-2 text-sm">Recommendations</h4>
-                            <ul className="list-disc list-inside space-y-1 text-sm">
+                            <div className="space-y-1 text-sm">
                                 {evaluationSummary.recommendations.map((rec, i) => (
-                                    <li key={i}>{rec}</li>
+                                    <div key={i}>- {rec}</div>
                                 ))}
-                            </ul>
+                            </div>
                         </div>
                     )}
                 </div>

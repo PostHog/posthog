@@ -7,8 +7,10 @@ import {
 import { taxonomicFilterGroupTypeToEntityType } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { EntityTypes } from '~/types'
 import {
     ActionFilter,
+    EventPropertyFilter,
     FeaturePropertyFilter,
     FilterLogicalOperator,
     PropertyFilterType,
@@ -17,7 +19,13 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
-import { TaxonomicFilterGroup, TaxonomicFilterGroupType, TaxonomicFilterValue } from '../TaxonomicFilter/types'
+import {
+    TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterValue,
+    isQuickFilterItem,
+    quickFilterToPropertyFilters,
+} from '../TaxonomicFilter/types'
 import type { universalFiltersLogicType } from './universalFiltersLogicType'
 
 export const DEFAULT_UNIVERSAL_GROUP_FILTER: UniversalFiltersGroup = {
@@ -116,6 +124,9 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                         TaxonomicFilterGroupType.Elements,
                         TaxonomicFilterGroupType.HogQLExpression,
                         TaxonomicFilterGroupType.FeatureFlags,
+                        TaxonomicFilterGroupType.PageviewUrls,
+                        TaxonomicFilterGroupType.Screens,
+                        TaxonomicFilterGroupType.EmailAddresses,
                         TaxonomicFilterGroupType.Logs,
                         TaxonomicFilterGroupType.LogAttributes,
                         TaxonomicFilterGroupType.LogResourceAttributes,
@@ -132,6 +143,78 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
 
         addGroupFilter: ({ taxonomicGroup, propertyKey, item, originalQuery }) => {
             const newValues = [...values.filterGroup.values]
+
+            if (isQuickFilterItem(item)) {
+                if (item.eventName) {
+                    const eventFilter: ActionFilter = {
+                        id: item.eventName,
+                        name: item.eventName,
+                        type: EntityTypes.EVENTS,
+                        properties: quickFilterToPropertyFilters(item),
+                    }
+                    newValues.push(eventFilter)
+                } else {
+                    for (const propertyFilter of quickFilterToPropertyFilters(item)) {
+                        newValues.push(propertyFilter)
+                    }
+                }
+                actions.setGroupValues(newValues)
+                return
+            }
+
+            if (taxonomicGroup.type === TaxonomicFilterGroupType.PageviewEvents) {
+                const urlFilter: EventPropertyFilter = {
+                    key: '$current_url',
+                    value: propertyKey ? String(propertyKey) : '',
+                    operator: PropertyOperator.IContains,
+                    type: PropertyFilterType.Event,
+                }
+                const eventFilter: ActionFilter = {
+                    id: '$pageview',
+                    name: '$pageview',
+                    type: EntityTypes.EVENTS,
+                    properties: [urlFilter],
+                }
+                newValues.push(eventFilter)
+                actions.setGroupValues(newValues)
+                return
+            }
+
+            if (taxonomicGroup.type === TaxonomicFilterGroupType.ScreenEvents) {
+                const screenNameFilter: EventPropertyFilter = {
+                    key: '$screen_name',
+                    value: propertyKey ? String(propertyKey) : '',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                }
+                const eventFilter: ActionFilter = {
+                    id: '$screen',
+                    name: '$screen',
+                    type: EntityTypes.EVENTS,
+                    properties: [screenNameFilter],
+                }
+                newValues.push(eventFilter)
+                actions.setGroupValues(newValues)
+                return
+            }
+
+            if (taxonomicGroup.type === TaxonomicFilterGroupType.AutocaptureEvents) {
+                const elTextFilter: EventPropertyFilter = {
+                    key: '$el_text',
+                    value: propertyKey ? String(propertyKey) : '',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                }
+                const eventFilter: ActionFilter = {
+                    id: '$autocapture',
+                    name: '$autocapture',
+                    type: EntityTypes.EVENTS,
+                    properties: [elTextFilter],
+                }
+                newValues.push(eventFilter)
+                actions.setGroupValues(newValues)
+                return
+            }
 
             if (taxonomicGroup.type === TaxonomicFilterGroupType.FeatureFlags) {
                 if (!item.key) {

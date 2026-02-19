@@ -1,4 +1,5 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
 export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
@@ -13,7 +14,8 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
             content: (
                 <>
                     <Markdown>
-                        Setting up analytics starts with installing the PostHog SDK for your language. LLM analytics works best with our Python and Node SDKs.
+                        Setting up analytics starts with installing the PostHog SDK for your language. LLM analytics
+                        works best with our Python and Node SDKs.
                     </Markdown>
 
                     <CodeBlock
@@ -43,8 +45,8 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
             content: (
                 <>
                     <Markdown>
-                        Install LangChain. The PostHog SDK instruments your LLM calls by wrapping LangChain. The PostHog SDK
-                        **does not** proxy your calls.
+                        Install LangChain. The PostHog SDK instruments your LLM calls by wrapping LangChain. The PostHog
+                        SDK **does not** proxy your calls.
                     </Markdown>
 
                     <CodeBlock
@@ -60,7 +62,7 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install langchain @langchain/core @posthog/ai
+                                    npm install langchain @langchain/core @langchain/openai @posthog/ai
                                 `,
                             },
                         ]}
@@ -68,9 +70,11 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
 
                     <CalloutBox type="fyi" icon="IconInfo" title="Proxy note">
                         <Markdown>
-                            These SDKs **do not** proxy your calls. They only fire off an async call to PostHog in the background to send the data.
-
-                            You can also use LLM analytics with other SDKs or our API, but you will need to capture the data in the right format. See the schema in the [manual capture section](https://posthog.com/docs/llm-analytics/installation/manual-capture) for more details.
+                            These SDKs **do not** proxy your calls. They only fire off an async call to PostHog in the
+                            background to send the data. You can also use LLM analytics with other SDKs or our API, but
+                            you will need to capture the data in the right format. See the schema in the [manual capture
+                            section](https://posthog.com/docs/llm-analytics/installation/manual-capture) for more
+                            details.
                         </Markdown>
                     </CalloutBox>
                 </>
@@ -82,9 +86,11 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
             content: (
                 <>
                     <Markdown>
-                        Initialize PostHog with your project API key and host from [your project settings](https://app.posthog.com/settings/project), then pass it to the LangChain `CallbackHandler` wrapper.
-
-                        Optionally, you can provide a user distinct ID, trace ID, PostHog properties, [groups](https://posthog.com/docs/product-analytics/group-analytics), and privacy mode.
+                        Initialize PostHog with your project API key and host from [your project
+                        settings](https://app.posthog.com/settings/project), then pass it to the LangChain
+                        `CallbackHandler` wrapper. Optionally, you can provide a user distinct ID, trace ID, PostHog
+                        properties, [groups](https://posthog.com/docs/product-analytics/group-analytics), and privacy
+                        mode.
                     </Markdown>
 
                     <CodeBlock
@@ -107,14 +113,14 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                         client=posthog, # This is an optional parameter. If it is not provided, a default client will be used.
                                         distinct_id="user_123", # optional
                                         trace_id="trace_456", # optional
-                                        properties={"conversation_id": "abc123"} # optional
-                                        groups={"company": "company_id_in_your_db"} # optional
+                                        properties={"conversation_id": "abc123"}, # optional
+                                        groups={"company": "company_id_in_your_db"}, # optional
                                         privacy_mode=False # optional
                                     )
                                 `,
                             },
                             {
-                                language: 'ts',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
                                     import { PostHog } from 'posthog-node';
@@ -143,7 +149,9 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
 
                     <Blockquote>
                         <Markdown>
-                            **Note:** If you want to capture LLM events anonymously, **don't** pass a distinct ID to the `CallbackHandler`. See our docs on [anonymous vs identified events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
+                            **Note:** If you want to capture LLM events anonymously, **don't** pass a distinct ID to the
+                            `CallbackHandler`. See our docs on [anonymous vs identified
+                            events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                         </Markdown>
                     </Blockquote>
                 </>
@@ -155,7 +163,8 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
             content: (
                 <>
                     <Markdown>
-                        When you invoke your chain, pass the `callback_handler` in the `config` as part of your `callbacks`:
+                        When you invoke your chain, pass the `callback_handler` in the `config` as part of your
+                        `callbacks`:
                     </Markdown>
 
                     <CodeBlock
@@ -182,7 +191,7 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 `,
                             },
                             {
-                                language: 'ts',
+                                language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
                                     const prompt = ChatPromptTemplate.fromMessages([

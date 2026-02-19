@@ -13,6 +13,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
@@ -31,6 +32,7 @@ export interface SourceFormProps {
 
 const CONNECTION_STRING_DEFAULT_PORT: Record<string, number> = {
     Postgres: 5432,
+    Redshift: 5439,
 }
 
 const sourceFieldToElement = (
@@ -208,7 +210,12 @@ const sourceFieldToElement = (
     }
 
     return (
-        <LemonField key={field.name} name={field.name} label={field.label}>
+        <LemonField
+            key={field.name}
+            name={field.name}
+            label={field.label}
+            help={field.caption ? <LemonMarkdown className="text-xs">{field.caption}</LemonMarkdown> : undefined}
+        >
             {({ value, onChange }) => (
                 <LemonInput
                     className="ph-ignore-input"
@@ -295,7 +302,10 @@ export function SourceFormComponent({
                             validationError =
                                 'Prefix must contain only letters, numbers, and underscores, and start with a letter or underscore'
                         } else if (value && !cleaned) {
-                            validationError = 'Prefix cannot consist of only underscores'
+                            validationError =
+                                value.trim().length === 0
+                                    ? 'Prefix cannot be empty whitespace'
+                                    : 'Prefix cannot consist of only underscores'
                         }
 
                         const displayValue = value ? value.trim().replace(/^_+|_+$/g, '') : ''

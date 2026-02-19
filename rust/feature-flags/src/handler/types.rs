@@ -60,6 +60,8 @@ pub struct FeatureFlagEvaluationContext {
     /// When true, skip hash key override lookups for flags that don't need them
     /// (e.g., 100% rollout with no multivariate variants).
     pub optimize_experience_continuity_lookups: bool,
+    /// Flag count threshold for switching from sequential to parallel evaluation.
+    pub parallel_eval_threshold: usize,
 }
 
 /// SDK type classification based on user-agent parsing.

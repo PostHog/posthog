@@ -1,14 +1,13 @@
-use crate::metrics::consts::TOMBSTONE_COUNTER;
-use metrics::counter;
-
-use crate::api::errors::FlagError;
+use crate::api::errors::{simplify_serde_error, FlagError};
 use crate::database::get_connection_with_metrics;
 use crate::flags::flag_models::{
     FeatureFlag, FeatureFlagList, FeatureFlagRow, HypercacheFlagsWrapper,
 };
+use crate::metrics::consts::TOMBSTONE_COUNTER;
 use common_database::PostgresReader;
 use common_hypercache::HYPER_CACHE_EMPTY_VALUE;
 use common_types::TeamId;
+use metrics::counter;
 
 impl FeatureFlagList {
     pub fn new(flags: Vec<FeatureFlag>) -> Self {
@@ -39,11 +38,13 @@ impl FeatureFlagList {
         // Parse the hypercache format: {"flags": [...]}
         let wrapper: HypercacheFlagsWrapper =
             serde_json::from_value(data.clone()).map_err(|e| {
+                let data_str = data.to_string();
+                let data_preview = &data_str[..data_str.len().min(200)];
                 tracing::error!(
                     "Failed to parse hypercache data for team {}: {}. Data: {}",
                     team_id,
                     e,
-                    &data.to_string()[..data.to_string().len().min(200)]
+                    data_preview
                 );
                 counter!(
                     TOMBSTONE_COUNTER,
@@ -51,7 +52,10 @@ impl FeatureFlagList {
                     "team_id" => team_id.to_string(),
                 )
                 .increment(1);
-                FlagError::RedisDataParsingError
+                FlagError::DataParsingErrorWithContext(format!(
+                    "Failed to parse feature flags for team {team_id}: {}",
+                    simplify_serde_error(&e.to_string())
+                ))
             })?;
 
         tracing::debug!("Parsed {} flags for team {}", wrapper.flags.len(), team_id);
@@ -701,7 +705,10 @@ mod tests {
         // Data is an array instead of {"flags": [...]} wrapper
         let data = json!([{"id": 1, "key": "test"}]);
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(matches!(result, Err(FlagError::RedisDataParsingError)));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
     }
 
     #[test]
@@ -709,7 +716,10 @@ mod tests {
         // Data has wrong structure - flags is not an array
         let data = json!({"flags": "not an array"});
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(matches!(result, Err(FlagError::RedisDataParsingError)));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
     }
 
     #[test]
@@ -724,7 +734,10 @@ mod tests {
             ]
         });
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(matches!(result, Err(FlagError::RedisDataParsingError)));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
     }
 
     #[test]
@@ -776,7 +789,10 @@ mod tests {
         // A random string that's not the sentinel should fail parsing
         let data = json!("some_random_string");
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(matches!(result, Err(FlagError::RedisDataParsingError)));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
     }
 
     #[test]
@@ -784,6 +800,9 @@ mod tests {
         // Empty object (no flags key)
         let data = json!({});
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(matches!(result, Err(FlagError::RedisDataParsingError)));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
     }
 }

@@ -1,5 +1,4 @@
 import {
-    IconAI,
     IconApps,
     IconBug,
     IconCode2,
@@ -9,6 +8,7 @@ import {
     IconFlask,
     IconHome,
     IconLive,
+    IconLlmAnalytics,
     IconMessage,
     IconNotebook,
     IconNotification,
@@ -51,7 +51,7 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
         case 'insight':
             return <IconTrends />
         case 'llm_analytics':
-            return <IconAI />
+            return <IconLlmAnalytics />
         case 'live_debugger':
             return <IconBug />
         case 'logs':

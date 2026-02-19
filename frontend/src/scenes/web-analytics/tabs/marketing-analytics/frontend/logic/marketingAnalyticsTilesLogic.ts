@@ -11,7 +11,7 @@ import {
     DataWarehouseNode,
     IntegrationFilter,
     MARKETING_ANALYTICS_SCHEMA,
-    MarketingAnalyticsHelperForColumnNames,
+    MarketingAnalyticsConstants,
     MarketingAnalyticsTableQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -222,7 +222,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     ...(draftConversionGoal
                         ? [
                               draftConversionGoal.conversion_goal_name,
-                              `${MarketingAnalyticsHelperForColumnNames.CostPer} ${draftConversionGoal.conversion_goal_name}`,
+                              `${MarketingAnalyticsConstants.CostPer} ${draftConversionGoal.conversion_goal_name}`,
                           ]
                         : []),
                 ]

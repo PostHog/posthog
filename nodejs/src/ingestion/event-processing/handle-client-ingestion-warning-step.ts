@@ -1,9 +1,10 @@
-import { PipelineEvent } from '../../types'
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
 import { PipelineResult, dlq, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 export interface HandleClientIngestionWarningStepInput {
-    event: PipelineEvent
+    event: PluginEvent
 }
 
 export function createHandleClientIngestionWarningStep<

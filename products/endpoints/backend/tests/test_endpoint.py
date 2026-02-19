@@ -104,6 +104,133 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         response_data = response.json()
         self.assertEqual(response_data["type"], "validation_error")
 
+    def test_cannot_create_endpoint_with_undefined_variable_placeholders(self):
+        data = {
+            "name": "test_query",
+            "query": {
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE event = {variables.event_name}",
+            },
+        }
+
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertIn("event_name", response.json()["detail"])
+
+    def test_create_endpoint_with_defined_variable_placeholders(self):
+        from posthog.models.insight_variable import InsightVariable
+
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Event Name", code_name="event_name", type="String"
+        )
+        variable_id = str(variable.id)
+        data = {
+            "name": "test_query",
+            "query": {
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE event = {variables.event_name}",
+                "variables": {
+                    variable_id: {
+                        "variableId": variable_id,
+                        "code_name": "event_name",
+                        "value": "$pageview",
+                    }
+                },
+            },
+        }
+
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+
+    def test_cannot_create_endpoint_with_partially_defined_variables(self):
+        from posthog.models.insight_variable import InsightVariable
+
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Event Name", code_name="event_name", type="String"
+        )
+        variable_id = str(variable.id)
+        data = {
+            "name": "test_query",
+            "query": {
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE event = {variables.event_name} AND properties.os = {variables.os}",
+                "variables": {
+                    variable_id: {
+                        "variableId": variable_id,
+                        "code_name": "event_name",
+                        "value": "$pageview",
+                    }
+                },
+            },
+        }
+
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertIn("os", response.json()["detail"])
+        self.assertNotIn("event_name", response.json()["detail"])
+
+    def test_cannot_update_endpoint_with_undefined_variable_placeholders(self):
+        create_data = {
+            "name": "test_query",
+            "query": {"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+        }
+        self.client.post(f"/api/environments/{self.team.id}/endpoints/", create_data, format="json")
+
+        update_data = {
+            "query": {
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE event = {variables.event_name}",
+            },
+        }
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/test_query/", update_data, format="json"
+        )
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertIn("event_name", response.json()["detail"])
+
+    def test_cannot_create_endpoint_with_non_uuid_variable_id(self):
+        create_data = {
+            "name": "non-existent-variable",
+            "query": {
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE event = {variables.event_name}",
+                "variables": {
+                    "var-1": {
+                        "variableId": "var-1",
+                        "code_name": "event_name",
+                        "value": "$pageview",
+                    }
+                },
+            },
+        }
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", create_data, format="json")
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertIn("not valid UUIDs", response.json()["detail"])
+
+    def test_cannot_create_endpoint_with_nonexistent_variable_id(self):
+        fake_uuid = "00000000-0000-0000-0000-000000000001"
+        create_data = {
+            "name": "non-existent-variable",
+            "query": {
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE event = {variables.event_name}",
+                "variables": {
+                    fake_uuid: {
+                        "variableId": fake_uuid,
+                        "code_name": "event_name",
+                        "value": "$pageview",
+                    }
+                },
+            },
+        }
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", create_data, format="json")
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertIn("Variable ID(s) not found", response.json()["detail"])
+
     def test_create_insight_endpoint(self):
         data = {
             "name": "test_insight_query",

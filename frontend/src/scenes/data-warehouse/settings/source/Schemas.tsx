@@ -20,8 +20,10 @@ import {
 
 import { AccessControlAction, AccessControlActionChildrenProps } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SyncTypeLabelMap, defaultQuery, syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -76,6 +78,8 @@ export const Schemas = ({ id }: SchemasProps): JSX.Element => {
     const { setShowEnabledSchemasOnly } = useActions(logic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
+    const { featureFlags } = useValues(featureFlagLogic)
+
     return (
         <BindLogic logic={dataWarehouseSourceSettingsLogic} props={logicProps}>
             <div className="flex items-center gap-2 mb-2">
@@ -86,28 +90,30 @@ export const Schemas = ({ id }: SchemasProps): JSX.Element => {
                 />
             </div>
             <SchemaTable schemas={filteredSchemas} isLoading={sourceLoading} />
-            {source?.source_type && REVENUE_ENABLED_SOURCES.includes(source.source_type) && (
-                <div className="flex justify-end">
-                    <LemonButton
-                        type="primary"
-                        className="mt-2"
-                        tooltip="This source is feeding data into our Revenue analytics product - currently in beta."
-                        onClick={() => {
-                            addProductIntentForCrossSell({
-                                from: ProductKey.DATA_WAREHOUSE,
-                                to: ProductKey.REVENUE_ANALYTICS,
-                                intent_context: ProductIntentContext.DATA_WAREHOUSE_STRIPE_SOURCE_CREATED,
-                            })
-                            router.actions.push(urls.revenueAnalytics())
-                        }}
-                    >
-                        See data in Revenue analytics
-                        <LemonTag className="ml-2" type="warning" size="small">
-                            BETA
-                        </LemonTag>
-                    </LemonButton>
-                </div>
-            )}
+            {source?.source_type &&
+                REVENUE_ENABLED_SOURCES.includes(source.source_type) &&
+                featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && (
+                    <div className="flex justify-end">
+                        <LemonButton
+                            type="primary"
+                            className="mt-2"
+                            tooltip="This source is feeding data into our Revenue analytics product - currently in beta."
+                            onClick={() => {
+                                addProductIntentForCrossSell({
+                                    from: ProductKey.DATA_WAREHOUSE,
+                                    to: ProductKey.REVENUE_ANALYTICS,
+                                    intent_context: ProductIntentContext.DATA_WAREHOUSE_STRIPE_SOURCE_CREATED,
+                                })
+                                router.actions.push(urls.revenueAnalytics())
+                            }}
+                        >
+                            See data in Revenue analytics
+                            <LemonTag className="ml-2" type="warning" size="small">
+                                BETA
+                            </LemonTag>
+                        </LemonButton>
+                    </div>
+                )}
         </BindLogic>
     )
 }

@@ -305,6 +305,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             assert team.project is not None
             return team.project
         try:
+            # nosemgrep: idor-lookup-without-org (routing validates org access via permissions)
             return Project.objects.get(id=self.project_id)
         except (Project.DoesNotExist, ValueError):
             raise NotFound(detail="Project not found.")

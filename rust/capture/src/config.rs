@@ -258,4 +258,14 @@ pub struct KafkaConfig {
     pub kafka_metadata_max_age_ms: u32,
     #[envconfig(default = "60000")] // lib default, can tweak in env overrides
     pub kafka_socket_timeout_ms: u32,
+    #[envconfig(default = "10000")] // librdkafka default
+    pub kafka_producer_batch_num_messages: u32, // batch.num.messages - max messages per batch
+    #[envconfig(default = "1000000")] // librdkafka default
+    pub kafka_producer_batch_size: u32, // batch.size - max batch size in bytes
+    #[envconfig(default = "1000000")] // librdkafka default
+    pub kafka_producer_max_in_flight_requests: u32, // max.in.flight.requests.per.connection
+    #[envconfig(default = "10")] // librdkafka default
+    pub kafka_producer_sticky_partitioning_linger_ms: u32, // sticky.partitioning.linger.ms
+    #[envconfig(default = "false")] // librdkafka default
+    pub kafka_producer_enable_idempotence: bool, // enable.idempotence
 }
