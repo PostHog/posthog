@@ -1599,129 +1599,165 @@ class TestFieldLevelAccessControl(BaseUserAccessControlTest):
 class TestGetEffectiveAccessLevelForRole:
     @parameterized.expand(
         [
-            # (test_name, resource, default_level, role_level, expected_effective, expected_reason)
+            # (test_name, resource, default_level, role_level, effective_access_level, inherited_access_level, inherited_access_level_reason)
             # Project defaults apply if no role overrides
-            ("project_default_none_no_override", "project", "none", None, "none", "project_default"),
-            ("project_default_member_no_override", "project", "member", None, "member", "project_default"),
-            ("resource_default_none_no_override", "feature_flag", "none", None, "none", "project_default"),
+            ("project_default_none_no_override", "project", "none", None, "none", "none", "project_default"),
+            ("project_default_member_no_override", "project", "member", None, "member", "member", "project_default"),
+            ("resource_default_none_no_override", "feature_flag", "none", None, "none", "none", "project_default"),
             # Role overrides higher than project defaults
-            ("project_role_override_higher", "project", "member", "admin", "admin", "role_override"),
-            ("resource_role_override_higher", "feature_flag", "viewer", "manager", "manager", "role_override"),
+            ("project_role_override_higher", "project", "member", "admin", "admin", "member", "project_default"),
+            (
+                "resource_role_override_higher",
+                "feature_flag",
+                "viewer",
+                "manager",
+                "manager",
+                "viewer",
+                "project_default",
+            ),
             # Role overrides same as project defaults
-            ("project_role_override_same", "project", "member", "member", "member", "role_override"),
-            ("resource_role_override_same", "feature_flag", "viewer", "viewer", "viewer", "role_override"),
-            # Role overrides lower than project defaults
-            ("project_role_override_lower", "project", "admin", "member", "admin", "project_default"),
-            ("resource_role_override_lower", "feature_flag", "editor", "viewer", "editor", "project_default"),
+            ("project_role_override_same", "project", "member", "member", "member", "member", "project_default"),
+            ("resource_role_override_same", "feature_flag", "viewer", "viewer", "viewer", "viewer", "project_default"),
+            # Role overrides lower than project defaults - effective stays at default
+            ("project_role_override_lower", "project", "admin", "member", "admin", "admin", "project_default"),
+            ("resource_role_override_lower", "feature_flag", "editor", "viewer", "editor", "editor", "project_default"),
         ]
     )
     def test_effective_access_for_role(
-        self, _name, resource, default_level, role_level, expected_effective, expected_reason
+        self,
+        _name,
+        resource,
+        default_level,
+        role_level,
+        expected_effective,
+        expected_inherited,
+        expected_inherited_reason,
     ):
-        effective, reason = get_effective_access_level_for_role(
+        result = get_effective_access_level_for_role(
             resource=resource,
             default_level=default_level,
             role_level=role_level,
         )
-        assert effective == expected_effective
-        assert reason == expected_reason
+        assert result.effective_access_level == expected_effective
+        assert result.inherited_access_level == expected_inherited
+        assert result.inherited_access_level_reason == expected_inherited_reason
 
 
 class TestGetEffectiveAccessLevelForMember:
     @parameterized.expand(
         [
-            # (test_name, resource, default_level, role_levels, member_level, is_org_admin, expected_effective, expected_reason)
+            # (test_name, resource, default_level, role_levels, member_level, is_admin, effective_access_level, inherited_access_level, inherited_access_level_reason)
             # Org admin always gets highest
-            ("org_admin_no_overrides", "project", "none", [], None, True, "admin", "organization_admin"),
+            ("org_admin_no_overrides", "project", "none", [], None, True, "admin", "admin", "organization_admin"),
             (
-                "org_admin_ignores_all_overrides",
+                "org_admin_ignores_all",
                 "project",
                 "none",
                 ["member"],
                 "member",
                 True,
                 "admin",
+                "admin",
                 "organization_admin",
             ),
             (
-                "org_admin_resource_gets_manager",
+                "org_admin_resource",
                 "feature_flag",
                 "none",
                 ["viewer"],
                 "editor",
                 True,
                 "manager",
+                "manager",
                 "organization_admin",
             ),
             # Project defaults apply if no overrides
-            ("project_default_none_no_overrides", "project", "none", [], None, False, "none", "project_default"),
-            ("project_default_member_no_overrides", "project", "member", [], None, False, "member", "project_default"),
-            # Member overrides higher than project defaults
+            ("default_none_no_overrides", "project", "none", [], None, False, "none", "none", "project_default"),
             (
-                "member_override_higher_than_default",
+                "default_member_no_overrides",
+                "project",
+                "member",
+                [],
+                None,
+                False,
+                "member",
+                "member",
+                "project_default",
+            ),
+            # Member override higher than default - inherited stays at default
+            (
+                "member_higher_than_default",
                 "project",
                 "member",
                 [],
                 "admin",
                 False,
                 "admin",
-                "member_override",
+                "member",
+                "project_default",
             ),
-            # Member overrides lower than project defaults
-            ("member_override_lower_than_default", "project", "admin", [], "member", False, "admin", "project_default"),
-            # Role overrides higher than project defaults
+            # Member override lower than default - effective stays at default
+            ("member_lower_than_default", "project", "admin", [], "member", False, "admin", "admin", "project_default"),
+            # Role higher than default - inherited reflects role
             (
-                "role_override_higher_than_default",
+                "role_higher_than_default",
                 "project",
                 "member",
                 ["admin"],
                 None,
                 False,
                 "admin",
+                "admin",
                 "role_override",
             ),
             (
-                "resource_role_override_higher",
+                "resource_role_higher",
                 "feature_flag",
                 "viewer",
                 ["editor"],
                 None,
                 False,
                 "editor",
+                "editor",
                 "role_override",
             ),
-            # Role overrides higher than member overrides
+            # Role higher than member - inherited reflects role, effective from role
             (
-                "role_override_higher_than_member",
+                "role_higher_than_member",
                 "project",
                 "none",
                 ["admin"],
                 "member",
                 False,
                 "admin",
+                "admin",
                 "role_override",
             ),
-            # Multiple roles - highest wins
+            # Multiple roles - highest role wins as inherited
             (
-                "multiple_roles_highest_wins",
+                "multiple_roles_highest",
                 "project",
                 "none",
                 ["member", "admin", "none"],
                 None,
                 False,
                 "admin",
+                "admin",
                 "role_override",
             ),
-            # Member override highest of all
+            # Member override same as inherited from default
+            ("member_same_as_default", "project", "member", [], "member", False, "member", "member", "project_default"),
+            # Member override highest of all - inherited from role, effective from member
             (
-                "member_override_highest_of_all",
+                "member_highest_of_all",
                 "project",
                 "member",
                 ["member"],
                 "admin",
                 False,
                 "admin",
-                "member_override",
+                "member",
+                "project_default",
             ),
         ]
     )
@@ -1734,14 +1770,16 @@ class TestGetEffectiveAccessLevelForMember:
         member_level,
         is_org_admin,
         expected_effective,
-        expected_reason,
+        expected_inherited,
+        expected_inherited_reason,
     ):
-        effective, reason = get_effective_access_level_for_member(
+        result = get_effective_access_level_for_member(
             resource=resource,
             default_level=default_level,
             role_levels=role_levels,
             member_level=member_level,
             is_org_admin=is_org_admin,
         )
-        assert effective == expected_effective
-        assert reason == expected_reason
+        assert result.effective_access_level == expected_effective
+        assert result.inherited_access_level == expected_inherited
+        assert result.inherited_access_level_reason == expected_inherited_reason

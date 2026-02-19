@@ -484,7 +484,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             rid = str(role.id)
 
             project_role_level = role_project_overrides.get(rid)
-            project_effective, project_reason = get_effective_access_level_for_role(
+            project_result = get_effective_access_level_for_role(
                 resource="project",
                 default_level=project_default_level,
                 role_level=project_role_level,
@@ -494,15 +494,16 @@ class AccessControlViewSetMixin(_GenericViewSet):
             for resource in ACCESS_CONTROL_RESOURCES:
                 resource_role_level = role_resource_overrides.get((rid, resource))
                 resource_default = resource_default_levels.get(resource, default_access_level(resource))
-                resource_effective, resource_reason = get_effective_access_level_for_role(
+                resource_result = get_effective_access_level_for_role(
                     resource=resource,
                     default_level=resource_default,
                     role_level=resource_role_level,
                 )
                 resource_entries[resource] = {
                     "access_level": resource_role_level,
-                    "effective_access_level": resource_effective,
-                    "effective_access_level_reason": resource_reason,
+                    "effective_access_level": resource_result.effective_access_level,
+                    "inherited_access_level": resource_result.inherited_access_level,
+                    "inherited_access_level_reason": resource_result.inherited_access_level_reason,
                     "minimum": minimum_access_level(resource),
                     "maximum": highest_access_level(resource),
                 }
@@ -513,8 +514,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
                     "role_name": role.name,
                     "project": {
                         "access_level": project_role_level,
-                        "effective_access_level": project_effective,
-                        "effective_access_level_reason": project_reason,
+                        "effective_access_level": project_result.effective_access_level,
+                        "inherited_access_level": project_result.inherited_access_level,
+                        "inherited_access_level_reason": project_result.inherited_access_level_reason,
                         "minimum": minimum_access_level("project"),
                         "maximum": highest_access_level("project"),
                     },
@@ -589,7 +591,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             project_role_levels: list[AccessControlLevel] = [
                 role_project_overrides[rid] for rid in member_role_ids if rid in role_project_overrides
             ]
-            project_effective, project_reason = get_effective_access_level_for_member(
+            project_result = get_effective_access_level_for_member(
                 resource="project",
                 default_level=project_default_level,
                 role_levels=project_role_levels,
@@ -606,7 +608,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
                     for rid in member_role_ids
                     if (rid, resource) in role_resource_overrides
                 ]
-                resource_effective, resource_reason = get_effective_access_level_for_member(
+                resource_result = get_effective_access_level_for_member(
                     resource=resource,
                     default_level=resource_default,
                     role_levels=resource_role_levels,
@@ -615,8 +617,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 )
                 resource_entries[resource] = {
                     "access_level": resource_member_level,
-                    "effective_access_level": resource_effective,
-                    "effective_access_level_reason": resource_reason,
+                    "effective_access_level": resource_result.effective_access_level,
+                    "inherited_access_level": resource_result.inherited_access_level,
+                    "inherited_access_level_reason": resource_result.inherited_access_level_reason,
                     "minimum": minimum_access_level(resource),
                     "maximum": highest_access_level(resource),
                 }
@@ -633,8 +636,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
                     "organization_level": membership.level,
                     "project": {
                         "access_level": project_member_level,
-                        "effective_access_level": project_effective,
-                        "effective_access_level_reason": project_reason,
+                        "effective_access_level": project_result.effective_access_level,
+                        "inherited_access_level": project_result.inherited_access_level,
+                        "inherited_access_level_reason": project_result.inherited_access_level_reason,
                         "minimum": minimum_access_level("project"),
                         "maximum": highest_access_level("project"),
                     },

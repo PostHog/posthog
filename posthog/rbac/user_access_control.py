@@ -1,4 +1,5 @@
 import json
+from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
@@ -43,7 +44,7 @@ AccessControlLevelNone = Literal["none"]
 AccessControlLevelMember = Literal[AccessControlLevelNone, "member", "admin"]
 AccessControlLevelResource = Literal[AccessControlLevelNone, "viewer", "editor", "manager"]
 AccessControlLevel = Literal[AccessControlLevelMember, AccessControlLevelResource]
-EffectiveAccessLevelReason = Literal["member_override", "role_override", "project_default", "organization_admin"]
+InheritedAccessLevelReason = Literal["role_override", "project_default", "organization_admin"]
 
 NO_ACCESS_LEVEL = "none"
 ACCESS_CONTROL_LEVELS_MEMBER: tuple[AccessControlLevelMember, ...] = get_args(AccessControlLevelMember)
@@ -157,23 +158,29 @@ def access_level_satisfied_for_resource(
     return ordered_access_levels(resource).index(current_level) >= ordered_access_levels(resource).index(required_level)
 
 
+@dataclass(frozen=True)
+class EffectiveAccessResult:
+    effective_access_level: AccessControlLevel
+    inherited_access_level: AccessControlLevel
+    inherited_access_level_reason: InheritedAccessLevelReason
+
+
 def get_effective_access_level_for_role(
     resource: APIScopeObject,
     default_level: AccessControlLevel,
     role_level: AccessControlLevel | None,
-) -> tuple[AccessControlLevel, EffectiveAccessLevelReason]:
-    """
-    Compute effective access for a role from role override and default.
-    """
+) -> EffectiveAccessResult:
+    """Compute effective access for a role from role override and default."""
     levels = ordered_access_levels(resource)
+    inherited = default_level
 
-    if role_level is None:
-        return default_level, "project_default"
+    effective = inherited if role_level is None else max(inherited, role_level, key=levels.index)
 
-    if levels.index(default_level) > levels.index(role_level):
-        return default_level, "project_default"
-
-    return role_level, "role_override"
+    return EffectiveAccessResult(
+        effective_access_level=effective,
+        inherited_access_level=inherited,
+        inherited_access_level_reason="project_default",
+    )
 
 
 def get_effective_access_level_for_member(
@@ -182,32 +189,34 @@ def get_effective_access_level_for_member(
     role_levels: list[AccessControlLevel],
     member_level: AccessControlLevel | None,
     is_org_admin: bool,
-) -> tuple[AccessControlLevel, EffectiveAccessLevelReason]:
-    """
-    Compute effective access for a member from member override, default, and role levels.
-    """
+) -> EffectiveAccessResult:
+    """Compute effective access for a member from member override, default, and role levels."""
     if is_org_admin:
-        return highest_access_level(resource), "organization_admin"
+        top = highest_access_level(resource)
+        return EffectiveAccessResult(
+            effective_access_level=top,
+            inherited_access_level=top,
+            inherited_access_level_reason="organization_admin",
+        )
 
     levels = ordered_access_levels(resource)
 
-    if member_level is not None:
-        effective = member_level
-        reason: EffectiveAccessLevelReason = "member_override"
-    else:
-        effective = default_level
-        reason = "project_default"
+    # Inherited floor: highest of project default and role overrides
+    inherited = default_level
+    inherited_reason: InheritedAccessLevelReason = "project_default"
 
-    if member_level is not None and levels.index(default_level) > levels.index(effective):
-        effective = default_level
-        reason = "project_default"
+    for rl in role_levels:
+        if levels.index(rl) > levels.index(inherited):
+            inherited = rl
+            inherited_reason = "role_override"
 
-    for role_level in role_levels:
-        if levels.index(role_level) > levels.index(effective):
-            effective = role_level
-            reason = "role_override"
+    effective = inherited if member_level is None else max(inherited, member_level, key=levels.index)
 
-    return effective, reason
+    return EffectiveAccessResult(
+        effective_access_level=effective,
+        inherited_access_level=inherited,
+        inherited_access_level_reason=inherited_reason,
+    )
 
 
 def model_to_resource(model: Model) -> Optional[APIScopeObject]:

@@ -1384,11 +1384,12 @@ class TestAccessControlRolesEndpoint(BaseAccessControlTest):
         assert role_data["role_id"] == str(self.role.id)
         assert role_data["role_name"] == "Engineering"
 
-        # Access entries: saved level, effective level, reason, constraints
+        # Access entries: saved level, effective/inherited levels, constraints
         expected_access_entry_keys = {
             "access_level",
             "effective_access_level",
-            "effective_access_level_reason",
+            "inherited_access_level",
+            "inherited_access_level_reason",
             "minimum",
             "maximum",
         }
@@ -1477,11 +1478,12 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         assert expected_user_keys <= set(member_data["user"].keys())
         assert member_data["user"]["email"] == "user2@example.com"
 
-        # Access entries: saved level, effective level, reason, constraints
+        # Access entries: saved level, effective/inherited levels, constraints
         expected_access_entry_keys = {
             "access_level",
             "effective_access_level",
-            "effective_access_level_reason",
+            "inherited_access_level",
+            "inherited_access_level_reason",
             "minimum",
             "maximum",
         }
@@ -1526,10 +1528,11 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
 
         res = self.client.get("/api/projects/@current/access_control_members")
         member_data = self._find_member(res.json()["results"], self.user2_membership.id)
-        # Effective access from role
+        # No direct member override, effective and inherited from role
         assert member_data["project"]["access_level"] is None
         assert member_data["project"]["effective_access_level"] == "admin"
-        assert member_data["project"]["effective_access_level_reason"] == "role_override"
+        assert member_data["project"]["inherited_access_level"] == "admin"
+        assert member_data["project"]["inherited_access_level_reason"] == "role_override"
 
     def test_only_returns_current_team_member_overrides(self):
         """Member overrides from other teams are not included."""
