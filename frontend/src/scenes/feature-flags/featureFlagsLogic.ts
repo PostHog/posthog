@@ -232,10 +232,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     }
                     return state
                 },
-                updateFeatureFlagFailure: (state, { id }) => {
-                    const { [id]: _, ...rest } = state
-                    return rest
-                },
+                updateFeatureFlagFailure: () => ({}),
             },
         ],
     }),
