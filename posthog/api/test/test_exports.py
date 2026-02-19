@@ -214,7 +214,7 @@ class TestExports(APIBaseTest):
                 "created_at": data["created_at"],
                 "insight": self.insight.id,
                 "export_format": "image/png",
-                "filename": "export-example-insight-2021-08-25.png",
+                "filename": "export-example-insight-2021-08-25-220914.png",
                 "has_content": False,
                 "dashboard": None,
                 "exception": None,
