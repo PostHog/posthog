@@ -96,6 +96,71 @@ describe('extractToolCallNames', () => {
         })
     })
 
+    describe('OpenAI Responses API (flat function_call items)', () => {
+        it.each([
+            [
+                'single function_call item',
+                [
+                    { type: 'reasoning', id: 'rs_abc', summary: [] },
+                    {
+                        type: 'function_call',
+                        name: 'get_weather',
+                        arguments: '{"city":"Montreal"}',
+                        call_id: 'call_abc',
+                        id: 'fc_abc',
+                        status: 'completed',
+                    },
+                ],
+                ['get_weather'],
+            ],
+            [
+                'multiple function_call items mixed with other types',
+                [
+                    { type: 'reasoning', id: 'rs_abc', summary: [] },
+                    { type: 'function_call', name: 'get_weather', call_id: 'call_1' },
+                    { type: 'message', content: [{ type: 'output_text', text: 'hello' }] },
+                    { type: 'function_call', name: 'search_docs', call_id: 'call_2' },
+                ],
+                ['get_weather', 'search_docs'],
+            ],
+        ])('%s', (_description, input, expected) => {
+            expect(extractToolCallNames(input)).toEqual(expected)
+        })
+    })
+
+    describe('unwrapped choices (tool_calls on choice, no message wrapper)', () => {
+        it.each([
+            [
+                'tool_calls directly on choice',
+                [
+                    {
+                        content: '',
+                        role: 'assistant',
+                        tool_calls: [
+                            { function: { arguments: '{}', name: 'get_weather' }, id: 'call_abc', type: 'function' },
+                        ],
+                    },
+                ],
+                ['get_weather'],
+            ],
+            [
+                'multiple tool_calls directly on choice',
+                [
+                    {
+                        role: 'assistant',
+                        tool_calls: [
+                            { function: { name: 'get_weather' }, id: 'call_1', type: 'function' },
+                            { function: { name: 'search_docs' }, id: 'call_2', type: 'function' },
+                        ],
+                    },
+                ],
+                ['get_weather', 'search_docs'],
+            ],
+        ])('%s', (_description, input, expected) => {
+            expect(extractToolCallNames(input)).toEqual(expected)
+        })
+    })
+
     describe('Anthropic format (message.content with tool_use)', () => {
         it.each([
             [
@@ -252,6 +317,44 @@ describe('processAiToolCallExtraction', () => {
         const result = processAiToolCallExtraction(event)
 
         expect(result.properties!['$ai_tools_called']).toBe('["web_search"]')
+        expect(result.properties!['$ai_tool_call_count']).toBe(1)
+    })
+
+    it('extracts OpenAI Responses API function_call items', () => {
+        const event = createEvent('$ai_generation', {
+            $ai_output_choices: [
+                { type: 'reasoning', id: 'rs_abc', summary: [] },
+                {
+                    type: 'function_call',
+                    name: 'get_weather',
+                    arguments: '{"city":"Montreal"}',
+                    call_id: 'call_abc',
+                },
+            ],
+        })
+
+        const result = processAiToolCallExtraction(event)
+
+        expect(result.properties!['$ai_tools_called']).toBe('["get_weather"]')
+        expect(result.properties!['$ai_tool_call_count']).toBe(1)
+    })
+
+    it('extracts unwrapped tool_calls (no message wrapper)', () => {
+        const event = createEvent('$ai_generation', {
+            $ai_output_choices: [
+                {
+                    content: '',
+                    role: 'assistant',
+                    tool_calls: [
+                        { function: { arguments: '{}', name: 'get_weather' }, id: 'call_abc', type: 'function' },
+                    ],
+                },
+            ],
+        })
+
+        const result = processAiToolCallExtraction(event)
+
+        expect(result.properties!['$ai_tools_called']).toBe('["get_weather"]')
         expect(result.properties!['$ai_tool_call_count']).toBe(1)
     })
 
