@@ -35,6 +35,7 @@ catalog:
     prettier: ^3.6.2
     # Testing
     jest: ^30.0.0
+    '@jest/types': ^30.0.0
     '@types/jest': ^30.0.0
     '@types/node': ^22.13.14
     # Storybook

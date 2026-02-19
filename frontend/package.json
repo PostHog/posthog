@@ -280,6 +280,7 @@
         "@types/he": "^1.2.3",
         "@types/heatmap.js": "^2.0.41",
         "@types/image-blob-reduce": "^4.1.1",
+        "@jest/types": "catalog:",
         "@types/jest": "catalog:",
         "@types/jest-image-snapshot": "^6.1.0",
         "@types/lodash.debounce": "^4.0.9",
