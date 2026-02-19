@@ -2,11 +2,14 @@ import typing
 from abc import ABC
 from datetime import datetime, timedelta
 from math import ceil
+from time import perf_counter
 from typing import Optional, Union
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.core.cache import cache
+
+import structlog
 
 from posthog.schema import (
     ActionConversionGoal,
@@ -31,14 +34,22 @@ from posthog.hogql.property import action_to_expr, apply_path_cleaning, property
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.hogql_queries.web_analytics.metrics import (
+    WEB_ANALYTICS_QUERY_COUNTER,
+    WEB_ANALYTICS_QUERY_DURATION,
+    WEB_ANALYTICS_QUERY_ERRORS,
+)
 from posthog.models import Action, User
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.utils import generate_cache_key, get_safe_cache
+
+logger = structlog.get_logger(__name__)
 
 WebQueryNode = Union[
     WebOverviewQuery,
@@ -60,6 +71,66 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
     def validate_query_runner_access(self, user: User) -> bool:
         user_access_control = UserAccessControl(user=user, team=self.team)
         return user_access_control.assert_access_level_for_resource("web_analytics", "viewer")
+
+    def calculate(self) -> WAR:
+        query_kind = getattr(self.query, "kind", "Unknown")
+        breakdown_value = getattr(self.query, "breakdownBy", None)
+        breakdown_label = breakdown_value.value if breakdown_value is not None else "none"
+        has_conversion_goal = "true" if getattr(self.query, "conversionGoal", None) else "false"
+
+        start = perf_counter()
+        response: Optional[WAR] = None
+        error_type = ""
+
+        try:
+            response = super().calculate()
+            return response
+        except Exception as e:
+            error_type = type(e).__name__
+            raise
+        finally:
+            duration_s = perf_counter() - start
+
+            used_preaggregated_label = "unknown"
+            if response is not None:
+                val = getattr(response, "usedPreAggregatedTables", None)
+                if val is not None:
+                    used_preaggregated_label = str(val).lower()
+
+            metric_labels = {
+                "query_kind": query_kind,
+                "used_preaggregated": used_preaggregated_label,
+                "breakdown": breakdown_label,
+                "has_conversion_goal": has_conversion_goal,
+            }
+            WEB_ANALYTICS_QUERY_DURATION.labels(**metric_labels).observe(duration_s)
+            WEB_ANALYTICS_QUERY_COUNTER.labels(**metric_labels).inc()
+
+            if error_type:
+                WEB_ANALYTICS_QUERY_ERRORS.labels(
+                    query_kind=query_kind,
+                    breakdown=breakdown_label,
+                    error_type=error_type,
+                ).inc()
+
+            sampling = getattr(self.query, "sampling", None)
+            logger.info(
+                "web_analytics_query",
+                team_id=self.team.pk,
+                organization_id=str(self.team.organization_id),
+                user_id=get_query_tag_value("user_id"),
+                query_kind=query_kind,
+                breakdown=breakdown_label,
+                has_conversion_goal=has_conversion_goal,
+                used_preaggregated=used_preaggregated_label,
+                duration_s=round(duration_s, 4),
+                error=bool(error_type),
+                error_type=error_type or None,
+                filter_count=len(self.query.properties),
+                date_from=self.query_date_range.date_from_str,
+                date_to=self.query_date_range.date_to_str,
+                sampling_enabled=sampling.enabled if sampling else False,
+            )
 
     @cached_property
     def _timezone_info(self) -> ZoneInfo:
