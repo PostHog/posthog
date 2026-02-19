@@ -7,7 +7,6 @@ import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { ProductSetupButton } from 'lib/components/ProductSetup'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
@@ -257,14 +256,7 @@ export function SceneTitleSection({
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const effectiveDescription = description
 
-    // Always include ProductSetupButton alongside other actions
-    // Product auto-selection is handled by SceneContent via globalSetupLogic
-    const effectiveActions = (
-        <>
-            <ProductSetupButton />
-            {actions}
-        </>
-    )
+    const effectiveActions = actions
 
     useEffect(() => {
         const stickyElement = document.querySelector('[data-sticky-sentinel]')

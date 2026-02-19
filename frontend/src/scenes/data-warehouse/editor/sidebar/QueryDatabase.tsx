@@ -34,7 +34,6 @@ import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
-import { OutputTab } from '../outputPaneLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 
 export const QueryDatabase = (): JSX.Element => {
@@ -549,7 +548,6 @@ export const QueryDatabase = (): JSX.Element => {
                                     sceneLogic.actions.newTab(
                                         urls.sqlEditor({
                                             query: item.record?.endpoint?.query.query,
-                                            outputTab: OutputTab.Endpoint,
                                             endpointName: item.record?.endpoint?.name,
                                         })
                                     )
@@ -594,7 +592,7 @@ export const QueryDatabase = (): JSX.Element => {
                             className="z-2"
                             onClick={(e) => {
                                 e.stopPropagation()
-                                sceneLogic.actions.newTab(urls.sqlEditor({ outputTab: OutputTab.Endpoint }))
+                                sceneLogic.actions.newTab(urls.sqlEditor())
                             }}
                             data-attr="sql-editor-add-endpoint"
                         >

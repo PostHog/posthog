@@ -9,7 +9,6 @@ import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'reac
 import {
     IconBolt,
     IconCode,
-    IconCode2,
     IconCopy,
     IconDownload,
     IconExpand45,
@@ -23,11 +22,8 @@ import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip }
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconTableChart } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { transformDataTableToDataTableRows } from 'lib/utils/dataTableTransformations'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
@@ -57,7 +53,6 @@ import { ChartDisplayType, ExporterFormat } from '~/types'
 import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '../../../queries/nodes/DataTable/clipboardUtils'
 import TabScroller from './TabScroller'
 import { FixErrorButton } from './components/FixErrorButton'
-import { Endpoint } from './output-pane-tabs/Endpoint'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
@@ -290,19 +285,10 @@ function RowDetailsModal({ isOpen, onClose, row, columns, columnKeys }: RowDetai
 export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
-    const {
-        sourceQuery,
-        exportContext,
-        editingInsight,
-        insightLoading,
-        updateInsightButtonEnabled,
-        showLegacyFilters,
-        hasQueryInput,
-        isEmbeddedMode,
-    } = useValues(sqlEditorLogic)
-    const { saveAsInsight, updateInsight, setSourceQuery, runQuery, shareTab } = useActions(sqlEditorLogic)
+    const { sourceQuery, exportContext, insightLoading, showLegacyFilters, hasQueryInput, isEmbeddedMode } =
+        useValues(sqlEditorLogic)
+    const { setSourceQuery, runQuery, shareTab } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
         response: dataNodeResponse,
@@ -484,12 +470,6 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                   label: 'Materialization',
                                   icon: <IconBolt />,
                               },
-                              {
-                                  key: OutputTab.Endpoint,
-                                  label: 'Endpoint',
-                                  icon: <IconCode2 />,
-                                  flag: FEATURE_FLAGS.ENDPOINTS,
-                              },
                           ]
                         : [
                               {
@@ -503,24 +483,22 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                   icon: <IconGraph />,
                               },
                           ]
-                    )
-                        .filter((tab) => !tab.flag || featureFlags[tab.flag])
-                        .map((tab) => (
-                            <div
-                                key={tab.key}
-                                className={clsx(
-                                    'flex-1 flex-row flex items-center bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium] whitespace-nowrap',
-                                    {
-                                        'font-semibold !border-brand-yellow': tab.key === activeTab,
-                                        'border-transparent': tab.key !== activeTab,
-                                    }
-                                )}
-                                onClick={() => setActiveTab(tab.key)}
-                            >
-                                <span className="mr-1">{tab.icon}</span>
-                                {tab.label}
-                            </div>
-                        ))}
+                    ).map((tab) => (
+                        <div
+                            key={tab.key}
+                            className={clsx(
+                                'flex-1 flex-row flex items-center bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium] whitespace-nowrap',
+                                {
+                                    'font-semibold !border-brand-yellow': tab.key === activeTab,
+                                    'border-transparent': tab.key !== activeTab,
+                                }
+                            )}
+                            onClick={() => setActiveTab(tab.key)}
+                        >
+                            <span className="mr-1">{tab.icon}</span>
+                            {tab.label}
+                        </div>
+                    ))}
                 </div>
                 <div className="flex gap-2 py-1 px-4 flex-shrink-0">
                     {showLegacyFilters && (
@@ -554,71 +532,10 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                             onClick={() => toggleChartSettingsPanel()}
                                             tooltip="Visualization settings"
                                         />
-                                        {editingInsight || insightLoading ? (
-                                            <LemonButton
-                                                disabledReason={
-                                                    !updateInsightButtonEnabled
-                                                        ? 'No updates to save'
-                                                        : insightLoading
-                                                          ? 'Loading...'
-                                                          : undefined
-                                                }
-                                                loading={insightLoading}
-                                                type="primary"
-                                                onClick={() => updateInsight()}
-                                                id="sql-editor-update-insight"
-                                                sideAction={{
-                                                    dropdown: {
-                                                        placement: 'bottom-end',
-                                                        overlay: (
-                                                            <LemonMenuOverlay
-                                                                items={[
-                                                                    {
-                                                                        label: 'Save as...',
-                                                                        onClick: () => saveAsInsight(),
-                                                                    },
-                                                                ]}
-                                                            />
-                                                        ),
-                                                    },
-                                                }}
-                                                size="small"
-                                            >
-                                                Save insight
-                                            </LemonButton>
-                                        ) : (
-                                            <LemonButton
-                                                disabledReason={!hasColumns ? 'No results to save' : undefined}
-                                                type="primary"
-                                                onClick={() => saveAsInsight()}
-                                                id="sql-editor-save-insight"
-                                                size="small"
-                                            >
-                                                Save insight
-                                            </LemonButton>
-                                        )}
                                     </div>
                                 </div>
                             </div>
                         </>
-                    )}
-                    {!isEmbeddedMode && activeTab === OutputTab.Results && (
-                        <LemonButton
-                            disabledReason={
-                                insightLoading
-                                    ? 'Loading insight...'
-                                    : !hasColumns && !editingInsight
-                                      ? 'No results to visualize'
-                                      : undefined
-                            }
-                            type="secondary"
-                            size="small"
-                            onClick={() => setActiveTab(OutputTab.Visualization)}
-                            id={`sql-editor-${editingInsight || insightLoading ? 'view' : 'create'}-insight`}
-                            icon={<IconGraph />}
-                        >
-                            {editingInsight || insightLoading ? 'View insight' : 'Create insight'}
-                        </LemonButton>
                     )}
                     {activeTab === OutputTab.Results && (
                         <LemonMenu
@@ -695,7 +612,6 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                     vizKey={vizKey}
                     setSourceQuery={setSourceQuery}
                     exportContext={exportContext}
-                    saveAsInsight={saveAsInsight}
                     queryId={queryId}
                     pollResponse={pollResponse}
                     tabId={tabId}
@@ -840,7 +756,6 @@ const Content = ({
     tabId,
     setSourceQuery,
     exportContext,
-    saveAsInsight,
     queryId,
     pollResponse,
     setProgress,
@@ -848,7 +763,6 @@ const Content = ({
     insightLoading,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const sortedRows = useMemo(() => {
         if (!sortColumns.length) {
@@ -881,16 +795,6 @@ const Content = ({
             <TabScroller>
                 <div className="px-6 py-4 border-t">
                     <QueryInfo tabId={tabId} />
-                </div>
-            </TabScroller>
-        )
-    }
-
-    if (featureFlags[FEATURE_FLAGS.ENDPOINTS] && activeTab === OutputTab.Endpoint) {
-        return (
-            <TabScroller>
-                <div className="px-6 py-4 border-t">
-                    <Endpoint tabId={tabId} />
                 </div>
             </TabScroller>
         )
@@ -961,7 +865,6 @@ const Content = ({
                     context={{}}
                     cachedResults={undefined}
                     exportContext={exportContext}
-                    onSaveInsight={saveAsInsight}
                     editMode
                 />
             </div>
