@@ -23,6 +23,8 @@ from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkfl
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
 
+from products.signals.backend.models import SignalSourceConfig
+
 logger = structlog.get_logger(__name__)
 activity_logger = get_logger(__name__)
 
@@ -142,8 +144,6 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
 
 @activity.defn
 async def get_proactive_tasks_enabled_team_ids_activity() -> list[int]:
-    from products.signals.backend.models import SignalSourceConfig
-
     enabled_team_ids: list[int] = []
     async for config in SignalSourceConfig.objects.filter(
         source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS, enabled=True
