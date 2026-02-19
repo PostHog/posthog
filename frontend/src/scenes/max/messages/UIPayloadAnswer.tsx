@@ -43,6 +43,7 @@ import { MaxErrorTrackingWidgetLogicProps, maxErrorTrackingWidgetLogic } from '.
 export const RENDERABLE_UI_PAYLOAD_TOOLS: AssistantTool[] = [
     'search_session_recordings',
     'search_error_tracking_issues',
+    'summarize_sessions',
     'create_form',
 ]
 
@@ -73,6 +74,9 @@ export function UIPayloadAnswer({
     if (toolName === 'search_error_tracking_issues') {
         const filters = toolPayload as MaxErrorTrackingSearchResponse
         return <ErrorTrackingFiltersWidget toolCallId={toolCallId} filters={filters} />
+    }
+    if (toolName === 'summarize_sessions') {
+        return <SummarizeSessionsWidget payload={toolPayload} />
     }
 
     // Check if this is a dangerous operation requiring approval
@@ -295,5 +299,28 @@ function ErrorTrackingFiltersWidgetContent({ filters }: { filters: MaxErrorTrack
                 )}
             </div>
         </MessageTemplate>
+    )
+}
+
+function SummarizeSessionsWidget({
+    payload,
+}: {
+    payload: { title?: string; session_group_summary_id?: string } | null | undefined
+}): JSX.Element | null {
+    if (!payload?.session_group_summary_id) {
+        return null
+    }
+
+    return (
+        <div className="flex flex-wrap gap-1.5 ml-1 mt-1">
+            <LemonButton
+                to={`/session-summaries/${payload.session_group_summary_id}`}
+                size="small"
+                type="primary"
+                targetBlank
+            >
+                Open report
+            </LemonButton>
+        </div>
     )
 }
