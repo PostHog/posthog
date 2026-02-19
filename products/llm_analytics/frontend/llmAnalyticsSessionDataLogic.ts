@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
@@ -55,17 +55,17 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
     props({} as SessionDataLogicProps),
     key((props) => `${props.sessionId}:${props.tabId ?? 'default'}`),
     connect((props: SessionDataLogicProps) => ({
-        values: [
-            llmAnalyticsSessionLogic({ tabId: props.tabId }),
-            ['sessionId'],
-            dataNodeLogic(getDataNodeLogicProps(props)),
-            ['response', 'responseLoading', 'responseError'],
-            maxGlobalLogic,
-            ['dataProcessingAccepted'],
-            teamLogic,
-            ['currentTeamId'],
-        ],
-    })),
+    values: [
+        llmAnalyticsSessionLogic({ tabId: props.tabId }),
+        ['sessionId'],
+        dataNodeLogic(getDataNodeLogicProps(props)),
+        ['response', 'responseLoading', 'responseError'],
+        maxGlobalLogic,
+        ['dataProcessingAccepted'],
+        teamLogic,
+        ['currentTeamId'],
+    ],
+})),
 
     actions({
         toggleTraceExpanded: (traceId: string) => ({ traceId }),

@@ -1,10 +1,14 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BuiltLogic, useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+
 import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
+import { generationEvaluationRunsLogicType } from '../generationEvaluationRunsLogicType'
+import { llmAnalyticsTraceLogic } from '../llmAnalyticsTraceLogic'
 import { llmEvaluationExecutionLogic } from '../llmEvaluationExecutionLogic'
 import { GenerationEvalRunsTable } from './GenerationEvalRunsTable'
 
@@ -19,15 +23,18 @@ export function EvalsTabContent({
     event: string
     distinctId?: string
 }): JSX.Element {
+    const generationRunsLogic = generationEvaluationRunsLogic({ generationEventId })
+
+    useAttachedLogic(generationRunsLogic, llmAnalyticsTraceLogic)
+
     return (
-        <BindLogic logic={generationEvaluationRunsLogic} props={{ generationEventId }}>
-            <EvalsTabContentInner
-                generationEventId={generationEventId}
-                timestamp={timestamp}
-                event={event}
-                distinctId={distinctId}
-            />
-        </BindLogic>
+        <EvalsTabContentInner
+            generationEventId={generationEventId}
+            timestamp={timestamp}
+            event={event}
+            distinctId={distinctId}
+            generationRunsLogic={generationRunsLogic}
+        />
     )
 }
 
@@ -36,17 +43,19 @@ function EvalsTabContentInner({
     timestamp,
     event,
     distinctId,
+    generationRunsLogic,
 }: {
     generationEventId: string
     timestamp: string
     event: string
     distinctId?: string
+    generationRunsLogic: BuiltLogic<generationEvaluationRunsLogicType>
 }): JSX.Element {
     const { evaluations, evaluationsLoading } = useValues(llmEvaluationsLogic)
     const { runEvaluation } = useActions(llmEvaluationExecutionLogic)
     const { evaluationRunLoading } = useValues(llmEvaluationExecutionLogic)
-    const { refreshGenerationEvaluationRuns, setSelectedEvaluationId } = useActions(generationEvaluationRunsLogic)
-    const { generationEvaluationRunsLoading, selectedEvaluationId } = useValues(generationEvaluationRunsLogic)
+    const { refreshGenerationEvaluationRuns, setSelectedEvaluationId } = useActions(generationRunsLogic)
+    const { generationEvaluationRunsLoading, selectedEvaluationId } = useValues(generationRunsLogic)
 
     return (
         <div className="py-4">
@@ -97,7 +106,7 @@ function EvalsTabContentInner({
                     Refresh
                 </LemonButton>
             </div>
-            <GenerationEvalRunsTable generationEventId={generationEventId} />
+            <GenerationEvalRunsTable generationRunsLogic={generationRunsLogic} />
         </div>
     )
 }

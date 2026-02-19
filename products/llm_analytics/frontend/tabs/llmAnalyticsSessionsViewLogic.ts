@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -10,16 +10,25 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 import { SortDirection, SortState, llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import type { llmAnalyticsSessionsViewLogicType } from './llmAnalyticsSessionsViewLogicType'
 
+export interface LLMAnalyticsSessionsViewLogicProps {
+    tabId?: string
+}
+
 export const llmAnalyticsSessionsViewLogic = kea<llmAnalyticsSessionsViewLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'tabs', 'llmAnalyticsSessionsViewLogic']),
-    connect(() => ({
+    key((props: LLMAnalyticsSessionsViewLogicProps) => props.tabId || 'default'),
+    props({} as LLMAnalyticsSessionsViewLogicProps),
+    connect((props: LLMAnalyticsSessionsViewLogicProps) => ({
         values: [
-            llmAnalyticsSharedLogic,
+            llmAnalyticsSharedLogic({ tabId: props.tabId }),
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
         ],
-        actions: [llmAnalyticsSharedLogic, ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts']],
+        actions: [
+            llmAnalyticsSharedLogic({ tabId: props.tabId }),
+            ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts'],
+        ],
     })),
 
     actions({

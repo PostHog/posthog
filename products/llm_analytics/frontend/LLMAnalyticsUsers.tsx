@@ -19,6 +19,7 @@ export function LLMAnalyticsUsers(): JSX.Element {
 
     return (
         <DataTable
+            attachTo={llmAnalyticsSharedLogic}
             query={{
                 ...usersQuery,
                 showSavedFilters: true,
