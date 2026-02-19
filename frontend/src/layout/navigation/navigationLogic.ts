@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { windowValues } from 'kea-window-values'
 
@@ -27,7 +27,12 @@ export const navigationLogic = kea<navigationLogicType>([
     path(['layout', 'navigation', 'navigationLogic']),
     connect(() => ({
         values: [sceneLogic, ['sceneConfig'], membersLogic, ['memberCount']],
-        actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
+        actions: [
+            eventUsageLogic,
+            ['reportProjectNoticeDismissed'],
+            teamLogic,
+            ['loadCurrentTeam', 'loadCurrentTeamSuccess'],
+        ],
     })),
     actions({
         closeProjectNotice: (projectNoticeVariant: ProjectNoticeVariant) => ({ projectNoticeVariant }),
@@ -124,9 +129,27 @@ export const navigationLogic = kea<navigationLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, cache }) => ({
         closeProjectNotice: ({ projectNoticeVariant }) => {
             actions.reportProjectNoticeDismissed(projectNoticeVariant)
+            if (projectNoticeVariant === 'real_project_with_no_events') {
+                cache.disposables.dispose('noEventsPolling')
+            }
+        },
+        loadCurrentTeamSuccess: ({ currentTeam }) => {
+            if (currentTeam?.ingested_event) {
+                cache.disposables.dispose('noEventsPolling')
+            }
         },
     })),
+    afterMount(({ actions, values, cache }) => {
+        if (values.projectNoticeVariant === 'real_project_with_no_events') {
+            cache.disposables.add(() => {
+                const timerId = window.setInterval(() => {
+                    actions.loadCurrentTeam()
+                }, 60_000)
+                return () => clearInterval(timerId)
+            }, 'noEventsPolling')
+        }
+    }),
 ])
