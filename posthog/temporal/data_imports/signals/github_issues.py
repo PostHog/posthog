@@ -25,13 +25,18 @@ An issue is ACTIONABLE if it describes:
 - A feature request or suggestion for improvement
 - A usability issue or confusion about the product
 - A performance problem or regression
+- A self-hosted deployment or configuration problem
 - A question about how to use the product
+- A gap or error in documentation that caused confusion
 - and similar cases
 
 An issue is NOT_ACTIONABLE if it is:
-- A bot-generated issue (like dependency bumps)
+- A bot-generated issue (dependency bumps, stale-bot closures, CI notifications, release automation)
 - Spam, abuse, or profanity with no real feedback
-- A "works for me" report with no actionable detail
+- A meta/tracking issue with no feedback (release checklists, sprint trackers)
+- A duplicate that only says "same as #X" with no new information
+
+When in doubt, classify as ACTIONABLE. GitHub issues are filed intentionally, so err on the side of capturing the signal.
 
 <issue>
 {description}
