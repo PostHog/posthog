@@ -69,7 +69,6 @@ def get_redirect_url(uuid: str, is_email_verified: bool, next_url: str | None = 
         redirect_url = "/verify_email/" + uuid
 
         if next_url:
-            # URL-encode next_url to preserve query parameters (e.g., OAuth authorize URLs)
             redirect_url += "?next=" + quote(next_url, safe="")
 
         return redirect_url
