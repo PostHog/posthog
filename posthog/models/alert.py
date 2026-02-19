@@ -51,14 +51,14 @@ class Threshold(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         existing: dict | None = None,
     ) -> dict:
         """Build a threshold configuration dict, optionally merging into existing config."""
+        config: dict = {"type": threshold_type}
+        bounds = {}
+
         if existing is not None:
             config = dict(existing)
             bounds = dict(config.get("bounds", {}))
             if threshold_type is not None:
                 config["type"] = threshold_type
-        else:
-            config: dict = {"type": threshold_type}
-            bounds = {}
 
         if lower is not None:
             bounds["lower"] = lower
@@ -139,18 +139,17 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             )
         )
 
-    def reset_check_schedule(self, *, conditions_changed: bool = False, interval_changed: bool = False) -> list[str]:
-        """Reset alert state and schedule when conditions or interval change.
+    def mark_for_recheck(self, *, reset_state: bool = False) -> list[str]:
+        """Mark this alert for rechecking, optionally resetting state to NOT_FIRING.
 
         Returns list of field names that were modified (for use with update_fields).
         """
         updated: list[str] = []
-        if conditions_changed:
+        if reset_state:
             self.state = AlertState.NOT_FIRING
             updated.append("state")
-        if conditions_changed or interval_changed:
-            self.next_check_at = None
-            updated.append("next_check_at")
+        self.next_check_at = None
+        updated.append("next_check_at")
         return updated
 
     def save(self, *args, **kwargs):
@@ -163,8 +162,8 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         super().save(*args, **kwargs)
 
     @classmethod
-    def check_alert_limit(cls, team_id: int, organization) -> None:
-        """Raise ValidationError if the team has reached its alert limit."""
+    def check_alert_limit(cls, team_id: int, organization) -> str | None:
+        """Return an error message if the team has reached its alert limit, else None."""
         from posthog.constants import AvailableFeature
 
         alerts_feature = organization.get_available_feature(AvailableFeature.ALERTS)
@@ -174,11 +173,13 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             allowed = alerts_feature.get("limit")
             # If allowed is None then the user is allowed unlimited alerts
             if allowed is not None and existing_count >= allowed:
-                raise ValidationError(f"Your team has reached the limit of {allowed} alerts on your plan.")
+                return f"Your team has reached the limit of {allowed} alerts on your plan."
         else:
             # If the org doesn't have alerts feature, limit to that on free tier
             if existing_count >= cls.ALERTS_ALLOWED_ON_FREE_TIER:
-                raise ValidationError(f"Your plan is limited to {cls.ALERTS_ALLOWED_ON_FREE_TIER} alerts.")
+                return f"Your plan is limited to {cls.ALERTS_ALLOWED_ON_FREE_TIER} alerts."
+
+        return None
 
 
 class AlertSubscription(ModelActivityMixin, CreatedMetaFields, UUIDTModel):

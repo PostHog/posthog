@@ -2,7 +2,6 @@ import dataclasses
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import QuerySet
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
@@ -244,10 +243,8 @@ class AlertSerializer(serializers.ModelSerializer):
             "calculation_interval" in validated_data
             and validated_data["calculation_interval"] != instance.calculation_interval
         )
-        instance.reset_check_schedule(
-            conditions_changed=conditions_or_threshold_changed,
-            interval_changed=calculation_interval_changed,
-        )
+        if conditions_or_threshold_changed or calculation_interval_changed:
+            instance.mark_for_recheck(reset_state=conditions_or_threshold_changed)
 
         return super().update(instance, validated_data)
 
@@ -276,10 +273,10 @@ class AlertSerializer(serializers.ModelSerializer):
         if self.context["request"].method != "POST":
             return attrs
 
-        try:
-            AlertConfiguration.check_alert_limit(self.context["team_id"], self.context["request"].user.organization)
-        except DjangoValidationError as e:
-            raise ValidationError({"alert": e.messages})
+        if msg := AlertConfiguration.check_alert_limit(
+            self.context["team_id"], self.context["request"].user.organization
+        ):
+            raise ValidationError({"alert": [msg]})
 
         return attrs
 
