@@ -8,48 +8,34 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * * `potential` - Potential
- * `candidate` - Candidate
- * `in_progress` - In Progress
- * `ready` - Ready
- * `failed` - Failed
+ * * `session_analysis` - Session analysis
  */
-export type SignalReportStatusEnumApi = (typeof SignalReportStatusEnumApi)[keyof typeof SignalReportStatusEnumApi]
+export type SignalSourceConfigSourceTypeEnumApi =
+    (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
 
-export const SignalReportStatusEnumApi = {
-    Potential: 'potential',
-    Candidate: 'candidate',
-    InProgress: 'in_progress',
-    Ready: 'ready',
-    Failed: 'failed',
+export const SignalSourceConfigSourceTypeEnumApi = {
+    SessionAnalysis: 'session_analysis',
 } as const
 
-export interface SignalReportApi {
+export interface SignalSourceConfigApi {
     readonly id: string
-    /** @nullable */
-    readonly title: string | null
-    /** @nullable */
-    readonly summary: string | null
-    readonly status: SignalReportStatusEnumApi
-    readonly total_weight: number
-    readonly signal_count: number
-    /** @nullable */
-    readonly relevant_user_count: number | null
+    source_type: SignalSourceConfigSourceTypeEnumApi
+    enabled?: boolean
+    config?: unknown
     readonly created_at: string
     readonly updated_at: string
-    readonly artefact_count: number
 }
 
-export interface PaginatedSignalReportListApi {
+export interface PaginatedSignalSourceConfigListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: SignalReportApi[]
+    results: SignalSourceConfigApi[]
 }
 
-export type SignalReportsListParams = {
+export type SignalSourceConfigsListParams = {
     /**
      * Number of results to return per page.
      */

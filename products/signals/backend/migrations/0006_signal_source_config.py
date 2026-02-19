@@ -7,23 +7,6 @@ from django.db import migrations, models
 import posthog.models.utils
 
 
-def convert_proactive_tasks_enabled(apps, schema_editor):
-    Team = apps.get_model("posthog", "Team")
-    SignalSourceConfig = apps.get_model("signals", "SignalSourceConfig")
-
-    for team in Team.objects.filter(proactive_tasks_enabled=True).only("id"):
-        SignalSourceConfig.objects.get_or_create(
-            team=team,
-            source_type="session_analysis",
-            defaults={"enabled": True, "config": {}},
-        )
-
-
-def reverse_convert(apps, schema_editor):
-    SignalSourceConfig = apps.get_model("signals", "SignalSourceConfig")
-    SignalSourceConfig.objects.filter(source_type="session_analysis").delete()
-
-
 class Migration(migrations.Migration):
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
@@ -78,5 +61,4 @@ class Migration(migrations.Migration):
             model_name="signalsourceconfig",
             constraint=models.UniqueConstraint(fields=("team", "source_type"), name="unique_team_source_type"),
         ),
-        migrations.RunPython(convert_proactive_tasks_enabled, reverse_convert),
     ]
