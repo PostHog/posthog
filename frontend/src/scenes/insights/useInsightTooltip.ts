@@ -112,11 +112,32 @@ export function cleanupTooltip(id: string): void {
     }
 }
 
+export function positionTooltip(tooltipEl: HTMLElement, canvasBounds: DOMRect, caretX: number, caretY: number): void {
+    tooltipEl.style.position = 'absolute'
+    tooltipEl.style.maxWidth = ''
+
+    let left = canvasBounds.left + window.scrollX + caretX + 8
+    const top = canvasBounds.top + window.scrollY + caretY + 8
+
+    const viewportRight = window.scrollX + document.documentElement.clientWidth
+    if (tooltipEl.offsetWidth > 0 && left + tooltipEl.offsetWidth > viewportRight - 8) {
+        left = canvasBounds.left + window.scrollX + caretX - tooltipEl.offsetWidth - 8
+    }
+
+    const viewportBottom = window.scrollY + document.documentElement.clientHeight
+    const clampedTop = Math.min(top, viewportBottom - tooltipEl.offsetHeight - 8)
+
+    tooltipEl.style.left = `${left}px`
+    tooltipEl.style.top = `${clampedTop}px`
+    tooltipEl.style.maxWidth = `${viewportRight - left - 8}px`
+}
+
 export function useInsightTooltip(): {
     tooltipId: string
     getTooltip: () => [Root, HTMLElement]
     hideTooltip: () => void
     cleanupTooltip: () => void
+    positionTooltip: typeof positionTooltip
 } {
     const tooltipId = useMemo(() => Math.random().toString(36).substring(2, 11), [])
 
@@ -136,5 +157,5 @@ export function useInsightTooltip(): {
     const hide = useCallback((): void => hideTooltip(tooltipId), [tooltipId])
     const cleanup = useCallback((): void => cleanupTooltip(tooltipId), [tooltipId])
 
-    return { tooltipId, getTooltip, hideTooltip: hide, cleanupTooltip: cleanup }
+    return { tooltipId, getTooltip, hideTooltip: hide, cleanupTooltip: cleanup, positionTooltip }
 }
