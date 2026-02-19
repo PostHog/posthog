@@ -214,7 +214,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     ) -> HttpResponse:
         redirect_uri = f"{settings.SITE_URL}/project/{self.team_id}/settings/mcp-servers"
 
-        installation, _ = MCPServerInstallation.objects.get_or_create(
+        installation, created = MCPServerInstallation.objects.get_or_create(
             team_id=self.team_id,
             user=request.user,
             url=mcp_url,
@@ -229,12 +229,14 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             metadata = discover_oauth_metadata(mcp_url)
         except Exception as e:
             logger.exception("OAuth discovery failed", server_url=mcp_url, error=str(e))
-            installation.delete()
+            if created:
+                installation.delete()
             return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
 
         issuer_url = metadata.get("issuer", "")
         if not issuer_url:
-            installation.delete()
+            if created:
+                installation.delete()
             return Response({"detail": "Could not determine OAuth issuer"}, status=status.HTTP_400_BAD_REQUEST)
 
         server = self._get_or_register_dcr_server(
@@ -246,7 +248,8 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             oauth_provider_kind=oauth_provider_kind,
         )
         if isinstance(server, Response):
-            installation.delete()
+            if created:
+                installation.delete()
             return server
 
         if installation.server_id != server.id:
