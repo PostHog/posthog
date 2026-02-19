@@ -122,6 +122,7 @@
         "frontend/dist/",
         "frontend/**/*LogicType.ts",
         "bin/validate-setup-tasks.mjs",
-        "frontend/bin/docs/build-survey-sdk-docs.ts"
+        "frontend/bin/docs/build-survey-sdk-docs.ts",
+        "frontend/src/scenes/notebooks/Nodes/NodeWrapper.tsx"
     ]
 }
