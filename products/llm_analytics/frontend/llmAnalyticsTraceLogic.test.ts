@@ -334,16 +334,14 @@ describe('llmAnalyticsTraceLogic', () => {
     })
 
     describe('setSearchQuery URL updates', () => {
-        let routerSpy: jest.Spied
+        let routerSpy: jest.Spied<typeof router.actions.replace>
 
         beforeEach(() => {
-            history.replaceState(null, '', '/')
             routerSpy = jest.spyOn(router.actions, 'replace').mockImplementation(() => {})
         })
 
         afterEach(() => {
             routerSpy.mockRestore()
-            history.replaceState(null, '', '/')
         })
 
         it('updates URL when search query changes and includes event and timestamp in URL update', async () => {
@@ -365,9 +363,10 @@ describe('llmAnalyticsTraceLogic', () => {
         })
 
         it('removes search param from URL when query is cleared', async () => {
-            history.replaceState(null, '', '?search=existing')
-            logic.actions.setTraceId('test-trace-123')
+            const traceUrl = combineUrl(urls.llmAnalyticsTrace('test-trace-123', { search: 'existing' }))
+            router.actions.push(addProjectIdIfMissing(traceUrl.url, MOCK_TEAM_ID))
             await expectLogic(logic).toFinishAllListeners()
+            routerSpy.mockClear()
 
             logic.actions.setSearchQuery('')
             await expectLogic(logic).toFinishAllListeners()
@@ -376,10 +375,9 @@ describe('llmAnalyticsTraceLogic', () => {
         })
 
         it('does not update URL when search query matches URL param', async () => {
-            history.replaceState(null, '', '?search=existing')
-            logic.actions.setTraceId('test-trace-123')
+            const traceUrl = combineUrl(urls.llmAnalyticsTrace('test-trace-123', { search: 'existing' }))
+            router.actions.push(addProjectIdIfMissing(traceUrl.url, MOCK_TEAM_ID))
             await expectLogic(logic).toFinishAllListeners()
-
             routerSpy.mockClear()
 
             logic.actions.setSearchQuery('existing')

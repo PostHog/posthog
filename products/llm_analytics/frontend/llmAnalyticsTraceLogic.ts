@@ -397,9 +397,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         setSearchQuery: ({ searchQuery }) => {
             // Only update URL if the search query actually changed
             // This prevents infinite loop when setSearchQuery is called from urlToAction
-            const currentUrl = window.location.search
-            const urlParams = new URLSearchParams(currentUrl)
-            const currentSearchInUrl = urlParams.get('search') || ''
+            const currentSearchInUrl = router.values.searchParams['search'] || ''
 
             if (searchQuery !== currentSearchInUrl) {
                 // Update the URL with the search query
