@@ -41,6 +41,7 @@ PERSONS_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
     "properties": StringJSONDatabaseField(name="properties", nullable=False),
     "is_identified": BooleanDatabaseField(name="is_identified", nullable=False),
+    "last_seen_at": DateTimeDatabaseField(name="last_seen_at", nullable=True),
     "pdi": LazyJoin(
         from_field=["id"],
         join_table=PersonsPDITable(),

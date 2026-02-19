@@ -329,6 +329,22 @@ describe('formatBreakdownLabel()', () => {
         )
     })
 
+    it.each([
+        ['exactly 200 chars is not truncated', 'a'.repeat(200), 'a'.repeat(200)],
+        ['201 chars is truncated with ellipsis', 'b'.repeat(201), 'b'.repeat(200) + '…'],
+        [
+            'very long HTML error page is truncated',
+            '<html>' + 'x'.repeat(22000) + '</html>',
+            '<html>' + 'x'.repeat(194) + '…',
+        ],
+    ])('truncates long breakdown labels: %s', (_desc, input, expected) => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: 'error_message',
+            breakdown_type: 'event',
+        }
+        expect(formatBreakdownLabel(input, breakdownFilter, [], identity)).toEqual(expected)
+    })
+
     it('handles multi-breakdowns', () => {
         const breakdownFilter: BreakdownFilter = {
             breakdown: ['demographic', '$browser'],

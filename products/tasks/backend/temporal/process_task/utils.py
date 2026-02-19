@@ -1,6 +1,12 @@
 from typing import Optional
 
+from django.conf import settings
+
 from posthog.models.integration import GitHubIntegration, Integration
+
+
+def get_sandbox_api_url() -> str:
+    return settings.SANDBOX_API_URL or settings.SITE_URL
 
 
 def get_github_token(github_integration_id: int) -> Optional[str]:

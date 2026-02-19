@@ -109,6 +109,10 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                 return (configuration?.filters?.events ?? []).some((e) => e.id === 'survey sent')
             },
         ],
+        returnTo: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, string>): string | undefined => searchParams?.returnTo,
+        ],
         breadcrumbs: [
             (s) => [
                 s.type,
@@ -117,6 +121,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                 s.alertId,
                 s.surveyId,
                 s.isSurveyNotification,
+                s.returnTo,
                 (_, props) => props.id ?? null,
             ],
             (
@@ -126,6 +131,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                 alertId: string | undefined,
                 surveyId: string | undefined,
                 isSurveyNotification: boolean,
+                returnTo: string | undefined,
                 id: string | null
             ): Breadcrumb[] => {
                 if (loading) {
@@ -145,17 +151,22 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                 }
 
                 if (type === 'internal_destination' && alertId) {
+                    // returnTo contains the full path back to the alert edit view
+                    // Strip the alert_id param for the insight breadcrumb
+                    const alertPath = returnTo ?? urls.alert(alertId!)
+                    const insightPath = returnTo ? returnTo.split('?')[0] : urls.alerts()
+
                     return [
                         {
                             key: Scene.Insight,
                             name: 'Insight',
-                            path: urls.alerts(),
+                            path: insightPath,
                             iconType: 'data_pipeline',
                         },
                         {
                             key: 'alert',
                             name: 'Alert',
-                            path: urls.alert(alertId),
+                            path: alertPath,
                             iconType: 'data_pipeline',
                         },
                         finalCrumb,
@@ -231,6 +242,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                         {
                             key: Scene.HogFunction,
                             name: 'Notifications',
+                            path: returnTo,
                         },
                         finalCrumb,
                     ]

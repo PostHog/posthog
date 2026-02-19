@@ -11,7 +11,6 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ProductTourStatusTag } from './components/ProductToursTable'
-import { ProductToursToolbarButton } from './components/ProductToursToolbarButton'
 import { ProductTourStepsEditor } from './editor'
 import { productTourLogic } from './productTourLogic'
 
@@ -19,7 +18,9 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
     const { productTour, productTourForm, isProductTourFormSubmitting, pendingToolbarOpen } = useValues(
         productTourLogic({ id })
     )
-    const { editingProductTour, setProductTourFormValue, submitProductTourForm } = useActions(productTourLogic({ id }))
+    const { editingProductTour, setProductTourFormValue, submitProductTourForm, submitAndOpenToolbar } = useActions(
+        productTourLogic({ id })
+    )
 
     if (!productTour) {
         return <LemonSkeleton />
@@ -43,7 +44,14 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                     actions={
                         <div className="flex items-center gap-2">
                             <ProductTourStatusTag tour={productTour} />
-                            <ProductToursToolbarButton tourId={id} mode="preview" saveFirst />
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => submitAndOpenToolbar('preview')}
+                                loading={pendingToolbarOpen}
+                            >
+                                Preview
+                            </LemonButton>
                             <LemonButton type="secondary" size="small" onClick={() => editingProductTour(false)}>
                                 Cancel
                             </LemonButton>
@@ -59,6 +67,7 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                     }
                 />
 
+                <div data-attr="product-tours-tour-editor-banner" />
                 <ProductTourStepsEditor tourId={id} />
             </SceneContent>
         </Form>

@@ -20,22 +20,34 @@ from posthog.temporal.common.logger import get_write_only_logger
 LOGGER = get_write_only_logger(__name__)
 
 
-def get_rows_exported_metric() -> MetricCounter:
-    return activity.metric_meter().create_counter("batch_export_rows_exported", "Number of rows exported.")
+def get_rows_exported_metric(model: str) -> MetricCounter:
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"batch_export_model": model})
+        .create_counter("batch_export_rows_exported", "Number of rows exported.")
+    )
 
 
-def get_bytes_exported_metric() -> MetricCounter:
-    return activity.metric_meter().create_counter("batch_export_bytes_exported", "Number of bytes exported.")
+def get_bytes_exported_metric(model: str) -> MetricCounter:
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"batch_export_model": model})
+        .create_counter("batch_export_bytes_exported", "Number of bytes exported.")
+    )
 
 
-def get_export_started_metric() -> MetricCounter:
-    return workflow.metric_meter().create_counter("batch_export_started", "Number of batch exports started.")
-
-
-def get_export_finished_metric(status: str) -> MetricCounter:
+def get_export_started_metric(model: str) -> MetricCounter:
     return (
         workflow.metric_meter()
-        .with_additional_attributes({"status": status})
+        .with_additional_attributes({"batch_export_model": model})
+        .create_counter("batch_export_started", "Number of batch exports started.")
+    )
+
+
+def get_export_finished_metric(status: str, model: str) -> MetricCounter:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"status": status, "batch_export_model": model})
         .create_counter(
             "batch_export_finished", "Number of batch exports finished, for any reason (including failure)."
         )

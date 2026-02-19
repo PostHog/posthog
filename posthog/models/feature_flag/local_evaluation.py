@@ -20,7 +20,7 @@ from posthog.models.surveys.survey import Survey
 from posthog.models.tag import Tag
 from posthog.models.team import Team
 from posthog.person_db_router import PERSONS_DB_FOR_READ
-from posthog.storage.hypercache import CACHE_SYNC_COUNTER, CACHE_SYNC_DURATION_HISTOGRAM, HyperCache
+from posthog.storage.hypercache import HyperCache, emit_cache_sync_metrics
 
 logger = structlog.get_logger(__name__)
 
@@ -360,10 +360,12 @@ def update_flag_caches(team: Team):
 
     start_time = time.time()
     success = False
+    size_with_cohorts: int | None = None
+    size_without_cohorts: int | None = None
     try:
         with_cohorts, without_cohorts = _get_both_flags_responses_for_local_evaluation(team)
-        flags_hypercache.set_cache_value(team, with_cohorts)
-        flags_without_cohorts_hypercache.set_cache_value(team, without_cohorts)
+        size_with_cohorts = flags_hypercache.set_cache_value(team, with_cohorts)
+        size_without_cohorts = flags_without_cohorts_hypercache.set_cache_value(team, without_cohorts)
         success = True
     except Exception as e:
         capture_exception(e)
@@ -372,12 +374,13 @@ def update_flag_caches(team: Team):
         duration = time.time() - start_time
         result = "success" if success else "failure"
         # Duration uses combined label since both caches are updated in one operation.
-        # Counters use individual labels since each cache is actually updated.
-        CACHE_SYNC_DURATION_HISTOGRAM.labels(
-            result=result, namespace="feature_flags", value="flags_local_eval.json"
-        ).observe(duration)
-        CACHE_SYNC_COUNTER.labels(result=result, namespace="feature_flags", value="flags_with_cohorts.json").inc()
-        CACHE_SYNC_COUNTER.labels(result=result, namespace="feature_flags", value="flags_without_cohorts.json").inc()
+        # Duration-only call doesn't increment counter since the individual caches handle that.
+        emit_cache_sync_metrics(
+            result, "feature_flags", "flags_local_eval.json", duration=duration, increment_counter=False
+        )
+        # Size and counter use individual labels since each cache is actually updated.
+        emit_cache_sync_metrics(result, "feature_flags", "flags_with_cohorts.json", size=size_with_cohorts)
+        emit_cache_sync_metrics(result, "feature_flags", "flags_without_cohorts.json", size=size_without_cohorts)
 
 
 def clear_flag_caches(team: Team, kinds: list[str] | None = None):

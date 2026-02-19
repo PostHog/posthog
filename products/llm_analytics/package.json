@@ -1,13 +1,17 @@
 {
     "name": "@posthog/products-llm-analytics",
-    "scripts": {},
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    },
     "dependencies": {
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
-        "posthog-js": "catalog:"
+        "posthog-js": "catalog:",
+        "partial-json": "^0.1.7",
+        "torph": "^0.0.5"
     },
     "devDependencies": {
         "kea-test-utils": "catalog:"

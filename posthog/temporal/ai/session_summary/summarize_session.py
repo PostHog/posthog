@@ -56,7 +56,6 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports_video.workflow import VideoExportInputs
 
-from ee.hogai.session_summaries import ExceptionToRetry
 from ee.hogai.session_summaries.constants import (
     DEFAULT_VIDEO_UNDERSTANDING_MODEL,
     SESSION_SUMMARIES_STREAMING_MODEL,
@@ -89,8 +88,10 @@ MIN_SESSION_PERIOD_DURATION_S = 1
 
 
 @temporalio.activity.defn
-async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> None:
-    """Fetch data from DB for a single session and store/cache in Redis (to avoid hitting Temporal memory limits)"""
+async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> bool:
+    """Fetch data from DB for a single session and store/cache in Redis (to avoid hitting Temporal memory limits).
+    Returns True if the data was fetched successfully, False if the session has no associated events (probably static).
+    """
     # Check if the summary is already in the DB, so no need to fetch data from DB
     # Keeping thread-sensitive as checking for a single summary should be fast
     summary_exists = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(
@@ -100,7 +101,7 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> Non
     )
     if summary_exists.get(inputs.session_id):
         # Skip data fetching as the ready summary will be returned in the next activity
-        return None
+        return True
     # If not - check if DB data is already in Redis. If it is and matched the target class - it's within TTL, so no need to re-fetch it from DB
     redis_client, redis_input_key, _ = get_redis_state_client(
         key_base=inputs.redis_key_base,
@@ -115,30 +116,21 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> Non
     )
     # Return if the data is properly cached
     if success is not None:
-        return None
+        return True
     # If not yet, or TTL expired - fetch data from DB
     session_db_data = await get_session_data_from_db(
         session_id=inputs.session_id,
         team_id=inputs.team_id,
         local_reads_prod=inputs.local_reads_prod,
     )
+    if not session_db_data.session_events or not session_db_data.session_events_columns:
+        return False  # Recording has no associated events, so it's probably static - let's skip this the session
     summary_data = await prepare_data_for_single_session_summary(
         session_id=inputs.session_id,
         user_id=inputs.user_id,
         session_db_data=session_db_data,
         extra_summary_context=inputs.extra_summary_context,
     )
-    if summary_data.error_msg is not None:
-        # If we weren't able to collect the required data - retry
-        temporalio.activity.logger.exception(
-            f"Not able to fetch data from the DB for session {inputs.session_id} (by user {inputs.user_id}): {summary_data.error_msg}",
-            extra={
-                "session_id": inputs.session_id,
-                "user_id": inputs.user_id,
-                "signals_type": "session-summaries",
-            },
-        )
-        raise ExceptionToRetry(summary_data.error_msg)
     input_data = prepare_single_session_summary_input(
         session_id=inputs.session_id,
         user_id=inputs.user_id,
@@ -155,7 +147,7 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> Non
         label=StateActivitiesEnum.SESSION_DB_DATA,
     )
     # Nothing to return if the fetch was successful, as the data is stored in Redis
-    return None
+    return True
 
 
 def _store_final_summary_in_db_from_activity(
@@ -416,12 +408,14 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: SingleSessionSummaryInputs) -> None:
         start_time = temporalio.workflow.now()
-        await temporalio.workflow.execute_activity(
+        session_got_data = await temporalio.workflow.execute_activity(
             fetch_session_data_activity,
             inputs,
             start_to_close_timeout=timedelta(minutes=3),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+        if not session_got_data:
+            return None  # If the session got no data, skip it
         await ensure_llm_single_session_summary(inputs)
         duration_seconds = (temporalio.workflow.now() - start_time).total_seconds()
         await temporalio.workflow.execute_activity(
@@ -630,7 +624,7 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
         retry_policy=retry_policy,
     )
 
-    # Skip video-based summarization if session is too short
+    # Skip video-based summarization if session is too short or summary already exists
     if export_result is None:
         return
 
@@ -735,7 +729,7 @@ async def _execute_single_session_summary_workflow(inputs: SingleSessionSummaryI
         inputs,
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=settings.MAX_AI_TASK_QUEUE,
+        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         retry_policy=retry_policy,
     )
 
@@ -751,7 +745,7 @@ async def _start_single_session_summary_workflow_stream(
         inputs,
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=settings.MAX_AI_TASK_QUEUE,
+        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         retry_policy=retry_policy,
     )
     return handle
@@ -845,6 +839,14 @@ async def execute_summarize_session(
     Start the direct summarization workflow (no streaming) and return the summary.
     Intended to use as a part of other tools or workflows to get more context on summary, so implemented async.
     """
+    # Check if summary already exists before starting the Temporal workflow
+    existing_summary = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
+        team_id=team.id,
+        session_id=session_id,
+        extra_summary_context=extra_summary_context,
+    )
+    if existing_summary is not None:
+        return existing_summary.summary
     if model_to_use is None:
         model_to_use = (
             SESSION_SUMMARIES_SYNC_MODEL if video_validation_enabled != "full" else DEFAULT_VIDEO_UNDERSTANDING_MODEL
@@ -867,7 +869,7 @@ async def execute_summarize_session(
         client = await async_connect()
         handle = client.get_workflow_handle(workflow_id)
         await handle.result()
-    # Get the summary from the DB
+    # Get the ready summary from the DB
     summary_row = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
         team_id=team.id,
         session_id=session_id,

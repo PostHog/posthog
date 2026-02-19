@@ -2,6 +2,7 @@ import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -27,6 +28,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-01',
         pageUrl: urls.revenueAnalytics(),
+        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS],
         testOptions: {
             waitForLoadersToDisappear: true,
         },

@@ -4295,6 +4295,7 @@
          "posthog_experiment"."secondary_metrics_ordered_uuids",
          "posthog_experiment"."stats_config",
          "posthog_experiment"."scheduling_config",
+         "posthog_experiment"."exposure_preaggregation_enabled",
          "posthog_experiment"."conclusion",
          "posthog_experiment"."conclusion_comment"
   FROM "posthog_experiment"
@@ -4492,6 +4493,12 @@
          "posthog_featureflag"."evaluation_runtime",
          "posthog_featureflag"."bucketing_identifier",
          "posthog_featureflag"."last_called_at",
+         EXISTS
+    (SELECT 1 AS "a"
+     FROM "posthog_team" U0
+     WHERE (U0."project_id" = ("posthog_team"."project_id")
+            AND ((U0."session_recording_linked_flag" -> 'id'))::integer = ("posthog_featureflag"."id"))
+     LIMIT 1) AS "is_used_in_replay_settings_annotation",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -4593,6 +4600,7 @@
          "posthog_experiment"."secondary_metrics_ordered_uuids",
          "posthog_experiment"."stats_config",
          "posthog_experiment"."scheduling_config",
+         "posthog_experiment"."exposure_preaggregation_enabled",
          "posthog_experiment"."conclusion",
          "posthog_experiment"."conclusion_comment"
   FROM "posthog_experiment"
