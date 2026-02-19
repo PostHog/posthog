@@ -13,7 +13,7 @@ import {
     EventPipelineRunnerOptions,
 } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
+import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { PipelineResultType, dlq, drop, ok } from '../pipelines/results'
 import { createEventPipelineRunnerHeatmapStep } from './event-pipeline-runner-heatmap-step'
@@ -55,7 +55,7 @@ describe('event-pipeline-runner-heatmap-step', () => {
     let mockTeamManager: TeamManager
     let mockGroupTypeManager: GroupTypeManager
     let mockPersonsStore: PersonsStore
-    let mockGroupStore: GroupStoreForBatch
+    let mockGroupStore: BatchWritingGroupStore
     let mockEventPipelineRunner: jest.Mocked<EventPipelineRunner>
     let mockEvent: PipelineEvent
     let mockTeam: Team
@@ -79,7 +79,7 @@ describe('event-pipeline-runner-heatmap-step', () => {
         mockTeamManager = {} as TeamManager
         mockGroupTypeManager = {} as GroupTypeManager
         mockPersonsStore = {} as PersonsStore
-        mockGroupStore = {} as GroupStoreForBatch
+        mockGroupStore = {} as BatchWritingGroupStore
 
         mockEvent = createTestPipelineEvent({
             uuid: v4(),
@@ -111,7 +111,8 @@ describe('event-pipeline-runner-heatmap-step', () => {
             mockKafkaProducer,
             mockTeamManager,
             mockGroupTypeManager,
-            mockPersonsStore
+            mockPersonsStore,
+            mockGroupStore
         )
 
         const input = {
@@ -119,7 +120,6 @@ describe('event-pipeline-runner-heatmap-step', () => {
             timestamp: mockTimestamp,
             team: mockTeam,
             headers: mockHeaders,
-            groupStoreForBatch: mockGroupStore,
         }
 
         const result = await step(input)
@@ -152,7 +152,8 @@ describe('event-pipeline-runner-heatmap-step', () => {
             mockKafkaProducer,
             mockTeamManager,
             mockGroupTypeManager,
-            mockPersonsStore
+            mockPersonsStore,
+            mockGroupStore
         )
 
         const input = {
@@ -160,7 +161,6 @@ describe('event-pipeline-runner-heatmap-step', () => {
             timestamp: mockTimestamp,
             team: mockTeam,
             headers: mockHeaders,
-            groupStoreForBatch: mockGroupStore,
         }
 
         const result = await step(input)
@@ -180,7 +180,8 @@ describe('event-pipeline-runner-heatmap-step', () => {
             mockKafkaProducer,
             mockTeamManager,
             mockGroupTypeManager,
-            mockPersonsStore
+            mockPersonsStore,
+            mockGroupStore
         )
 
         const input = {
@@ -188,7 +189,6 @@ describe('event-pipeline-runner-heatmap-step', () => {
             timestamp: mockTimestamp,
             team: mockTeam,
             headers: mockHeaders,
-            groupStoreForBatch: mockGroupStore,
         }
 
         const result = await step(input)
@@ -209,7 +209,8 @@ describe('event-pipeline-runner-heatmap-step', () => {
             mockKafkaProducer,
             mockTeamManager,
             mockGroupTypeManager,
-            mockPersonsStore
+            mockPersonsStore,
+            mockGroupStore
         )
 
         const input = {
@@ -217,7 +218,6 @@ describe('event-pipeline-runner-heatmap-step', () => {
             timestamp: mockTimestamp,
             team: mockTeam,
             headers: customHeaders,
-            groupStoreForBatch: mockGroupStore,
         }
 
         await step(input)
@@ -243,7 +243,8 @@ describe('event-pipeline-runner-heatmap-step', () => {
             mockKafkaProducer,
             mockTeamManager,
             mockGroupTypeManager,
-            mockPersonsStore
+            mockPersonsStore,
+            mockGroupStore
         )
 
         const input = {
@@ -251,7 +252,6 @@ describe('event-pipeline-runner-heatmap-step', () => {
             timestamp: mockTimestamp,
             team: teamWithOptOut,
             headers: mockHeaders,
-            groupStoreForBatch: mockGroupStore,
         }
 
         const result = await step(input)
@@ -274,7 +274,8 @@ describe('event-pipeline-runner-heatmap-step', () => {
             mockKafkaProducer,
             mockTeamManager,
             mockGroupTypeManager,
-            mockPersonsStore
+            mockPersonsStore,
+            mockGroupStore
         )
 
         const input = {
@@ -282,7 +283,6 @@ describe('event-pipeline-runner-heatmap-step', () => {
             timestamp: mockTimestamp,
             team: teamWithNull,
             headers: mockHeaders,
-            groupStoreForBatch: mockGroupStore,
         }
 
         const result = await step(input)

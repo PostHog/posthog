@@ -25,7 +25,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-10-10', // To stabilize relative dates
         pageUrl: urls.dashboards(),
-        featureFlags: [FEATURE_FLAGS.INCIDENT_IO_STATUS_PAGE],
         testOptions: {
             includeNavigationInSnapshot: true,
         },
@@ -96,11 +95,7 @@ export const SidePanelActivity: StoryFn = () => {
 }
 SidePanelActivity.parameters = {
     pageUrl: urls.dashboard('1'),
-    featureFlags: [
-        FEATURE_FLAGS.INCIDENT_IO_STATUS_PAGE,
-        FEATURE_FLAGS.CDP_ACTIVITY_LOG_NOTIFICATIONS,
-        FEATURE_FLAGS.AUDIT_LOGS_ACCESS,
-    ],
+    featureFlags: [FEATURE_FLAGS.CDP_ACTIVITY_LOG_NOTIFICATIONS, FEATURE_FLAGS.AUDIT_LOGS_ACCESS],
 }
 
 export const SidePanelSupportNoEmail: StoryFn = () => {
