@@ -12,9 +12,9 @@ import { fileURLToPath } from 'url'
 
 import { buildInParallel } from '@posthog/esbuilder'
 
-import { getToolbarBuildConfig } from './toolbar-config.mjs'
+import { getToolbarBuildConfig } from '../toolbar-config.mjs'
 
-export const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const __dirname = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 const common = {
     absWorkingDir: __dirname,
