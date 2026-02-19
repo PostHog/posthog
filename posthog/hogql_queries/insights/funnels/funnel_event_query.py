@@ -12,6 +12,7 @@ from posthog.schema import (
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     FunnelMathType,
+    GroupNode,
     StepOrderValue,
 )
 
@@ -331,6 +332,9 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         table_entity: DataWarehouseNode | None,
     ) -> ast.Expr:
         filters: list[ast.Expr] = []
+
+        if isinstance(step_entity, GroupNode):
+            raise NotImplementedError("Inline events not implemented in funnels yet")
 
         if isinstance(step_entity, ActionsNode) or isinstance(step_entity, FunnelExclusionActionsNode):
             # action

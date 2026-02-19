@@ -124,7 +124,7 @@ export function OpenQuestionSummaryV2({
 
     if (loading && !summary) {
         return (
-            <div className="border rounded p-4 mb-4 bg-surface-primary">
+            <div className="mb-4 border rounded p-4 bg-surface-primary">
                 <div className="flex items-center gap-2 mb-3">
                     <IconSparkles className="text-warning" />
                     <span className="font-semibold">Response summary</span>
@@ -140,7 +140,7 @@ export function OpenQuestionSummaryV2({
 
     if (error && !summary) {
         return (
-            <div className="border rounded p-4 mb-2 bg-surface-primary border-danger">
+            <div className="mb-2 border rounded p-4 bg-surface-primary border-danger">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-danger">
                         <IconSparkles />
@@ -158,7 +158,7 @@ export function OpenQuestionSummaryV2({
         // Waiting for consent or initial load
         if (!dataProcessingAccepted) {
             return (
-                <div className="border rounded p-4 mb-2 bg-surface-primary">
+                <div className="mb-2 border rounded p-4 bg-surface-primary">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <IconSparkles className="text-warning" />
@@ -193,7 +193,7 @@ export function OpenQuestionSummaryV2({
             {/* Collapsible header */}
             <button
                 type="button"
-                className="w-full flex items-center justify-between p-3 hover:bg-surface-secondary transition-colors cursor-pointer"
+                className="w-full flex items-center justify-between transition-colors cursor-pointer p-3 hover:bg-surface-secondary"
                 onClick={() => setIsExpanded(!isExpanded)}
             >
                 <div className="flex items-center gap-2">
@@ -222,11 +222,11 @@ export function OpenQuestionSummaryV2({
                 }`}
             >
                 <div className="px-3 pb-3">
-                    <div className="prose prose-sm max-w-none">
+                    <div className="prose prose-base max-w-none">
                         <LemonMarkdown>{summary.content}</LemonMarkdown>
                     </div>
 
-                    <div className="flex items-center justify-between mt-3 pt-2 border-t text-xs text-muted">
+                    <div className="flex items-center justify-between text-xs text-muted mt-3 pt-2 border-t">
                         <div className="flex items-center gap-2">
                             <span>
                                 Based on {summary.responseCount}

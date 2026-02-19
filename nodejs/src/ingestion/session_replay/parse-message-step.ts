@@ -1,17 +1,35 @@
 import { DateTime } from 'luxon'
 import { Message, MessageHeader } from 'node-rdkafka'
-import { promisify } from 'node:util'
-import { gunzip } from 'zlib'
+import { gunzipSync } from 'zlib'
 
+import { KafkaMetrics } from '../../session-recording/kafka/metrics'
+import {
+    EventSchema,
+    ParsedMessageData,
+    RawEventMessageSchema,
+    SnapshotEvent,
+    SnapshotEventSchema,
+} from '../../session-recording/kafka/types'
+import { TopTracker } from '../../session-recording/top-tracker'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
-import { TopTracker } from '../top-tracker'
-import { KafkaMetrics } from './metrics'
-import { EventSchema, ParsedMessageData, RawEventMessageSchema, SnapshotEvent, SnapshotEventSchema } from './types'
+import { PipelineResult, drop, ok } from '../pipelines/results'
+import { ProcessingStep } from '../pipelines/steps'
 
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
 const GZIP_HEADER = Uint8Array.from([0x1f, 0x8b, 0x08, 0x00])
-const decompressWithGzip = promisify(gunzip)
+
+export interface ParseMessageStepInput {
+    message: Message
+}
+
+export interface ParseMessageStepOutput {
+    parsedMessage: ParsedMessageData
+}
+
+function isGzipped(buffer: Buffer): boolean {
+    return buffer.slice(0, GZIP_HEADER.length).equals(GZIP_HEADER)
+}
 
 function getValidEvents(events: unknown[]): {
     validEvents: SnapshotEvent[]
@@ -54,88 +72,99 @@ function getValidEvents(events: unknown[]): {
     }
 }
 
-export class KafkaMessageParser {
-    constructor(private topTracker?: TopTracker) {}
+function dropMessage(
+    message: Message,
+    reason: string,
+    extra?: Record<string, unknown>
+): PipelineResult<ParseMessageStepOutput> {
+    KafkaMetrics.incrementMessageDropped('session_recordings_blob_ingestion_v2', reason)
 
-    public async parseBatch(messages: Message[]): Promise<ParsedMessageData[]> {
-        const parsedMessages = await Promise.all(messages.map((message) => this.parseMessage(message)))
-        return parsedMessages.filter((msg): msg is ParsedMessageData => msg !== null)
-    }
+    logger.warn('⚠️', 'invalid_message', {
+        reason,
+        partition: message.partition,
+        offset: message.offset,
+        ...(extra || {}),
+    })
+    return drop(reason)
+}
 
-    private async parseMessage(message: Message): Promise<ParsedMessageData | null> {
+export interface ParseMessageStepConfig {
+    topTracker?: TopTracker
+}
+
+/**
+ * Creates a step that parses raw Kafka messages into ParsedMessageData.
+ *
+ * This step processes one message at a time since there are no batch-level optimizations.
+ * Gzip decompression is done synchronously since the pipeline already runs steps concurrently.
+ */
+export function createParseMessageStep(
+    config?: ParseMessageStepConfig
+): ProcessingStep<ParseMessageStepInput, ParseMessageStepOutput> {
+    const topTracker = config?.topTracker
+
+    return async function parseMessageStep(input) {
         const parseStartTime = performance.now()
-        const dropMessage = (reason: string, extra?: Record<string, any>) => {
-            KafkaMetrics.incrementMessageDropped('session_recordings_blob_ingestion_v2', reason)
-
-            logger.warn('⚠️', 'invalid_message', {
-                reason,
-                partition: message.partition,
-                offset: message.offset,
-                ...(extra || {}),
-            })
-            return null
-        }
+        const { message } = input
 
         if (!message.value || !message.timestamp) {
-            return dropMessage('message_value_or_timestamp_is_empty')
+            return dropMessage(message, 'message_value_or_timestamp_is_empty')
         }
 
         let messageUnzipped = message.value
         try {
-            if (this.isGzipped(message.value)) {
-                // The type definition for gunzip is missing the Buffer type
-                // https://nodejs.org/api/zlib.html#zlibgunzipbuffer-options-callback
-                messageUnzipped = await decompressWithGzip(message.value as any)
+            if (isGzipped(message.value)) {
+                messageUnzipped = gunzipSync(message.value)
             }
         } catch (error) {
-            return dropMessage('invalid_gzip_data', { error })
+            return dropMessage(message, 'invalid_gzip_data', { error })
         }
 
         let rawPayload: unknown
         try {
             rawPayload = parseJSON(messageUnzipped.toString())
         } catch (error) {
-            return dropMessage('invalid_json', { error })
+            return dropMessage(message, 'invalid_json', { error })
         }
 
         const messageResult = RawEventMessageSchema.safeParse(rawPayload)
         if (!messageResult.success) {
-            return dropMessage('invalid_message_payload', { error: messageResult.error })
+            return dropMessage(message, 'invalid_message_payload', { error: messageResult.error })
         }
 
         let eventData: unknown
         try {
             eventData = parseJSON(messageResult.data.data)
         } catch (error) {
-            return dropMessage('received_non_snapshot_message', { error })
+            return dropMessage(message, 'received_non_snapshot_message', { error })
         }
         const eventResult = EventSchema.safeParse(eventData)
         if (!eventResult.success) {
-            return dropMessage('received_non_snapshot_message', { error: eventResult.error })
+            return dropMessage(message, 'received_non_snapshot_message', { error: eventResult.error })
         }
 
         const { $snapshot_items, $session_id, $window_id, $snapshot_source, $lib } = eventResult.data.properties
 
         if (eventResult.data.event !== '$snapshot_items' || !$snapshot_items || !$session_id) {
-            return dropMessage('received_non_snapshot_message')
+            return dropMessage(message, 'received_non_snapshot_message')
         }
 
         const result = getValidEvents($snapshot_items)
         if (!result) {
-            return dropMessage('message_contained_no_valid_rrweb_events')
+            return dropMessage(message, 'message_contained_no_valid_rrweb_events')
         }
         const { validEvents, startDateTime, endDateTime } = result
 
         const startDiff = Math.abs(startDateTime.diffNow('day').days)
         const endDiff = Math.abs(endDateTime.diffNow('day').days)
         if (startDiff >= MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS || endDiff >= MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS) {
-            return dropMessage('message_timestamp_diff_too_large')
+            return dropMessage(message, 'message_timestamp_diff_too_large')
         }
 
         const tokenHeader = message.headers?.find((header: MessageHeader) => header.token)?.token
         const token = typeof tokenHeader === 'string' ? tokenHeader : tokenHeader?.toString()
 
-        const parsedMessage = {
+        const parsedMessage: ParsedMessageData = {
             metadata: {
                 partition: message.partition,
                 topic: message.topic,
@@ -159,17 +188,13 @@ export class KafkaMessageParser {
         }
 
         // Track parsing time per session_id
-        if (this.topTracker) {
+        if (topTracker) {
             const parseEndTime = performance.now()
             const parseDurationMs = parseEndTime - parseStartTime
             const trackingKey = `token:${parsedMessage.token ?? 'unknown'}:session_id:${$session_id}`
-            this.topTracker.increment('parse_time_ms_by_session_id', trackingKey, parseDurationMs)
+            topTracker.increment('parse_time_ms_by_session_id', trackingKey, parseDurationMs)
         }
 
-        return parsedMessage
-    }
-
-    private isGzipped(buffer: Buffer): boolean {
-        return buffer.slice(0, GZIP_HEADER.length).equals(GZIP_HEADER)
+        return Promise.resolve(ok({ parsedMessage }))
     }
 }
