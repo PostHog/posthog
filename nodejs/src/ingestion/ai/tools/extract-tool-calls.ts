@@ -2,20 +2,15 @@
  * Extract tool call names from AI generation output choices.
  *
  * Handles multiple formats:
- * - OpenAI: messages with `tool_calls` array containing `{type: "function", function: {name: "..."}}`
- * - OpenAI (normalized): content items with `{type: "function", function: {name: "..."}}`
- * - Anthropic: content items with `{type: "tool_use", name: "..."}`
- * - Python repr strings (OpenAI Agents SDK): `ResponseFunctionToolCall(name='...')`
+ * - OpenAI Chat: `choices[].message.tool_calls[].function.name`
+ * - OpenAI Chat (unwrapped): `[].tool_calls[].function.name` (no message wrapper)
+ * - OpenAI Responses API: flat `[].type="function_call"` with `name` at top level
+ * - Normalized SDK: `[].content[].type="function"` with `function.name`
+ * - Anthropic: `[].message.content[].type="tool_use"` with `name`
+ * - Python repr (OpenAI Agents SDK): `ResponseFunctionToolCall(name='...')`
  */
 
-interface OpenAIToolCall {
-    type?: string
-    function?: {
-        name?: string
-    }
-}
-
-interface ContentBlock {
+interface ToolCallItem {
     type?: string
     name?: string
     function?: {
@@ -23,12 +18,15 @@ interface ContentBlock {
     }
 }
 
-interface ContentChoice {
-    content?: ContentBlock[]
+interface OutputItem {
+    type?: string
+    name?: string
     role?: string
+    content?: ToolCallItem[]
+    tool_calls?: ToolCallItem[]
     message?: {
-        tool_calls?: OpenAIToolCall[]
-        content?: ContentBlock[]
+        tool_calls?: ToolCallItem[]
+        content?: ToolCallItem[]
     }
 }
 
@@ -36,7 +34,7 @@ function extractFromToolCalls(toolCalls: unknown[]): string[] {
     const names: string[] = []
     for (const call of toolCalls) {
         if (typeof call === 'object' && call !== null) {
-            const tc = call as OpenAIToolCall
+            const tc = call as ToolCallItem
             if (tc.function?.name && typeof tc.function.name === 'string') {
                 names.push(tc.function.name)
             }
@@ -51,7 +49,7 @@ function extractFromContentBlocks(content: unknown[]): string[] {
         if (typeof block !== 'object' || block === null) {
             continue
         }
-        const cb = block as ContentBlock
+        const cb = block as ToolCallItem
         // Anthropic: {type: "tool_use", name: "..."}
         if (cb.type === 'tool_use' && cb.name && typeof cb.name === 'string') {
             names.push(cb.name)
@@ -86,7 +84,6 @@ function extractFromPythonRepr(raw: string): string[] {
  */
 export function extractToolCallNames(outputChoices: unknown, rawString?: string): string[] {
     if (!Array.isArray(outputChoices)) {
-        // Try Python repr fallback if we have the raw string
         if (rawString && typeof rawString === 'string') {
             return extractFromPythonRepr(rawString)
         }
@@ -100,9 +97,15 @@ export function extractToolCallNames(outputChoices: unknown, rawString?: string)
             continue
         }
 
-        const c = choice as ContentChoice
+        const c = choice as OutputItem
 
-        // Format: {message: {tool_calls: [...]}} (standard OpenAI choices)
+        // OpenAI Responses API: flat item with {type: "function_call", name: "..."}
+        if (c.type === 'function_call' && c.name && typeof c.name === 'string') {
+            names.push(c.name)
+            continue
+        }
+
+        // Standard OpenAI: {message: {tool_calls: [...]}}
         if (c.message && typeof c.message === 'object') {
             if ('tool_calls' in c.message && Array.isArray(c.message.tool_calls)) {
                 names.push(...extractFromToolCalls(c.message.tool_calls))
@@ -112,7 +115,12 @@ export function extractToolCallNames(outputChoices: unknown, rawString?: string)
             }
         }
 
-        // Format: {content: [...], role: "assistant"} (normalized, no message wrapper)
+        // Unwrapped: {tool_calls: [...], role: "assistant"} (no message wrapper)
+        if ('tool_calls' in c && Array.isArray(c.tool_calls)) {
+            names.push(...extractFromToolCalls(c.tool_calls))
+        }
+
+        // Normalized: {content: [...], role: "assistant"} (no message wrapper)
         if ('content' in c && Array.isArray(c.content)) {
             names.push(...extractFromContentBlocks(c.content))
         }
