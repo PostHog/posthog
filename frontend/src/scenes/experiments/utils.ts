@@ -47,13 +47,11 @@ import {
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { EXPERIMENT_VARIANT_MULTIPLE } from './constants'
 
-const MULTIPLE_VARIANT_SIGNIFICANCE_THRESHOLD = 0.5
+const MULTIPLE_VARIANT_WARNING_THRESHOLD = 0.5
 
-export function filterInsignificantMultipleVariants<T extends { variant: string; percentage: number }>(
-    variants: T[]
-): T[] {
+export function filterLowMultipleVariant<T extends { variant: string; percentage: number }>(variants: T[]): T[] {
     return variants.filter(
-        (v) => v.variant !== EXPERIMENT_VARIANT_MULTIPLE || v.percentage > MULTIPLE_VARIANT_SIGNIFICANCE_THRESHOLD
+        (v) => v.variant !== EXPERIMENT_VARIANT_MULTIPLE || v.percentage > MULTIPLE_VARIANT_WARNING_THRESHOLD
     )
 }
 

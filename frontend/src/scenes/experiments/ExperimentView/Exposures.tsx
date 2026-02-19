@@ -19,7 +19,7 @@ import {
 import { useChartColors } from '../MetricsView/shared/colors'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
-import { filterInsignificantMultipleVariants, getExposureConfigDisplayName } from '../utils'
+import { filterLowMultipleVariant, getExposureConfigDisplayName } from '../utils'
 import { VariantTag } from './components'
 
 const srmFailureTooltipText =
@@ -166,6 +166,8 @@ export function Exposures(): JSX.Element {
         }
     }
 
+    const filteredVariants = filterLowMultipleVariant(variants)
+
     // Detect sample ratio mismatch (p < 0.001 is significant)
     const hasSRM = exposures?.sample_ratio_mismatch != null && exposures.sample_ratio_mismatch.p_value < 0.001
 
@@ -283,16 +285,14 @@ export function Exposures(): JSX.Element {
                                 {exposures?.timeseries?.length > 0 && <MicroChart exposures={exposures} />}
                                 {variants.length > 0 && (
                                     <div className="ml-2 flex items-center gap-4">
-                                        {filterInsignificantMultipleVariants(variants).map(
-                                            ({ variant, percentage }) => (
-                                                <div key={variant} className="flex items-center gap-2">
-                                                    <div className="metric-cell">
-                                                        <VariantTag variantKey={variant} />
-                                                    </div>
-                                                    <span className="metric-cell">{percentage.toFixed(1)}%</span>
+                                        {filteredVariants.map(({ variant, percentage }) => (
+                                            <div key={variant} className="flex items-center gap-2">
+                                                <div className="metric-cell">
+                                                    <VariantTag variantKey={variant} />
                                                 </div>
-                                            )
-                                        )}
+                                                <span className="metric-cell">{percentage.toFixed(1)}%</span>
+                                            </div>
+                                        ))}
                                     </div>
                                 )}
                                 {featureFlags[FEATURE_FLAGS.EXPERIMENTS_SAMPLE_RATIO_MISMATCH] && hasSRM && (
@@ -370,7 +370,9 @@ export function Exposures(): JSX.Element {
                                     <h3 className="card-secondary">Total exposures</h3>
                                     <LemonTable
                                         dataSource={[
-                                            ...(exposures?.timeseries || []),
+                                            ...(exposures?.timeseries || []).filter((series) =>
+                                                filteredVariants.some((v) => v.variant === series.variant)
+                                            ),
                                             { variant: '__total__', isTotal: true },
                                         ]}
                                         columns={[
