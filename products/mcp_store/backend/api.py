@@ -198,7 +198,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         except Exception as e:
             logger.exception("OAuth discovery failed", server_url=mcp_url, error=str(e))
             installation.delete()
-            return Response({"detail": f"OAuth discovery failed: {e}"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
 
         issuer_url = metadata.get("issuer", "")
         if not issuer_url:
