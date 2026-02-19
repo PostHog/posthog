@@ -205,11 +205,8 @@ export const calculateLayouts = (
             }
         }
 
-        // Place new tiles at the bottom of the dashboard rather than filling gaps
-        const globalBottom = Math.max(...lowestPoints)
-        for (let col = 0; col < columnCount; col++) {
-            lowestPoints[col] = globalBottom
-        }
+        // Sort dirty tiles by ID ascending so newly added tiles (highest ID) are placed last
+        dirtyLayouts.sort((a, b) => Number(a.i) - Number(b.i))
 
         for (const { i, w, h, minW, minH } of dirtyLayouts) {
             // how low are things in "w" consecutive of columns

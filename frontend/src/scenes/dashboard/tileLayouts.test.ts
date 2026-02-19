@@ -29,27 +29,38 @@ describe('calculating tile layouts', () => {
         })
     })
 
-    it('new tile without layout is placed below existing tiles, not in gaps', () => {
-        const existingTile = textTileWithLayout(
+    it('newly added tile (highest ID) is placed after older tiles without layouts', () => {
+        const existingWithLayout = textTileWithLayout(
             {
-                sm: { x: 6, y: 0, w: 6, h: 5 },
+                sm: { x: 0, y: 0, w: 6, h: 5 },
                 xs: { x: 0, y: 0, w: 1, h: 5 },
             },
             1
         )
-        const newTile = {
+        const olderDirtyTile = {
             id: 2,
-            text: 'new',
+            text: 'older',
+            layouts: {},
+        } as unknown as DashboardTile<QueryBasedInsightModel>
+        const newestTile = {
+            id: 3,
+            text: 'newest',
             layouts: {},
         } as unknown as DashboardTile<QueryBasedInsightModel>
 
-        const actual = calculateLayouts([existingTile, newTile])
+        // newest tile appears first in array (as the API returns newest first)
+        const actual = calculateLayouts([existingWithLayout, newestTile, olderDirtyTile])
 
-        const newSmLayout = actual.sm?.find((l) => l.i === '2')
-        expect(newSmLayout?.y).toBe(5)
+        const smIds = actual.sm?.map((l) => l.i)
+        expect(smIds).toEqual(['1', '2', '3'])
 
-        const newXsLayout = actual.xs?.find((l) => l.i === '2')
-        expect(newXsLayout?.y).toBe(5)
+        const newestSmLayout = actual.sm?.find((l) => l.i === '3')
+        const olderSmLayout = actual.sm?.find((l) => l.i === '2')
+        expect(newestSmLayout!.y).toBeGreaterThanOrEqual(olderSmLayout!.y)
+
+        const newestXsLayout = actual.xs?.find((l) => l.i === '3')
+        const olderXsLayout = actual.xs?.find((l) => l.i === '2')
+        expect(newestXsLayout!.y).toBeGreaterThan(olderXsLayout!.y)
     })
 
     it('when the tiles have only 2-col layouts, 1 col layout is calculated', () => {
@@ -77,7 +88,8 @@ describe('calculating tile layouts', () => {
         expect(actual.sm?.map((layout) => layout.x)).toEqual([0, 6, 0, 6])
         expect(actual.sm?.map((layout) => layout.y)).toEqual([0, 0, 6, 6])
 
-        expect(actual.xs?.map((layout) => layout.i)).toEqual(['1', '3', '4', '2'])
+        // dirty tiles are sorted by ID ascending, so xs order differs from sm reference order
+        expect(actual.xs?.map((layout) => layout.i)).toEqual(['1', '2', '3', '4'])
         // one col all start at x: 0
         expect(actual.xs?.map((layout) => layout.x)).toEqual([0, 0, 0, 0])
         // one col with equal height of 6 should be
