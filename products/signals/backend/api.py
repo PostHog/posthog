@@ -2,40 +2,12 @@ from datetime import timedelta
 
 from django.conf import settings
 
-import posthoganalytics
-import temporalio.exceptions
-from asgiref.sync import sync_to_async
-from temporalio.common import WorkflowIDReusePolicy
-
 from posthog.models import Team
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
-from products.signals.backend.temporal.types import EmitSignalInputs
-from products.signals.backend.temporal.workflow import EmitSignalWorkflow
-
-
-async def product_autonomy_enabled(team: Team) -> bool:
-    organization = await sync_to_async(lambda: team.organization)()
-    if not organization.is_ai_data_processing_approved:
-        return False
-
-    return posthoganalytics.feature_enabled(
-        "product-autonomy",
-        str(team.uuid),
-        groups={
-            "organization": str(team.organization_id),
-            "project": str(team.id),
-        },
-        group_properties={
-            "organization": {
-                "id": str(team.organization_id),
-            },
-            "project": {
-                "id": str(team.id),
-            },
-        },
-        send_feature_flag_events=False,
-    )
+from products.signals.backend.temporal.grouping import TeamSignalGroupingWorkflow
+from products.signals.backend.temporal.types import EmitSignalInputs, TeamSignalGroupingInput
 
 
 async def emit_signal(
@@ -48,7 +20,11 @@ async def emit_signal(
     extra: dict | None = None,
 ) -> None:
     """
-    Emit a signal for clustering and potential research. Fire-and-forget.
+    Emit a signal for clustering and potential summarization. Fire-and-forget.
+
+    Uses signal-with-start to atomically create the per-team entity workflow
+    if it doesn't exist, or send a signal to the running instance. This serializes
+    all signal grouping for a team, eliminating race conditions.
 
     Args:
         team: The team object
@@ -56,7 +32,7 @@ async def emit_signal(
         source_type: Type of signal (e.g., "significance_reached", "traffic_anomaly")
         source_id: Unique identifier within the source (e.g., experiment UUID)
         description: Human-readable description that will be embedded
-        weight: Importance/confidence of signal (0.0-1.0). Weight of 1.0 triggers research.
+        weight: Importance/confidence of signal (0.0-1.0). Weight of 1.0 triggers summary.
         extra: Optional product-specific metadata
 
     Example:
@@ -70,12 +46,13 @@ async def emit_signal(
             extra={"variant": "B", "p_value": 0.003},
         )
     """
-    if not await product_autonomy_enabled(team):
+    organization = await database_sync_to_async(lambda: team.organization)()
+    if not organization.is_ai_data_processing_approved:
         return
 
     client = await async_connect()
 
-    inputs = EmitSignalInputs(
+    signal_input = EmitSignalInputs(
         team_id=team.id,
         source_product=source_product,
         source_type=source_type,
@@ -85,16 +62,16 @@ async def emit_signal(
         extra=extra or {},
     )
 
-    workflow_id = EmitSignalWorkflow.workflow_id_for(team.id, source_product, source_type, source_id)
+    workflow_id = TeamSignalGroupingWorkflow.workflow_id_for(team.id)
 
-    try:
-        await client.start_workflow(
-            EmitSignalWorkflow.run,
-            inputs,
-            id=workflow_id,
-            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-            execution_timeout=timedelta(minutes=30),
-        )
-    except temporalio.exceptions.WorkflowAlreadyStartedError:
-        pass
+    await client.start_workflow(
+        TeamSignalGroupingWorkflow.run,
+        TeamSignalGroupingInput(team_id=team.id),
+        id=workflow_id,
+        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+        # run_timeout resets on each continue_as_new; execution_timeout would span all
+        # continuations and eventually kill a healthy long-running entity workflow.
+        run_timeout=timedelta(hours=1),
+        start_signal="submit_signal",
+        start_signal_args=[signal_input],
+    )

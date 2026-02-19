@@ -6,6 +6,7 @@ import { LemonBanner, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { ProductSelection } from 'scenes/onboarding/productSelection/ProductSelection'
@@ -22,6 +23,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, type SessionRecordingMaskingLevel, TeamPublicType, TeamType } from '~/types'
 
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
+import { OnboardingMax } from './OnboardingMax'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { OnboardingReverseProxy } from './OnboardingReverseProxy'
 import { OnboardingSessionReplayConfiguration } from './OnboardingSessionReplayConfiguration'
@@ -484,9 +486,14 @@ export const onboardingViews = {
 
 export function Onboarding(): JSX.Element | null {
     const { product, productKey } = useValues(onboardingLogic)
+    const isAIChatOnboarding = useFeatureFlag('ONBOARDING_AI_PRODUCT_RECOMMENDATIONS', 'chat')
 
-    // Show product selection when no product is selected
+    // Show AI chat for product discovery if 'chat' variant is enabled and no product selected yet
+    // Once a product is selected, fall through to the normal onboarding steps
     if (!productKey) {
+        if (isAIChatOnboarding) {
+            return <OnboardingMax />
+        }
         return <ProductSelection />
     }
 

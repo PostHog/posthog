@@ -9,6 +9,7 @@ import {
     normalizeMessage,
     normalizeMessages,
     parseOpenAIToolCalls,
+    sanitizeTraceUrlSearchParams,
 } from './utils'
 
 describe('LLM Analytics utils', () => {
@@ -19,6 +20,42 @@ describe('LLM Analytics utils', () => {
             ['2024-03-01T06:30:00Z', '2024-02-29T06:30:00Z'],
         ])('subtracts 24 hours from %s to get %s', (input, expected) => {
             expect(getSessionStartTimestamp(input)).toBe(expected)
+        })
+    })
+
+    describe('sanitizeTraceUrlSearchParams', () => {
+        it.each([
+            [
+                {
+                    date_from: '-30d',
+                    event: 'event-id',
+                    timestamp: '2026-01-29T22:07:59Z',
+                    exception_ts: '2026-01-29T22:07:59Z',
+                    line: '5',
+                    tab: 'conversation',
+                    back_to: 'traces',
+                    filters: [{ key: '$ai_model', value: ['gpt-4o'] }],
+                    search: 'foo',
+                },
+                {},
+                {
+                    date_from: '-30d',
+                    filters: [{ key: '$ai_model', value: ['gpt-4o'] }],
+                    search: 'foo',
+                },
+            ],
+            [
+                {
+                    date_from: '-30d',
+                    event: 'event-id',
+                    search: 'foo',
+                    back_to: 'generations',
+                },
+                { removeSearch: true },
+                { date_from: '-30d' },
+            ],
+        ])('removes trace-scoped URL params', (searchParams, options, expected) => {
+            expect(sanitizeTraceUrlSearchParams(searchParams, options)).toEqual(expected)
         })
     })
 
@@ -275,7 +312,7 @@ describe('LLM Analytics utils', () => {
 
         expect(normalizeMessage(message, 'user')).toEqual([
             {
-                role: 'user',
+                role: 'assistant (tool result)',
                 content: 'foo',
                 tool_call_id: '1',
             },
@@ -298,7 +335,7 @@ describe('LLM Analytics utils', () => {
         }
         expect(normalizeMessage(message, 'user')).toEqual([
             {
-                role: 'user',
+                role: 'assistant (tool result)',
                 content: 'foo',
                 tool_call_id: '1',
             },
@@ -435,7 +472,7 @@ describe('LLM Analytics utils', () => {
             expect(result[0].content).toBe('{"type":"output_text","text":"Some text"}')
         })
 
-        it('handles Anthropic tool result with nested content and preserves role', () => {
+        it('handles Anthropic tool result with nested content and overrides role to assistant (tool result)', () => {
             const toolResultMessage = {
                 type: 'tool_result',
                 tool_use_id: 'tool_123',
@@ -450,7 +487,7 @@ describe('LLM Analytics utils', () => {
             const result = normalizeMessage(toolResultMessage, 'tool')
 
             expect(result).toHaveLength(1)
-            expect(result[0].role).toBe('tool')
+            expect(result[0].role).toBe('assistant (tool result)')
             expect(result[0].content).toBe('Weather is sunny')
             expect(result[0].tool_call_id).toBe('tool_123')
         })

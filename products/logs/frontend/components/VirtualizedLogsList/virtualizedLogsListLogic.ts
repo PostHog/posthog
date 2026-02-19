@@ -3,7 +3,7 @@ import { actions, kea, key, path, props, reducers, selectors } from 'kea'
 import type { virtualizedLogsListLogicType } from './virtualizedLogsListLogicType'
 
 export interface VirtualizedLogsListLogicProps {
-    tabId: string
+    id: string
     scrollThreshold?: number
 }
 
@@ -11,16 +11,8 @@ const DEFAULT_SCROLL_THRESHOLD = 100
 
 export const virtualizedLogsListLogic = kea<virtualizedLogsListLogicType>([
     props({ scrollThreshold: DEFAULT_SCROLL_THRESHOLD } as VirtualizedLogsListLogicProps),
-    key((props) => props.tabId),
-    path((tabId) => [
-        'products',
-        'logs',
-        'frontend',
-        'components',
-        'VirtualizedLogsList',
-        'virtualizedLogsListLogic',
-        tabId,
-    ]),
+    key((props) => props.id),
+    path((id) => ['products', 'logs', 'frontend', 'components', 'VirtualizedLogsList', 'virtualizedLogsListLogic', id]),
 
     actions({
         setContainerWidth: (width: number) => ({ width }),

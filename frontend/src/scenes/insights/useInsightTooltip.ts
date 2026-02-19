@@ -42,7 +42,7 @@ export function ensureTooltip(id: string): [Root, HTMLElement] {
                 inst.isMouseOver = false
                 inst.hideTimeout = setTimeout(() => {
                     if (!inst.isMouseOver) {
-                        inst.element.classList.add('opacity-0', 'invisible')
+                        inst.element.style.opacity = '0'
                     }
                 }, 100)
             }
@@ -91,7 +91,7 @@ export function hideTooltip(id?: string): void {
 
     instance.hideTimeout = setTimeout(() => {
         if (!instance.isMouseOver) {
-            instance.element.classList.add('opacity-0', 'invisible')
+            instance.element.style.opacity = '0'
         }
     }, 100)
 }
@@ -120,9 +120,14 @@ export function useInsightTooltip(): {
 } {
     const tooltipId = useMemo(() => Math.random().toString(36).substring(2, 11), [])
 
-    // Clean up tooltip on unmount
+    // Hide tooltip on scroll and clean up on unmount
     useOnMountEffect(() => {
+        const handleScrollEnd = (): void => hideTooltip(tooltipId)
+        // Tooltips are absolutely positioned on document.body and don't move with their chart.
+        // Use capture to catch scrollend from any scrollable ancestor (main, AI chat, side panels, etc.)
+        document.addEventListener('scrollend', handleScrollEnd, true)
         return () => {
+            document.removeEventListener('scrollend', handleScrollEnd, true)
             cleanupTooltip(tooltipId)
         }
     })
