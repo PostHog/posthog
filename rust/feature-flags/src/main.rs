@@ -15,6 +15,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
 use feature_flags::config::{Config, ThreadCounts};
+use feature_flags::rayon_dispatcher::RayonDispatcher;
 use feature_flags::server::serve;
 
 common_alloc::used!();
@@ -64,7 +65,7 @@ fn init_tracer(
         .expect("Failed to initialize OpenTelemetry tracer")
 }
 
-async fn async_main(mut config: Config) {
+async fn async_main(mut config: Config, rayon_dispatcher: RayonDispatcher) {
     config.validate_and_fix_timeouts();
 
     // Instantiate tracing outputs following Django's DEBUG-based approach:
@@ -145,7 +146,7 @@ async fn async_main(mut config: Config) {
     let listener = tokio::net::TcpListener::bind(config.address)
         .await
         .expect("could not bind port");
-    serve(config, listener, shutdown()).await;
+    serve(config, listener, rayon_dispatcher, shutdown()).await;
     unreachable!("Server exited unexpectedly");
 }
 
@@ -165,14 +166,22 @@ fn main() {
         .build()
         .expect("failed to create tokio thread pool");
 
+    let max_concurrent_batch_evals = if config.max_concurrent_batch_evals == 0 {
+        threads.default_max_concurrent_batch_evals()
+    } else {
+        config.max_concurrent_batch_evals
+    };
+    let rayon_dispatcher = RayonDispatcher::new(max_concurrent_batch_evals);
+
     eprintln!(
-        "Initialized thread pools: tokio_workers={}, rayon_threads={} (from {} available cores)",
+        "Initialized thread pools: tokio_workers={}, rayon_threads={}, max_concurrent_batch_evals={} (from {} available cores)",
         threads.tokio_workers,
         threads.rayon_threads,
+        max_concurrent_batch_evals,
         std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1)
     );
 
-    tokio_runtime.block_on(async_main(config))
+    tokio_runtime.block_on(async_main(config, rayon_dispatcher))
 }

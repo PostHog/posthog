@@ -27,6 +27,7 @@ use crate::metrics::consts::{
     PROPERTY_CACHE_MISSES_COUNTER,
 };
 use crate::properties::property_models::PropertyFilter;
+use crate::rayon_dispatcher::RayonDispatcher;
 use crate::utils::graph_utils::{
     build_dependency_graph, filter_graph_by_keys, log_dependency_graph_operation_error,
     DependencyGraph, DependencyGraphResult, FilteredGraphResult,
@@ -221,6 +222,9 @@ pub struct FeatureFlagMatcher {
     /// Flag count threshold for switching from sequential to parallel evaluation.
     /// Configured via PARALLEL_EVAL_THRESHOLD env var in production.
     parallel_eval_threshold: usize,
+    /// Dispatcher for bounded-concurrency Rayon batch evaluation.
+    /// `None` in tests that don't exercise the parallel path.
+    rayon_dispatcher: Option<RayonDispatcher>,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -266,11 +270,17 @@ impl FeatureFlagMatcher {
             groups: groups.unwrap_or_default(),
             flag_evaluation_state: FlagEvaluationState::default(),
             parallel_eval_threshold: DEFAULT_PARALLEL_EVAL_THRESHOLD,
+            rayon_dispatcher: None,
         }
     }
 
     pub fn with_parallel_eval_threshold(mut self, threshold: usize) -> Self {
         self.parallel_eval_threshold = threshold;
+        self
+    }
+
+    pub fn with_rayon_dispatcher(mut self, dispatcher: RayonDispatcher) -> Self {
+        self.rayon_dispatcher = Some(dispatcher);
         self
     }
 
@@ -959,9 +969,11 @@ impl FeatureFlagMatcher {
         Ok(None)
     }
 
-    /// Pushes CPU-bound flag evaluation onto the Rayon pool via `rayon::spawn` +
-    /// `tokio::sync::oneshot`, so the calling Tokio worker thread is free to serve
-    /// other requests while evaluation runs.
+    /// Pushes CPU-bound flag evaluation onto the Rayon pool via [`RayonDispatcher`],
+    /// so the calling Tokio worker thread is free to serve other requests while
+    /// evaluation runs. The dispatcher bounds how many batches can be in-flight
+    /// simultaneously, preventing unbounded queue growth and preserving per-batch
+    /// work-stealing parallelism.
     async fn evaluate_batch_parallel(
         &self,
         flags_to_evaluate: Vec<FeatureFlag>,
@@ -984,16 +996,14 @@ impl FeatureFlagMatcher {
             .map(FlagSnapshot::from_flag)
             .collect();
 
-        let (tx, rx) = tokio::sync::oneshot::channel();
-
         // TODO: Canonical log counters (cohorts_evaluated, flags_device_id_bucketing,
         // property_cache_hits/misses, hash_key_override_status) are silently lost on rayon
         // threads because CANONICAL_LOG uses tokio::task_local!. Fix by adding a thread_local!
         // fallback: install a fresh FlagsCanonicalLogLine per flag eval, take it after, send
         // deltas back through the oneshot channel, and merge into the real canonical log here.
         // See: https://github.com/PostHog/posthog/issues/47752
-        rayon::spawn(move || {
-            let results: Vec<_> = flags_to_evaluate
+        let work = move || {
+            flags_to_evaluate
                 .into_par_iter()
                 .map(|flag| {
                     let result = matcher.evaluate_single_flag(
@@ -1005,11 +1015,25 @@ impl FeatureFlagMatcher {
                     );
                     (flag, result)
                 })
-                .collect();
-            drop(tx.send(results));
-        });
+                .collect()
+        };
 
-        rx.await.unwrap_or_else(|_| {
+        let result = match &self.rayon_dispatcher {
+            Some(dispatcher) => dispatcher.spawn(work).await,
+            None => {
+                // Fallback for tests: unbounded dispatch (no semaphore).
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                rayon::spawn(move || {
+                    if let Ok(value) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
+                    {
+                        drop(tx.send(value));
+                    }
+                });
+                rx.await.ok()
+            }
+        };
+
+        result.unwrap_or_else(|| {
             error!("Rayon parallel evaluation task was dropped (likely panicked)");
             Self::build_panic_fallback(flag_snapshots, team_id)
         })

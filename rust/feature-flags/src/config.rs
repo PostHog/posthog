@@ -472,6 +472,13 @@ pub struct Config {
     // Default: 100 (sequential is faster for typical workloads of ~50 flags)
     #[envconfig(from = "PARALLEL_EVAL_THRESHOLD", default = "100")]
     pub parallel_eval_threshold: usize,
+
+    // Maximum number of large-flag batches evaluated concurrently on the Rayon pool.
+    // Bounds the rayon::spawn queue to prevent unbounded queueing latency and
+    // preserve per-batch work-stealing parallelism.
+    // 0 = auto (derived from rayon thread count).
+    #[envconfig(from = "MAX_CONCURRENT_BATCH_EVALS", default = "0")]
+    pub max_concurrent_batch_evals: usize,
 }
 
 /// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
@@ -502,6 +509,19 @@ impl ThreadCounts {
             .map(|n| n.get())
             .unwrap_or(1);
         Self::from_cores(cores)
+    }
+
+    /// Default concurrency limit for the Rayon batch dispatcher.
+    ///
+    /// Targets ~3 Rayon threads per concurrent batch so each batch gets
+    /// meaningful work-stealing parallelism. With fewer threads per batch,
+    /// `into_par_iter` degrades toward sequential execution.
+    pub fn default_max_concurrent_batch_evals(&self) -> usize {
+        // Integer ceil(rayon_threads / 3): keeps ~3 threads per batch.
+        //   6 threads → 2 batches  (3 threads each)
+        //   8 threads → 3 batches  (~2.7 threads each)
+        //  12 threads → 4 batches  (3 threads each)
+        self.rayon_threads.div_ceil(3).max(1)
     }
 
     fn from_cores(cores: usize) -> Self {
@@ -633,6 +653,7 @@ impl Config {
             redis_client_retry_count: 3,
             optimize_experience_continuity_lookups: FlexBool(true),
             parallel_eval_threshold: 100,
+            max_concurrent_batch_evals: 0,
         }
     }
 

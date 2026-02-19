@@ -38,6 +38,7 @@ use crate::{
         consts::{FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_REQUESTS_COUNTER},
         utils::team_id_label_filter,
     },
+    rayon_dispatcher::RayonDispatcher,
 };
 
 #[derive(Clone)]
@@ -73,6 +74,8 @@ pub struct State {
     /// Reads pre-computed config from Python's RemoteConfig.build_config()
     /// Uses token-based lookup (api_token)
     pub config_hypercache_reader: Arc<HyperCacheReader>,
+    /// Bounds concurrent large-batch dispatches to the Rayon pool
+    pub rayon_dispatcher: RayonDispatcher,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -90,6 +93,7 @@ pub fn router(
     flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
     team_hypercache_reader: Arc<HyperCacheReader>,
     config_hypercache_reader: Arc<HyperCacheReader>,
+    rayon_dispatcher: RayonDispatcher,
     config: Config,
 ) -> Router {
     // Initialize flag definitions rate limiter with default and custom team rates
@@ -157,6 +161,7 @@ pub fn router(
         flags_with_cohorts_hypercache_reader,
         team_hypercache_reader,
         config_hypercache_reader,
+        rayon_dispatcher,
     };
 
     // Very permissive CORS policy, as old SDK versions
