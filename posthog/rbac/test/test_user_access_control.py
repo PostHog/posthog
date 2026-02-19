@@ -1613,9 +1613,6 @@ class TestGetEffectiveAccessLevelForRole:
                 "manager",
                 "manager",
                 "viewer",
-                # No overrides at all - everything is None
-                ("no_default_no_override", "project", None, None, None, None, None),
-                ("resource_no_default_no_override", "feature_flag", None, None, None, None, None),
                 "project_default",
             ),
             # Role overrides same as project defaults
@@ -1624,6 +1621,9 @@ class TestGetEffectiveAccessLevelForRole:
             # Role overrides lower than project defaults - effective stays at default
             ("project_role_override_lower", "project", "admin", "member", "admin", "admin", "project_default"),
             ("resource_role_override_lower", "feature_flag", "editor", "viewer", "editor", "editor", "project_default"),
+            # No overrides at all - everything is None
+            ("no_default_no_override", "project", None, None, None, None, None),
+            ("resource_no_default_no_override", "feature_flag", None, None, None, None, None),
         ]
     )
     def test_effective_access_for_role(
@@ -1657,9 +1657,6 @@ class TestGetEffectiveAccessLevelForMember:
                 "project",
                 "none",
                 ["member"],
-                # No overrides at all - everything is None
-                ("no_default_no_overrides", "project", None, [], None, False, None, None, None),
-                ("resource_no_default_no_overrides", "feature_flag", None, [], None, False, None, None, None),
                 "member",
                 True,
                 "admin",
@@ -1765,6 +1762,9 @@ class TestGetEffectiveAccessLevelForMember:
                 "member",
                 "project_default",
             ),
+            # No overrides at all - everything is None
+            ("no_default_no_overrides", "project", None, [], None, False, None, None, None),
+            ("resource_no_default_no_overrides", "feature_flag", None, [], None, False, None, None, None),
         ]
     )
     def test_effective_access_for_member(
