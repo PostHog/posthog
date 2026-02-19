@@ -47,6 +47,8 @@ export type RequestProperties = {
     features?: string[]
     region?: string
     version?: number
+    organizationId?: string
+    projectId?: string
 }
 
 export class MCP extends McpAgent<Env> {
@@ -58,6 +60,7 @@ export class MCP extends McpAgent<Env> {
         distinctId: undefined,
         region: undefined,
         apiKey: undefined,
+        clientName: undefined,
     }
 
     _cache: DurableObjectCache<State> | undefined
@@ -163,21 +166,31 @@ export class MCP extends McpAgent<Env> {
         return _distinctId
     }
 
+    private async getBaseEventProperties(): Promise<Record<string, any>> {
+        const props: Record<string, any> = {}
+
+        if (this.requestProperties.sessionId) {
+            props.$session_id = await this.sessionManager.getSessionUuid(this.requestProperties.sessionId)
+        }
+
+        const clientName = await this.cache.get('clientName')
+        if (clientName) {
+            props.client_name = clientName
+        }
+
+        return props
+    }
+
     async trackEvent(event: AnalyticsEvent, properties: Record<string, any> = {}): Promise<void> {
         try {
             const distinctId = await this.getDistinctId()
-
             const client = getPostHogClient()
 
             client.capture({
                 distinctId,
                 event,
                 properties: {
-                    ...(this.requestProperties.sessionId
-                        ? {
-                              $session_id: await this.sessionManager.getSessionUuid(this.requestProperties.sessionId),
-                          }
-                        : {}),
+                    ...(await this.getBaseEventProperties()),
                     ...properties,
                 },
             })
@@ -293,9 +306,26 @@ export class MCP extends McpAgent<Env> {
     }
 
     async init(): Promise<void> {
-        const { features, version } = this.requestProperties
+        const { features, version, organizationId, projectId } = this.requestProperties
         const instructions = version === 2 ? INSTRUCTIONS_V2 : INSTRUCTIONS_V1
         this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
+
+        // Pre-seed cache with org/project IDs from headers/query params
+        if (organizationId) {
+            await this.cache.set('orgId', organizationId)
+        }
+        if (projectId) {
+            await this.cache.set('projectId', projectId)
+        }
+
+        // When project ID is provided, both switch tools are removed (project implies org).
+        // When only organization ID is provided, only switch-organization is removed.
+        const excludeTools: string[] = []
+        if (projectId) {
+            excludeTools.push('switch-organization', 'switch-project')
+        } else if (organizationId) {
+            excludeTools.push('switch-organization')
+        }
 
         const context = await this.getContext()
 
@@ -305,7 +335,7 @@ export class MCP extends McpAgent<Env> {
         await registerUiAppResources(this.server, context)
 
         // Register tools
-        const allTools = await getToolsFromContext(context, { features, version })
+        const allTools = await getToolsFromContext(context, { features, version, excludeTools })
 
         for (const tool of allTools) {
             this.registerTool(tool, async (params) => tool.handler(context, params))

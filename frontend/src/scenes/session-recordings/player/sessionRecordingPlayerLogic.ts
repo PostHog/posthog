@@ -211,6 +211,41 @@ export function findNewEvents(allSnapshots: eventWithTime[], currentEvents: even
     return newEvents
 }
 
+/** Find the segment containing this timestamp, falling back to the nearest valid one if out of range. */
+export function findSegmentForTimestamp(segments: RecordingSegment[], timestamp?: number): RecordingSegment | null {
+    if (timestamp === undefined) {
+        return null
+    }
+    if (segments.length) {
+        for (const segment of segments) {
+            if (segment.startTimestamp <= timestamp && timestamp <= segment.endTimestamp) {
+                return segment
+            }
+        }
+        // Timestamp doesn't fall in any segment (e.g. timezone mismatch).
+        // Pick the nearest segment that has a windowId so the player can still boot.
+        const nearest =
+            timestamp < segments[0].startTimestamp
+                ? segments.find((s) => s.windowId !== undefined)
+                : [...segments].reverse().find((s) => s.windowId !== undefined)
+
+        if (nearest) {
+            return nearest
+        }
+
+        return {
+            kind: 'buffer',
+            startTimestamp: timestamp,
+            endTimestamp:
+                timestamp < segments[0].startTimestamp
+                    ? segments[0].startTimestamp - 1
+                    : segments[segments.length - 1].endTimestamp + 1,
+            isActive: false,
+        } as RecordingSegment
+    }
+    return null
+}
+
 function isUserActivity(snapshot: eventWithTime): boolean {
     return (
         snapshot.type === INCREMENTAL_SNAPSHOT_EVENT_TYPE &&
@@ -403,7 +438,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'loadSnapshotSourcesFailure',
                 'loadNextSnapshotSource',
                 'setTargetTimestamp',
-                'setLoadingPhase',
+                'updatePlaybackPosition',
+                'setPlayerActive',
             ],
             sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingData', 'loadRecordingMetaSuccess'],
@@ -874,7 +910,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         currentPlayerTime: [
             (s) => [s.currentTimestamp, s.sessionPlayerData],
             (currentTimestamp, sessionPlayerData) => {
-                return Math.max(0, (currentTimestamp ?? 0) - (sessionPlayerData?.start?.valueOf() ?? 0))
+                if (!currentTimestamp || !sessionPlayerData?.start) {
+                    return 0
+                }
+                return Math.max(0, currentTimestamp - sessionPlayerData.start.valueOf())
             },
         ],
 
@@ -934,23 +973,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (s) => [s.sessionPlayerData],
             (sessionPlayerData: SessionPlayerData) => {
                 return (timestamp?: number): RecordingSegment | null => {
-                    if (timestamp === undefined) {
-                        return null
-                    }
-                    if (sessionPlayerData.segments.length) {
-                        for (const segment of sessionPlayerData.segments) {
-                            if (segment.startTimestamp <= timestamp && timestamp <= segment.endTimestamp) {
-                                return segment
-                            }
-                        }
-                        return {
-                            kind: 'buffer',
-                            startTimestamp: timestamp,
-                            endTimestamp: sessionPlayerData.segments[0].startTimestamp - 1,
-                            isActive: false,
-                        } as RecordingSegment
-                    }
-                    return null
+                    return findSegmentForTimestamp(sessionPlayerData.segments, timestamp)
                 }
             },
         ],
@@ -1178,17 +1201,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     ? makeLogger(actions.incrementWarningCount)
                     : makeNoOpLogger()
 
-            cache.disposables.add(() => {
-                return () => {
-                    Object.values(logging.timers as BuiltLogging['timers']).forEach((timer) => {
-                        if (timer) {
-                            clearTimeout(timer)
-                        }
-                    })
-                    ;(window as any)[`__posthog_player_logs`] = undefined
-                    ;(window as any)[`__posthog_player_warnings`] = undefined
-                }
-            }, 'consoleTimers')
+            cache.disposables.add(
+                () => {
+                    return () => {
+                        Object.values(logging.timers as BuiltLogging['timers']).forEach((timer) => {
+                            if (timer) {
+                                clearTimeout(timer)
+                            }
+                        })
+                        ;(window as any)[`__posthog_player_logs`] = undefined
+                        ;(window as any)[`__posthog_player_warnings`] = undefined
+                    }
+                },
+                'consoleTimers',
+                { pauseOnPageHidden: false }
+            )
 
             const config: Partial<playerConfig> & { onError: (error: any) => void } = {
                 root: values.rootFrame,
@@ -1204,108 +1231,141 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 logger: logging.logger,
             }
 
-            cache.disposables.add(() => {
-                const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
-                const iframeCleanups: (() => void)[] = []
+            cache.disposables.add(
+                () => {
+                    const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
+                    const iframeCleanups: (() => void)[] = []
 
-                replayer.on('fullsnapshot-rebuilded', () => {
-                    const iframeContentWindow = replayer.iframe.contentWindow
-                    const iframeDocument = iframeContentWindow?.document
-                    const iframeFetch = iframeContentWindow?.fetch
+                    replayer.on('fullsnapshot-rebuilded', () => {
+                        const iframeContentWindow = replayer.iframe.contentWindow
+                        const iframeDocument = iframeContentWindow?.document
+                        const iframeFetch = iframeContentWindow?.fetch
 
-                    const setupErrorHandlers = (): void => {
-                        if (iframeFetch && !(iframeFetch as any).__isWrappedForErrorReporting && iframeContentWindow) {
-                            const originalFetch = iframeFetch
-                            const windowRef = new WeakRef(iframeContentWindow)
+                        const setupErrorHandlers = (): void => {
+                            if (
+                                iframeFetch &&
+                                !(iframeFetch as any).__isWrappedForErrorReporting &&
+                                iframeContentWindow
+                            ) {
+                                const originalFetch = iframeFetch
+                                const windowRef = new WeakRef(iframeContentWindow)
 
-                            iframeContentWindow.fetch = wrapFetchAndReport({
-                                fetch: iframeFetch,
-                                onError: (errorDetails: ResourceErrorDetails) => {
-                                    actions.caughtAssetErrorFromIframe(errorDetails)
-                                },
-                            })
-                            ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
+                                iframeContentWindow.fetch = wrapFetchAndReport({
+                                    fetch: iframeFetch,
+                                    onError: (errorDetails: ResourceErrorDetails) => {
+                                        actions.caughtAssetErrorFromIframe(errorDetails)
+                                    },
+                                })
+                                ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
+
+                                iframeCleanups.push(() => {
+                                    const window = windowRef.deref()
+                                    if (window && window.fetch) {
+                                        window.fetch = originalFetch
+                                        delete (window.fetch as any).__isWrappedForErrorReporting
+                                    }
+                                })
+                            }
+
+                            if (iframeContentWindow) {
+                                iframeCleanups.push(
+                                    registerErrorListeners({
+                                        iframeWindow: iframeContentWindow,
+                                        onError: (error) => actions.caughtAssetErrorFromIframe(error),
+                                    })
+                                )
+                            }
+                        }
+
+                        if (
+                            values.featureFlags[FEATURE_FLAGS.REPLAY_WAIT_FOR_IFRAME_READY] &&
+                            iframeDocument &&
+                            iframeDocument.readyState === 'loading'
+                        ) {
+                            let pauseTimeoutId: ReturnType<typeof setTimeout> | null = null
+
+                            const onReady = (): void => {
+                                setupErrorHandlers()
+
+                                if (
+                                    replayer &&
+                                    values.currentTimestamp !== undefined &&
+                                    values.sessionPlayerData.start
+                                ) {
+                                    const currentTime =
+                                        values.currentTimestamp - values.sessionPlayerData.start.valueOf()
+                                    replayer.pause(currentTime)
+                                    pauseTimeoutId = setTimeout(() => {
+                                        if (replayer) {
+                                            replayer.pause(currentTime)
+                                        }
+                                    }, 0)
+                                }
+
+                                iframeDocument.removeEventListener('DOMContentLoaded', onReady)
+                            }
+                            iframeDocument.addEventListener('DOMContentLoaded', onReady)
 
                             iframeCleanups.push(() => {
-                                const window = windowRef.deref()
-                                if (window && window.fetch) {
-                                    window.fetch = originalFetch
-                                    delete (window.fetch as any).__isWrappedForErrorReporting
+                                iframeDocument.removeEventListener('DOMContentLoaded', onReady)
+                                if (pauseTimeoutId !== null) {
+                                    clearTimeout(pauseTimeoutId)
                                 }
                             })
-                        }
-
-                        if (iframeContentWindow) {
-                            iframeCleanups.push(
-                                registerErrorListeners({
-                                    iframeWindow: iframeContentWindow,
-                                    onError: (error) => actions.caughtAssetErrorFromIframe(error),
-                                })
-                            )
-                        }
-                    }
-
-                    if (
-                        values.featureFlags[FEATURE_FLAGS.REPLAY_WAIT_FOR_IFRAME_READY] &&
-                        iframeDocument &&
-                        iframeDocument.readyState === 'loading'
-                    ) {
-                        let pauseTimeoutId: ReturnType<typeof setTimeout> | null = null
-
-                        const onReady = (): void => {
+                        } else {
                             setupErrorHandlers()
+                        }
+                    })
 
-                            if (replayer && values.currentTimestamp !== undefined && values.sessionPlayerData.start) {
-                                const currentTime = values.currentTimestamp - values.sessionPlayerData.start.valueOf()
-                                replayer.pause(currentTime)
-                                pauseTimeoutId = setTimeout(() => {
-                                    if (replayer) {
-                                        replayer.pause(currentTime)
-                                    }
-                                }, 0)
+                    actions.setPlayer({ replayer, windowId })
+
+                    return () => {
+                        if (replayer) {
+                            for (const cleanup of iframeCleanups) {
+                                cleanup()
                             }
+                            iframeCleanups.length = 0
 
-                            iframeDocument.removeEventListener('DOMContentLoaded', onReady)
-                        }
-                        iframeDocument.addEventListener('DOMContentLoaded', onReady)
+                            const iframe = replayer.iframe
+                            replayer.destroy()
 
-                        iframeCleanups.push(() => {
-                            iframeDocument.removeEventListener('DOMContentLoaded', onReady)
-                            if (pauseTimeoutId !== null) {
-                                clearTimeout(pauseTimeoutId)
+                            if (iframe?.contentDocument?.body) {
+                                iframe.contentDocument.body.innerHTML = ''
                             }
-                        })
-                    } else {
-                        setupErrorHandlers()
-                    }
-                })
-
-                actions.setPlayer({ replayer, windowId })
-
-                return () => {
-                    if (replayer) {
-                        for (const cleanup of iframeCleanups) {
-                            cleanup()
-                        }
-                        iframeCleanups.length = 0
-
-                        const iframe = replayer.iframe
-                        replayer.destroy()
-
-                        if (iframe?.contentDocument?.body) {
-                            iframe.contentDocument.body.innerHTML = ''
-                        }
-                        if (iframe?.contentDocument?.head) {
-                            iframe.contentDocument.head.innerHTML = ''
+                            if (iframe?.contentDocument?.head) {
+                                iframe.contentDocument.head.innerHTML = ''
+                            }
                         }
                     }
-                }
-            }, `replayer-${props.mode}`)
+                },
+                `replayer-${props.mode}`,
+                { pauseOnPageHidden: false }
+            )
+
+            // Manually handle visibility: dispose replayer on hide (frees memory),
+            // call tryInitReplayer on visible (uses fresh state, no stale closures)
+            cache.disposables.add(
+                () => {
+                    const handleVisibilityChange = (): void => {
+                        if (document.hidden) {
+                            cache.disposables.dispose(`replayer-${props.mode}`)
+                            cache.disposables.dispose('consoleTimers')
+                            actions.setPlayer(null)
+                        } else {
+                            actions.tryInitReplayer()
+                        }
+                    }
+                    document.addEventListener('visibilitychange', handleVisibilityChange)
+                    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+                },
+                'replayerVisibilityHandler',
+                { pauseOnPageHidden: false }
+            )
         },
         setPlayer: ({ player }) => {
             if (player) {
                 if (values.currentTimestamp !== undefined) {
-                    actions.seekToTimestamp(values.currentTimestamp)
+                    actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
                 }
                 actions.syncPlayerSpeed()
                 // Ensure we respect the persisted playing state when the player is reinitialized
@@ -1348,7 +1408,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // Otherwise keep existing player visible (last valid frame)
             }
             if (values.currentTimestamp !== undefined) {
-                actions.seekToTimestamp(values.currentTimestamp)
+                actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
             }
         },
         setSkipInactivitySetting: ({ skipInactivitySetting }) => {
@@ -1370,12 +1430,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
             const isBufferingSegment = values.segmentForTimestamp(values.currentTimestamp)?.kind === 'buffer'
-            // Also consider buffering if we're doing timestamp-based loading and don't have a playable FullSnapshot yet
             const isBuffering = isBufferingSegment || values.isWaitingForPlayableFullSnapshot
 
             if (values.currentPlayerState === SessionPlayerState.BUFFER && !isBuffering) {
                 actions.endBuffer()
-                actions.seekToTimestamp(values.currentTimestamp)
+                actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
             }
         },
         initializePlayerFromStart: () => {
@@ -1411,9 +1470,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const currentEvents = values.player?.replayer?.service.state.context.events ?? []
             const eventsToAdd: eventWithTime[] = []
 
-            // For timestamp-based loading: don't add events until we have a playable FullSnapshot
-            // This prevents partial data from being added while we're loading blobs out of order
-            // Once we have coverage (FullSnapshot to target), we add all events at once
             if (values.isWaitingForPlayableFullSnapshot) {
                 actions.checkBufferingCompleted()
                 breakpoint()
@@ -1423,8 +1479,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (values.currentSegment?.windowId !== undefined) {
                 const allSnapshots = values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []
 
-                const isTimestampBased = values.featureFlags[FEATURE_FLAGS.REPLAY_TIMESTAMP_BASED_LOADING] === 'test'
-                if (isTimestampBased && allSnapshots.length > currentEvents.length) {
+                const useStoreBasedLoading = values.featureFlags[FEATURE_FLAGS.REPLAY_SNAPSHOT_STORE] === 'test'
+                if (useStoreBasedLoading) {
+                    // The store path loads sources incrementally (not all at once),
+                    // so we need timestamp-based diffing to find truly new events.
                     eventsToAdd.push(...findNewEvents(allSnapshots, currentEvents))
                 } else {
                     eventsToAdd.push(...allSnapshots.slice(currentEvents.length))
@@ -1450,6 +1508,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.initializePlayerFromStart()
             }
             actions.checkBufferingCompleted()
+
+            // If snapshot data arrived but the replayer hasn't been created yet,
+            // try initializing it now. This handles the race condition where
+            // setRootFrame fired before data was available (e.g. in modals where
+            // the DOM is ready before network requests complete).
+            if (!values.player && values.rootFrame) {
+                actions.tryInitReplayer()
+            }
+
             breakpoint()
         },
         loadRecordingMetaSuccess: () => {
@@ -1560,9 +1627,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.pausedMediaElements = []
             actions.setCurrentTimestamp(timestamp)
 
-            // For timestamp-based loading: set target timestamp first so selectors update
-            const isTimestampBased = values.featureFlags[FEATURE_FLAGS.REPLAY_TIMESTAMP_BASED_LOADING] === 'test'
-            if (isTimestampBased) {
+            // For store-based loading: set target timestamp so scheduler can seek
+            const useStoreBasedLoading = values.featureFlags[FEATURE_FLAGS.REPLAY_SNAPSHOT_STORE] === 'test'
+            if (useStoreBasedLoading) {
                 actions.setTargetTimestamp(timestamp)
             }
 
@@ -1574,7 +1641,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             // If next time is greater than last buffered time, set to buffering
-            // Also buffer if we're doing timestamp-based loading and don't have a playable FullSnapshot
             else if (segment?.kind === 'buffer' || values.isWaitingForPlayableFullSnapshot) {
                 const isPastEnd = values.sessionPlayerData.end && timestamp >= values.sessionPlayerData.end.valueOf()
                 if (isPastEnd) {
@@ -1719,12 +1785,22 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const rrwebPlayerTime = values.player?.replayer?.getCurrentTime()
             let newTimestamp = values.fromRRWebPlayerTime(rrwebPlayerTime)
 
-            if (newTimestamp == undefined && values.currentTimestamp) {
-                // This can happen if the player is not loaded due to us being in a "gap" segment
-                // In this case, we should progress time forward manually
-                if (values.currentSegment?.kind === 'gap') {
-                    newTimestamp = values.currentTimestamp + values.roughAnimationFPS
-                }
+            // Detect when the replayer is stuck (same timestamp for consecutive frames).
+            // This happens in gap segments (no events) and in window segments where
+            // the replayer has no events at the current offset (e.g. inactive segments
+            // deep into a window's timeline). After a few stuck frames, advance time
+            // manually so playback doesn't freeze.
+            if (newTimestamp !== undefined && newTimestamp === cache._lastAnimTimestamp) {
+                cache._stuckFrames = (cache._stuckFrames || 0) + 1
+            } else {
+                cache._stuckFrames = 0
+            }
+            cache._lastAnimTimestamp = newTimestamp
+
+            const isStuck = cache._stuckFrames >= 5
+            const shouldManuallyAdvance = values.currentSegment?.kind === 'gap' || isStuck
+            if (shouldManuallyAdvance && values.currentTimestamp) {
+                newTimestamp = values.currentTimestamp + values.roughAnimationFPS
             }
 
             // If we're beyond buffered position, set to buffering
@@ -1776,6 +1852,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // The normal loop. Progress the player position and continue the loop
             actions.setCurrentTimestamp(newTimestamp)
 
+            // Throttled position update for store-based loading (every 5s)
+            if (
+                values.featureFlags[FEATURE_FLAGS.REPLAY_SNAPSHOT_STORE] === 'test' &&
+                (!cache.lastPlaybackPositionUpdate || newTimestamp - cache.lastPlaybackPositionUpdate > 5000)
+            ) {
+                cache.lastPlaybackPositionUpdate = newTimestamp
+                actions.updatePlaybackPosition(newTimestamp)
+            }
+
             cache.disposables.add(() => {
                 const timerId = requestAnimationFrame(actions.updateAnimation)
                 return () => cancelAnimationFrame(timerId)
@@ -1788,6 +1873,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         stopAnimation: () => {
             cache.disposables.dispose('animationTimer')
             cache.lastFrameTime = undefined
+            cache._stuckFrames = 0
+            cache._lastAnimTimestamp = undefined
         },
         pauseIframePlayback: () => {
             const iframe = values.rootFrame?.querySelector('iframe')

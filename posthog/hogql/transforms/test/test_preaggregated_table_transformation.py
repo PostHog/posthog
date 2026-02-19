@@ -9,7 +9,7 @@ from posthog.schema import BaseMathType, DateRange, EventsNode, HogQLQueryModifi
 
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.schema.web_analytics_preaggregated import WebStatsCombinedTable
+from posthog.hogql.database.schema.web_analytics_preaggregated import WebPreAggregatedStatsTable
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.transforms.preaggregated_table_transformation import (
@@ -262,11 +262,11 @@ class TestPreaggregatedTableTransformation(BaseTest, QueryMatchingTest):
 
     def test_all_supported_event_properties_are_in_stats_table(self):
         for property_name in EVENT_PROPERTY_TO_FIELD.values():
-            assert property_name in WebStatsCombinedTable().fields.keys()
+            assert property_name in WebPreAggregatedStatsTable().fields.keys()
 
     def test_all_supported_session_properties_are_in_stats_table(self):
         for property_name in SESSION_PROPERTY_TO_FIELD.values():
-            assert property_name in WebStatsCombinedTable().fields.keys()
+            assert property_name in WebPreAggregatedStatsTable().fields.keys()
 
     def test_multiple_ctes_transformation(self):
         """Test that multiple CTEs can get transformed independently."""

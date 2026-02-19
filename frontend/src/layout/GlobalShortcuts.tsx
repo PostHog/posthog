@@ -7,9 +7,11 @@ import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { openCHQueriesDebugModal } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
 import { commandLogic } from 'lib/components/Command/commandLogic'
+import { openJumpToTimestampModal } from 'lib/components/DateFilter/openJumpToTimestampModal'
 import { healthMenuLogic } from 'lib/components/HealthMenu/healthMenuLogic'
 import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { urls } from 'scenes/urls'
 
@@ -34,6 +36,7 @@ export function GlobalShortcuts(): null {
     const { toggleTheme } = useActions(themeLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     // Open Info tab if scene has panel content, otherwise default to PostHog AI
     const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
@@ -96,9 +99,9 @@ export function GlobalShortcuts(): null {
     })
 
     useAppShortcut({
-        name: 'toggle-scene-panel',
+        name: isRemovingSidePanelFlag ? 'toggle-context-panel' : 'toggle-scene-panel',
         keybind: [keyBinds.toggleRightNav],
-        intent: 'Toggle scene panel',
+        intent: isRemovingSidePanelFlag ? 'Toggle context panel' : 'Toggle scene panel',
         interaction: 'function',
         callback: () => {
             if (sidePanelOpen) {
@@ -155,6 +158,14 @@ export function GlobalShortcuts(): null {
         intent: 'Toggle theme (dark / light)',
         interaction: 'function',
         callback: () => toggleTheme(),
+    })
+
+    useAppShortcut({
+        name: 'jump-to-timestamp',
+        keybind: [keyBinds.jumpToTimestamp],
+        intent: 'Jump to timestamp',
+        interaction: 'function',
+        callback: openJumpToTimestampModal,
     })
 
     return null

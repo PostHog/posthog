@@ -102,7 +102,12 @@ export const ExperimentUpdateInputSchema = z.object({
                     .array(z.string())
                     .optional()
                     .describe('For funnel metrics only: Array of event names for each funnel step'),
-                properties: z.array(PropertyFilter).optional().describe('Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'),
+                properties: z
+                    .array(PropertyFilter)
+                    .optional()
+                    .describe(
+                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
+                    ),
                 description: z.string().optional().describe('What this metric measures'),
             })
         )
@@ -116,7 +121,12 @@ export const ExperimentUpdateInputSchema = z.object({
                 metric_type: z.enum(['mean', 'funnel', 'ratio']).describe('Metric type'),
                 event_name: z.string().describe('PostHog event name'),
                 funnel_steps: z.array(z.string()).optional().describe('For funnel metrics only: Array of event names'),
-                properties: z.array(PropertyFilter).optional().describe('Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'),
+                properties: z
+                    .array(PropertyFilter)
+                    .optional()
+                    .describe(
+                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
+                    ),
                 description: z.string().optional().describe('What this metric measures'),
             })
         )
@@ -187,7 +197,12 @@ export const ExperimentCreateSchema = z.object({
                     .describe(
                         "For funnel metrics only: Array of event names for each funnel step (e.g., ['product_view', 'add_to_cart', 'checkout', 'purchase'])"
                     ),
-                properties: z.array(PropertyFilter).optional().describe('Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'),
+                properties: z
+                    .array(PropertyFilter)
+                    .optional()
+                    .describe(
+                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
+                    ),
                 description: z
                     .string()
                     .optional()
@@ -214,7 +229,12 @@ export const ExperimentCreateSchema = z.object({
                     .array(z.string())
                     .optional()
                     .describe('For funnel metrics only: Array of event names for each funnel step'),
-                properties: z.array(PropertyFilter).optional().describe('Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'),
+                properties: z
+                    .array(PropertyFilter)
+                    .optional()
+                    .describe(
+                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
+                    ),
                 description: z.string().optional().describe('What this secondary metric measures'),
             })
         )
@@ -464,6 +484,13 @@ export const DemoMcpUiAppsSchema = z.object({
 // PostHog AI tools
 export const ExecuteSQLSchema = z.object({
     query: z.string().min(1).describe('The final SQL query to be executed.'),
+    truncate: z
+        .boolean()
+        .optional()
+        .default(true)
+        .describe(
+            'Whether to truncate large blob/JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file).'
+        ),
 })
 
 export const ReadDataWarehouseSchemaSchema = z

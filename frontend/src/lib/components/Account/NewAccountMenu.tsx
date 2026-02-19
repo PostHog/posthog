@@ -71,7 +71,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 'pl-[3px] gap-[6px]': !isLayoutNavCollapsed,
                             })}
                             variant="panel"
-                            data-attr="menu-item-me"
+                            data-attr="new-account-menu-button"
                             tooltip={
                                 <div className="flex flex-col gap-1">
                                     <div>
@@ -128,7 +128,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             tooltip="Create a new project"
                                             size="xs"
                                             className="absolute -right-[2px] -top-[2px]"
-                                            data-attr="new-project-button"
+                                            data-attr="new-account-menu-create-project-icon-button"
                                             onClick={() => {
                                                 guardAvailableFeature(
                                                     AvailableFeature.ORGANIZATIONS_PROJECTS,
@@ -150,7 +150,10 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     <Menu.SubmenuRoot>
                                         <Menu.SubmenuTrigger
                                             render={
-                                                <ButtonPrimitive menuItem data-attr="top-menu-all-projects">
+                                                <ButtonPrimitive
+                                                    menuItem
+                                                    data-attr="new-account-menu-all-projects-button"
+                                                >
                                                     <div className="Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] size-4 dark:text-tertiary text-[8px]">
                                                         {String.fromCodePoint(
                                                             currentTeam.name.codePointAt(0)!
@@ -189,7 +192,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             menuItem
                                             tooltip="Invite members"
                                             tooltipPlacement="right"
-                                            data-attr="top-menu-invite-team-members"
+                                            data-attr="new-account-menu-invite-team-members-button"
                                         >
                                             <IconPlusSmall />
                                             Invite members
@@ -197,21 +200,24 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     }
                                 />
 
-                                <Menu.Item
-                                    render={
-                                        <Link
-                                            buttonProps={{
-                                                menuItem: true,
-                                            }}
-                                            tooltip="Invite members"
-                                            tooltipPlacement="right"
-                                            data-attr="top-menu-invite-team-members"
-                                        >
-                                            <IconGear />
-                                            Project settings
-                                        </Link>
-                                    }
-                                />
+                                {currentTeam && (
+                                    <Menu.Item
+                                        render={
+                                            <Link
+                                                buttonProps={{
+                                                    menuItem: true,
+                                                }}
+                                                tooltip="Project settings"
+                                                tooltipPlacement="right"
+                                                data-attr="new-account-menu-project-settings-button"
+                                                to={urls.project(currentTeam.id, urls.settings('project'))}
+                                            >
+                                                <IconGear />
+                                                Project settings
+                                            </Link>
+                                        }
+                                    />
+                                )}
 
                                 <Label intent="menu" className="px-2 mt-2 relative">
                                     Organization
@@ -221,7 +227,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             tooltip="Create a new organization"
                                             size="xs"
                                             className="absolute right-0 -top-1 p-0"
-                                            data-attr="new-organization-button"
+                                            data-attr="new-account-menu-create-organization-icon-button"
                                             onClick={() => {
                                                 guardAvailableFeature(
                                                     AvailableFeature.ORGANIZATIONS_PROJECTS,
@@ -241,7 +247,10 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 <Menu.SubmenuRoot>
                                     <Menu.SubmenuTrigger
                                         render={
-                                            <ButtonPrimitive menuItem data-attr="top-menu-all-organizations">
+                                            <ButtonPrimitive
+                                                menuItem
+                                                data-attr="new-account-menu-all-organizations-button"
+                                            >
                                                 {currentOrganization ? (
                                                     <UploadedLogo
                                                         name={currentOrganization.name}
@@ -311,7 +320,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             }}
                                             tooltip="Organization settings"
                                             tooltipPlacement="right"
-                                            data-attr="top-menu-organization-settings"
+                                            data-attr="new-account-menu-organization-settings-button"
                                         >
                                             <IconGear />
                                             Organization settings
@@ -335,7 +344,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             }}
                                             tooltip="User settings"
                                             tooltipPlacement="right"
-                                            data-attr="top-menu-account-owner"
+                                            data-attr="new-account-menu-account-owner-button"
                                         >
                                             <ProfilePicture user={user} size="xs" />
                                             <span className="flex flex-col truncate">
@@ -349,7 +358,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 <Menu.Item
                                     onClick={() => logout()}
                                     render={
-                                        <ButtonPrimitive menuItem data-attr="top-menu-item-logout">
+                                        <ButtonPrimitive menuItem data-attr="new-account-menu-logout-button">
                                             <IconLeave />
                                             Log out
                                         </ButtonPrimitive>

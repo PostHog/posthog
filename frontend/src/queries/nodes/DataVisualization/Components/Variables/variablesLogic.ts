@@ -18,7 +18,6 @@ export interface VariablesLogicProps {
     /** Dashboard ID for the current dashboard if we're viewing one */
     dashboardId?: DashboardType['id']
 
-    queryInput?: string
     sourceQuery?: DataVisualizationNode
     setQuery?: (query: DataVisualizationNode) => void
     onUpdate?: (query: DataVisualizationNode) => void
@@ -63,11 +62,7 @@ export const variablesLogic = kea<variablesLogicType>([
         setSearchTerm: (search: string) => ({ search }),
         clickVariable: (variable: Variable & { selected: boolean }) => ({ variable }),
     })),
-    propsChanged(({ props, actions, values }, oldProps) => {
-        if (oldProps.queryInput !== props.queryInput) {
-            actions.setEditorQuery(props.queryInput ?? '')
-        }
-
+    propsChanged(({ props, actions, values }) => {
         if (props.sourceQuery) {
             const variables = Object.values(props.sourceQuery?.source.variables ?? {})
 

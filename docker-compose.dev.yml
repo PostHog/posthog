@@ -216,8 +216,10 @@ services:
             file: docker-compose.base.yml
             service: feature-flags
         depends_on:
-            - redis7
-            - db
+            redis7:
+                condition: service_healthy
+            db:
+                condition: service_healthy
         environment:
             # Mode 2: Dual-write warming phase for developers
             FLAGS_REDIS_URL: 'redis://redis7:6379/1'
@@ -287,6 +289,21 @@ services:
             - '127.0.0.1:8888:8888' # SeaweedFS Filer UI
         volumes:
             - 'seaweedfs-data:/data'
+
+    etcd:
+        image: quay.io/coreos/etcd:v3.6.8
+        restart: on-failure
+        environment:
+            ETCD_NAME: etcd0
+            ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379
+            ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+        ports:
+            - '127.0.0.1:2379:2379'
+        healthcheck:
+            test: ['CMD', 'etcdctl', 'endpoint', 'health']
+            interval: 5s
+            timeout: 5s
+            retries: 10
 
 networks:
     otel_network:

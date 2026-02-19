@@ -13,6 +13,7 @@ from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import (
     COHORT_STUCK_COUNT_GAUGE,
     COHORTS_STALE_COUNT_GAUGE,
+    COHORTS_TOTAL_GAUGE,
     MAX_AGE_MINUTES,
     MAX_ERRORS_CALCULATING,
     MAX_STUCK_COHORTS_TO_RESET,
@@ -148,8 +149,9 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             enqueue_cohorts_to_calculate(5)
             self.assertEqual(patch_increment_version_and_enqueue_calculate_cohort.call_count, 2)
 
+        @patch.object(COHORTS_TOTAL_GAUGE, "set")
         @patch.object(COHORTS_STALE_COUNT_GAUGE, "labels")
-        def test_update_stale_cohort_metrics(self, mock_labels: MagicMock) -> None:
+        def test_update_stale_cohort_metrics(self, mock_labels: MagicMock, mock_total_set: MagicMock) -> None:
             mock_gauge = MagicMock()
             mock_labels.return_value = mock_gauge
 
@@ -249,6 +251,10 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             self.assertEqual(set_calls[0][0][0], 3)  # 24h: stale_24h, stale_36h, stale_48h
             self.assertEqual(set_calls[1][0][0], 2)  # 36h: stale_36h, stale_48h
             self.assertEqual(set_calls[2][0][0], 1)  # 48h: stale_48h
+
+            # 4 eligible cohorts: fresh_cohort, stale_24h, stale_36h, stale_48h
+            # Excluded: null_last_calc (no last_calculation), deleted_cohort, static_cohort, high_errors
+            mock_total_set.assert_called_once_with(4)
 
         @patch.object(COHORT_STUCK_COUNT_GAUGE, "set")
         def test_stuck_cohort_metrics(self, mock_set: MagicMock) -> None:

@@ -51,7 +51,7 @@ from posthog.helpers.encrypted_flag_payloads import (
     encrypt_flag_payloads,
     get_decrypted_flag_payloads_protected,
 )
-from posthog.models import FeatureFlag, Tag
+from posthog.models import FeatureFlag, Tag, Team
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext, is_impersonated_session
@@ -467,6 +467,7 @@ class FeatureFlagSerializer(
         required=False,
         queryset=Dashboard.objects.all(),
     )
+    is_used_in_replay_settings = serializers.SerializerMethodField()
 
     name = serializers.CharField(
         required=False,
@@ -528,6 +529,7 @@ class FeatureFlagSerializer(
             "last_called_at",
             "_create_in_folder",
             "_should_create_usage_dashboard",
+            "is_used_in_replay_settings",
         ]
 
     def get_fields(self):
@@ -563,6 +565,20 @@ class FeatureFlagSerializer(
 
         return SurveyAPISerializer(feature_flag.surveys_linked_flag, many=True).data
         # ignoring type because mypy doesn't know about the surveys_linked_flag `related_name` relationship
+
+    def get_is_used_in_replay_settings(self, feature_flag: FeatureFlag) -> bool:
+        """Check if this feature flag is used in any team's session recording linked flag setting."""
+        # Use annotated value if available (set by queryset annotation)
+        if hasattr(feature_flag, "is_used_in_replay_settings_annotation"):
+            return feature_flag.is_used_in_replay_settings_annotation
+        # Return False if team is not available
+        if not hasattr(feature_flag, "team") or feature_flag.team is None:
+            return False
+        # Fallback to database query if annotation is not available
+        return Team.objects.filter(
+            project_id=feature_flag.team.project_id,
+            session_recording_linked_flag__contains={"id": feature_flag.id},
+        ).exists()
 
     def validate(self, attrs):
         """Validate feature flag creation/update including evaluation tag requirements."""
@@ -719,6 +735,13 @@ class FeatureFlagSerializer(
 
             for property in condition.get("properties", []):
                 prop = Property(**property)
+
+                if prop.operator is not None and prop.operator not in PropertyOperator.__members__.values():
+                    raise serializers.ValidationError(
+                        detail=f"Invalid operator: {prop.operator}",
+                        code="invalid_operator",
+                    )
+
                 if isinstance(prop.value, list):
                     upper_limit = MAX_PROPERTY_VALUES
                     if settings.TEST:
@@ -1015,6 +1038,15 @@ class FeatureFlagSerializer(
                 raise exceptions.ValidationError(
                     f"Cannot delete this feature flag because other flags depend on it: {', '.join(dependent_flag_names)}. "
                     f"Please update or delete the dependent flags first."
+                )
+
+            # Check if flag is used in session replay settings
+            if Team.objects.filter(
+                project_id=instance.team.project_id,
+                session_recording_linked_flag__contains={"id": instance.id},
+            ).exists():
+                raise exceptions.ValidationError(
+                    "This feature flag is used in session replay settings. Please remove it from replay settings before deleting."
                 )
 
             # If all experiments are soft-deleted, rename the key to free it up
@@ -1470,6 +1502,8 @@ class FeatureFlagViewSet(
         return self._apply_filters(request.GET.dict(), queryset)
 
     def safely_get_queryset(self, queryset) -> QuerySet:
+        from django.db.models import Exists, OuterRef
+
         from posthog.models.feature_flag import FeatureFlagEvaluationTag
 
         # Always prefetch experiment_set since it's used in both list and retrieve
@@ -1489,6 +1523,22 @@ class FeatureFlagViewSet(
             Prefetch(
                 "evaluation_tags",
                 queryset=FeatureFlagEvaluationTag.objects.select_related("tag"),
+            )
+        )
+
+        # Annotate with replay settings usage to avoid N+1 queries
+        # This checks if any team in the same project uses this flag for session recording
+        # Extract the 'id' key from the JSONB field and cast to integer for safe comparison
+        from django.db.models import IntegerField
+        from django.db.models.functions import Cast
+
+        queryset = queryset.annotate(
+            is_used_in_replay_settings_annotation=Exists(
+                Team.objects.filter(
+                    project_id=OuterRef("team__project_id"),
+                )
+                .annotate(json_flag_id=Cast("session_recording_linked_flag__id", IntegerField()))
+                .filter(json_flag_id=OuterRef("id"))
             )
         )
 
@@ -1887,8 +1937,17 @@ class FeatureFlagViewSet(
         - {"ids": [...]} - Explicit list of flag IDs (no limit)
 
         Returns same format as bulk_delete for UI compatibility.
+
+        Uses bulk operations for efficiency: database updates are batched and cache
+        invalidation happens once at the end rather than per-flag.
         """
+        from django.utils import timezone
+
+        from posthog.models.activity_logging.activity_log import LogActivityEntry, bulk_log_activity
+        from posthog.models.feature_flag.feature_flag import set_feature_flags_for_team_in_cache
         from posthog.rbac.user_access_control import access_level_satisfied_for_resource
+        from posthog.tasks.feature_flags import update_team_flags_cache, update_team_service_flags_cache
+        from posthog.tasks.remote_config import update_team_remote_config
 
         filters = request.data.get("filters", {})
         explicit_ids = request.data.get("ids", [])
@@ -1996,7 +2055,15 @@ class FeatureFlagViewSet(
                     if numeric_id not in found_ids:
                         errors.append({"id": numeric_id, "reason": "Flag not found"})
 
-        # Process each flag
+        # Separate flags into those that pass validation vs those that don't
+        # Also track which need key renames (have deleted experiments)
+        flags_to_delete_normal: list[FeatureFlag] = []
+        flags_to_delete_with_rename: list[FeatureFlag] = []
+        activity_log_entries: list[LogActivityEntry] = []
+
+        current_user = request.user if request.user.is_authenticated else None
+        was_impersonated = is_impersonated_session(request)
+
         for flag in flags_list:
             flag_id = flag.id
 
@@ -2039,38 +2106,79 @@ class FeatureFlagViewSet(
                 )
                 continue
 
-            # Capture rollout state before deletion
+            # Flag passes validation - capture rollout state before deletion
             checker = FeatureFlagStatusChecker(feature_flag=flag)
             rollout_info = _get_flag_rollout_info(flag, checker)
-
-            # Soft delete the flag
             old_key = flag.key
 
-            # Rename key if has deleted experiments
+            # Determine if key rename is needed
             has_deleted_experiments = any(exp.deleted for exp in flag.experiment_set.all())
             if has_deleted_experiments:
-                flag.key = f"{flag.key}:deleted:{flag.id}"
+                flags_to_delete_with_rename.append(flag)
+            else:
+                flags_to_delete_normal.append(flag)
 
-            flag.deleted = True
-            flag.last_modified_by = request.user if request.user.is_authenticated else None
-            flag.save()
-
-            # Log activity
-            log_activity(
-                organization_id=flag.team.organization_id,
-                team_id=flag.team_id,
-                user=request.user if request.user.is_authenticated else None,
-                was_impersonated=is_impersonated_session(request),
-                item_id=flag.id,
-                scope="FeatureFlag",
-                activity="deleted",
-                detail=Detail(
-                    changes=[],
-                    name=old_key,
-                ),
+            # Prepare activity log entry
+            activity_log_entries.append(
+                LogActivityEntry(
+                    organization_id=flag.team.organization_id,
+                    team_id=flag.team_id,
+                    user=current_user,
+                    was_impersonated=was_impersonated,
+                    item_id=flag.id,
+                    scope="FeatureFlag",
+                    activity="deleted",
+                    detail=Detail(changes=[], name=old_key),
+                )
             )
 
             deleted.append({"id": flag_id, "key": old_key, **rollout_info})
+
+        # Perform bulk database updates
+        # Using queryset.update() instead of individual saves means Django signals don't fire.
+        # The signals (refresh_flag_cache_on_updates, feature_flag_changed_flags_cache, etc.)
+        # all do cache invalidation, which we handle manually below - once for all flags
+        # instead of once per flag.
+        now_timestamp = timezone.now()
+
+        if flags_to_delete_normal or flags_to_delete_with_rename:
+            sample_flag = flags_to_delete_normal[0] if flags_to_delete_normal else flags_to_delete_with_rename[0]
+            team_id = sample_flag.team_id
+            project_id = sample_flag.team.project_id
+
+            with transaction.atomic():
+                if flags_to_delete_normal:
+                    normal_ids = [f.id for f in flags_to_delete_normal]
+                    FeatureFlag.objects.filter(id__in=normal_ids, team_id=team_id).update(
+                        deleted=True,
+                        last_modified_by=current_user,
+                        updated_at=now_timestamp,
+                    )
+
+                # Flags with soft-deleted experiments need key rename - use bulk_update
+                # to update all flags in a single query with per-flag key values
+                if flags_to_delete_with_rename:
+                    for flag in flags_to_delete_with_rename:
+                        flag.deleted = True
+                        flag.last_modified_by = current_user
+                        flag.updated_at = now_timestamp
+                        flag.key = f"{flag.key}:deleted:{flag.id}"
+                    FeatureFlag.objects.bulk_update(
+                        flags_to_delete_with_rename,
+                        ["deleted", "last_modified_by", "updated_at", "key"],
+                    )
+
+                if activity_log_entries:
+                    bulk_log_activity(activity_log_entries)
+
+                # Cache invalidation - same work the signals would do, but once instead of N times
+                def invalidate_caches():
+                    set_feature_flags_for_team_in_cache(project_id)
+                    update_team_service_flags_cache.delay(team_id)
+                    update_team_flags_cache.delay(team_id)
+                    update_team_remote_config.delay(team_id)
+
+                transaction.on_commit(invalidate_caches)
 
         return Response(
             {
