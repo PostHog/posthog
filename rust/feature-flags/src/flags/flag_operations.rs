@@ -998,7 +998,10 @@ mod tests {
             .expect("Failed to set malformed JSON in Redis");
 
         let result = get_flags_from_redis(redis_client, team.id).await;
-        assert!(matches!(result, Err(FlagError::RedisDataParsingError)));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
 
         // Test database query error (using a non-existent table)
         let result = sqlx::query("SELECT * FROM non_existent_table")

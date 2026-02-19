@@ -19,6 +19,7 @@ import products.signals.backend.views as signals
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
 import products.revenue_analytics.backend.api as revenue_analytics
+import products.marketing_analytics.backend.api as marketing_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
@@ -1113,6 +1114,13 @@ environments_router.register(
     r"onboarding",
     OnboardingViewSet,
     "environment_onboarding",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"marketing_analytics",
+    marketing_analytics.MarketingAnalyticsViewSet,
+    "environment_marketing_analytics",
     ["team_id"],
 )
 

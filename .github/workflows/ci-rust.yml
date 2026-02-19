@@ -86,6 +86,7 @@ jobs:
                       "hook-worker": 100,
                       "kafka-deduplicator": 239,
                       "limiters": 23,
+                      "personhog-coordination": 30,
                       "personhog-replica": 49,
                       "personhog-router": 10,
                       "posthog-symbol-data": 4,

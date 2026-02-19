@@ -45,6 +45,7 @@ class AgentMode(StrEnum):
     PLAN = "plan"
     EXECUTION = "execution"
     SURVEY = "survey"
+    ONBOARDING = "onboarding"
     RESEARCH = "research"
     FLAGS = "flags"
 
@@ -370,6 +371,7 @@ class AssistantTool(StrEnum):
     CREATE_NOTEBOOK = "create_notebook"
     LIST_DATA = "list_data"
     FINALIZE_PLAN = "finalize_plan"
+    RECOMMEND_PRODUCTS = "recommend_products"
 
 
 class AssistantToolCall(BaseModel):
@@ -1634,6 +1636,108 @@ class ExternalDataSourceType(StrEnum):
     ATTIO = "Attio"
     SNAPCHAT_ADS = "SnapchatAds"
     LINEAR = "Linear"
+    INTERCOM = "Intercom"
+    AMPLITUDE = "Amplitude"
+    MIXPANEL = "Mixpanel"
+    JIRA = "Jira"
+    ACTIVE_CAMPAIGN = "ActiveCampaign"
+    MARKETO = "Marketo"
+    ADJUST = "Adjust"
+    APPS_FLYER = "AppsFlyer"
+    FRESHDESK = "Freshdesk"
+    GOOGLE_ANALYTICS = "GoogleAnalytics"
+    PIPEDRIVE = "Pipedrive"
+    SEND_GRID = "SendGrid"
+    SLACK = "Slack"
+    PAGER_DUTY = "PagerDuty"
+    ASANA = "Asana"
+    NOTION = "Notion"
+    AIRTABLE = "Airtable"
+    GREENHOUSE = "Greenhouse"
+    BAMBOO_HR = "BambooHR"
+    LEVER = "Lever"
+    GIT_LAB = "GitLab"
+    DATADOG = "Datadog"
+    SENTRY = "Sentry"
+    PENDO = "Pendo"
+    FULL_STORY = "FullStory"
+    AMAZON_ADS = "AmazonAds"
+    PINTEREST_ADS = "PinterestAds"
+    APPLE_SEARCH_ADS = "AppleSearchAds"
+    QUICK_BOOKS = "QuickBooks"
+    XERO = "Xero"
+    NET_SUITE = "NetSuite"
+    WOO_COMMERCE = "WooCommerce"
+    BIG_COMMERCE = "BigCommerce"
+    PAY_PAL = "PayPal"
+    SQUARE = "Square"
+    ZOOM = "Zoom"
+    TRELLO = "Trello"
+    MONDAY = "Monday"
+    CLICK_UP = "ClickUp"
+    CONFLUENCE = "Confluence"
+    RECURLY = "Recurly"
+    SALES_LOFT = "SalesLoft"
+    OUTREACH = "Outreach"
+    GONG = "Gong"
+    CALENDLY = "Calendly"
+    TYPEFORM = "Typeform"
+    ITERABLE = "Iterable"
+    ZOHO_CRM = "ZohoCRM"
+    CLOSE = "Close"
+    ORACLE = "Oracle"
+    DYNAMO_DB = "DynamoDB"
+    ELASTICSEARCH = "Elasticsearch"
+    KAFKA = "Kafka"
+    LAUNCH_DARKLY = "LaunchDarkly"
+    BRAINTREE = "Braintree"
+    RECHARGE = "Recharge"
+    HELP_SCOUT = "HelpScout"
+    GORGIAS = "Gorgias"
+    INSTAGRAM = "Instagram"
+    YOU_TUBE_ANALYTICS = "YouTubeAnalytics"
+    FACEBOOK_PAGES = "FacebookPages"
+    TWITTER_ADS = "TwitterAds"
+    WORKDAY = "Workday"
+    SERVICE_NOW = "ServiceNow"
+    PARDOT = "Pardot"
+    COPPER = "Copper"
+    FRONT = "Front"
+    CHART_MOGUL = "ChartMogul"
+    ZUORA = "Zuora"
+    PADDLE = "Paddle"
+    CIRCLE_CI = "CircleCI"
+    COCKROACH_DB = "CockroachDB"
+    FIREBASE = "Firebase"
+    AZURE_BLOB = "AzureBlob"
+    GOOGLE_DRIVE = "GoogleDrive"
+    ONE_DRIVE = "OneDrive"
+    SHARE_POINT = "SharePoint"
+    BOX = "Box"
+    SFTP = "SFTP"
+    MICROSOFT_TEAMS = "MicrosoftTeams"
+    AIRCALL = "Aircall"
+    WEBFLOW = "Webflow"
+    OKTA = "Okta"
+    AUTH0 = "Auth0"
+    PRODUCTBOARD = "Productboard"
+    SMARTSHEET = "Smartsheet"
+    WRIKE = "Wrike"
+    PLAID = "Plaid"
+    SURVEY_MONKEY = "SurveyMonkey"
+    EVENTBRITE = "Eventbrite"
+    RING_CENTRAL = "RingCentral"
+    TWILIO = "Twilio"
+    FRESHSALES = "Freshsales"
+    SHORTCUT = "Shortcut"
+    CONVERT_KIT = "ConvertKit"
+    DRIP = "Drip"
+    CAMPAIGN_MONITOR = "CampaignMonitor"
+    MAILER_LITE = "MailerLite"
+    OMNISEND = "Omnisend"
+    BREVO = "Brevo"
+    POSTMARK = "Postmark"
+    GRANOLA = "Granola"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1934,17 +2038,44 @@ class HeatmapSettings(BaseModel):
     yAxisLabel: str | None = None
 
 
-class HedgehogColorOptions(StrEnum):
+class HedgehogActorAccessoryOption(StrEnum):
+    BERET = "beret"
+    CAP = "cap"
+    CHEF = "chef"
+    COWBOY = "cowboy"
+    EYEPATCH = "eyepatch"
+    FLAG = "flag"
+    GLASSES = "glasses"
+    GRADUATION = "graduation"
+    PARROT = "parrot"
+    PARTY = "party"
+    PINEAPPLE = "pineapple"
+    SUNGLASSES = "sunglasses"
+    TOPHAT = "tophat"
+    XMAS_HAT = "xmas-hat"
+    XMAS_ANTLERS = "xmas-antlers"
+    XMAS_SCARF = "xmas-scarf"
+
+
+class HedgehogActorColorOption(StrEnum):
     GREEN = "green"
     RED = "red"
     BLUE = "blue"
     PURPLE = "purple"
     DARK = "dark"
     LIGHT = "light"
+    GREYSCALE = "greyscale"
     SEPIA = "sepia"
     INVERT = "invert"
-    INVERT_HUE = "invert-hue"
-    GREYSCALE = "greyscale"
+    RAINBOW = "rainbow"
+
+
+class HedgehogActorSkinOption(StrEnum):
+    DEFAULT = "default"
+    SPIDERHOG = "spiderhog"
+    ROBOHOG = "robohog"
+    HOGZILLA = "hogzilla"
+    GHOST = "ghost"
 
 
 class HogCompileResponse(BaseModel):
@@ -2253,9 +2384,10 @@ class MarketingAnalyticsColumnsSchemaNames(StrEnum):
     REPORTED_CONVERSION_VALUE = "reported_conversion_value"
 
 
-class MarketingAnalyticsHelperForColumnNames(StrEnum):
+class MarketingAnalyticsConstants(StrEnum):
     GOAL = "Goal"
     COST_PER = "Cost per"
+    CONST_ = "const:"
 
 
 class MarketingAnalyticsOrderByEnum(StrEnum):
@@ -2372,6 +2504,23 @@ class MarketingIntegrationConfig6(BaseModel):
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
+class MarketingIntegrationConfig7(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    conversionFields: list[str] = Field(..., max_length=3, min_length=3)
+    conversionValueFields: list[str] = Field(..., max_length=3, min_length=3)
+    defaultSources: list[str] = Field(..., max_length=1, min_length=1)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["snapchat"] = "snapchat"
+    sourceType: Literal["SnapchatAds"] = "SnapchatAds"
+    statsTableName: Literal["campaign_stats_daily"] = "campaign_stats_daily"
+    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+
+
 class MarketingIntegrationConfig(
     RootModel[
         MarketingIntegrationConfig1
@@ -2380,6 +2529,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig4
         | MarketingIntegrationConfig5
         | MarketingIntegrationConfig6
+        | MarketingIntegrationConfig7
     ]
 ):
     root: (
@@ -2389,6 +2539,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig4
         | MarketingIntegrationConfig5
         | MarketingIntegrationConfig6
+        | MarketingIntegrationConfig7
     )
 
 
@@ -2631,8 +2782,9 @@ class MinimalHedgehogConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    accessories: list[str]
-    color: HedgehogColorOptions | None = None
+    accessories: list[HedgehogActorAccessoryOption] | None = None
+    color: HedgehogActorColorOption | None = None
+    skin: HedgehogActorSkinOption | None = None
     use_as_profile: bool
 
 
@@ -2676,6 +2828,7 @@ class NativeMarketingSource(StrEnum):
     TIK_TOK_ADS = "TikTokAds"
     REDDIT_ADS = "RedditAds"
     BING_ADS = "BingAds"
+    SNAPCHAT_ADS = "SnapchatAds"
 
 
 class NodeKind(StrEnum):
@@ -3531,6 +3684,30 @@ class SlashCommandName(StrEnum):
     FIELD_TICKET = "/ticket"
 
 
+class SnapchatAdsConversionFields(StrEnum):
+    CONVERSION_PURCHASES = "conversion_purchases"
+    CONVERSION_SIGN_UPS = "conversion_sign_ups"
+    CONVERSION_SUBSCRIBE = "conversion_subscribe"
+
+
+class SnapchatAdsConversionValueFields(StrEnum):
+    CONVERSION_PURCHASES_VALUE = "conversion_purchases_value"
+    CONVERSION_SIGN_UPS_VALUE = "conversion_sign_ups_value"
+    CONVERSION_SUBSCRIBE_VALUE = "conversion_subscribe_value"
+
+
+class SnapchatAdsDefaultSources(StrEnum):
+    SNAPCHAT = "snapchat"
+
+
+class SnapchatAdsTableExclusions(StrEnum):
+    STATS_DAILY = "stats_daily"
+
+
+class SnapchatAdsTableKeywords(StrEnum):
+    CAMPAIGNS = "campaigns"
+
+
 class SourceFieldFileUploadJsonFormatConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3777,7 +3954,11 @@ class TaxonomicFilterGroupType(StrEnum):
     NUMERICAL_EVENT_PROPERTIES = "numerical_event_properties"
     PERSON_PROPERTIES = "person_properties"
     PAGEVIEW_URLS = "pageview_urls"
+    PAGEVIEW_EVENTS = "pageview_events"
     SCREENS = "screens"
+    SCREEN_EVENTS = "screen_events"
+    EMAIL_ADDRESSES = "email_addresses"
+    AUTOCAPTURE_EVENTS = "autocapture_events"
     CUSTOM_EVENTS = "custom_events"
     WILDCARD = "wildcard"
     GROUPS = "groups"
@@ -16671,7 +16852,9 @@ class FunnelsQuery(BaseModel):
     ) = Field(default=[], description="Property filters for all series")
     response: FunnelsQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    series: list[EventsNode | ActionsNode | DataWarehouseNode] = Field(..., description="Events and actions to include")
+    series: list[GroupNode | EventsNode | ActionsNode | DataWarehouseNode] = Field(
+        ..., description="Events and actions to include"
+    )
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 

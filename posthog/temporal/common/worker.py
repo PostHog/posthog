@@ -23,6 +23,7 @@ from posthog.temporal.llm_analytics.trace_clustering.metrics import (
 from posthog.temporal.llm_analytics.trace_summarization.metrics import SummarizationMetricsInterceptor
 
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
+from products.tasks.backend.temporal.metrics import TASKS_LATENCY_HISTOGRAM_BUCKETS, TASKS_LATENCY_HISTOGRAM_METRICS
 
 logger = get_write_only_logger()
 
@@ -203,6 +204,12 @@ async def create_worker(
                     zip(
                         CLUSTERING_LATENCY_HISTOGRAM_METRICS,
                         itertools.repeat(CLUSTERING_LATENCY_HISTOGRAM_BUCKETS),
+                    )
+                )
+                | dict(
+                    zip(
+                        TASKS_LATENCY_HISTOGRAM_METRICS,
+                        itertools.repeat(TASKS_LATENCY_HISTOGRAM_BUCKETS),
                     )
                 )
                 | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]},

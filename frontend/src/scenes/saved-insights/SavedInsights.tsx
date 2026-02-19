@@ -742,7 +742,7 @@ export function SavedInsights(): JSX.Element {
             dataIndex: 'tags' as keyof QueryBasedInsightModel,
             key: 'tags',
             render: function renderTags(tags: string[]) {
-                return <ObjectTags tags={tags} staticOnly />
+                return <ObjectTags tags={[...tags].sort()} staticOnly />
             },
         },
         {
