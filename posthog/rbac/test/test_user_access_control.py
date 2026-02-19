@@ -1624,6 +1624,9 @@ class TestGetEffectiveAccessLevelForRole:
             # No overrides at all - everything is None
             ("no_default_no_override", "project", None, None, None, None, None),
             ("resource_no_default_no_override", "feature_flag", None, None, None, None, None),
+            # No default but role exists - effective is role, inherited is None
+            ("no_default_role_exists", "project", None, "admin", "admin", None, None),
+            ("resource_no_default_role_exists", "feature_flag", None, "editor", "editor", None, None),
         ]
     )
     def test_effective_access_for_role(
