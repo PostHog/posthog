@@ -9,7 +9,7 @@ from django.http import HttpResponse
 import requests
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import mixins, serializers, status, viewsets
+from rest_framework import mixins, renderers, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -18,11 +18,28 @@ from rest_framework.response import Response
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.integration import OauthIntegration
-from posthog.rate_limit import MCPOAuthBurstThrottle, MCPOAuthSustainedThrottle
+from posthog.rate_limit import (
+    MCPOAuthBurstThrottle,
+    MCPOAuthSustainedThrottle,
+    MCPProxyBurstThrottle,
+    MCPProxySustainedThrottle,
+)
 from posthog.security.url_validation import is_url_allowed
 
 from .models import RECOMMENDED_SERVERS, MCPServer, MCPServerInstallation, SensitiveConfig
 from .oauth import discover_oauth_metadata, generate_pkce, register_dcr_client
+from .proxy import proxy_mcp_request, validate_installation_auth
+
+
+class MCPProxyRenderer(renderers.BaseRenderer):
+    """Accepts any content type so DRF content negotiation doesn't reject MCP requests."""
+
+    media_type = "*/*"
+    format = "mcp"
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        return data
+
 
 logger = structlog.get_logger(__name__)
 
@@ -44,6 +61,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
     needs_reauth = serializers.SerializerMethodField()
     pending_oauth = serializers.SerializerMethodField()
     name = serializers.SerializerMethodField()
+    proxy_url = serializers.SerializerMethodField()
 
     class Meta:
         model = MCPServerInstallation
@@ -58,6 +76,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             "configuration",
             "needs_reauth",
             "pending_oauth",
+            "proxy_url",
             "created_at",
             "updated_at",
         ]
@@ -81,6 +100,14 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             return False
         sensitive = obj.sensitive_configuration or {}
         return not sensitive.get("access_token")
+
+    def get_proxy_url(self, obj: MCPServerInstallation) -> str:
+        request = self.context.get("request")
+        if request:
+            return request.build_absolute_uri(
+                f"/api/environments/{obj.team_id}/mcp_server_installations/{obj.id}/proxy/"
+            )
+        return ""
 
 
 class InstallCustomSerializer(serializers.Serializer):
@@ -160,6 +187,23 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         serializer = self.get_serializer(installation)
         return Response(serializer.data)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="proxy",
+        throttle_classes=[MCPProxyBurstThrottle, MCPProxySustainedThrottle],
+        required_scopes=["project:read"],
+        renderer_classes=[MCPProxyRenderer],
+    )
+    def proxy(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        installation = self.get_object()
+
+        ok, error_response = validate_installation_auth(installation)
+        if not ok:
+            return error_response
+
+        return proxy_mcp_request(request, installation)
 
     @validated_request(
         InstallCustomSerializer,

@@ -634,3 +634,13 @@ class MCPOAuthBurstThrottle(UserRateThrottle):
 class MCPOAuthSustainedThrottle(UserRateThrottle):
     scope = "mcp_oauth_sustained"
     rate = "50/hour"
+
+
+class MCPProxyBurstThrottle(UserRateThrottle):
+    scope = "mcp_proxy_burst"
+    rate = "60/minute"
+
+
+class MCPProxySustainedThrottle(UserRateThrottle):
+    scope = "mcp_proxy_sustained"
+    rate = "600/hour"
