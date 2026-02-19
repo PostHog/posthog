@@ -514,7 +514,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                             }}
                         />
                     )}
-                    {!isEmbeddedMode && activeTab === OutputTab.Visualization && (
+                    {activeTab === OutputTab.Visualization && (
                         <>
                             <div className="flex justify-between flex-wrap">
                                 <div className="flex items-center" />
