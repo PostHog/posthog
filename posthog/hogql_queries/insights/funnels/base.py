@@ -13,6 +13,7 @@ from posthog.schema import (
     EventsNode,
     FunnelTimeToConvertResults,
     FunnelVizType,
+    GroupNode,
     StepOrderValue,
 )
 
@@ -209,7 +210,7 @@ class FunnelBase(ABC):
 
     def _serialize_step(
         self,
-        step: ActionsNode | EventsNode | DataWarehouseNode,
+        step: ActionsNode | EventsNode | DataWarehouseNode | GroupNode,
         count: int,
         index: int,
         people: Optional[list[uuid.UUID]] = None,
@@ -221,6 +222,8 @@ class FunnelBase(ABC):
             step_type = "actions"
         elif isinstance(step, DataWarehouseNode):
             step_type = "data_warehouse"
+        elif isinstance(step, GroupNode):
+            step_type = "events"  # TODO: Set proper type
         else:
             raise TypeError(f"Unsupported step type {type(step)}")
 
@@ -241,6 +244,9 @@ class FunnelBase(ABC):
             action_id = step.event
         elif isinstance(step, DataWarehouseNode):
             name = f"{step.table_name}.{step.distinct_id_field}"
+            action_id = None
+        elif isinstance(step, GroupNode):
+            name = step.name
             action_id = None
         else:
             action = Action.objects.get(pk=step.id, team__project_id=self.context.team.project_id)
