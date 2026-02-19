@@ -146,10 +146,7 @@ impl SuccessResponse {
     }
 
     fn first_event(&self) -> &Option<AnyEvent> {
-        self.0
-            .first()
-            .as_ref()
-            .expect("Should have at least one event")
+        self.0.first().expect("Should have at least one event")
     }
 }
 
@@ -412,7 +409,11 @@ async fn suppressed_issue_returns_suppressed_response(db: PgPool) {
 
     assert!(status.is_success());
     // suppressed events are filtered out entirely
-    assert_eq!(body.0.len(), 0);
+    assert_eq!(body.0.len(), 1);
+    assert!(
+        body.first_event().is_none(),
+        "Suppressed event should not be present"
+    );
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
