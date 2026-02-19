@@ -27,7 +27,7 @@ import { isSurveyRunning } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
 import { ProductIntentContext } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, Survey } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, Survey, SurveyType } from '~/types'
 
 export function SurveysTable(): JSX.Element {
     const {
@@ -87,6 +87,24 @@ export function SurveysTable(): JSX.Element {
                         {tab === SurveysTabs.Active && (
                             <>
                                 <span>
+                                    <b>Type</b>
+                                </span>
+                                <LemonSelect
+                                    dropdownMatchSelectWidth={false}
+                                    onChange={(type) => {
+                                        setSurveysFilters({ type })
+                                    }}
+                                    size="small"
+                                    options={[
+                                        { label: 'Any', value: 'any' },
+                                        { label: 'Popover', value: SurveyType.Popover },
+                                        { label: 'Widget', value: SurveyType.Widget },
+                                        { label: 'Hosted', value: SurveyType.ExternalSurvey },
+                                        { label: 'API', value: SurveyType.API },
+                                    ]}
+                                    value={filters.type}
+                                />
+                                <span className="ml-1">
                                     <b>Status</b>
                                 </span>
                                 <LemonSelect

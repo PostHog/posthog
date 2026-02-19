@@ -1,6 +1,7 @@
 import { LemonCollapse, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { stripMarkdown } from 'lib/utils/stripMarkdown'
 import { urls } from 'scenes/urls'
 
 import { Ticket } from '../../types'
@@ -60,7 +61,7 @@ export function PreviousTicketsPanel({
                                             </div>
                                             {ticket.last_message_text && (
                                                 <div className="text-xs text-muted truncate mb-1">
-                                                    {ticket.last_message_text}
+                                                    {stripMarkdown(ticket.last_message_text)}
                                                 </div>
                                             )}
                                             <div className="text-xs text-muted-alt">

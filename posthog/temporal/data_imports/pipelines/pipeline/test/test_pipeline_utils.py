@@ -366,7 +366,7 @@ def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():
         pa.field("id", pa.int64(), nullable=False),
         pa.field("metadata", pa.string(), nullable=True),
     ]
-    delta_schema = deltalake.Schema.from_pyarrow(pa.schema(delta_fields))
+    delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
     evolved_table = _evolve_pyarrow_schema(arrow_table, delta_schema)
 
     assert evolved_table.schema.field("metadata").type == pa.string()
@@ -388,7 +388,7 @@ def test_evolve_pyarrow_schema_with_list_containing_datetime():
         pa.field("id", pa.int64(), nullable=False),
         pa.field("tags", pa.string(), nullable=True),
     ]
-    delta_schema = deltalake.Schema.from_pyarrow(pa.schema(delta_fields))
+    delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
 
     evolved_table = _evolve_pyarrow_schema(arrow_table, delta_schema)
 

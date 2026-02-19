@@ -484,6 +484,13 @@ export const DemoMcpUiAppsSchema = z.object({
 // PostHog AI tools
 export const ExecuteSQLSchema = z.object({
     query: z.string().min(1).describe('The final SQL query to be executed.'),
+    truncate: z
+        .boolean()
+        .optional()
+        .default(true)
+        .describe(
+            'Whether to truncate large blob/JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file).'
+        ),
 })
 
 export const ReadDataWarehouseSchemaSchema = z

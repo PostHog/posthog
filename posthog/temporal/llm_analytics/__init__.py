@@ -9,6 +9,7 @@ from posthog.temporal.llm_analytics.run_evaluation import (
     increment_trial_eval_count_activity,
     update_key_state_activity,
 )
+from posthog.temporal.llm_analytics.shared_activities import fetch_all_clustering_filters_activity
 from posthog.temporal.llm_analytics.team_discovery import get_team_ids_for_llm_analytics
 from posthog.temporal.llm_analytics.trace_clustering import (
     DailyTraceClusteringWorkflow,
@@ -55,6 +56,8 @@ ACTIVITIES = [
     sample_items_in_window_activity,
     fetch_and_format_activity,
     summarize_and_save_activity,
+    # Shared activities
+    fetch_all_clustering_filters_activity,
     # Clustering activities
     perform_clustering_compute_activity,
     generate_cluster_labels_activity,

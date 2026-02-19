@@ -7,14 +7,14 @@ import {
     ExternalDataSourceType,
     MARKETING_INTEGRATION_CONFIGS,
     MarketingAnalyticsColumnsSchemaNames,
-    MarketingAnalyticsHelperForColumnNames,
+    MarketingAnalyticsConstants,
     MarketingAnalyticsOrderBy,
     MarketingAnalyticsTableQuery,
     NativeMarketingSource,
     NodeKind,
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
-import { ManualLinkSourceType, PropertyMathType } from '~/types'
+import { HogQLMathType, ManualLinkSourceType } from '~/types'
 
 import { NativeSource } from './marketingAnalyticsLogic'
 
@@ -31,6 +31,7 @@ export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
 // Map of native sources that require feature flags to be enabled
 export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, FeatureFlagKey>> = {
     BingAds: FEATURE_FLAGS.BING_ADS_SOURCE,
+    SnapchatAds: FEATURE_FLAGS.SNAPCHAT_ADS_SOURCE,
 }
 
 /**
@@ -113,7 +114,7 @@ export function isDraftConversionGoalColumn(column: string, draftConversionGoal:
     }
     return (
         column === draftConversionGoal.conversion_goal_name ||
-        column === `${MarketingAnalyticsHelperForColumnNames.CostPer} ${draftConversionGoal.conversion_goal_name}`
+        column === `${MarketingAnalyticsConstants.CostPer} ${draftConversionGoal.conversion_goal_name}`
     )
 }
 
@@ -229,6 +230,30 @@ interface SourceTileConfig {
     ) => Partial<DataWarehouseNode> | null
 }
 
+export function safeFloat(field: string): string {
+    return `ifNull(toFloat(${field}), 0)`
+}
+
+export function sumSafeFloat(field: string): string {
+    return `SUM(${safeFloat(field)})`
+}
+
+function buildConversionExpr(
+    fields: string | readonly string[],
+    table: any,
+    buildExpr?: (availableFields: string[]) => string
+): Partial<DataWarehouseNode> {
+    const fieldList = typeof fields === 'string' ? [fields] : [...fields]
+    const availableFields = fieldList.filter((field) => table.fields && field in table.fields)
+    if (availableFields.length === 0) {
+        return { math: HogQLMathType.HogQL, math_hogql: '0' }
+    }
+    const mathHogql = buildExpr
+        ? buildExpr(availableFields)
+        : `SUM(${availableFields.map((field) => safeFloat(field)).join(' + ')})`
+    return { math: HogQLMathType.HogQL, math_hogql: mathHogql }
+}
+
 const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
     GoogleAds: {
         idField: 'id',
@@ -258,18 +283,10 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
         },
         specialConversionLogic: (_table, tileColumnSelection) => {
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
-                return {
-                    math: 'hogql' as any,
-                    math_hogql:
-                        'SUM(ifNull(toFloat(conversion_signup_total_value), 0) + ifNull(toFloat(conversion_purchase_total_items), 0))',
-                }
+                return buildConversionExpr(['conversion_signup_total_value', 'conversion_purchase_total_items'], _table)
             }
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
-                return {
-                    math: 'hogql' as any,
-                    math_hogql:
-                        'SUM(ifNull(toFloat(conversion_purchase_total_value), 0) + ifNull(toFloat(conversion_signup_total_value), 0))',
-                }
+                return buildConversionExpr(['conversion_purchase_total_value', 'conversion_signup_total_value'], _table)
             }
             return null
         },
@@ -287,17 +304,7 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
         },
         specialConversionLogic: (table, tileColumnSelection) => {
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
-                const hasConversionValueColumn = table.fields && 'conversion_value_in_local_currency' in table.fields
-                if (hasConversionValueColumn) {
-                    return {
-                        math: 'hogql' as any,
-                        math_hogql: 'SUM(ifNull(toFloat(conversion_value_in_local_currency), 0))',
-                    }
-                }
-                return {
-                    math: 'hogql' as any,
-                    math_hogql: '0',
-                }
+                return buildConversionExpr(['conversion_value_in_local_currency'], table)
             }
             return null
         },
@@ -309,36 +316,37 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
             cost: 'spend',
             impressions: 'impressions',
             clicks: 'clicks',
-            reportedConversion: 'conversions',
-            reportedConversionValue: 'conversion_values',
+            reportedConversion: 'actions',
+            reportedConversionValue: 'action_values',
             currencyColumn: 'account_currency',
         },
         specialConversionLogic: (table, tileColumnSelection) => {
+            const { omni: omniActionTypes, fallback: fallbackActionTypes } =
+                MARKETING_INTEGRATION_CONFIGS.MetaAds.conversionActionTypes
+
+            const buildArraySumExpr = (field: string, actionTypes: readonly string[]): string => {
+                const actionTypesStr = actionTypes
+                    .map((t) => {
+                        const escaped = t.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+                        return `'${escaped}'`
+                    })
+                    .join(', ')
+                return `arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN (${actionTypesStr}), JSONExtractArrayRaw(coalesce(${field}, '[]'))))`
+            }
+
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
-                const hasConversionsColumn = table.fields && 'conversions' in table.fields
-                if (hasConversionsColumn) {
-                    return {
-                        math: 'hogql' as any,
-                        math_hogql: 'SUM(toFloat(conversions))',
-                    }
-                }
-                return {
-                    math: 'hogql' as any,
-                    math_hogql: '0',
-                }
+                return buildConversionExpr('actions', table, ([field]) => {
+                    const omniSum = buildArraySumExpr(field, omniActionTypes)
+                    const fallbackSum = buildArraySumExpr(field, fallbackActionTypes)
+                    return `SUM(if(${omniSum} > 0, ${omniSum}, ${fallbackSum}))`
+                })
             }
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
-                const hasConversionValuesColumn = table.fields && 'conversion_values' in table.fields
-                if (hasConversionValuesColumn) {
-                    return {
-                        math: 'hogql' as any,
-                        math_hogql: 'SUM(ifNull(toFloat(conversion_values), 0))',
-                    }
-                }
-                return {
-                    math: 'hogql' as any,
-                    math_hogql: '0',
-                }
+                return buildConversionExpr('action_values', table, ([field]) => {
+                    const omniSum = buildArraySumExpr(field, omniActionTypes)
+                    const fallbackSum = buildArraySumExpr(field, fallbackActionTypes)
+                    return `SUM(if(${omniSum} > 0, ${omniSum}, ${fallbackSum}))`
+                })
             }
             return null
         },
@@ -356,30 +364,10 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
         },
         specialConversionLogic: (table, tileColumnSelection) => {
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
-                const hasConversionsColumn = table.fields && 'conversion' in table.fields
-                if (hasConversionsColumn) {
-                    return {
-                        math: 'hogql' as any,
-                        math_hogql: 'SUM(toFloat(conversion))',
-                    }
-                }
-                return {
-                    math: 'hogql' as any,
-                    math_hogql: '0',
-                }
+                return buildConversionExpr('conversion', table)
             }
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
-                const hasConversionValueColumn = table.fields && 'total_complete_payment_value' in table.fields
-                if (hasConversionValueColumn) {
-                    return {
-                        math: 'hogql' as any,
-                        math_hogql: 'SUM(ifNull(toFloat(total_complete_payment_value), 0))',
-                    }
-                }
-                return {
-                    math: 'hogql' as any,
-                    math_hogql: '0',
-                }
+                return buildConversionExpr(['total_complete_payment_value'], table)
             }
             return null
         },
@@ -397,30 +385,34 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
         },
         specialConversionLogic: (table, tileColumnSelection) => {
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
-                const hasConversionsColumn = table.fields && 'conversions' in table.fields
-                if (hasConversionsColumn) {
-                    return {
-                        math: 'hogql' as any,
-                        math_hogql: 'SUM(toFloat(conversions))',
-                    }
-                }
-                return {
-                    math: 'hogql' as any,
-                    math_hogql: '0',
-                }
+                return buildConversionExpr('conversions', table)
             }
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
-                const hasRevenueColumn = table.fields && 'revenue' in table.fields
-                if (hasRevenueColumn) {
-                    return {
-                        math: 'hogql' as any,
-                        math_hogql: 'SUM(ifNull(toFloat(revenue), 0))',
-                    }
-                }
-                return {
-                    math: 'hogql' as any,
-                    math_hogql: '0',
-                }
+                return buildConversionExpr(['revenue'], table)
+            }
+            return null
+        },
+    },
+    SnapchatAds: {
+        idField: 'id',
+        timestampField: 'start_time',
+        columnMappings: {
+            cost: 'spend',
+            impressions: 'impressions',
+            clicks: 'swipes',
+            reportedConversion: 'conversion_purchases',
+            reportedConversionValue: 'conversion_purchases_value',
+            costNeedsDivision: true,
+            currencyColumn: 'currency',
+        },
+        specialConversionLogic: (table, tileColumnSelection) => {
+            const { conversionFields, conversionValueFields } = MARKETING_INTEGRATION_CONFIGS.SnapchatAds
+
+            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
+                return buildConversionExpr(conversionFields, table)
+            }
+            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
+                return buildConversionExpr(conversionValueFields, table)
             }
             return null
         },
@@ -490,31 +482,30 @@ export function createMarketingTile(
     if (tileColumnSelection === 'roas') {
         const mappings = tileConfig.columnMappings
         const costColumn = mappings.cost
-        const conversionValueColumn = mappings.reportedConversionValue
         const needsDivision = mappings.costNeedsDivision
 
         // Build cost expression
         const costExpr = needsDivision ? `toFloat(${costColumn} / 1000000)` : `toFloat(${costColumn})`
 
-        // Build conversion value expression - check if column exists
-        const hasConversionValueColumn = table.fields && conversionValueColumn in table.fields
-        if (!hasConversionValueColumn) {
-            // If no conversion value column, ROAS is 0
-            return {
-                kind: NodeKind.DataWarehouseNode,
-                id: table.id,
-                name: integrationConfig.primarySource,
-                custom_name: `${table.name} roas`,
-                id_field: tileConfig.idField,
-                distinct_id_field: tileConfig.idField,
-                timestamp_field: tileConfig.timestampField,
-                table_name: table.name,
-                math: 'hogql' as any,
-                math_hogql: '0',
+        // Build conversion value numerator: use specialConversionLogic if available
+        let conversionValueExpr: string
+        const specialResult = tileConfig.specialConversionLogic?.(
+            table,
+            MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue
+        )
+        if (specialResult?.math_hogql) {
+            conversionValueExpr = specialResult.math_hogql
+        } else {
+            const conversionValueColumn = mappings.reportedConversionValue
+            const hasConversionValueColumn = table.fields && conversionValueColumn in table.fields
+            if (!hasConversionValueColumn) {
+                conversionValueExpr = '0'
+            } else {
+                conversionValueExpr = sumSafeFloat(conversionValueColumn)
             }
         }
 
-        const mathHogql = `SUM(ifNull(toFloat(${conversionValueColumn}), 0)) / nullIf(SUM(${costExpr}), 0)`
+        const mathHogql = conversionValueExpr === '0' ? '0' : `${conversionValueExpr} / nullIf(SUM(${costExpr}), 0)`
 
         return {
             kind: NodeKind.DataWarehouseNode,
@@ -525,7 +516,7 @@ export function createMarketingTile(
             distinct_id_field: tileConfig.idField,
             timestamp_field: tileConfig.timestampField,
             table_name: table.name,
-            math: 'hogql' as any,
+            math: HogQLMathType.HogQL,
             math_hogql: mathHogql,
         }
     }
@@ -541,6 +532,26 @@ export function createMarketingTile(
     if (tileConfig.specialConversionLogic) {
         const specialLogic = tileConfig.specialConversionLogic(table, tileColumnSelection)
         if (specialLogic) {
+            let finalMathHogql = specialLogic.math_hogql
+
+            // Apply currency conversion for monetary conversion values
+            if (
+                tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue &&
+                finalMathHogql &&
+                finalMathHogql !== '0'
+            ) {
+                const mappings = tileConfig.columnMappings
+                const currencyColumn = mappings.currencyColumn
+                const fallbackCurrency = mappings.fallbackCurrency
+                const hasCurrencyColumn = currencyColumn && table.fields && currencyColumn in table.fields
+
+                if (hasCurrencyColumn) {
+                    finalMathHogql = `toFloat(convertCurrency(any(coalesce(${currencyColumn}, '${baseCurrency}')), '${baseCurrency}', ${finalMathHogql}))`
+                } else if (fallbackCurrency) {
+                    finalMathHogql = `toFloat(convertCurrency('${fallbackCurrency}', '${baseCurrency}', ${finalMathHogql}))`
+                }
+            }
+
             return {
                 kind: NodeKind.DataWarehouseNode,
                 id: table.id,
@@ -551,6 +562,7 @@ export function createMarketingTile(
                 timestamp_field: tileConfig.timestampField,
                 table_name: table.name,
                 ...specialLogic,
+                math_hogql: finalMathHogql,
             }
         }
     }
@@ -585,12 +597,44 @@ export function createMarketingTile(
             distinct_id_field: tileConfig.idField,
             timestamp_field: tileConfig.timestampField,
             table_name: table.name,
-            math: 'hogql' as any,
+            math: HogQLMathType.HogQL,
             math_hogql: mathHogql,
         }
     }
 
-    // Default tile configuration for non-cost columns
+    // Apply currency conversion for reported_conversion_value (monetary column)
+    if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
+        const mappings = tileConfig.columnMappings
+        const currencyColumn = mappings.currencyColumn
+        const fallbackCurrency = mappings.fallbackCurrency
+        const hasCurrencyColumn = currencyColumn && table.fields && currencyColumn in table.fields
+
+        const valueExpr = safeFloat(column.name)
+        let mathHogql: string
+
+        if (hasCurrencyColumn) {
+            mathHogql = `SUM(toFloat(convertCurrency(coalesce(${currencyColumn}, '${baseCurrency}'), '${baseCurrency}', ${valueExpr})))`
+        } else if (fallbackCurrency) {
+            mathHogql = `toFloat(convertCurrency('${fallbackCurrency}', '${baseCurrency}', SUM(${valueExpr})))`
+        } else {
+            mathHogql = `SUM(${valueExpr})`
+        }
+
+        return {
+            kind: NodeKind.DataWarehouseNode,
+            id: table.id,
+            name: displayName,
+            custom_name: `${table.name} ${tileColumnSelection}`,
+            id_field: tileConfig.idField,
+            distinct_id_field: tileConfig.idField,
+            timestamp_field: tileConfig.timestampField,
+            table_name: table.name,
+            math: HogQLMathType.HogQL,
+            math_hogql: mathHogql,
+        }
+    }
+
+    // Default tile configuration for non-monetary columns
     return {
         kind: NodeKind.DataWarehouseNode,
         id: table.id,
@@ -600,8 +644,8 @@ export function createMarketingTile(
         distinct_id_field: tileConfig.idField,
         timestamp_field: tileConfig.timestampField,
         table_name: table.name,
-        math: PropertyMathType.Sum,
-        math_property: column.name,
+        math: HogQLMathType.HogQL,
+        math_hogql: sumSafeFloat(column.name),
     }
 }
 
