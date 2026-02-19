@@ -63,3 +63,17 @@ PLAYLIST_COUNTER_SCHEDULE_CRON = get_from_env(
     # Defaults to every hour at minute 30
     "30 * * * *",
 )
+
+# Teams that should process all their cohorts (comma-separated team IDs)
+# Example: "2,42" means team 2 and team 42 process all cohorts
+REALTIME_COHORT_CALCULATION_TEAMS: set[int] = {
+    int(team_id.strip())
+    for team_id in get_from_env("REALTIME_COHORT_CALCULATION_TEAMS", "2").split(",")
+    if team_id.strip()
+}
+
+# Global percentage for teams not in REALTIME_COHORT_CALCULATION_TEAMS (0.0 to 1.0)
+# Example: 0.5 means 50% of cohorts for all other teams
+REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE: float = get_from_env(
+    "REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE", 0.0, type_cast=float
+)
