@@ -789,6 +789,7 @@ export const productUrls = {
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
     surveyWizard: (id: string = 'new'): string => `/surveys/guided/${id}`,
+    surveyFormBuilder: (id: string = 'new'): string => `/surveys/form/${id}`,
     taskTracker: (): string => '/tasks',
     taskDetail: (taskId: string | number): string => `/tasks/${taskId}`,
     toolbarLaunch: (): string => '/toolbar',
