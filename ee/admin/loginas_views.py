@@ -2,7 +2,7 @@ import json
 import uuid
 
 from django.conf import settings
-from django.http import Http404, JsonResponse
+from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 
 import posthoganalytics
@@ -21,23 +21,20 @@ from posthog.models.comment.comment import Comment
 
 POSTHOG_INTERNAL_TEAM_ID = 2
 
+REGION_DOMAINS: dict[str, str] = {
+    "US": "us.posthog.com",
+    "EU": "eu.posthog.com",
+}
+
 
 def _get_ticket(ticket_id: str):
-    """Fetch a support ticket by ID, restricting to the internal team in production."""
+    """Fetch a support ticket by ID, restricting to the internal team. Returns None if not found."""
     from products.conversations.backend.models import Ticket
 
     try:
         return Ticket.objects.get(id=ticket_id, team_id=POSTHOG_INTERNAL_TEAM_ID)
     except Ticket.DoesNotExist:
-        if settings.DEBUG:
-            ticket = Ticket.objects.filter(id=ticket_id).first()
-            if ticket:
-                raise Http404(
-                    f"Ticket {ticket_id} belongs to team {ticket.team_id}, "
-                    f"not the internal team ({POSTHOG_INTERNAL_TEAM_ID}). "
-                    f"Update POSTHOG_INTERNAL_TEAM_ID or use a ticket from the correct team."
-                )
-        raise Http404("Ticket not found")
+        return None
 
 
 def _configure_impersonation_session(
@@ -97,7 +94,7 @@ def loginas_user(request, user_id):
 def upgrade_impersonation(request):
     """Upgrade from read-only to read-write impersonation"""
     if not is_impersonated_session(request) or not is_read_only_impersonation(request):
-        raise Http404()
+        return JsonResponse({"error": "Not found"}, status=404)
 
     try:
         data = json.loads(request.body)
@@ -139,7 +136,7 @@ def loginas_user_from_ticket(request):
     (see posthog/settings/web.py) when loginas_user_login is called.
     """
     if not request.user.is_staff:
-        raise Http404()
+        return JsonResponse({"error": "Not found"}, status=404)
 
     try:
         data = json.loads(request.body)
@@ -156,6 +153,28 @@ def loginas_user_from_ticket(request):
         return JsonResponse({"error": "ticket_id must be a valid UUID"}, status=400)
 
     ticket = _get_ticket(ticket_id)
+    if not ticket:
+        return JsonResponse(
+            {
+                "error": f"Ticket not found. Note that ticket impersonation is only possible from project {POSTHOG_INTERNAL_TEAM_ID} in US region."
+            },
+            status=404,
+        )
+
+    ticket_region = ((ticket.anonymous_traits or {}).get("region") or "").upper()
+    current_region = (settings.CLOUD_DEPLOYMENT or "").upper()
+    if ticket_region and current_region in REGION_DOMAINS and ticket_region != current_region:
+        other_domain = REGION_DOMAINS[ticket_region]
+        email = (ticket.anonymous_traits or {}).get("email", "")
+        redirect_url = f"https://{other_domain}/admin/posthog/user/"
+        if email:
+            redirect_url += f"?q={email}"
+        return JsonResponse(
+            {
+                "redirect_region": ticket_region,
+                "redirect_url": redirect_url,
+            }
+        )
 
     email = ticket.anonymous_traits.get("email") if ticket.anonymous_traits else None
     if not email:
@@ -193,18 +212,23 @@ def loginas_user_from_ticket(request):
 def get_impersonation_ticket(request):
     """Get the support ticket associated with the current impersonation session."""
     if not is_impersonated_session(request):
-        raise Http404()
+        return JsonResponse({"error": "Not found"}, status=404)
 
     ticket_id = request.session.get(IMPERSONATION_TICKET_ID_SESSION_KEY)
     if not ticket_id:
-        raise Http404()
+        return JsonResponse({"error": "Not found"}, status=404)
 
     try:
         uuid.UUID(ticket_id)
     except (ValueError, AttributeError):
-        raise Http404()
+        return JsonResponse({"error": "Not found"}, status=404)
 
     ticket = _get_ticket(ticket_id)
+    if not ticket:
+        return JsonResponse(
+            {"error": f"Ticket not found. Impersonation is only possible from project {POSTHOG_INTERNAL_TEAM_ID}."},
+            status=404,
+        )
 
     comments = (
         Comment.objects.filter(
