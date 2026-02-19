@@ -11,7 +11,7 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS, PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
-import { allOperatorsMapping, debounce, hasFormErrors, isObject, objectClean } from 'lib/utils'
+import { allOperatorsMapping, hasFormErrors, isObject, objectClean } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -926,11 +926,11 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
     })),
     listeners(({ actions, values }) => {
-        const reloadAllSurveyResults = debounce((): void => {
+        const reloadAllSurveyResults = (): void => {
             // Load survey stats data
             actions.loadSurveyBaseStats()
             actions.loadSurveyDismissedAndSentCount()
-        }, 1000)
+        }
 
         return {
             createSurveySuccess: ({ survey }) => {
