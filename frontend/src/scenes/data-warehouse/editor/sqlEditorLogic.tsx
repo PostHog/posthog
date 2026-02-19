@@ -132,7 +132,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
     props({ mode: SQLEditorMode.FullScene } as SqlEditorLogicProps),
     tabAwareScene(),
-    connect(() => ({
+    connect((props: SqlEditorLogicProps) => ({
         values: [
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById'],
@@ -140,6 +140,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['user'],
             draftsLogic,
             ['drafts'],
+            endpointLogic({ tabId: props.tabId }),
+            ['endpoint', 'isUpdateMode', 'selectedEndpointName'],
         ],
         actions: [
             dataWarehouseViewsLogic,
@@ -163,7 +165,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['fixErrors', 'fixErrorsSuccess', 'fixErrorsFailure'],
             draftsLogic,
             ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess', 'deleteDraftSuccess'],
-            endpointLogic,
+            endpointLogic({ tabId: props.tabId }),
             ['setIsUpdateMode', 'setSelectedEndpointName'],
         ],
     })),
@@ -1131,6 +1133,66 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     ]
                 }
                 return [first]
+            },
+        ],
+        titleSectionProps: [
+            (s) => [
+                s.editingInsight,
+                s.insightLoading,
+                s.editingView,
+                s.isUpdateMode,
+                s.selectedEndpointName,
+                s.endpoint,
+            ],
+            (editingInsight, insightLoading, editingView, isUpdateMode, selectedEndpointName, endpoint) => {
+                if (editingInsight) {
+                    const forceBackTo: Breadcrumb = {
+                        key: editingInsight.short_id,
+                        name: 'Back to insight',
+                        path: urls.insightView(editingInsight.short_id),
+                        iconType: 'insight/hog',
+                    }
+
+                    return {
+                        forceBackTo,
+                        name: editingInsight.name || editingInsight.derived_name || 'Untitled',
+                        resourceType: { type: 'insight/hog' },
+                    }
+                }
+
+                if (insightLoading) {
+                    return {
+                        name: 'Loading insight...',
+                        resourceType: { type: 'insight/hog' },
+                    }
+                }
+
+                if (editingView) {
+                    return {
+                        name: editingView.name,
+                        resourceType: { type: editingView.is_materialized ? 'matview' : 'view' },
+                    }
+                }
+
+                if (isUpdateMode && selectedEndpointName) {
+                    const forceBackTo: Breadcrumb = {
+                        key: selectedEndpointName,
+                        name: 'Back to endpoint',
+                        path: urls.endpoint(selectedEndpointName),
+                        iconType: 'endpoints',
+                    }
+
+                    return {
+                        forceBackTo,
+                        name: endpoint?.name || selectedEndpointName,
+                        resourceType: { type: 'endpoint' },
+                    }
+                }
+
+                return {
+                    name: 'New SQL query',
+                    resourceType: { type: 'sql_editor' },
+                }
             },
         ],
 
