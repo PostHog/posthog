@@ -22,7 +22,7 @@ Keep the summary under {max_length} characters. Respond with only the summary te
 ZENDESK_ACTIONABILITY_PROMPT = """You are a product feedback analyst. Given a customer support ticket, determine if it contains actionable product feedback.
 
 A ticket is ACTIONABLE if it describes:
-- A bug, error, or unexpected behavior in the product
+- A bug, error, or unexpected behavior in the product (including billing/payment bugs like wrong charges or coupons not applied)
 - A feature request or suggestion for improvement
 - A usability issue or confusion about the product
 - A performance problem
@@ -32,9 +32,12 @@ A ticket is ACTIONABLE if it describes:
 
 A ticket is NOT_ACTIONABLE if it is:
 - Spam, abuse, or profanity with no real feedback
-- A billing/account question with no product feedback
+- A routine billing/account question that does NOT indicate a product bug (e.g. requesting a refund, updating payment info, asking about pricing)
 - A generic "thank you"
 - An auto-generated or bot message
+- An internal test message
+
+When in doubt, classify as ACTIONABLE. It is much worse to miss real feedback than to let some noise through.
 
 <ticket>
 {description}
