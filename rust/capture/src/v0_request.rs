@@ -84,7 +84,7 @@ impl RawRequest {
                     }])
                 } else {
                     let err_msg = String::from("non-engage request missing event name attribute");
-                    error!("event hydration from request failed: {}", &err_msg);
+                    error!("event hydration from request failed: {err_msg}");
                     Err(CaptureError::RequestHydrationError(err_msg))
                 }
             }

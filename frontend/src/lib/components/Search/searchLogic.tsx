@@ -5,6 +5,7 @@ import { IconClock, IconDownload } from '@posthog/icons'
 
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
@@ -69,8 +70,10 @@ export const searchLogic = kea<searchLogicType>([
     })),
     actions({
         setSearch: (search: string) => ({ search }),
+        toggleIncludeCounts: true,
+        setSearchElapsedMs: (elapsed: number) => ({ elapsed }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         sceneLogViews: [
             [] as FileSystemViewLogEntry[],
             {
@@ -107,10 +110,16 @@ export const searchLogic = kea<searchLogicType>([
                     const trimmed = searchTerm.trim()
 
                     if (trimmed === '') {
+                        actions.setSearchElapsedMs(0)
                         return null
                     }
 
-                    const response = await api.search.list({ q: trimmed })
+                    const start = performance.now()
+                    const response = await api.search.list({
+                        q: trimmed,
+                        include_counts: values.includeCounts,
+                    })
+                    actions.setSearchElapsedMs(performance.now() - start)
                     breakpoint()
 
                     return response
@@ -196,6 +205,18 @@ export const searchLogic = kea<searchLogicType>([
         ],
     })),
     reducers({
+        includeCounts: [
+            false,
+            {
+                toggleIncludeCounts: (state) => !state,
+            },
+        ],
+        searchElapsedMs: [
+            0,
+            {
+                setSearchElapsedMs: (_, { elapsed }) => elapsed,
+            },
+        ],
         search: [
             '',
             {
@@ -233,6 +254,15 @@ export const searchLogic = kea<searchLogicType>([
         ],
     }),
     selectors({
+        showSearchDebug: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean =>
+                !!(featureFlags as Record<string, boolean>)[FEATURE_FLAGS.UX_SEARCH_WITH_COUNT_NONE],
+        ],
+        searchResultCount: [
+            (s) => [s.unifiedSearchResults],
+            (unifiedSearchResults): number => unifiedSearchResults?.results?.length ?? 0,
+        ],
         sceneLogViewsByRef: [
             (s) => [s.sceneLogViews],
             (sceneLogViews): Record<string, string> => {
