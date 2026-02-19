@@ -9,9 +9,6 @@ from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
 
-PERIOD_START = "toStartOfDay(now()) - INTERVAL 7 DAY"
-PERIOD_END = "toStartOfDay(now())"
-
 
 def get_exception_counts(team_ids: list[int] | None = None) -> list:
     """Exception counts and ingestion failures for the last 7 days"""
@@ -23,6 +20,7 @@ def get_exception_counts(team_ids: list[int] | None = None) -> list:
         team_filter = "AND team_id IN %(team_ids)s"
         query_params["team_ids"] = team_ids
 
+    # nosemgrep: clickhouse-fstring-param-audit (team_filter is built from trusted code, not user input)
     exception_counts_query = f"""
     SELECT
         team_id,
@@ -30,8 +28,8 @@ def get_exception_counts(team_ids: list[int] | None = None) -> list:
         countIf(mat_$exception_issue_id IS NULL) as ingestion_failure_count
     FROM events
     WHERE event = '$exception'
-    AND timestamp >= {PERIOD_START}
-    AND timestamp < {PERIOD_END}
+    AND timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY
+    AND timestamp < toStartOfDay(now())
     {team_filter}
     GROUP BY team_id
     HAVING exception_count > 0
@@ -47,13 +45,13 @@ def get_crash_free_sessions(team: Team) -> dict:
 
     try:
         response = execute_hogql_query(
-            query=f"""
+            query="""
                 SELECT
                     uniq($session_id) as total_sessions,
                     uniqIf($session_id, event = '$exception') as crash_sessions
                 FROM events
-                WHERE timestamp >= {PERIOD_START}
-                AND timestamp < {PERIOD_END}
+                WHERE timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY
+                AND timestamp < toStartOfDay(now())
                 AND notEmpty($session_id)
             """,
             team=team,
@@ -83,15 +81,15 @@ def get_daily_exception_counts(team_id: int) -> list[dict]:
 
     try:
         results = sync_execute(
-            f"""
+            """
             SELECT
                 toDate(timestamp) as day,
                 count() as day_count
             FROM events
             WHERE event = '$exception'
             AND team_id = %(team_id)s
-            AND timestamp >= {PERIOD_START}
-            AND timestamp < {PERIOD_END}
+            AND timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY
+            AND timestamp < toStartOfDay(now())
             GROUP BY day
             ORDER BY day ASC
             """,
@@ -127,7 +125,7 @@ def get_top_issues_for_team(team: Team) -> list[dict]:
 
     try:
         response = execute_hogql_query(
-            query=f"""
+            query="""
                 SELECT
                     issue_id,
                     sum(day_count) as occurrence_count,
@@ -136,8 +134,8 @@ def get_top_issues_for_team(team: Team) -> list[dict]:
                     SELECT issue_id, toDate(timestamp) as day, count(*) as day_count
                     FROM events
                     WHERE event = '$exception'
-                    AND timestamp >= {PERIOD_START}
-                    AND timestamp < {PERIOD_END}
+                    AND timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY
+                    AND timestamp < toStartOfDay(now())
                     GROUP BY issue_id, day
                     ORDER BY day ASC
                 )
@@ -179,7 +177,7 @@ def get_new_issues_for_team(team: Team) -> list[dict]:
 
     try:
         response = execute_hogql_query(
-            query=f"""
+            query="""
                 SELECT
                     issue_id,
                     sum(day_count) as occurrence_count,
@@ -188,9 +186,9 @@ def get_new_issues_for_team(team: Team) -> list[dict]:
                     SELECT issue_id, toDate(timestamp) as day, count(*) as day_count
                     FROM events
                     WHERE event = '$exception'
-                    AND timestamp >= {PERIOD_START}
-                    AND timestamp < {PERIOD_END}
-                    AND issue_id IN {{issue_ids}}
+                    AND timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY
+                    AND timestamp < toStartOfDay(now())
+                    AND issue_id IN {issue_ids}
                     GROUP BY issue_id, day
                     ORDER BY day ASC
                 )
@@ -217,7 +215,7 @@ def get_new_issues_for_team(team: Team) -> list[dict]:
 
 
 def _build_issues_list(results: list, issues_by_id: dict, team: Team) -> list[dict]:
-    """Build issue dicts with sparkline from query results containing issue_id, occurrence_count, daily_counts"""
+    """Build issue dicts with sparkline from query results containing issue_id, occurrence_count, daily_counts."""
     issues = []
     for issue_id, occurrence_count, daily_counts in results:
         if not issue_id:
@@ -238,7 +236,7 @@ def _build_issues_list(results: list, issues_by_id: dict, team: Team) -> list[di
 
 
 def _daily_counts_to_sparkline(daily_counts: list[int]) -> list[dict]:
-    """Convert a list of daily counts into sparkline bar dicts with height percentages"""
+    """Convert a list of daily counts into sparkline bar dicts with height percentages."""
     if not daily_counts:
         return []
     max_val = max(daily_counts)
