@@ -63,7 +63,7 @@ export function ApprovalsPromoBanner(): JSX.Element | null {
                         </LemonButton>
                     </div>
                 </div>
-                <JudgeHog className="h-30 w-fit shrink-0" />
+                <JudgeHog className="h-30 w-fit shrink-0" alt="Judge hedgehog illustration" />
             </div>
         </LemonBanner>
     )
