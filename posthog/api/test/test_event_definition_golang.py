@@ -387,12 +387,31 @@ func CreativeNamingCaptureFromBase(
         # Check presence of usage guide
         self.assertIn("// USAGE GUIDE", code)
 
-    def _create_mock_property(self, name: str, property_type: str, required: bool = False) -> MagicMock:
+    def test_generate_event_with_optional_in_types(self):
+        props = [
+            self._create_mock_property("file_name", "String", required=True),
+            self._create_mock_property("file_size", "Numeric", required=True, is_optional_in_types=True),
+            self._create_mock_property("label", "String", required=False),
+        ]
+
+        code = self.generator._generate_event_with_properties("file_uploaded", props)  # type: ignore[arg-type]
+
+        # file_size should be an option function (optional), not a required param
+        self.assertIn("FileUploadedWithFileSize", code)
+        # file_name should still be a required param
+        self.assertIn("fileName string", code)
+        # file_size should NOT be a required param in the capture function
+        self.assertNotIn("fileSize float64,\n\toptions", code)
+
+    def _create_mock_property(
+        self, name: str, property_type: str, required: bool = False, is_optional_in_types: bool = False
+    ) -> MagicMock:
         """Create a mock SchemaPropertyGroupProperty for testing"""
         prop = MagicMock()
         prop.name = name
         prop.property_type = property_type
         prop.is_required = required
+        prop.is_optional_in_types = is_optional_in_types
         return prop
 
 
