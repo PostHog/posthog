@@ -60,14 +60,14 @@ class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
 
     def _get_campaign_name_field(self) -> ast.Expr:
         if self.config.source_map.campaign:
-            return ast.Call(name="toString", args=[ast.Field(chain=[self.config.source_map.campaign])])
+            return ast.Call(name="toString", args=[self._resolve_field_expr(self.config.source_map.campaign)])
         else:
             return ast.Constant(value=UNKNOWN_CAMPAIGN)
 
     def _get_campaign_id_field(self) -> ast.Expr:
         id_field = getattr(self.config.source_map, "id", None)
         if id_field:
-            return ast.Call(name="toString", args=[ast.Field(chain=[id_field])])
+            return ast.Call(name="toString", args=[self._resolve_field_expr(id_field)])
         else:
             # Fallback to campaign name if id field is not configured
             return self._get_campaign_name_field()
@@ -75,7 +75,7 @@ class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
     def _get_source_name_field(self) -> ast.Expr:
         """Override to use user-configured source field or fallback to unknown"""
         if self.config.source_map.source:
-            return ast.Call(name="toString", args=[ast.Field(chain=[self.config.source_map.source])])
+            return ast.Call(name="toString", args=[self._resolve_field_or_constant(self.config.source_map.source)])
         else:
             return ast.Constant(value=UNKNOWN_SOURCE)
 
@@ -86,77 +86,68 @@ class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
         base_currency = self.context.base_currency
 
         if currency_field and total_cost_field:
-            # toFloat(convertCurrency('currency_field', 'base_currency', toFloat(coalesce(total_cost_field, 0))))
-            coalesce = ast.Call(name="coalesce", args=[ast.Field(chain=[total_cost_field]), ast.Constant(value=0)])
-            inner_toFloat = ast.Call(name="toFloat", args=[coalesce])
+            # toFloat(convertCurrency(currency_expr, 'base_currency', coalesce(toFloat(total_cost_field), 0)))
+            coalesce = ast.Call(
+                name="coalesce",
+                args=[self._to_numeric(self._resolve_field_expr(total_cost_field)), ast.Constant(value=0)],
+            )
+            currency_expr = self._resolve_field_or_constant(currency_field)
             convert_currency = ast.Call(
                 name="convertCurrency",
-                args=[ast.Constant(value=currency_field), ast.Constant(value=base_currency), inner_toFloat],
+                args=[currency_expr, ast.Constant(value=base_currency), coalesce],
             )
             return ast.Call(name="toFloat", args=[convert_currency])
         elif total_cost_field:
-            # toFloat(coalesce(total_cost_field, 0))
-            coalesce = ast.Call(name="coalesce", args=[ast.Field(chain=[total_cost_field]), ast.Constant(value=0)])
+            # toFloat(coalesce(toFloat(total_cost_field), 0))
+            coalesce = ast.Call(
+                name="coalesce",
+                args=[self._to_numeric(self._resolve_field_expr(total_cost_field)), ast.Constant(value=0)],
+            )
             return ast.Call(name="toFloat", args=[coalesce])
         else:
             # 0
             return ast.Constant(value=0)
 
+    def _to_numeric(self, field_expr: ast.Expr) -> ast.Expr:
+        """Wrap expression in toFloat to handle JSON-extracted strings."""
+        return ast.Call(name="toFloat", args=[field_expr])
+
     def _get_impressions_field(self) -> ast.Expr:
         impressions_field = self.config.source_map.impressions
-
-        inner_expr: ast.Expr
         if impressions_field is None:
-            inner_expr = ast.Constant(value=0)
-        else:
-            inner_expr = ast.Field(chain=[impressions_field])
-
-        coalesce = ast.Call(name="coalesce", args=[inner_expr, ast.Constant(value=0)])
+            return ast.Constant(value=0)
+        coalesce = ast.Call(
+            name="coalesce", args=[self._to_numeric(self._resolve_field_expr(impressions_field)), ast.Constant(value=0)]
+        )
         return ast.Call(name="toFloat", args=[coalesce])
 
     def _get_reported_conversion_field(self) -> ast.Expr:
         reported_conversion_field = self.config.source_map.reported_conversion
-        inner_expr: ast.Expr
         if reported_conversion_field is None:
-            inner_expr = ast.Constant(value=0)
-        else:
-            inner_expr = ast.Field(chain=[reported_conversion_field])
-        coalesce = ast.Call(name="coalesce", args=[inner_expr, ast.Constant(value=0)])
+            return ast.Constant(value=0)
+        coalesce = ast.Call(
+            name="coalesce",
+            args=[self._to_numeric(self._resolve_field_expr(reported_conversion_field)), ast.Constant(value=0)],
+        )
         return ast.Call(name="toFloat", args=[coalesce])
 
     def _get_reported_conversion_value_field(self) -> ast.Expr:
         reported_conversion_value_field = getattr(self.config.source_map, "reported_conversion_value", None)
-        currency_field = self.config.source_map.currency
-        base_currency = self.context.base_currency
-
-        inner_expr: ast.Expr
         if reported_conversion_value_field is None:
-            inner_expr = ast.Constant(value=0)
-        else:
-            inner_expr = ast.Field(chain=[reported_conversion_value_field])
-
-        coalesce = ast.Call(name="coalesce", args=[inner_expr, ast.Constant(value=0)])
-        value_float = ast.Call(name="toFloat", args=[coalesce])
-
-        if currency_field and reported_conversion_value_field:
-            convert_currency = ast.Call(
-                name="convertCurrency",
-                args=[ast.Constant(value=currency_field), ast.Constant(value=base_currency), value_float],
-            )
-            return ast.Call(name="toFloat", args=[convert_currency])
-
-        return value_float
+            return ast.Constant(value=0)
+        coalesce = ast.Call(
+            name="coalesce",
+            args=[self._to_numeric(self._resolve_field_expr(reported_conversion_value_field)), ast.Constant(value=0)],
+        )
+        return ast.Call(name="toFloat", args=[coalesce])
 
     def _get_clicks_field(self) -> ast.Expr:
         clicks_field = self.config.source_map.clicks
-
-        inner_expr: ast.Expr
         if clicks_field is None:
-            inner_expr = ast.Constant(value=0)
-        else:
-            inner_expr = ast.Field(chain=[clicks_field])
-
-        coalesce = ast.Call(name="coalesce", args=[inner_expr, ast.Constant(value=0)])
+            return ast.Constant(value=0)
+        coalesce = ast.Call(
+            name="coalesce", args=[self._to_numeric(self._resolve_field_expr(clicks_field)), ast.Constant(value=0)]
+        )
         return ast.Call(name="toFloat", args=[coalesce])
 
     def _get_from(self) -> ast.JoinExpr:
@@ -175,7 +166,7 @@ class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
         if self.context.date_range and date_field:
             if date_field != "timestamp":
                 # toDateTime(date_field) >= toDateTime('date_from')
-                date_cast = ast.Call(name="toDateTime", args=[ast.Field(chain=[date_field])])
+                date_cast = ast.Call(name="toDateTime", args=[self._resolve_field_expr(date_field)])
             else:
                 date_cast = ast.Field(chain=[date_field])
 

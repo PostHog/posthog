@@ -2,12 +2,6 @@ class BlockFetchError(Exception):
     pass
 
 
-class BlockDeletionNotSupportedError(Exception):
-    """Raised when attempting to delete a recording on a deployment that doesn't support encrypted storage."""
-
-    pass
-
-
 class FileFetchError(Exception):
     pass
 

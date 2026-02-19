@@ -593,9 +593,10 @@ jobs:
                       });
                       const existing = comments.find(c => c.body.includes(marker));
 
-                      // Only clean up the comment when we actually read results and they're clean
-                      if (resultsRead && !extraLines) {
-                          if (existing) {
+                      // No failures or flakies — nothing to comment about
+                      if (!extraLines) {
+                          // Clean up any existing comment, but only when we know tests actually ran and passed
+                          if (resultsRead && existing) {
                               await github.rest.issues.deleteComment({
                                   owner: context.repo.owner,
                                   repo: context.repo.repo,
@@ -605,11 +606,8 @@ jobs:
                           return;
                       }
 
-                      // Skip posting if there's nothing useful to show
-                      if (!extraLines && !reportUrl) return;
-
                       const reportLink = reportUrl ? ` · [View test results →](${reportUrl})` : '';
-                      const footer = '\n\n---\n*Annoyed by this comment? Make the tests green and it\'ll disappear!*';
+                      const footer = '\n\n\n*These issues are not necessarily caused by your changes.*\n*Annoyed by this comment? Help fix flakies and failures and it\'ll disappear!*';
                       const body = `${marker}\n🎭 Playwright report${reportLink}${extraLines}${footer}`;
 
                       if (existing) {

@@ -54,6 +54,7 @@ class EventSchemaViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
     mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
