@@ -1,0 +1,21 @@
+[package]
+name = "personhog-coordination"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+async-trait = { workspace = true }
+etcd-client = "0.18"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { version = "0.7", features = ["rt"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+uuid = { workspace = true }
+
+[lints]
+workspace = true
