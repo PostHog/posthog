@@ -268,6 +268,26 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                     icon={<EditingViewButtonIcon />}
                                     type="primary"
                                     size="small"
+                                    sideIcon={<IconChevronDown />}
+                                    sideAction={{
+                                        dropdown: {
+                                            placement: 'bottom-end',
+                                            overlay: (
+                                                <LemonMenuOverlay
+                                                    items={[
+                                                        {
+                                                            label: 'Save as new insight...',
+                                                            onClick: () => saveAsInsight(),
+                                                        },
+                                                        {
+                                                            label: 'Save as new view...',
+                                                            onClick: () => saveAsView(),
+                                                        },
+                                                    ]}
+                                                />
+                                            ),
+                                        },
+                                    }}
                                 >
                                     {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
                                 </LemonButton>
@@ -279,6 +299,26 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 type="primary"
                                 size="small"
                                 onClick={() => updateInsight()}
+                                sideIcon={<IconChevronDown />}
+                                sideAction={{
+                                    dropdown: {
+                                        placement: 'bottom-end',
+                                        overlay: (
+                                            <LemonMenuOverlay
+                                                items={[
+                                                    {
+                                                        label: 'Save as new insight...',
+                                                        onClick: () => saveAsInsight(),
+                                                    },
+                                                    {
+                                                        label: 'Save as new view...',
+                                                        onClick: () => saveAsView(),
+                                                    },
+                                                ]}
+                                            />
+                                        ),
+                                    },
+                                }}
                             >
                                 Update insight
                             </LemonButton>
