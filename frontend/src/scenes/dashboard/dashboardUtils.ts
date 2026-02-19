@@ -3,7 +3,6 @@ import { Layouts } from 'react-grid-layout'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
-import { TAILWIND_BREAKPOINTS } from 'lib/constants'
 import { currentSessionId } from 'lib/internalMetrics'
 import { objectClean, shouldCancelQuery, toParams } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
@@ -21,7 +20,7 @@ import {
 } from '~/types'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
-    sm: TAILWIND_BREAKPOINTS.md - 1,
+    sm: 1024,
     xs: 0,
 }
 export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { sm: 12, xs: 1 }
