@@ -79,7 +79,7 @@ export function VariantTag({
 
     if (variantKey === EXPERIMENT_VARIANT_MULTIPLE) {
         return (
-            <Tooltip title="This indicates a potential implementation issue where users are seeing multiple variants instead of a single consistent variant.">
+            <Tooltip title="Some users were exposed to more than one variant. If this percentage is high, there may be an implementation issue causing inconsistent variant assignment.">
                 <LemonTag type="danger">{variantKey}</LemonTag>
             </Tooltip>
         )
