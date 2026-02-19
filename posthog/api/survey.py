@@ -415,9 +415,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     if rule_type in ["min_length", "max_length"]:
                         rule_value = rule.get("value")
                         if rule_value is not None:
-                            if not isinstance(rule_value, int) or rule_value < 0:
+                            if not isinstance(rule_value, int) or rule_value <= 0:
                                 raise serializers.ValidationError(
-                                    f"Validation rule value for {rule_type} must be a non-negative integer"
+                                    f"Validation rule value for {rule_type} must be a positive integer"
                                 )
 
                 # Cross-validate min_length <= max_length

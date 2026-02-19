@@ -2802,7 +2802,7 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
         )
         response_data = response.json()
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
-        assert "must be a non-negative integer" in response_data["detail"]
+        assert "must be a positive integer" in response_data["detail"]
 
     def test_validate_validation_rules_not_a_list(self):
         response = self.client.post(
