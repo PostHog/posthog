@@ -123,7 +123,10 @@ pub fn extract_trace_span_ids(extra: &HashMap<String, serde_json::Value>) -> (St
     (trace_id, span_id)
 }
 
-pub fn datadog_log_to_kafka_row(log: DatadogLog, query_params: &DatadogQueryParams) -> (KafkaLogRow, bool) {
+pub fn datadog_log_to_kafka_row(
+    log: DatadogLog,
+    query_params: &DatadogQueryParams,
+) -> (KafkaLogRow, bool) {
     // Body values take precedence over query params
     let status = log.status.as_deref().or(query_params.status.as_deref());
     let (severity_text, severity_number) = normalize_datadog_severity(status);

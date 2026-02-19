@@ -109,10 +109,7 @@ impl KafkaLogRow {
         let (timestamp, original_timestamp) = override_timestamp(raw_timestamp);
         let was_overridden = original_timestamp.is_some();
         if let Some(original) = original_timestamp {
-            attributes.insert(
-                "$originalTimestamp".to_string(),
-                original.to_rfc3339(),
-            );
+            attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
         }
 
         let observed_timestamp = Utc::now();

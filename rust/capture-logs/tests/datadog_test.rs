@@ -739,4 +739,3 @@ fn test_datadog_log_overridden_timestamp_tracking() {
     // User's originalTimestamp should still be in attributes
     assert!(row_user_attr.attributes.contains_key("originalTimestamp"));
 }
-
