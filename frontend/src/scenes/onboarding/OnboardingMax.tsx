@@ -25,18 +25,6 @@ import { availableOnboardingProducts } from './utils'
 
 const ONBOARDING_TAB_ID = 'onboarding'
 
-const PRODUCT_DESCRIPTIONS: Partial<Record<ProductKey, string>> = {
-    [ProductKey.PRODUCT_ANALYTICS]: 'Track events, build funnels, analyze user journeys',
-    [ProductKey.SESSION_REPLAY]: 'Watch real user sessions to understand behavior',
-    [ProductKey.FEATURE_FLAGS]: 'Control rollouts, target users, kill switches',
-    [ProductKey.EXPERIMENTS]: 'A/B tests with statistical significance',
-    [ProductKey.SURVEYS]: 'Collect in-app user feedback',
-    [ProductKey.ERROR_TRACKING]: 'Catch and debug exceptions automatically',
-    [ProductKey.WEB_ANALYTICS]: 'Privacy-friendly website traffic insights',
-    [ProductKey.LLM_ANALYTICS]: 'Monitor AI costs, latency, and conversations',
-    [ProductKey.DATA_WAREHOUSE]: 'Query all your data in one place',
-}
-
 function getProductInfo(
     productKey: ProductKey
 ): { name: string; description: string; iconKey: string; iconColor: string } | undefined {
@@ -46,24 +34,16 @@ function getProductInfo(
     const product = availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]
     return {
         name: product.name,
-        description: PRODUCT_DESCRIPTIONS[productKey] ?? product.description,
+        description: product.description,
         iconKey: product.icon,
         iconColor: product.iconColor,
     }
 }
 
-// Map from tool product keys to PostHog ProductKey enum
-const TOOL_PRODUCT_TO_PRODUCT_KEY: Record<string, ProductKey> = {
-    product_analytics: ProductKey.PRODUCT_ANALYTICS,
-    session_replay: ProductKey.SESSION_REPLAY,
-    feature_flags: ProductKey.FEATURE_FLAGS,
-    experiments: ProductKey.EXPERIMENTS,
-    surveys: ProductKey.SURVEYS,
-    web_analytics: ProductKey.WEB_ANALYTICS,
-    error_tracking: ProductKey.ERROR_TRACKING,
-    data_warehouse: ProductKey.DATA_WAREHOUSE,
-    llm_observability: ProductKey.LLM_ANALYTICS,
-}
+// Map from tool product keys (backend PostHogProduct enum) to frontend ProductKey
+const TOOL_PRODUCT_TO_PRODUCT_KEY: Record<string, ProductKey> = Object.fromEntries(
+    Object.keys(availableOnboardingProducts).map((key) => [key, key as ProductKey])
+)
 
 interface ProductRecommendationsProps {
     products: ProductKey[]

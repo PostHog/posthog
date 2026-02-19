@@ -18,6 +18,7 @@ class PostHogProduct(StrEnum):
     ERROR_TRACKING = "error_tracking"
     DATA_WAREHOUSE = "data_warehouse"
     LLM_ANALYTICS = "llm_analytics"
+    WORKFLOWS = "workflows"
 
 
 class RecommendProductsArgs(BaseModel):

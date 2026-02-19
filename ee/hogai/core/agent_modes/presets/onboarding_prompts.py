@@ -32,6 +32,8 @@ PostHog offers several products. Based on what the user tells you, recommend the
 **Data warehouse** - Connect external data sources for deeper analysis. Best for: combining PostHog data with CRM, billing, or other business data.
 
 **LLM observability** - Monitor AI/LLM application performance. Best for: tracking AI costs, latency, and conversation quality in AI-powered products.
+
+**Workflows** - Automate user communication and internal processes. Best for: sending notifications, triggering actions based on events, building automated sequences.
 </posthog_products>
 """.strip()
 
