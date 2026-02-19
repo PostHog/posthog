@@ -5,7 +5,7 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-BATCH_SIZE = 100
+BATCH_SIZE = 300
 
 
 def fix_legacy_feature_flag_filters(apps, schema_editor):
@@ -18,29 +18,32 @@ def fix_legacy_feature_flag_filters(apps, schema_editor):
     can be simplified to just `return self.filters`.
     """
     FeatureFlag = apps.get_model("posthog", "FeatureFlag")
-    total = 0
     queryset = FeatureFlag.objects.filter(Q(filters__isnull=True) | ~Q(filters__has_key="groups"))
 
-    while True:
-        flags = list(queryset[:BATCH_SIZE])
-        if not flags:
-            break
+    total = 0
+    batch: list = []
+    for flag in queryset.iterator(chunk_size=BATCH_SIZE):
+        existing = dict(flag.filters) if isinstance(flag.filters, dict) else {}
+        properties = existing.pop("properties", [])
+        flag.filters = {
+            **existing,
+            "groups": [
+                {
+                    "properties": properties,
+                    "rollout_percentage": flag.rollout_percentage,
+                }
+            ],
+        }
+        batch.append(flag)
 
-        for flag in flags:
-            existing = dict(flag.filters) if isinstance(flag.filters, dict) else {}
-            properties = existing.pop("properties", [])
-            flag.filters = {
-                **existing,
-                "groups": [
-                    {
-                        "properties": properties,
-                        "rollout_percentage": flag.rollout_percentage,
-                    }
-                ],
-            }
+        if len(batch) >= BATCH_SIZE:
+            FeatureFlag.objects.bulk_update(batch, ["filters"])
+            total += len(batch)
+            batch = []
 
-        FeatureFlag.objects.bulk_update(flags, ["filters"])
-        total += len(flags)
+    if batch:
+        FeatureFlag.objects.bulk_update(batch, ["filters"])
+        total += len(batch)
 
     logger.info("Fixed legacy feature flag filters", updated_rows=total)
 
