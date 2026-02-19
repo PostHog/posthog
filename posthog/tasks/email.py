@@ -1385,7 +1385,7 @@ def send_error_tracking_weekly_digest() -> None:
     logger.info("Completed Error Tracking weekly digest fan-out")
 
 
-@shared_task(**EMAIL_TASK_KWARGS)
+@shared_task(**EMAIL_TASK_KWARGS, rate_limit="10/s")
 def send_error_tracking_weekly_digest_for_team(
     team_id: int, exception_count: int, ingestion_failure_count: int
 ) -> None:
