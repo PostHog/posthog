@@ -112,7 +112,7 @@ class LivenessHeartbeater(Heartbeater):
     """Like ``Heartbeater``, but includes additional liveness tracking."""
 
     def __init__(self, details: tuple[typing.Any, ...] = (), factor: int = 120):
-        super().__init__(details)
+        super().__init__(details, factor)
         self.tracker = get_liveness_tracker()
 
     async def _heartbeat_forever(self, delay):
