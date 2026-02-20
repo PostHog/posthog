@@ -306,7 +306,13 @@ def complete_run(run_id: UUID) -> Run:
     2. Creates Artifact records for verified uploads
     3. Links artifacts to snapshots
     4. Triggers async diff processing (only if there are changes to diff)
+
+    Idempotent: returns immediately if already processing or completed.
     """
+    run = get_run(run_id)
+    if run.status in (RunStatus.PROCESSING, RunStatus.COMPLETED):
+        return run
+
     verify_uploads_and_create_artifacts(run_id)
 
     run = get_run(run_id)
@@ -568,6 +574,10 @@ def approve_run(run_id: UUID, user_id: int, approved_snapshots: list[dict], comm
 
     # Build lookup of identifier -> new_hash
     approvals = {s["identifier"]: s["new_hash"] for s in approved_snapshots}
+
+    # TODO: Validate identifiers exist in run (currently unknown identifiers are silently ignored)
+    # TODO: Enforce new_hash == snapshot.current_hash (prevents corrupting baseline YAML)
+    # TODO: Block approval of superseded runs (newer run exists for same repo + PR number)
 
     # Validate all artifacts exist before making any changes
     for identifier, new_hash in approvals.items():

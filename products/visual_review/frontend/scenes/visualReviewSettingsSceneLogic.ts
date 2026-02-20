@@ -89,7 +89,7 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
                 let repo = values.repo
                 if (!repo) {
                     // Create repo first
-                    repo = await visualReviewReposCreate('@current')
+                    repo = await visualReviewReposCreate('@current', { name: updates.name || 'Visual Review' })
                 }
                 const updated = await visualReviewReposPartialUpdate('@current', repo.id, updates)
                 actions.loadRepoSuccess(updated)

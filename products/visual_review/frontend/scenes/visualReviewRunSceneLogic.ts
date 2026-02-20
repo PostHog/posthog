@@ -116,8 +116,8 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 lemonToast.success('Changes approved successfully')
                 actions.loadRun()
                 actions.loadSnapshots()
-            } catch {
-                lemonToast.error('Failed to approve changes')
+            } catch (e: any) {
+                lemonToast.error(e?.detail || e?.message || 'Failed to approve changes')
             }
         },
         approveSnapshot: async ({ snapshot }) => {
@@ -140,8 +140,8 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 lemonToast.success('Snapshot approved')
                 actions.loadRun()
                 actions.loadSnapshots()
-            } catch {
-                lemonToast.error('Failed to approve snapshot')
+            } catch (e: any) {
+                lemonToast.error(e?.detail || e?.message || 'Failed to approve snapshot')
             }
         },
     })),
