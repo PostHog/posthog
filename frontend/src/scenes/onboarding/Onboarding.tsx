@@ -1,14 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonBanner, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { ProductSelection } from 'scenes/onboarding/productSelection/ProductSelection'
 import { productSelectionLogic } from 'scenes/onboarding/productSelection/productSelectionLogic'
+import { useWizardCommand } from 'scenes/onboarding/sdks/sdk-install-instructions/components/SetupWizardBanner'
 import { WebAnalyticsSDKInstructions } from 'scenes/onboarding/sdks/web-analytics/WebAnalyticsSDKInstructions'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -20,6 +23,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, type SessionRecordingMaskingLevel, TeamPublicType, TeamType } from '~/types'
 
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
+import { OnboardingMax } from './OnboardingMax'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { OnboardingReverseProxy } from './OnboardingReverseProxy'
 import { OnboardingSessionReplayConfiguration } from './OnboardingSessionReplayConfiguration'
@@ -43,6 +47,7 @@ import {
 } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
 import { SurveysSDKInstructions } from './sdks/surveys/SurveysSDKInstructions'
+import { WorkflowsSDKInstructions, WorkflowsSDKTagOverrides } from './sdks/workflows/WorkflowsSDKInstructions'
 import { OnboardingWebAnalyticsAuthorizedDomainsStep } from './web-analytics/OnboardingWebAnalyticsAuthorizedDomainsStep'
 
 export const scene: SceneExport = {
@@ -408,23 +413,61 @@ const LLMAnalyticsOnboarding = (): JSX.Element => {
     )
 }
 
-// No custom page for workflows yet, we do all the onboarding inside the app
 const WorkflowsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            {/* Show Product Analytics instructions by default to allow events from any source but display warning showing it's not neccessary */}
             <OnboardingInstallStep
-                sdkInstructionMap={ProductAnalyticsSDKInstructions}
-                sdkTagOverrides={ProductAnalyticsSDKTagOverrides}
-                header={
-                    <LemonBanner type="warning" className="mb-4">
-                        Setting up events is <strong>not</strong> necessary for workflows but it means you'll be able to
-                        trigger workflows more easily from any source via our SDKs. You can skip this step for now if
-                        you prefer.
-                    </LemonBanner>
-                }
+                sdkInstructionMap={WorkflowsSDKInstructions}
+                sdkTagOverrides={WorkflowsSDKTagOverrides}
+                header={<WorkflowsInstallHeader />}
             />
         </OnboardingWrapper>
+    )
+}
+
+const WorkflowsInstallHeader = (): JSX.Element => {
+    const { wizardCommand, isCloudOrDev } = useWizardCommand()
+
+    return (
+        <div className="mt-2 space-y-4">
+            <p className="text-sm">
+                Workflows is a no-code product - installing an SDK is optional. However, with an SDK installed, any
+                captured or custom event can be used as a{' '}
+                <Link
+                    to="https://posthog.com/docs/workflows/workflow-builder#triggers"
+                    target="_blank"
+                    targetBlankIcon={false}
+                >
+                    workflow trigger
+                </Link>
+                . Without an SDK, you're limited to webhook and manual triggers.
+            </p>
+            {isCloudOrDev && (
+                <>
+                    <LemonBanner type="info" hideIcon>
+                        <h3 className="flex items-center gap-2 pb-1">
+                            <LemonTag type="warning">BETA</LemonTag> AI setup wizard
+                        </h3>
+                        <div className="flex flex-col p-2">
+                            <p className="font-normal pb-1">
+                                The fastest way to get started. Run this command from your project root — it
+                                automatically detects your framework, installs PostHog, and sets up event capture.
+                            </p>
+                            <CodeSnippet language={Language.Bash}>{wizardCommand}</CodeSnippet>
+                        </div>
+                    </LemonBanner>
+                    <p className="text-sm">
+                        After the wizard finishes, <Link to="/workflows/channels">configure a channel</Link> then head
+                        to the <Link to="/workflows">workflow builder</Link> to create your first automation.
+                    </p>
+                    <div className="flex items-center gap-3">
+                        <div className="flex-1 border-t border-border" />
+                        <span className="text-muted font-semibold text-xs uppercase">Or, set up manually</span>
+                        <div className="flex-1 border-t border-border" />
+                    </div>
+                </>
+            )}
+        </div>
     )
 }
 
@@ -443,9 +486,14 @@ export const onboardingViews = {
 
 export function Onboarding(): JSX.Element | null {
     const { product, productKey } = useValues(onboardingLogic)
+    const isAIChatOnboarding = useFeatureFlag('ONBOARDING_AI_PRODUCT_RECOMMENDATIONS', 'chat')
 
-    // Show product selection when no product is selected
+    // Show AI chat for product discovery if 'chat' variant is enabled and no product selected yet
+    // Once a product is selected, fall through to the normal onboarding steps
     if (!productKey) {
+        if (isAIChatOnboarding) {
+            return <OnboardingMax />
+        }
         return <ProductSelection />
     }
 

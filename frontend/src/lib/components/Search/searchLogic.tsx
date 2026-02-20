@@ -110,7 +110,10 @@ export const searchLogic = kea<searchLogicType>([
                         return null
                     }
 
-                    const response = await api.search.list({ q: trimmed })
+                    const response = await api.search.list({
+                        q: trimmed,
+                        include_counts: false,
+                    })
                     breakpoint()
 
                     return response

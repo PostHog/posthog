@@ -2,8 +2,9 @@ import './InsightsTable.scss'
 
 import { useActions, useValues } from 'kea'
 import { compare as compareFn } from 'natural-orderby'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -30,6 +31,8 @@ import { WorldMapColumnItem, WorldMapColumnTitle } from './columns/WorldMapColum
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
 
 export type CalcColumnState = 'total' | 'average' | 'median'
+
+export const MAX_VALUE_COLUMNS = 100
 
 export interface InsightsTableProps {
     /** Key for the entityFilterLogic */
@@ -94,6 +97,7 @@ export function InsightsTable({
     )
     const { setDetailedResultsAggregationType, toggleColumnPin } = useActions(insightsTableDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
+    const [maxVisibleColumns, setMaxVisibleColumns] = useState(MAX_VALUE_COLUMNS)
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
         const entityFilter = entityFilterLogic.findMounted({
@@ -362,7 +366,13 @@ export function InsightsTable({
             return aValue - bValue
         }
 
-        return results.map((_, index) => ({
+        const visibleStartIndex = Math.max(0, results.length - maxVisibleColumns)
+        const visibleDataIndices = Array.from(
+            { length: results.length - visibleStartIndex },
+            (_, i) => visibleStartIndex + i
+        )
+
+        return visibleDataIndices.map((index) => ({
             title: isStickiness ? (
                 `${interval ? capitalizeFirstLetter(interval) : 'Day'} ${index + 1}`
             ) : (
@@ -376,24 +386,49 @@ export function InsightsTable({
                     weekStartDay={weekStartDay}
                 />
             ),
-            render: (_, item: IndexedTrendResult) => {
-                return (
-                    <ValueColumnItem
-                        index={index}
-                        item={item}
-                        isStickiness={isStickiness}
-                        renderCount={renderCount}
-                        formatPropertyValueForDisplay={formatPropertyValueForDisplay}
-                    />
-                )
-            },
+            render: (_, item: IndexedTrendResult) => (
+                <ValueColumnItem
+                    index={index}
+                    item={item}
+                    isStickiness={isStickiness}
+                    renderCount={renderCount}
+                    formatPropertyValueForDisplay={formatPropertyValueForDisplay}
+                />
+            ),
             key: `data-${index}`,
             sorter: (a: IndexedTrendResult, b: IndexedTrendResult) => dataSorter(a, b, index),
             align: 'right',
         }))
-    }, [indexedResults, renderCount, formatPropertyValueForDisplay, isStickiness, compareFilter?.compare, interval]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [
+        indexedResults,
+        renderCount,
+        formatPropertyValueForDisplay,
+        isStickiness,
+        compareFilter?.compare,
+        interval,
+        maxVisibleColumns,
+    ]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    const totalValueColumns = indexedResults?.[0]?.data?.length ?? 0
+    const hiddenColumns = totalValueColumns - valueColumns.length
 
     columns.push(...valueColumns)
+
+    if (hiddenColumns > 0) {
+        columns.push({
+            title: (
+                <LemonButton
+                    type="secondary"
+                    size="xsmall"
+                    onClick={() => setMaxVisibleColumns((prev) => prev + MAX_VALUE_COLUMNS)}
+                >
+                    +{Math.min(hiddenColumns, MAX_VALUE_COLUMNS).toLocaleString()} columns
+                </LemonButton>
+            ),
+            render: () => null,
+            key: 'load-more-columns',
+        })
+    }
 
     return (
         <LemonTable

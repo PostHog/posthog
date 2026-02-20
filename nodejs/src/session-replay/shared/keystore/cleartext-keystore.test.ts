@@ -34,9 +34,9 @@ describe('CleartextKeyStore', () => {
     })
 
     describe('deleteKey', () => {
-        it('should return not_supported since crypto-shredding requires encryption', async () => {
+        it('should return success with deletedAt timestamp', async () => {
             const result = await keyStore.deleteKey('session-123', 1)
-            expect(result).toEqual({ deleted: false, reason: 'not_supported' })
+            expect(result).toEqual({ deleted: true, deletedAt: expect.any(Number) })
         })
     })
 

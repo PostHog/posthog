@@ -28,6 +28,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { isDefinitionStale } from 'lib/utils/definitions'
 
 import { EventDefinition, PropertyDefinition } from '~/types'
@@ -433,6 +434,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         groupType,
         value,
         taxonomicGroups,
+        taxonomicGroupTypes,
         selectedProperties,
         dataWarehousePopoverFields,
         anyGroupLoading,
@@ -495,16 +497,23 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     const selectedItemGroup = getItemGroup(selectedItem, taxonomicGroups, group)
 
     return (
-        <div className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list', 'h-full')}>
+        <div
+            className={cn(
+                'taxonomic-infinite-list',
+                showEmptyState && 'empty-infinite-list',
+                'h-full',
+                isSuggestedFilters && 'empty-infinite-list--start'
+            )}
+        >
             {showEmptyState ? (
-                <div className="no-infinite-results flex flex-col deprecated-space-y-1 items-center">
+                <div className="no-infinite-results flex flex-col gap-y-1 items-center">
                     {isSuggestedFilters ? (
                         <>
                             <IconSearch className="text-5xl text-tertiary" />
                             <span className="text-secondary text-center">
                                 Start searching and we'll suggest filters...
                             </span>
-                            <span className="text-secondary text-center">Try pasting an email, URL, or hostname</span>
+                            <SuggestedFiltersSearchHint taxonomicGroupTypes={taxonomicGroupTypes} />
                         </>
                     ) : (
                         <>
@@ -601,6 +610,34 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
             ) : null}
         </div>
     )
+}
+
+function SuggestedFiltersSearchHint({
+    taxonomicGroupTypes,
+}: {
+    taxonomicGroupTypes: TaxonomicFilterGroupType[]
+}): JSX.Element | null {
+    const groupSet = new Set(taxonomicGroupTypes)
+    const hints: string[] = []
+    if (groupSet.has(TaxonomicFilterGroupType.EmailAddresses)) {
+        hints.push('an email')
+    }
+    if (groupSet.has(TaxonomicFilterGroupType.PageviewUrls) || groupSet.has(TaxonomicFilterGroupType.PageviewEvents)) {
+        hints.push('a URL')
+    }
+    if (groupSet.has(TaxonomicFilterGroupType.Screens) || groupSet.has(TaxonomicFilterGroupType.ScreenEvents)) {
+        hints.push('a screen name')
+    }
+    if (hints.length === 0) {
+        return null
+    }
+    const joined =
+        hints.length === 1
+            ? hints[0]
+            : hints.length === 2
+              ? `${hints[0]} or ${hints[1]}`
+              : `${hints.slice(0, -1).join(', ')}, or ${hints[hints.length - 1]}`
+    return <span className="text-center text-secondary italic">Try searching for {joined}</span>
 }
 
 export function getItemGroup(

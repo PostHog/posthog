@@ -1,0 +1,37 @@
+# This rule detects direct model creation in max_tools.py files that should use serializers.
+# Max AI tools should go through serializers to ensure proper validation, rate limiting,
+# metrics logging, and consistent behavior with the rest of the codebase.
+#
+# See: https://github.com/PostHog/posthog/pull/48087 for context
+rules:
+    - id: max-tools-direct-model-create
+      patterns:
+          - pattern-either:
+                - pattern: $MODEL.objects.create(...)
+                - pattern: $MODEL.objects.acreate(...)
+          - metavariable-regex:
+                metavariable: $MODEL
+                # Models that have serializers and should not be created directly in max_tools.
+                # Add models here as needed (e.g., Experiment, Survey, Task).
+                regex: ^(FeatureFlag)$
+      message: |
+          Direct model creation in max_tools bypasses serializer validation.
+          Use the appropriate serializer (e.g., FeatureFlagSerializer) to ensure
+          proper validation, rate limiting, and metrics logging.
+
+          Instead of:
+              flag = FeatureFlag.objects.create(team=team, key=key, ...)
+
+          Use:
+              serializer = FeatureFlagSerializer(data=data, context={"request": request, "get_team": lambda: team})
+              serializer.is_valid(raise_exception=True)
+              flag = serializer.save()
+      languages: [python]
+      severity: WARNING
+      metadata:
+          category: correctness
+          subcategory: audit
+          confidence: HIGH
+      paths:
+          include:
+              - '**/max_tools.py'

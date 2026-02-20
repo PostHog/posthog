@@ -20,6 +20,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { Endpoints } from './Endpoints'
 import { EndpointsUsage } from './EndpointsUsage'
+import { InsightPickerEndpointModal } from './InsightPickerEndpointModal'
 import { endpointsLogic } from './endpointsLogic'
 import { endpointsUsageLogic } from './endpointsUsageLogic'
 import { OverlayForNewEndpointMenu } from './newEndpointMenu'
@@ -131,6 +132,7 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                             action={() => router.actions.push(urls.sqlEditor())}
                         />
                         <LemonTabs activeKey={activeTab} data-attr="endpoints-tabs" tabs={tabs} sceneInset />
+                        <InsightPickerEndpointModal tabId={tabId || ''} />
                     </SceneContent>
                 </BindLogic>
             </BindLogic>

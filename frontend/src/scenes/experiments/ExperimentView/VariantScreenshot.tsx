@@ -28,16 +28,22 @@ export function VariantScreenshot({
         return Array.isArray(variantImages) ? variantImages : [variantImages]
     }
 
-    const [mediaIds, setMediaIds] = useState<string[]>(getInitialMediaIds())
+    const [mediaIds, setMediaIds] = useState<string[]>(getInitialMediaIds)
     const [loadingImages, setLoadingImages] = useState<Record<string, boolean>>({})
     const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null)
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (_, __, id) => {
-            if (id && mediaIds.length < 5) {
-                const newMediaIds = [...mediaIds, id]
-                setMediaIds(newMediaIds)
+            if (!id) {
+                return
+            }
+            if (mediaIds.length >= 5) {
+                lemonToast.error('Maximum of 5 images allowed')
+                return
+            }
 
+            setMediaIds((prev) => {
+                const newMediaIds = [...prev, id]
                 const updatedVariantImages = {
                     ...experiment.parameters?.variant_screenshot_media_ids,
                     [variantKey]: newMediaIds,
@@ -45,9 +51,8 @@ export function VariantScreenshot({
 
                 updateExperimentVariantImages(updatedVariantImages)
                 reportExperimentVariantScreenshotUploaded(experiment.id)
-            } else if (mediaIds.length >= 5) {
-                lemonToast.error('Maximum of 5 images allowed')
-            }
+                return newMediaIds
+            })
         },
         onError: (detail) => {
             lemonToast.error(`Error uploading image: ${detail}`)
@@ -108,6 +113,7 @@ export function VariantScreenshot({
                                     <img
                                         className="w-full h-full object-cover"
                                         src={mediaId.startsWith('data:') ? mediaId : `/uploaded_media/${mediaId}`}
+                                        alt={`Variant screenshot thumbnail ${index + 1}`}
                                         onError={() => handleImageError(mediaId)}
                                         onLoad={() => handleImageLoad(mediaId)}
                                     />

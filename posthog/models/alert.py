@@ -1,16 +1,20 @@
+from __future__ import annotations
+
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from django.core.exceptions import ValidationError
 from django.db import models
+
+if TYPE_CHECKING:
+    from posthog.models.organization import Organization
 
 import pydantic
 
 from posthog.schema import AlertCalculationInterval, AlertState, InsightThreshold
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.insight import Insight
 from posthog.models.utils import CreatedMetaFields, UUIDTModel
-from posthog.schema_migrations.upgrade_manager import upgrade_query
 
 ALERT_STATE_CHOICES = [
     (AlertState.FIRING, AlertState.FIRING),
@@ -18,16 +22,6 @@ ALERT_STATE_CHOICES = [
     (AlertState.ERRORED, AlertState.ERRORED),
     (AlertState.SNOOZED, AlertState.SNOOZED),
 ]
-
-
-def are_alerts_supported_for_insight(insight: Insight) -> bool:
-    with upgrade_query(insight):
-        query = insight.query
-        while query.get("source"):
-            query = query["source"]
-        if query is None or query.get("kind") != "TrendsQuery":
-            return False
-    return True
 
 
 # TODO: Enable `@deprecated` once we move to Python 3.13
@@ -125,6 +119,16 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             )
         )
 
+    def mark_for_recheck(self, *, reset_state: bool = False) -> list[str]:
+        """Returns list of field names that were modified (for use with update_fields)."""
+        updated: list[str] = []
+        if reset_state:
+            self.state = AlertState.NOT_FIRING
+            updated.append("state")
+        self.next_check_at = None
+        updated.append("next_check_at")
+        return updated
+
     def save(self, *args, **kwargs):
         if not self.enabled:
             # When disabling an alert, set the state to not firing
@@ -133,6 +137,26 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
                 kwargs["update_fields"].append("state")
 
         super().save(*args, **kwargs)
+
+    @classmethod
+    def check_alert_limit(cls, team_id: int, organization: Organization) -> str | None:
+        """Return an error message if the team has reached its alert limit, else None."""
+        from posthog.constants import AvailableFeature
+
+        alerts_feature = organization.get_available_feature(AvailableFeature.ALERTS)
+        existing_count = cls.objects.filter(team_id=team_id).count()
+
+        if alerts_feature:
+            allowed = alerts_feature.get("limit")
+            # If allowed is None then the user is allowed unlimited alerts
+            if allowed is not None and existing_count >= allowed:
+                return f"Your team has reached the limit of {allowed} alerts on your plan."
+        else:
+            # If the org doesn't have alerts feature, limit to that on free tier
+            if existing_count >= cls.ALERTS_ALLOWED_ON_FREE_TIER:
+                return f"Your plan is limited to {cls.ALERTS_ALLOWED_ON_FREE_TIER} alerts."
+
+        return None
 
 
 class AlertSubscription(ModelActivityMixin, CreatedMetaFields, UUIDTModel):

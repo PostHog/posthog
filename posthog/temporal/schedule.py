@@ -357,7 +357,8 @@ schedules = [
     create_generation_clustering_coordinator_schedule,
     create_video_segment_clustering_coordinator_schedule,
     create_ducklake_compaction_schedule,
-    create_delete_recording_metadata_schedule,
+    # create_delete_recording_metadata_schedule is disabled during recording-api rollout.
+    # Deletion is now handled by the recording-api (crypto-shredding + Kafka deletion events).
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
     create_realtime_cohort_calculation_schedule,
