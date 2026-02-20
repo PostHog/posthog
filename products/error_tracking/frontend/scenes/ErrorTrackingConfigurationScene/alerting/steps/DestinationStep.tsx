@@ -5,7 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
 
-import { DestinationOption, errorTrackingAlertWizardLogic } from '../errorTrackingAlertWizardLogic'
+import { WizardDestination, errorTrackingAlertWizardLogic } from '../errorTrackingAlertWizardLogic'
 import { WizardCard } from './WizardCard'
 
 export function DestinationStep({ onBack }: { onBack: () => void }): JSX.Element {
@@ -62,7 +62,7 @@ export function DestinationStep({ onBack }: { onBack: () => void }): JSX.Element
                 <p className="text-secondary text-sm">Choose your preferred notification channel</p>
             </div>
             <div className="space-y-3">
-                {destinationOptions.map((option: DestinationOption) => (
+                {destinationOptions.map((option: WizardDestination) => (
                     <WizardCard
                         key={option.key}
                         icon={<HogFunctionIcon src={option.icon} size="medium" />}

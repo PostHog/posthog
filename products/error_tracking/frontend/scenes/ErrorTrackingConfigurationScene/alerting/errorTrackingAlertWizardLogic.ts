@@ -13,8 +13,8 @@ import { CyclotronJobInputType, HogFunctionSubTemplateIdType, HogFunctionTemplat
 
 import type { errorTrackingAlertWizardLogicType } from './errorTrackingAlertWizardLogicType'
 
-export type WizardDestination = 'slack' | 'discord' | 'github' | 'microsoft-teams' | 'linear'
-export type WizardTrigger = 'error-tracking-issue-created' | 'error-tracking-issue-reopened'
+export type WizardDestinationKey = 'slack' | 'discord' | 'github' | 'microsoft-teams' | 'linear'
+export type WizardTriggerKey = 'error-tracking-issue-created' | 'error-tracking-issue-reopened'
 export type WizardStep = 'destination' | 'trigger' | 'configure'
 export type AlertCreationView = 'none' | 'wizard' | 'traditional'
 
@@ -24,15 +24,15 @@ export const SUB_TEMPLATE_IDS: HogFunctionSubTemplateIdType[] = [
     'error-tracking-issue-spiking',
 ]
 
-export interface DestinationOption {
-    key: WizardDestination
+export interface WizardDestination {
+    key: WizardDestinationKey
     name: string
     description: string
     icon: string
     templateId: string
 }
 
-const ALL_DESTINATIONS: DestinationOption[] = [
+const ALL_DESTINATIONS: WizardDestination[] = [
     {
         key: 'slack',
         name: 'Slack',
@@ -70,15 +70,21 @@ const ALL_DESTINATIONS: DestinationOption[] = [
     },
 ]
 
-const DEFAULT_PRIORITY: WizardDestination[] = ['slack', 'discord', 'github', 'microsoft-teams', 'linear']
+const DESTINATIONS_DEFAULT_PRIORITY: WizardDestinationKey[] = [
+    'slack',
+    'discord',
+    'github',
+    'microsoft-teams',
+    'linear',
+]
 
-export interface TriggerOption {
-    key: WizardTrigger
+export interface WizardTrigger {
+    key: WizardTriggerKey
     name: string
     description: string
 }
 
-export const TRIGGER_OPTIONS: TriggerOption[] = [
+export const TRIGGER_OPTIONS: WizardTrigger[] = [
     {
         key: 'error-tracking-issue-created',
         name: 'Issue created',
@@ -91,14 +97,14 @@ export const TRIGGER_OPTIONS: TriggerOption[] = [
     },
 ]
 
-function extractDestinationFromAlert(alert: HogFunctionType): WizardDestination | null {
+function extractDestinationKeyFromAlert(alert: HogFunctionType): WizardDestinationKey | null {
     const templateId = alert.template?.id
     if (!templateId) {
         return null
     }
-    for (const dest of ALL_DESTINATIONS) {
-        if (templateId.startsWith(dest.templateId)) {
-            return dest.key
+    for (const destination of ALL_DESTINATIONS) {
+        if (templateId.startsWith(destination.templateId)) {
+            return destination.key
         }
     }
     return null
@@ -110,8 +116,8 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
     actions({
         setAlertCreationView: (view: AlertCreationView) => ({ view }),
         setStep: (step: WizardStep) => ({ step }),
-        setDestination: (destination: WizardDestination) => ({ destination }),
-        setTrigger: (trigger: WizardTrigger) => ({ trigger }),
+        setDestination: (destination: WizardDestinationKey) => ({ destination }),
+        setTrigger: (trigger: WizardTriggerKey) => ({ trigger }),
         setInputValue: (key: string, value: CyclotronJobInputType) => ({ key, value }),
         resetWizard: true,
         createAlertSuccess: true,
@@ -135,14 +141,14 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
             },
         ],
         selectedDestination: [
-            null as WizardDestination | null,
+            null as WizardDestinationKey | null,
             {
                 setDestination: (_, { destination }) => destination,
                 resetWizard: () => null,
             },
         ],
         selectedTrigger: [
-            null as WizardTrigger | null,
+            null as WizardTriggerKey | null,
             {
                 setTrigger: (_, { trigger }) => trigger,
                 resetWizard: () => null,
@@ -210,10 +216,10 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
     selectors({
         usedDestinations: [
             (s) => [s.existingAlerts],
-            (existingAlerts): Set<WizardDestination> => {
-                const used = new Set<WizardDestination>()
+            (existingAlerts): Set<WizardDestinationKey> => {
+                const used = new Set<WizardDestinationKey>()
                 for (const alert of existingAlerts) {
-                    const dest = extractDestinationFromAlert(alert)
+                    const dest = extractDestinationKeyFromAlert(alert)
                     if (dest) {
                         used.add(dest)
                     }
@@ -224,8 +230,8 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
 
         destinationOptions: [
             (s) => [s.usedDestinations],
-            (usedDestinations): DestinationOption[] => {
-                const sorted = [...DEFAULT_PRIORITY].sort((a, b) => {
+            (usedDestinations): WizardDestination[] => {
+                const sorted = [...DESTINATIONS_DEFAULT_PRIORITY].sort((a, b) => {
                     const aUsed = usedDestinations.has(a) ? 1 : 0
                     const bUsed = usedDestinations.has(b) ? 1 : 0
                     return bUsed - aUsed
@@ -241,12 +247,12 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
                 if (!selectedDestination || !selectedTrigger) {
                     return null
                 }
-                const destOption = ALL_DESTINATIONS.find((d) => d.key === selectedDestination)
-                if (!destOption) {
+                const destinationOption = ALL_DESTINATIONS.find((d) => d.key === selectedDestination)
+                if (!destinationOption) {
                     return null
                 }
-                const subTemplates = HOG_FUNCTION_SUB_TEMPLATES[selectedTrigger]
-                return subTemplates?.find((t) => t.template_id === destOption.templateId) ?? null
+                const subTemplates = HOG_FUNCTION_SUB_TEMPLATES[selectedTrigger as HogFunctionSubTemplateIdType]
+                return subTemplates?.find((t) => t.template_id === destinationOption.templateId) ?? null
             },
         ],
 
@@ -288,10 +294,10 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
         },
 
         setTrigger: () => {
-            const dest = values.selectedDestination
-            if (dest) {
-                const destOption = ALL_DESTINATIONS.find((d) => d.key === dest)!
-                actions.loadTemplate(destOption.templateId)
+            const destination = values.selectedDestination
+            if (destination) {
+                const destinationOptions = ALL_DESTINATIONS.find((d) => d.key === destination)!
+                actions.loadTemplate(destinationOptions.templateId)
             }
             actions.setStep('configure')
         },

@@ -3,7 +3,7 @@ import { useActions } from 'kea'
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { TRIGGER_OPTIONS, TriggerOption, errorTrackingAlertWizardLogic } from '../errorTrackingAlertWizardLogic'
+import { TRIGGER_OPTIONS, WizardTrigger, errorTrackingAlertWizardLogic } from '../errorTrackingAlertWizardLogic'
 import { WizardCard } from './WizardCard'
 
 export function TriggerStep(): JSX.Element {
@@ -24,7 +24,7 @@ export function TriggerStep(): JSX.Element {
                 <p className="text-secondary text-sm">Choose when you want to be notified</p>
             </div>
             <div className="space-y-3">
-                {TRIGGER_OPTIONS.map((option: TriggerOption) => (
+                {TRIGGER_OPTIONS.map((option: WizardTrigger) => (
                     <WizardCard
                         key={option.key}
                         name={option.name}
