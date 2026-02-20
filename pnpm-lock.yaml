@@ -2106,6 +2106,9 @@ importers:
       kea-router:
         specifier: 'catalog:'
         version: 3.4.1(kea@4.0.0-pre.3(react@18.3.1))
+      posthog-js:
+        specifier: 'catalog:'
+        version: 1.347.2
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2165,8 +2168,6 @@ importers:
         version: 18.3.1
 
   products/growth: {}
-
-  products/hasburger: {}
 
   products/links:
     dependencies:

@@ -9,10 +9,12 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { HealthIssueCard } from '~/layout/navigation-3000/sidepanel/panels/SidePanelHealth'
 import { sidePanelHealthLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelHealthLogic'
-import { DataHealthIssue } from '~/layout/navigation-3000/sidepanel/panels/sidePanelHealthLogic'
+import type { DataHealthIssue } from '~/layout/navigation-3000/sidepanel/panels/sidePanelHealthLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { PipelineStatusSummary } from './PipelineStatusSummary'
+import { PipelineStatusToolbar } from './PipelineStatusToolbar'
 import { pipelineStatusSceneLogic } from './pipelineStatusSceneLogic'
 
 export const scene: SceneExport = {
@@ -23,6 +25,8 @@ export const scene: SceneExport = {
 export function PipelineStatusScene(): JSX.Element {
     const { issues, healthIssuesLoading, hasErrors, issueCount } = useValues(sidePanelHealthLogic)
     const { loadHealthIssues } = useActions(sidePanelHealthLogic)
+    const { filteredIssues, filteredIssueCount, isIssueDismissed } = useValues(pipelineStatusSceneLogic)
+    const { dismissIssue, undismissIssue } = useActions(pipelineStatusSceneLogic)
 
     return (
         <SceneContent>
@@ -46,9 +50,10 @@ export function PipelineStatusScene(): JSX.Element {
                 }
             />
 
-            <div className="max-w-3xl">
+            <div className="max-w-3xl space-y-4">
                 {healthIssuesLoading && issues.length === 0 ? (
                     <div className="space-y-3">
+                        <LemonSkeleton className="h-8" />
                         <LemonSkeleton className="h-20" />
                         <LemonSkeleton className="h-20" />
                     </div>
@@ -65,21 +70,24 @@ export function PipelineStatusScene(): JSX.Element {
                     </LemonBanner>
                 ) : (
                     <>
-                        <LemonBanner type="warning" hideIcon={false} className="mb-4">
-                            <p className="font-semibold">
-                                {issueCount} issue{issueCount === 1 ? '' : 's'} need{issueCount === 1 ? 's' : ''}{' '}
-                                attention
-                            </p>
-                            <p className="text-sm mt-1">
-                                These data pipelines have failed or been disabled and may affect your data.
-                            </p>
-                        </LemonBanner>
+                        <PipelineStatusSummary />
+                        <PipelineStatusToolbar />
 
-                        <div className="space-y-3">
-                            {issues.map((issue: DataHealthIssue) => (
-                                <HealthIssueCard key={issue.id} issue={issue} />
-                            ))}
-                        </div>
+                        {filteredIssueCount === 0 ? (
+                            <div className="text-center text-muted p-8">No issues match your filters.</div>
+                        ) : (
+                            <div className="space-y-3">
+                                {filteredIssues.map((issue: DataHealthIssue) => (
+                                    <HealthIssueCard
+                                        key={issue.id}
+                                        issue={issue}
+                                        isDismissed={isIssueDismissed(issue.id)}
+                                        onDismiss={() => dismissIssue(issue.id)}
+                                        onUndismiss={() => undismissIssue(issue.id)}
+                                    />
+                                ))}
+                            </div>
+                        )}
                     </>
                 )}
             </div>

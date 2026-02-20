@@ -32,7 +32,6 @@ export type LLMAnalyticsTabId =
     | 'datasets'
     | 'evaluations'
     | 'prompts'
-    | 'settings'
     | 'clusters'
 
 export type SortDirection = 'ASC' | 'DESC'
@@ -154,8 +153,6 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
                     return 'evaluations'
                 } else if (sceneKey === 'llmAnalyticsPrompts') {
                     return 'prompts'
-                } else if (sceneKey === 'llmAnalyticsSettings') {
-                    return 'settings'
                 } else if (sceneKey === 'llmAnalyticsClusters') {
                     return 'clusters'
                 }
@@ -218,7 +215,6 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             [urls.llmAnalyticsErrors()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsSessions()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsPlayground()]: (_, searchParams) => applySearchParams(searchParams),
-            [urls.llmAnalyticsSettings()]: () => {},
         }
     }),
 
