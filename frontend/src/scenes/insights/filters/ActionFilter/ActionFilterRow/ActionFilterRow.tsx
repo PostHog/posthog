@@ -16,7 +16,6 @@ import {
     LemonSelect,
     LemonSelectOption,
     LemonSelectOptions,
-    Link,
 } from '@posthog/lemon-ui'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -431,19 +430,8 @@ export function ActionFilterRow({
                         : undefined
                 }}
                 disabledReason={filter.id === 'empty' ? 'Please select an event first' : undefined}
-                tooltip={
-                    addFilterDocLink ? (
-                        <>
-                            Show filters
-                            <br />
-                            <Link to={addFilterDocLink} target="_blank">
-                                Read the docs
-                            </Link>
-                        </>
-                    ) : (
-                        'Show filters'
-                    )
-                }
+                tooltip="Show filters"
+                tooltipDocLink={addFilterDocLink}
             />
         </IconWithCount>
     )
@@ -500,18 +488,8 @@ export function ActionFilterRow({
                     team_id: currentTeamId,
                 })
             }}
-            tooltip={
-                <>
-                    Combine events
-                    <br />
-                    <Link
-                        to="https://posthog.com/docs/product-analytics/trends/overview#combine-events-inline"
-                        target="_blank"
-                    >
-                        Read the docs
-                    </Link>
-                </>
-            }
+            tooltip="Combine events"
+            tooltipDocLink="https://posthog.com/docs/product-analytics/trends/overview#combine-events-inline"
         />
     )
 
