@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
@@ -11,9 +12,11 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
-from posthog.schema import CachedSessionsQueryResponse, SessionsQuery
+from parameterized import parameterized
 
-from posthog.hogql_queries.sessions_query_runner import SessionsQueryRunner
+from posthog.schema import CachedSessionsQueryResponse, PersonPropertyFilter, SessionsQuery
+
+from posthog.hogql_queries.sessions_query_runner import SUPPORTED_PERSON_PROPERTY_OPERATORS, SessionsQueryRunner
 from posthog.models.utils import uuid7
 
 
@@ -698,8 +701,6 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with freeze_time("2024-01-01T14:00:00Z"):
-            from posthog.schema import PersonPropertyFilter
-
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -729,8 +730,6 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with freeze_time("2024-01-01T14:00:00Z"):
-            from posthog.schema import PersonPropertyFilter
-
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -757,8 +756,6 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with freeze_time("2024-01-01T14:00:00Z"):
-            from posthog.schema import PersonPropertyFilter
-
             query = SessionsQuery(
                 after="2024-01-01",
                 kind="SessionsQuery",
@@ -924,3 +921,93 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             person_display = response.results[0][1]
             assert person_display["display_name"] == anon_distinct_id
             assert person_display["distinct_id"] == anon_distinct_id
+
+    def test_unsupported_person_property_operator_raises_error(self):
+        """Test that unsupported operators raise ValueError."""
+        self._create_test_sessions(
+            data=[
+                ("user1", "session1", "2024-01-01T12:00:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id"],
+                properties=[PersonPropertyFilter(key="email", value="test", operator="is_date_after", type="person")],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            with pytest.raises(ValueError) as exc_info:
+                runner.run()
+
+            assert "Unsupported operator 'is_date_after'" in str(exc_info.value)
+            assert "Supported operators:" in str(exc_info.value)
+
+    @parameterized.expand(
+        [
+            ("exact_match", "exact", "user1@posthog.com", True),
+            ("exact_no_match", "exact", "other@posthog.com", False),
+            ("is_not_match", "is_not", "other@posthog.com", True),
+            ("is_not_no_match", "is_not", "user1@posthog.com", False),
+            ("icontains_match", "icontains", "user1", True),
+            ("icontains_no_match", "icontains", "nobody", False),
+            ("not_icontains_match", "not_icontains", "nobody", True),
+            ("not_icontains_no_match", "not_icontains", "user1", False),
+            ("regex_match", "regex", r"user\d+@posthog\.com", True),
+            ("regex_no_match", "regex", r"admin@.*", False),
+            ("not_regex_match", "not_regex", r"admin@.*", True),
+            ("not_regex_no_match", "not_regex", r"user\d+@posthog\.com", False),
+            ("is_set_match", "is_set", None, True),
+            ("is_not_set_no_match", "is_not_set", None, False),
+        ],
+    )
+    def test_person_property_filter_operators(self, _name, operator, value, expected_match):
+        """Test that all supported person property operators work correctly."""
+        self._create_test_sessions(
+            data=[
+                ("user1", "session1", "2024-01-01T12:00:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id"],
+                properties=[PersonPropertyFilter(key="email", value=value, operator=operator, type="person")],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            if expected_match:
+                assert len(response.results) == 1, (
+                    f"Expected 1 result for operator '{operator}' but got {len(response.results)}"
+                )
+            else:
+                assert len(response.results) == 0, (
+                    f"Expected 0 results for operator '{operator}' but got {len(response.results)}"
+                )
+
+    def test_supported_operators_constant_is_complete(self):
+        """Verify that the SUPPORTED_PERSON_PROPERTY_OPERATORS constant contains expected operators."""
+        expected_operators = {
+            "exact",
+            "is_not",
+            "icontains",
+            "not_icontains",
+            "regex",
+            "not_regex",
+            "is_set",
+            "is_not_set",
+            "gt",
+            "lt",
+            "gte",
+            "lte",
+        }
+        assert SUPPORTED_PERSON_PROPERTY_OPERATORS == expected_operators

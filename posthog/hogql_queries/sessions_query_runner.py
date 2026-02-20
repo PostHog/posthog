@@ -18,6 +18,25 @@ from posthog.models import Action, Person
 from posthog.models.person.person import READ_DB_FOR_PERSONS, get_distinct_ids_for_subquery
 from posthog.utils import relative_date_parse
 
+COLUMN_COMMENT_SEPARATOR = " -- "
+VALID_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
+SUPPORTED_PERSON_PROPERTY_OPERATORS = frozenset(
+    {
+        "exact",
+        "is_not",
+        "icontains",
+        "not_icontains",
+        "regex",
+        "not_regex",
+        "is_set",
+        "is_not_set",
+        "gt",
+        "lt",
+        "gte",
+        "lte",
+    }
+)
+
 # Allow-listed fields returned when you select "*" from sessions
 SELECT_STAR_FROM_SESSIONS_FIELDS = [
     "session_id",
@@ -50,7 +69,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
         # Build coalesce expression for person properties
         props = []
         for key in property_keys:
-            if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
+            if VALID_IDENTIFIER_PATTERN.match(key):
                 props.append(f"toString(__person_lookup.properties.{key})")
             else:
                 props.append(f"toString(__person_lookup.properties.`{key}`)")
@@ -64,7 +83,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
         needs_person_join = self._needs_person_join()
         select_input: list[str] = []
         for col in self.select_input_raw():
-            col_name = col.split("--")[0].strip()
+            col_name = col.split(COLUMN_COMMENT_SEPARATOR)[0].strip()
             # Selecting a "*" expands the list of columns
             if col == "*":
                 # Qualify with sessions. prefix when person join is present to avoid ambiguity
@@ -91,12 +110,12 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
     def _needs_person_join(self) -> bool:
         """Check if any selected column, orderBy, or filter requires person join."""
         for col in self.select_input_raw():
-            col_name = col.split("--")[0].strip()
+            col_name = col.split(COLUMN_COMMENT_SEPARATOR)[0].strip()
             if col_name == "person_display_name" or col_name.startswith("person.properties."):
                 return True
         if self.query.orderBy:
             for col in self.query.orderBy:
-                col_name = col.split("--")[0].strip()
+                col_name = col.split(COLUMN_COMMENT_SEPARATOR)[0].strip()
                 if col_name == "person_display_name" or col_name.startswith("person.properties."):
                     return True
         if self.query.properties:
@@ -107,8 +126,8 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
 
     def _transform_person_property_col(self, col: str) -> str:
         """Transform person.properties.X to use __person_lookup alias."""
-        if "--" in col:
-            expr, comment = col.split("--", 1)
+        if COLUMN_COMMENT_SEPARATOR in col:
+            expr, comment = col.split(COLUMN_COMMENT_SEPARATOR, 1)
             expr = expr.strip()
             comment = comment.strip()
         else:
@@ -118,13 +137,13 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
         transformed = expr.replace("person.properties.", "__person_lookup.properties.")
 
         if comment:
-            return f"{transformed} -- {comment}"
+            return f"{transformed}{COLUMN_COMMENT_SEPARATOR}{comment}"
         return transformed
 
     def _transform_session_property_col(self, col: str, needs_person_join: bool) -> str:
         """Transform session.X to X or sessions.X (when person join is present to avoid ambiguity)."""
-        if "--" in col:
-            expr, comment = col.split("--", 1)
+        if COLUMN_COMMENT_SEPARATOR in col:
+            expr, comment = col.split(COLUMN_COMMENT_SEPARATOR, 1)
             expr = expr.strip()
             comment = comment.strip()
         else:
@@ -139,7 +158,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
             transformed = property_name
 
         if comment:
-            return f"{transformed} -- {comment}"
+            return f"{transformed}{COLUMN_COMMENT_SEPARATOR}{comment}"
         return transformed
 
     def _person_property_to_expr(self, prop) -> ast.Expr:
@@ -148,11 +167,14 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
         value = prop.value
         operator = getattr(prop, "operator", "exact")
 
-        # Build the property field reference
-        if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
-            field = ast.Field(chain=["__person_lookup", "properties", key])
-        else:
-            field = ast.Field(chain=["__person_lookup", "properties", key])
+        if operator not in SUPPORTED_PERSON_PROPERTY_OPERATORS:
+            raise ValueError(
+                f"Unsupported operator '{operator}' for person property filter in sessions query. "
+                f"Supported operators: {', '.join(sorted(SUPPORTED_PERSON_PROPERTY_OPERATORS))}"
+            )
+
+        # Build the property field reference (ast.Field handles identifier escaping automatically)
+        field = ast.Field(chain=["__person_lookup", "properties", key])
 
         # Handle different operators
         if operator == "exact":
@@ -225,16 +247,9 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                 left=field,
                 right=ast.Constant(value=value),
             )
-        elif operator == "lte":
+        else:  # operator == "lte"
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.LtEq,
-                left=field,
-                right=ast.Constant(value=value),
-            )
-        else:
-            # Fallback to exact match for unknown operators
-            return ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
                 left=field,
                 right=ast.Constant(value=value),
             )
@@ -288,9 +303,13 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                         person: Optional[Person] = get_pk_or_uuid(
                             Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team=self.team), self.query.personId
                         ).first()
+                        # Qualify distinct_id with sessions. when person join is present to avoid ambiguity
+                        distinct_id_chain = (
+                            ["sessions", "distinct_id"] if self._needs_person_join() else ["distinct_id"]
+                        )
                         where_exprs.append(
                             ast.CompareOperation(
-                                left=ast.Call(name="cityHash64", args=[ast.Field(chain=["distinct_id"])]),
+                                left=ast.Call(name="cityHash64", args=[ast.Field(chain=distinct_id_chain)]),
                                 right=ast.Tuple(
                                     exprs=[
                                         ast.Call(name="cityHash64", args=[ast.Constant(value=id)])
@@ -408,7 +427,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                 if self.query.orderBy is not None:
                     order_columns: list[str] = []
                     for col in self.query.orderBy:
-                        col_name = col.split("--")[0].strip()
+                        col_name = col.split(COLUMN_COMMENT_SEPARATOR)[0].strip()
                         if col_name == "person_display_name":
                             # Replace person_display_name with the actual expression
                             property_keys = (
@@ -416,7 +435,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                             )
                             props = []
                             for key in property_keys:
-                                if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
+                                if VALID_IDENTIFIER_PATTERN.match(key):
                                     props.append(f"toString(__person_lookup.properties.{key})")
                                 else:
                                     props.append(f"toString(__person_lookup.properties.`{key}`)")
@@ -511,7 +530,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
 
         # Convert person_display_name tuple to dict
         for column_index, col in enumerate(self.select_input_raw()):
-            if col.split("--")[0].strip() == "person_display_name":
+            if col.split(COLUMN_COMMENT_SEPARATOR)[0].strip() == "person_display_name":
                 for index, result in enumerate(self.paginator.results):
                     row = list(self.paginator.results[index])
                     row[column_index] = {
