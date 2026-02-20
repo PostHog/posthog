@@ -94,13 +94,16 @@ describe('createLibVersionMonitorStep', () => {
         expect(result.type).toBe(PipelineResultType.OK)
     })
 
-    it('should handle version with only two parts', async () => {
+    it('should ignore version with only two parts', async () => {
         const step = createLibVersionMonitorStep()
         const input = createInput([{ lib_version: '1.74' }])
 
         const result = await step(input)
 
         expect(result.type).toBe(PipelineResultType.OK)
+        if (result.type === PipelineResultType.OK) {
+            expect(result.warnings ?? []).toHaveLength(0)
+        }
     })
 
     it('should preserve all input properties (pass-through step)', async () => {

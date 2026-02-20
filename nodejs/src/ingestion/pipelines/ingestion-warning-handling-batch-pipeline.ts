@@ -1,14 +1,7 @@
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
 import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
-
-/**
- * Minimal team context required for ingestion warning handling.
- * Only the team ID is needed to route warnings to the correct team.
- */
-export interface TeamIdContext {
-    team: { id: number }
-}
+import { TeamIdContext } from './builders/batch-pipeline-builders'
 
 export class IngestionWarningHandlingBatchPipeline<
     TInput,

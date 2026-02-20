@@ -86,8 +86,6 @@ export function createSessionReplayPipeline(
                         .pipe(createParseMessageStep({ topTracker }))
                         // Validate team ownership and enrich with team context
                         .pipe(createTeamFilterStep(teamService))
-                        // Monitor library version and emit warnings for old versions
-                        .pipe(createLibVersionMonitorStep())
                 )
                 .gather()
                 // Map TeamForReplay.teamId to context.team.id for handleIngestionWarnings
@@ -99,7 +97,15 @@ export function createSessionReplayPipeline(
                             team: { id: element.result.value.team.teamId },
                         },
                     }),
-                    (b) => b.teamAware((b) => b).handleIngestionWarnings(ingestionWarningProducer)
+                    (b) =>
+                        b
+                            .teamAware((b) =>
+                                b
+                                    // Monitor library version and emit warnings for old versions
+                                    .sequentially((b) => b.pipe(createLibVersionMonitorStep()))
+                                    .gather()
+                            )
+                            .handleIngestionWarnings(ingestionWarningProducer)
                 )
         )
         .handleResults(pipelineConfig)

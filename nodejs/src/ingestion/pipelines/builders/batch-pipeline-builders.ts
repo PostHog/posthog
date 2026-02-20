@@ -9,12 +9,20 @@ import { ConcurrentBatchProcessingPipeline } from '../concurrent-batch-pipeline'
 import { ConcurrentlyGroupingBatchPipeline, GroupingFunction } from '../concurrently-grouping-batch-pipeline'
 import { FilterMapBatchPipeline, FilterMapMappingFunction } from '../filter-map-batch-pipeline'
 import { GatheringBatchPipeline } from '../gathering-batch-pipeline'
-import { IngestionWarningHandlingBatchPipeline, TeamIdContext } from '../ingestion-warning-handling-batch-pipeline'
+import { IngestionWarningHandlingBatchPipeline } from '../ingestion-warning-handling-batch-pipeline'
 import { Pipeline } from '../pipeline.interface'
 import { PipelineConfig, ResultHandlingPipeline } from '../result-handling-pipeline'
 import { SequentialBatchPipeline } from '../sequential-batch-pipeline'
 import { SideEffectHandlingPipeline } from '../side-effect-handling-pipeline'
 import { PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
+
+/**
+ * Minimal team context required for team-aware pipeline operations.
+ * Only the team ID is needed to route warnings to the correct team.
+ */
+export interface TeamIdContext {
+    team: { id: number }
+}
 
 /**
  * Builder for configuring how items within a group are processed.

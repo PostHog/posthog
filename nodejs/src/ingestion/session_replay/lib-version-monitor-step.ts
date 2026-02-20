@@ -1,5 +1,4 @@
 import { ParsedMessageData } from '../../session-recording/kafka/types'
-import { logger } from '../../utils/logger'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
@@ -45,26 +44,21 @@ function readLibVersionFromHeaders(headers: ParsedMessageData['headers']): strin
 }
 
 function parseVersion(libVersion: string | undefined): { major: number; minor: number } | undefined {
-    try {
-        if (!libVersion || !libVersion.includes('.')) {
-            return undefined
-        }
-
-        const parts = libVersion.split('.')
-        if (parts.length !== 3) {
-            return undefined
-        }
-
-        const major = parseInt(parts[0], 10)
-        const minor = parseInt(parts[1], 10)
-
-        if (isNaN(major) || isNaN(minor)) {
-            return undefined
-        }
-
-        return { major, minor }
-    } catch (e) {
-        logger.warn('could_not_read_minor_lib_version', { libVersion })
+    if (!libVersion || !libVersion.includes('.')) {
         return undefined
     }
+
+    const parts = libVersion.split('.')
+    if (parts.length !== 3) {
+        return undefined
+    }
+
+    const major = parseInt(parts[0], 10)
+    const minor = parseInt(parts[1], 10)
+
+    if (isNaN(major) || isNaN(minor)) {
+        return undefined
+    }
+
+    return { major, minor }
 }
