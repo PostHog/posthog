@@ -388,6 +388,67 @@ export interface PatchedLLMProviderKeyApi {
     readonly last_used_at?: string | null
 }
 
+export interface SentimentRequestApi {
+    trace_id: string
+    force_refresh?: boolean
+    /** @nullable */
+    date_from?: string | null
+    /** @nullable */
+    date_to?: string | null
+}
+
+export type SentimentResponseApiScores = { [key: string]: number }
+
+export type MessageSentimentApiScores = { [key: string]: number }
+
+export interface MessageSentimentApi {
+    label: string
+    score: number
+    scores: MessageSentimentApiScores
+}
+
+export type GenerationSentimentApiScores = { [key: string]: number }
+
+export type GenerationSentimentApiMessages = { [key: string]: MessageSentimentApi }
+
+export interface GenerationSentimentApi {
+    label: string
+    score: number
+    scores: GenerationSentimentApiScores
+    messages: GenerationSentimentApiMessages
+}
+
+export type SentimentResponseApiGenerations = { [key: string]: GenerationSentimentApi }
+
+export interface SentimentResponseApi {
+    trace_id: string
+    label: string
+    score: number
+    scores: SentimentResponseApiScores
+    generations: SentimentResponseApiGenerations
+    generation_count: number
+    message_count: number
+}
+
+export interface SentimentBatchRequestApi {
+    /**
+     * @minItems 1
+     * @maxItems 25
+     */
+    trace_ids: string[]
+    force_refresh?: boolean
+    /** @nullable */
+    date_from?: string | null
+    /** @nullable */
+    date_to?: string | null
+}
+
+export type SentimentBatchResponseApiResults = { [key: string]: SentimentResponseApi }
+
+export interface SentimentBatchResponseApi {
+    results: SentimentBatchResponseApiResults
+}
+
 /**
  * * `trace` - trace
  * `event` - event
@@ -716,6 +777,14 @@ export type LlmAnalyticsProviderKeysListParams = {
     offset?: number
 }
 
+export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown }
+
+export type LlmAnalyticsSentimentBatchCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsSentimentBatchCreate500 = { [key: string]: unknown }
+
 export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown }
 
 export type LlmAnalyticsSummarizationCreate403 = { [key: string]: unknown }
@@ -731,296 +800,6 @@ export type LlmAnalyticsTextReprCreate400 = { [key: string]: unknown }
 export type LlmAnalyticsTextReprCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsTextReprCreate503 = { [key: string]: unknown }
-
-/**
- * * `unknown` - Unknown
- * `ok` - Ok
- * `invalid` - Invalid
- * `error` - Error
- */
-export type LLMProviderKeyStateEnumApi = (typeof LLMProviderKeyStateEnumApi)[keyof typeof LLMProviderKeyStateEnumApi]
-
-export const LLMProviderKeyStateEnumApi = {
-    unknown: 'unknown',
-    ok: 'ok',
-    invalid: 'invalid',
-    error: 'error',
-} as const
-
-export interface LLMProviderKeyApi {
-    readonly id: string
-    provider: ProviderEnumApi
-    /** @maxLength 255 */
-    name: string
-    readonly state: LLMProviderKeyStateEnumApi
-    /** @nullable */
-    readonly error_message: string | null
-    api_key?: string
-    readonly api_key_masked: string
-    set_as_active?: boolean
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    /** @nullable */
-    readonly last_used_at: string | null
-}
-
-export interface PaginatedLLMProviderKeyListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: LLMProviderKeyApi[]
-}
-
-export interface PatchedLLMProviderKeyApi {
-    readonly id?: string
-    provider?: ProviderEnumApi
-    /** @maxLength 255 */
-    name?: string
-    readonly state?: LLMProviderKeyStateEnumApi
-    /** @nullable */
-    readonly error_message?: string | null
-    api_key?: string
-    readonly api_key_masked?: string
-    set_as_active?: boolean
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    /** @nullable */
-    readonly last_used_at?: string | null
-}
-
-export interface SentimentRequestApi {
-    trace_id: string
-    force_refresh?: boolean
-    /** @nullable */
-    date_from?: string | null
-    /** @nullable */
-    date_to?: string | null
-}
-
-export type SentimentResponseApiScores = { [key: string]: number }
-
-export type MessageSentimentApiScores = { [key: string]: number }
-
-export interface MessageSentimentApi {
-    label: string
-    score: number
-    scores: MessageSentimentApiScores
-}
-
-export type GenerationSentimentApiScores = { [key: string]: number }
-
-export type GenerationSentimentApiMessages = { [key: string]: MessageSentimentApi }
-
-export interface GenerationSentimentApi {
-    label: string
-    score: number
-    scores: GenerationSentimentApiScores
-    messages: GenerationSentimentApiMessages
-}
-
-export type SentimentResponseApiGenerations = { [key: string]: GenerationSentimentApi }
-
-export interface SentimentResponseApi {
-    trace_id: string
-    label: string
-    score: number
-    scores: SentimentResponseApiScores
-    generations: SentimentResponseApiGenerations
-    generation_count: number
-    message_count: number
-}
-
-export interface SentimentBatchRequestApi {
-    /**
-     * @minItems 1
-     * @maxItems 25
-     */
-    trace_ids: string[]
-    force_refresh?: boolean
-    /** @nullable */
-    date_from?: string | null
-    /** @nullable */
-    date_to?: string | null
-}
-
-export type SentimentBatchResponseApiResults = { [key: string]: SentimentResponseApi }
-
-export interface SentimentBatchResponseApi {
-    results: SentimentBatchResponseApiResults
-}
-
-/**
- * * `trace` - trace
- * `event` - event
- */
-export type SummarizeTypeEnumApi = (typeof SummarizeTypeEnumApi)[keyof typeof SummarizeTypeEnumApi]
-
-export const SummarizeTypeEnumApi = {
-    trace: 'trace',
-    event: 'event',
-} as const
-
-/**
- * * `minimal` - minimal
- * `detailed` - detailed
- */
-export type Mode02aEnumApi = (typeof Mode02aEnumApi)[keyof typeof Mode02aEnumApi]
-
-export const Mode02aEnumApi = {
-    minimal: 'minimal',
-    detailed: 'detailed',
-} as const
-
-export interface SummarizeRequestApi {
-    /** Type of entity to summarize
-
-* `trace` - trace
-* `event` - event */
-    summarize_type: SummarizeTypeEnumApi
-    /** Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points
-
-* `minimal` - minimal
-* `detailed` - detailed */
-    mode?: Mode02aEnumApi
-    /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. */
-    data: unknown
-    /** Force regenerate summary, bypassing cache */
-    force_refresh?: boolean
-    /**
-     * LLM model to use (defaults based on provider)
-     * @nullable
-     */
-    model?: string | null
-}
-
-export interface SummaryBulletApi {
-    text: string
-    line_refs: string
-}
-
-export interface InterestingNoteApi {
-    text: string
-    line_refs: string
-}
-
-export interface StructuredSummaryApi {
-    /** Concise title (no longer than 10 words) summarizing the trace/event */
-    title: string
-    /** Mermaid flowchart code showing the main flow */
-    flow_diagram: string
-    /** Main summary bullets */
-    summary_bullets: SummaryBulletApi[]
-    /** Interesting notes (0-2 for minimal, more for detailed) */
-    interesting_notes: InterestingNoteApi[]
-}
-
-export interface SummarizeResponseApi {
-    /** Structured AI-generated summary with flow, bullets, and optional notes */
-    summary: StructuredSummaryApi
-    /** Line-numbered text representation that the summary references */
-    text_repr: string
-    /** Metadata about the summarization */
-    metadata?: unknown
-}
-
-export interface BatchCheckRequestApi {
-    /**
-     * List of trace IDs to check for cached summaries
-     * @maxItems 100
-     */
-    trace_ids: string[]
-    /** Summary detail level to check for
-
-* `minimal` - minimal
-* `detailed` - detailed */
-    mode?: Mode02aEnumApi
-    /**
-     * LLM model used for cached summaries
-     * @nullable
-     */
-    model?: string | null
-}
-
-export interface CachedSummaryApi {
-    trace_id: string
-    title: string
-    cached?: boolean
-}
-
-export interface BatchCheckResponseApi {
-    summaries: CachedSummaryApi[]
-}
-
-/**
- * * `$ai_generation` - $ai_generation
- * `$ai_span` - $ai_span
- * `$ai_embedding` - $ai_embedding
- * `$ai_trace` - $ai_trace
- */
-export type EventTypeEnumApi = (typeof EventTypeEnumApi)[keyof typeof EventTypeEnumApi]
-
-export const EventTypeEnumApi = {
-    $ai_generation: '$ai_generation',
-    $ai_span: '$ai_span',
-    $ai_embedding: '$ai_embedding',
-    $ai_trace: '$ai_trace',
-} as const
-
-export interface TextReprOptionsApi {
-    /** Maximum length of generated text (default: 2000000) */
-    max_length?: number
-    /** Use truncation for long content within events (default: true) */
-    truncated?: boolean
-    /** Characters to show at start/end when truncating (default: 1000) */
-    truncate_buffer?: number
-    /** Use interactive markers for frontend vs plain text for backend/LLM (default: true) */
-    include_markers?: boolean
-    /** Show summary vs full tree hierarchy for traces (default: false) */
-    collapsed?: boolean
-    /** Include metadata in response */
-    include_metadata?: boolean
-    /** Include hierarchy information (for traces) */
-    include_hierarchy?: boolean
-    /** Maximum depth for hierarchical rendering */
-    max_depth?: number
-    /** Number of tools before collapsing the list (default: 5) */
-    tools_collapse_threshold?: number
-    /** Prefix each line with line number (default: false) */
-    include_line_numbers?: boolean
-}
-
-export interface TextReprRequestApi {
-    /** Type of LLM event to stringify
-
-* `$ai_generation` - $ai_generation
-* `$ai_span` - $ai_span
-* `$ai_embedding` - $ai_embedding
-* `$ai_trace` - $ai_trace */
-    event_type: EventTypeEnumApi
-    /** Event data to stringify. For traces, should include 'trace' and 'hierarchy' fields. */
-    data: unknown
-    /** Optional configuration for text generation */
-    options?: TextReprOptionsApi
-}
-
-export interface TextReprMetadataApi {
-    event_type?: string
-    event_id?: string
-    trace_id?: string
-    rendering: string
-    char_count: number
-    truncated: boolean
-    error?: string
-}
-
-export interface TextReprResponseApi {
-    /** Generated text representation of the event */
-    text: string
-    /** Metadata about the text representation */
-    metadata: TextReprMetadataApi
-}
 
 export type DatasetItemsListParams = {
     /**
@@ -1064,155 +843,3 @@ export type DatasetsListParams = {
      */
     search?: string
 }
-<<<<<<< HEAD
-=======
-
-export type DatasetsListOrderByItem = (typeof DatasetsListOrderByItem)[keyof typeof DatasetsListOrderByItem]
-
-export const DatasetsListOrderByItem = {
-    '-created_at': '-created_at',
-    '-updated_at': '-updated_at',
-    created_at: 'created_at',
-    updated_at: 'updated_at',
-} as const
-
-export type EvaluationsListParams = {
-    /**
-     * Filter by enabled status
-     */
-    enabled?: boolean
-    /**
-     * Multiple values may be separated by commas.
-     */
-    id__in?: string[]
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
- * Ordering
-
-* `created_at` - Created At
-* `-created_at` - Created At (descending)
-* `updated_at` - Updated At
-* `-updated_at` - Updated At (descending)
-* `name` - Name
-* `-name` - Name (descending)
- */
-    order_by?: EvaluationsListOrderByItem[]
-    /**
-     * Search in name or description
-     */
-    search?: string
-}
-
-export type EvaluationsListOrderByItem = (typeof EvaluationsListOrderByItem)[keyof typeof EvaluationsListOrderByItem]
-
-export const EvaluationsListOrderByItem = {
-    '-created_at': '-created_at',
-    '-name': '-name',
-    '-updated_at': '-updated_at',
-    created_at: 'created_at',
-    name: 'name',
-    updated_at: 'updated_at',
-} as const
-
-export type LlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown }
-
-export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown }
-
-export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown }
-
-export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown }
-
-export type LlmAnalyticsProviderKeysListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown }
-
-export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown }
-
-export type LlmAnalyticsSentimentBatchCreate400 = { [key: string]: unknown }
-
-export type LlmAnalyticsSentimentBatchCreate500 = { [key: string]: unknown }
-
-export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown }
-
-export type LlmAnalyticsSummarizationCreate403 = { [key: string]: unknown }
-
-export type LlmAnalyticsSummarizationCreate500 = { [key: string]: unknown }
-
-export type LlmAnalyticsSummarizationBatchCheckCreate400 = { [key: string]: unknown }
-
-export type LlmAnalyticsSummarizationBatchCheckCreate403 = { [key: string]: unknown }
-
-export type LlmAnalyticsTextReprCreate400 = { [key: string]: unknown }
-
-export type LlmAnalyticsTextReprCreate500 = { [key: string]: unknown }
-
-export type LlmAnalyticsTextReprCreate503 = { [key: string]: unknown }
-
-export type DatasetItemsList2Params = {
-    /**
-     * Filter by dataset ID
-     */
-    dataset?: string
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type DatasetsList2Params = {
-    /**
-     * Multiple values may be separated by commas.
-     */
-    id__in?: string[]
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
- * Ordering
-
-* `created_at` - Created At
-* `-created_at` - Created At (descending)
-* `updated_at` - Updated At
-* `-updated_at` - Updated At (descending)
- */
-    order_by?: DatasetsList2OrderByItem[]
-    /**
-     * Search in name, description, or metadata
-     */
-    search?: string
-}
-
-export type DatasetsList2OrderByItem = (typeof DatasetsList2OrderByItem)[keyof typeof DatasetsList2OrderByItem]
-
-export const DatasetsList2OrderByItem = {
-    '-created_at': '-created_at',
-    '-updated_at': '-updated_at',
-    created_at: 'created_at',
-    updated_at: 'updated_at',
-} as const
->>>>>>> 1c63a6c25b (chore: update OpenAPI generated types)
