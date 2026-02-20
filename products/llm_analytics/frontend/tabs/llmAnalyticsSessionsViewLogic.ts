@@ -294,22 +294,46 @@ export const llmAnalyticsSessionsViewLogic = kea<llmAnalyticsSessionsViewLogicTy
                     kind: NodeKind.HogQLQuery,
                     query: `
                 SELECT
-                    properties.$ai_session_id as session_id,
-                    countDistinctIf(properties.$ai_trace_id, isNotNull(properties.$ai_trace_id)) as traces,
-                    countIf(event = '$ai_span') as spans,
-                    countIf(event = '$ai_generation') as generations,
-                    countIf(event = '$ai_embedding') as embeddings,
-                    countIf(properties.$ai_is_error = 'true') as errors,
-                    round(sum(toFloat(properties.$ai_total_cost_usd)), 4) as total_cost,
-                    round(sum(toFloat(properties.$ai_latency)), 2) as total_latency,
-                    min(timestamp) as first_seen,
-                    max(timestamp) as last_seen
-                FROM events
-                WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding', '$ai_trace')
-                    AND isNotNull(properties.$ai_session_id)
-                    AND properties.$ai_session_id != ''
-                    AND {filters}
-                GROUP BY properties.$ai_session_id
+                    session_id,
+                    count(trace_id) as traces,
+                    sum(spans) as spans,
+                    sum(generations) as generations,
+                    sum(embeddings) as embeddings,
+                    sum(errors) as errors,
+                    round(sum(total_cost), 4) as total_cost,
+                    round(sum(trace_latency), 2) as total_latency,
+                    min(first_seen) as first_seen,
+                    max(last_seen) as last_seen
+                FROM (
+                    SELECT
+                        properties.$ai_session_id as session_id,
+                        properties.$ai_trace_id as trace_id,
+                        countIf(event = '$ai_span') as spans,
+                        countIf(event = '$ai_generation') as generations,
+                        countIf(event = '$ai_embedding') as embeddings,
+                        countIf(properties.$ai_is_error = 'true') as errors,
+                        round(sumIf(toFloat(properties.$ai_total_cost_usd),
+                              event IN ('$ai_generation', '$ai_embedding')), 4) as total_cost,
+                        round(
+                            CASE
+                                WHEN countIf(toFloat(properties.$ai_latency) > 0 AND event != '$ai_generation') = 0
+                                     AND countIf(toFloat(properties.$ai_latency) > 0 AND event = '$ai_generation') > 0
+                                THEN sumIf(toFloat(properties.$ai_latency),
+                                           event = '$ai_generation' AND toFloat(properties.$ai_latency) > 0)
+                                ELSE sumIf(toFloat(properties.$ai_latency),
+                                           properties.$ai_parent_id IS NULL
+                                           OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id))
+                            END, 2) as trace_latency,
+                        min(timestamp) as first_seen,
+                        max(timestamp) as last_seen
+                    FROM events
+                    WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding', '$ai_trace')
+                        AND isNotNull(properties.$ai_session_id)
+                        AND properties.$ai_session_id != ''
+                        AND {filters}
+                    GROUP BY session_id, trace_id
+                )
+                GROUP BY session_id
                 ORDER BY ${sessionsSort.column} ${sessionsSort.direction}
                 LIMIT 50
                     `,
