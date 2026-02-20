@@ -1344,7 +1344,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 return
             }
 
-            actions.setEditorSource(searchParams.source === 'endpoint' ? 'endpoint' : 'insight')
+            if (searchParams.source === 'endpoint' || searchParams.source === 'insight') {
+                actions.setEditorSource(searchParams.source)
+            }
             if (
                 !searchParams.open_query &&
                 !searchParams.open_view &&

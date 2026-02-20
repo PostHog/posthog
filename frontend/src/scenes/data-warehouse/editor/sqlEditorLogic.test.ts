@@ -174,4 +174,26 @@ describe('sqlEditorLogic', () => {
                 .toNotHaveDispatchedActions(['syncUrlWithQuery'])
         })
     })
+
+    describe('source URL parameter', () => {
+        it('remembers endpoint source when URL sync removes search params', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), { source: 'endpoint' }, { q: 'SELECT 1' })
+
+            await expectLogic(logic).toDispatchActions(['setEditorSource', 'createTab', 'updateTab'])
+
+            logic.actions.setQueryInput('SELECT 2')
+            await new Promise((resolve) => setTimeout(resolve, 600))
+
+            expect(router.values.searchParams.source).toBeUndefined()
+            expect(router.values.hashParams.q).toEqual('SELECT 2')
+            expect(logic.values.editorSource).toEqual('endpoint')
+        })
+    })
 })
