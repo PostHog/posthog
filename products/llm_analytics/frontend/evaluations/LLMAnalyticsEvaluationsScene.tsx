@@ -1,5 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import { useEffect } from 'react'
 
 import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
 import {
@@ -27,7 +28,6 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { LLMProviderKeysSettings } from '../settings/LLMProviderKeysSettings'
 import { TrialUsageMeter } from '../settings/TrialUsageMeter'
 import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
 import {
@@ -269,8 +269,13 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
 
 export function LLMAnalyticsEvaluationsScene(): JSX.Element {
     const { searchParams } = useValues(router)
+    const { replace } = useActions(router)
 
-    const activeTab = searchParams.tab || 'evaluations'
+    useEffect(() => {
+        if (searchParams.tab === 'settings') {
+            replace(urls.settings('environment-llm-analytics', 'llm-analytics-byok'))
+        }
+    }, [searchParams.tab, replace])
 
     const tabs: LemonTab<string>[] = [
         {
@@ -289,8 +294,8 @@ export function LLMAnalyticsEvaluationsScene(): JSX.Element {
         {
             key: 'settings',
             label: 'Settings',
-            content: <LLMProviderKeysSettings />,
-            link: combineUrl(urls.llmAnalyticsEvaluations(), { ...searchParams, tab: 'settings' }).url,
+            link: urls.settings('environment-llm-analytics', 'llm-analytics-byok'),
+            content: <></>,
             'data-attr': 'settings-tab',
         },
     ]
@@ -314,8 +319,7 @@ export function LLMAnalyticsEvaluationsScene(): JSX.Element {
                     </LemonButton>
                 }
             />
-
-            <LemonTabs activeKey={activeTab} data-attr="evaluations-tabs" tabs={tabs} sceneInset />
+            <LemonTabs activeKey="evaluations" data-attr="evaluations-tabs" tabs={tabs} sceneInset />
         </SceneContent>
     )
 }
