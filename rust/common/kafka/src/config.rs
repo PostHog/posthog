@@ -22,6 +22,12 @@ pub struct KafkaConfig {
 
     #[envconfig(default = "localhost:9092")]
     pub kafka_hosts: String,
+
+    #[envconfig(default = "")]
+    pub kafka_client_rack: String,
+
+    #[envconfig(default = "")]
+    pub kafka_client_id: String,
 }
 
 #[derive(Envconfig, Clone)]

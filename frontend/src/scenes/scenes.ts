@@ -854,6 +854,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.approval(':id')]: [Scene.Approval, 'approval'],
     [urls.sqlEditor()]: [Scene.SQLEditor, 'sqlEditor'],
     [urls.featureFlags()]: [Scene.FeatureFlags, 'featureFlags'],
+    [urls.featureFlagTemplates()]: ['FeatureFlagTemplates' as Scene, 'featureFlagTemplates'],
     [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],
     [urls.annotations()]: [Scene.DataManagement, 'annotations'],
     [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],

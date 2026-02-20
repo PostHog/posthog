@@ -149,7 +149,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         typeof lastBreadcrumb?.name === 'string' ? lastBreadcrumb.name : insight.name || insight.derived_name
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
-    const [endpointModalOpen, setEndpointModalOpen] = useState<boolean>(false)
     const [tablePreviewModalOpen, setTablePreviewModalOpen] = useState<boolean>(false)
     const [terraformModalOpen, setTerraformModalOpen] = useState<boolean>(false)
     const [selectedPreviewColumn, setSelectedPreviewColumn] = useState<string | null>('event_person_id')
@@ -261,8 +260,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     )}
                     <NewDashboardModal />
                     <EndpointFromInsightModal
-                        isOpen={endpointModalOpen}
-                        closeModal={() => setEndpointModalOpen(false)}
                         tabId={insightProps.tabId || ''}
                         insightQuery={insightQuery as HogQLQuery | InsightQueryNode}
                         insightShortId={insight.short_id}
@@ -448,7 +445,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             <ButtonPrimitive
                                 onClick={() => {
                                     openCreateFromInsightModal()
-                                    setEndpointModalOpen(true)
                                 }}
                                 menuItem
                             >

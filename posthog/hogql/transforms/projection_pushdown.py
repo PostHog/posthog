@@ -147,9 +147,9 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
             return
 
         if isinstance(from_clause.table, ast.SelectQuery):
-            self._register_subquery(from_clause.table, from_clause.type)
+            self._register_subquery(from_clause.table, cast(ast.SelectQueryType, from_clause.type))
         elif isinstance(from_clause.table, ast.SelectSetQuery):
-            self._register_union_subquery(from_clause.table, from_clause.type)
+            self._register_union_subquery(from_clause.table, cast(ast.SelectSetQueryType, from_clause.type))
 
         if from_clause.next_join:
             self._register_subqueries(from_clause.next_join)

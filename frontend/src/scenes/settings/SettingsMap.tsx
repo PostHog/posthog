@@ -3,7 +3,9 @@ import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
 import { AutoAssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/AutoAssignmentRules'
 import { CustomGroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/CustomGroupingRules'
+import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
+import { LLMProviderKeysSettings } from '@posthog/products-llm-analytics/frontend/settings/LLMProviderKeysSettings'
 import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
 import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
@@ -573,6 +575,28 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-llm-analytics',
+        title: 'LLM analytics',
+        group: 'Products',
+        flag: 'LLM_ANALYTICS_EVALUATIONS',
+        accessControl: {
+            resourceType: AccessControlResourceType.LlmAnalytics,
+            minimumAccessLevel: AccessControlLevel.Editor,
+        },
+        settings: [
+            {
+                id: 'llm-analytics-byok',
+                title: 'Bring Your Own Key (BYOK)',
+                description:
+                    'Add and manage provider API keys for LLM analytics features, including evaluations and playground.',
+                component: <LLMProviderKeysSettings />,
+                docsUrl: 'https://posthog.com/docs/llm-analytics/evaluations',
+                keywords: ['llm', 'provider', 'api key', 'openai', 'anthropic', 'gemini', 'playground'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-marketing-analytics',
         title: 'Marketing analytics',
         flag: 'WEB_ANALYTICS_MARKETING',
@@ -971,6 +995,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['notification', 'alert', 'threshold', 'spike'],
             },
             {
+                id: 'error-tracking-spike-detection',
+                title: 'Spike detection',
+                component: <SpikeDetectionSettings />,
+                flag: 'ERROR_TRACKING_SPIKE_ALERTING',
+            },
+            {
                 id: 'error-tracking-auto-assignment',
                 title: 'Auto assignment rules',
                 description: 'Automatically assign errors to team members based on rules you define.',
@@ -1101,6 +1131,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'approval-policies',
                 title: 'Policies',
                 description: 'Configure which actions require approval before being applied.',
+                docsUrl: 'https://posthog.com/docs/settings/approvals#policies',
                 component: <ApprovalPolicies />,
                 keywords: ['approval', 'policy', 'review', 'gate'],
             },
@@ -1108,6 +1139,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'change-requests',
                 title: 'Change requests',
                 description: 'Review and approve pending change requests.',
+                docsUrl: 'https://posthog.com/docs/settings/approvals#change-requests',
                 component: <ChangeRequestsList />,
                 keywords: ['approval', 'review', 'pending', 'request'],
             },
