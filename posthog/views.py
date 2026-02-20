@@ -168,6 +168,7 @@ def render_query(request: HttpRequest) -> HttpResponse:
 @never_cache
 def preflight_check(request: HttpRequest) -> JsonResponse:
     slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
+    twig_slack_client_id = SlackIntegration.twig_slack_config().get("SLACK_TWIG_CLIENT_ID")
     hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
     salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
 
@@ -190,6 +191,10 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "slack_service": {
             "available": bool(slack_client_id),
             "client_id": slack_client_id or None,
+        },
+        "twig_slack_service": {
+            "available": bool(twig_slack_client_id),
+            "client_id": twig_slack_client_id or None,
         },
         "data_warehouse_integrations": {
             "hubspot": {"client_id": hubspot_client_id},

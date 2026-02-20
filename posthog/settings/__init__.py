@@ -65,6 +65,7 @@ INSTANCE_PREFERENCES = {
 }
 
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8010").rstrip("/")
+NGROK_URL: str | None = os.getenv("NGROK_URL", None)
 INSTANCE_TAG: str = os.getenv("INSTANCE_TAG", "none")
 
 if DEBUG:

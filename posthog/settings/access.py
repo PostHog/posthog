@@ -32,6 +32,9 @@ CSRF_TRUSTED_ORIGINS = (
     if raw_site_url
     else ["http://localhost:8000", "http://localhost:8010"]  # 8000 is just Django, 8010 is Django + Capture via Caddy
 )
+ngrok_url = os.getenv("NGROK_URL")
+if ngrok_url:
+    CSRF_TRUSTED_ORIGINS.append(ngrok_url.rstrip("/"))
 
 # Proxy settings
 IS_BEHIND_PROXY = get_from_env("IS_BEHIND_PROXY", False, type_cast=str_to_bool)

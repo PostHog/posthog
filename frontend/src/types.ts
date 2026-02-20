@@ -3980,6 +3980,10 @@ export interface PreflightStatus {
         available: boolean
         client_id?: string
     }
+    twig_slack_service: {
+        available: boolean
+        client_id?: string
+    }
     data_warehouse_integrations: {
         hubspot: {
             client_id?: string
@@ -4740,6 +4744,7 @@ export enum EventDefinitionType {
 
 export const INTEGRATION_KINDS = [
     'slack',
+    'slack-twig',
     'salesforce',
     'hubspot',
     'google-pubsub',

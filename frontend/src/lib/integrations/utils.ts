@@ -30,6 +30,7 @@ import IconVercel from 'public/services/vercel.png'
 
 export const ICONS: Record<IntegrationKind, any> = {
     slack: IconSlack,
+    'slack-twig': IconSlack,
     salesforce: IconSalesforce,
     hubspot: IconHubspot,
     'google-pubsub': IconGoogleCloud,
@@ -58,6 +59,8 @@ export const ICONS: Record<IntegrationKind, any> = {
 
 export const getIntegrationNameFromKind = (kind: string): string => {
     switch (kind) {
+        case 'slack-twig':
+            return 'Twig (Slack)'
         case 'google-pubsub':
             return 'Google Cloud Pub/Sub'
         case 'google-cloud-storage':

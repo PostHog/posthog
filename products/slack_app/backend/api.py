@@ -2,6 +2,7 @@ import re
 import json
 import random
 import asyncio
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
@@ -13,8 +14,15 @@ import requests
 import structlog
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
-from posthog.models.integration import Integration, SlackIntegration, SlackIntegrationError
+from posthog.models.integration import (
+    GitHubIntegration,
+    Integration,
+    SlackIntegration,
+    SlackIntegrationError,
+    validate_slack_request,
+)
 from posthog.models.organization import OrganizationMembership
+from posthog.models.user import User
 from posthog.temporal.ai.slack_conversation import (
     THINKING_MESSAGES,
     SlackConversationRunnerWorkflow,
@@ -28,6 +36,82 @@ from ee.models.assistant import Conversation
 logger = structlog.get_logger(__name__)
 
 HANDLED_EVENT_TYPES = ["app_mention"]
+
+
+@dataclass
+class SlackUserContext:
+    user: User
+    slack_email: str
+
+
+def resolve_slack_user(
+    slack: SlackIntegration, integration: Integration, slack_user_id: str, channel: str, thread_ts: str
+) -> SlackUserContext | None:
+    """Resolve a Slack user to a PostHog user. Posts an ephemeral error message and returns None on failure."""
+    try:
+        slack_user_info = slack.client.users_info(user=slack_user_id)
+        slack_email = slack_user_info.get("user", {}).get("profile", {}).get("email")  # type: ignore[call-overload]
+        if not slack_email:
+            logger.warning("slack_app_no_user_email", slack_user_id=slack_user_id)
+            slack.client.chat_postEphemeral(
+                channel=channel,
+                user=slack_user_id,
+                thread_ts=thread_ts,
+                text="Sorry, I couldn't find your email address in Slack. Please make sure your email is visible in your Slack profile.",
+            )
+            return None
+
+        membership = (
+            OrganizationMembership.objects.filter(
+                organization_id=integration.team.organization_id, user__email=slack_email
+            )
+            .select_related("user")
+            .first()
+        )
+        if not membership or not membership.user:
+            organization_name = integration.team.organization.name
+            slack.client.chat_postEphemeral(
+                channel=channel,
+                user=slack_user_id,
+                thread_ts=thread_ts,
+                text=(
+                    f"Sorry, I couldn't find {slack_email} in the {organization_name} organization. "
+                    f"Please make sure you're a member of that PostHog organization."
+                ),
+            )
+            return None
+
+        posthog_user = membership.user
+
+        user_permissions = UserPermissions(user=posthog_user, team=integration.team)
+        if user_permissions.current_team.effective_membership_level is None:
+            logger.warning(
+                "slack_app_no_team_access",
+                user_id=posthog_user.id,
+                team_id=integration.team_id,
+                organization_id=integration.team.organization_id,
+            )
+            slack.client.chat_postEphemeral(
+                channel=channel,
+                user=slack_user_id,
+                thread_ts=thread_ts,
+                text=(
+                    "Sorry, you don't have access to the PostHog project connected to this Slack workspace. "
+                    "Please ask an admin of your PostHog organization to grant you access."
+                ),
+            )
+            return None
+
+        return SlackUserContext(user=posthog_user, slack_email=slack_email)
+    except Exception as e:
+        logger.exception("slack_app_user_lookup_failed", error=str(e))
+        slack.client.chat_postEphemeral(
+            channel=channel,
+            user=slack_user_id,
+            thread_ts=thread_ts,
+            text="Sorry, I encountered an error looking up your user account. Please try again later.",
+        )
+        return None
 
 
 # To support Slack in both Cloud regions, one region acts as the primary, or "master".
@@ -135,72 +219,10 @@ def handle_app_mention(event: dict, integration: Integration) -> None:
             )
             return
 
-        # Look up Slack user's email and match to PostHog user
-        try:
-            slack_user_info = slack.client.users_info(user=slack_user_id)
-            empty: dict[str, Any] = {}
-            slack_email = slack_user_info.get("user", empty).get("profile", empty).get("email")
-            if not slack_email:
-                logger.warning("slack_app_no_user_email", slack_user_id=slack_user_id)
-                slack.client.chat_postEphemeral(
-                    channel=channel,
-                    user=slack_user_id,
-                    thread_ts=thread_ts,
-                    text="Sorry, I couldn't find your email address in Slack. Please make sure your email is visible in your Slack profile.",
-                )
-                return
-
-            # Find PostHog user by email
-            membership = (
-                OrganizationMembership.objects.filter(
-                    organization_id=integration.team.organization_id, user__email=slack_email
-                )
-                .select_related("user")
-                .first()
-            )
-            if not membership or not membership.user:
-                organization_name = integration.team.organization.name
-                slack.client.chat_postEphemeral(
-                    channel=channel,
-                    user=slack_user_id,
-                    thread_ts=thread_ts,
-                    text=(
-                        f"Sorry, I couldn't find {slack_email} in the {organization_name} organization. "
-                        f"Please make sure you're a member of that PostHog organization."
-                    ),
-                )
-                return
-
-            posthog_user = membership.user
-
-            # Check if the user has access to the specific team (handles private teams and RBAC)
-            user_permissions = UserPermissions(user=posthog_user, team=integration.team)
-            if user_permissions.current_team.effective_membership_level is None:
-                logger.warning(
-                    "slack_app_no_team_access",
-                    user_id=posthog_user.id,
-                    team_id=integration.team_id,
-                    organization_id=integration.team.organization_id,
-                )
-                slack.client.chat_postEphemeral(
-                    channel=channel,
-                    user=slack_user_id,
-                    thread_ts=thread_ts,
-                    text=(
-                        f"Sorry, you don't have access to the PostHog project connected to this Slack workspace. "
-                        f"Please ask an admin of your PostHog organization to grant you access."
-                    ),
-                )
-                return
-        except Exception as e:
-            logger.exception("slack_app_user_lookup_failed", error=str(e))
-            slack.client.chat_postEphemeral(
-                channel=channel,
-                user=slack_user_id,
-                thread_ts=thread_ts,
-                text="Sorry, I encountered an error looking up your user account. Please try again later.",
-            )
+        user_context = resolve_slack_user(slack, integration, slack_user_id, channel, thread_ts)
+        if not user_context:
             return
+        posthog_user = user_context.user
 
         # Get our bot's IDs so we can filter out our own messages and check reactions
         auth_response = slack.client.auth_test()
@@ -422,3 +444,316 @@ def slack_event_handler(request: HttpRequest) -> HttpResponse:
 def _build_slack_thread_key(slack_workspace_id: str, channel: str, thread_ts: str) -> str:
     """Build the unique key for a Slack thread."""
     return f"{slack_workspace_id}:{channel}:{thread_ts}"
+
+
+def _strip_bot_mentions(text: str) -> str:
+    """Remove all <@BOT_ID> mentions from text."""
+    return re.sub(r"<@[A-Z0-9]+>", "", text).strip()
+
+
+def _collect_thread_messages(
+    slack: SlackIntegration, channel: str, thread_ts: str, our_bot_id: str | None
+) -> list[dict[str, str]]:
+    """Fetch thread messages, strip bot mentions, and resolve user display names."""
+    thread_response = slack.client.conversations_replies(channel=channel, ts=thread_ts)
+    raw_messages: list[dict] = thread_response.get("messages", [])
+
+    user_cache: dict[str, str] = {}
+
+    def resolve_user(uid: str) -> str:
+        if uid not in user_cache:
+            try:
+                user_info = slack.client.users_info(user=uid)
+                profile = user_info.get("user", {}).get("profile", {})  # type: ignore[call-overload]
+                user_cache[uid] = profile.get("display_name") or profile.get("real_name") or "Unknown"
+            except Exception:
+                user_cache[uid] = "Unknown"
+        return user_cache[uid]
+
+    def replace_user_mentions(text: str) -> str:
+        def replace_mention(match: re.Match) -> str:
+            return f"@{resolve_user(match.group(1))}"
+
+        return re.sub(r"<@([A-Z0-9]+)>", replace_mention, text)
+
+    messages = []
+    for msg in raw_messages:
+        if our_bot_id and msg.get("bot_id") == our_bot_id:
+            continue
+        user_id = msg.get("user")
+        username = resolve_user(user_id) if user_id else "Unknown"
+        text = replace_user_mentions(msg.get("text", ""))
+        messages.append({"user": username, "text": text})
+
+    return messages
+
+
+def guess_repository(
+    thread_messages: list[dict[str, str]], integration: Integration, user: "User | None" = None
+) -> list[str]:
+    """Use the LLM to guess which repository the user is referring to from the thread context."""
+    github_integration_record = Integration.objects.filter(team=integration.team, kind="github").first()
+    if not github_integration_record:
+        return []
+
+    github = GitHubIntegration(github_integration_record)
+    org = github.organization()
+    repo_names = github.list_repositories()
+
+    if not repo_names:
+        return []
+
+    full_repo_names = [f"{org}/{name}" for name in repo_names]
+
+    from openai import OpenAI
+
+    from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_user
+
+    if not user:
+        from posthog.llm.gateway_client import get_llm_client
+
+        client = get_llm_client("twig")
+    else:
+        oauth_token = create_oauth_access_token_for_user(user, integration.team_id)
+        base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/twig/v1"
+        client = OpenAI(base_url=base_url, api_key=oauth_token)
+
+    conversation_text = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
+
+    response = client.chat.completions.create(
+        model="claude-sonnet-4-5-20250929",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a helper that identifies which GitHub repository a conversation is about. "
+                    "Given a Slack conversation and a list of available repositories, return the repository names "
+                    "that match. Return ONLY the repository names, one per line, in 'org/repo' format. "
+                    "If you cannot confidently identify a single repository, return all plausible matches. "
+                    "If none match, return nothing."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Available repositories:\n{chr(10).join(full_repo_names)}\n\nConversation:\n{conversation_text}",
+            },
+        ],
+        temperature=0,
+    )
+
+    result_text = (response.choices[0].message.content or "").strip()
+    if not result_text:
+        return []
+
+    matched = []
+    for line in result_text.splitlines():
+        repo = line.strip()
+        if repo in full_repo_names:
+            matched.append(repo)
+
+    return matched
+
+
+def route_twig_event_to_relevant_region(
+    request: HttpRequest, event: dict, slack_team_id: str, integration_kind: str = "slack-twig"
+) -> None:
+    logger.info(
+        "twig_route_start",
+        slack_team_id=slack_team_id,
+        integration_kind=integration_kind,
+        host=request.get_host(),
+        is_debug=settings.DEBUG,
+        primary_region_domain=SLACK_PRIMARY_REGION_DOMAIN,
+    )
+
+    integration = (
+        Integration.objects.filter(kind=integration_kind, integration_id=slack_team_id)
+        .select_related("team", "team__organization")
+        .first()
+    )
+
+    logger.info(
+        "twig_route_integration_lookup",
+        found=integration is not None,
+        integration_id=integration.id if integration else None,
+        team_id=integration.team_id if integration else None,
+    )
+
+    if integration and not (settings.DEBUG and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN):
+        logger.info("twig_route_handling_locally", integration_id=integration.id)
+        if event.get("type") == "app_mention":
+            handle_twig_app_mention(event, integration)
+    elif request.get_host() == SLACK_PRIMARY_REGION_DOMAIN:
+        logger.info("twig_route_proxying_to_secondary")
+        proxy_slack_event_to_secondary_region(request)
+    else:
+        logger.warning("twig_no_integration_found", slack_team_id=slack_team_id)
+
+
+def handle_twig_app_mention(event: dict, integration: Integration) -> None:
+    channel = event.get("channel")
+    slack_team_id = integration.integration_id
+    if not channel or not slack_team_id:
+        logger.warning("twig_mention_missing_channel_or_team", channel=channel, slack_team_id=slack_team_id)
+        return
+
+    thread_ts = event.get("thread_ts") or event.get("ts")
+    if not thread_ts:
+        logger.warning("twig_mention_missing_thread_ts")
+        return
+
+    slack_user_id = event.get("user")
+    if not slack_user_id:
+        logger.warning("twig_mention_missing_user")
+        return
+
+    logger.info(
+        "twig_app_mention_received",
+        channel=channel,
+        user=slack_user_id,
+        text=event.get("text"),
+        thread_ts=thread_ts,
+        slack_team_id=slack_team_id,
+    )
+
+    try:
+        slack = SlackIntegration(integration)
+
+        logger.info("twig_mention_resolving_user", slack_user_id=slack_user_id)
+        user_context = resolve_slack_user(slack, integration, slack_user_id, channel, thread_ts)
+        if not user_context:
+            logger.warning("twig_mention_user_not_resolved", slack_user_id=slack_user_id)
+            return
+        logger.info("twig_mention_user_resolved", user_id=user_context.user.id)
+
+        auth_response = slack.client.auth_test()
+        our_bot_id = auth_response.get("bot_id")
+        logger.info("twig_mention_bot_id", bot_id=our_bot_id)
+
+        thread_messages = _collect_thread_messages(slack, channel, thread_ts, our_bot_id)
+        logger.info("twig_mention_thread_messages", count=len(thread_messages) if thread_messages else 0)
+        if not thread_messages:
+            logger.warning("twig_mention_no_thread_messages")
+            return
+
+        repos = guess_repository(thread_messages, integration, user=user_context.user)
+        logger.info("twig_mention_repos_guessed", repos=repos, count=len(repos))
+
+        if len(repos) != 1:
+            if len(repos) == 0:
+                msg = "I couldn't determine which repository you're referring to. Please mention the repo name (e.g. `org/repo`) and @mention me again."
+            else:
+                msg = (
+                    "I found multiple possible repositories. Please clarify which one and @mention me again:\n"
+                    + "\n".join(f"• `{r}`" for r in repos)
+                )
+
+            slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=msg)
+            return
+
+        repository = repos[0]
+
+        user_message_ts = event.get("ts")
+        if user_message_ts:
+            slack.client.reactions_add(channel=channel, timestamp=user_message_ts, name="seedling")
+
+        user_text = _strip_bot_mentions(event.get("text", ""))
+        title = user_text[:255] if user_text else "Task from Slack"
+        description = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
+
+        from products.slack_app.backend.slack_thread import SlackThreadContext
+        from products.tasks.backend.models import Task
+
+        slack_thread_context = SlackThreadContext(
+            integration_id=integration.id,
+            channel=channel,
+            thread_ts=thread_ts,
+        )
+
+        logger.info(
+            "twig_mention_creating_task",
+            title=title,
+            repository=repository,
+            user_id=user_context.user.id,
+        )
+
+        Task.create_and_run(
+            team=integration.team,
+            title=title,
+            description=description,
+            origin_product=Task.OriginProduct.SLACK,
+            user_id=user_context.user.id,
+            repository=repository,
+            slack_thread_context=slack_thread_context,
+        )
+
+        logger.info(
+            "twig_task_created",
+            team_id=integration.team_id,
+            repository=repository,
+            channel=channel,
+            thread_ts=thread_ts,
+        )
+
+    except Exception as e:
+        logger.exception("twig_app_mention_failed", error=str(e))
+
+
+@csrf_exempt
+def twig_event_handler(request: HttpRequest) -> HttpResponse:
+    logger.info("twig_event_handler_called", method=request.method, host=request.get_host())
+
+    if request.method != "POST":
+        return HttpResponse(status=405)
+
+    try:
+        twig_config = SlackIntegration.twig_slack_config()
+        logger.info("twig_event_config_loaded", has_signing_secret=bool(twig_config.get("SLACK_TWIG_SIGNING_SECRET")))
+        validate_slack_request(request, twig_config["SLACK_TWIG_SIGNING_SECRET"])
+        logger.info("twig_event_signature_valid")
+    except SlackIntegrationError as e:
+        logger.warning(
+            "twig_event_invalid_request",
+            error=str(e),
+            has_signing_secret=bool(SlackIntegration.twig_slack_config().get("SLACK_TWIG_SIGNING_SECRET")),
+        )
+        return HttpResponse("Invalid request", status=403)
+
+    retry_num = request.headers.get("X-Slack-Retry-Num")
+    if retry_num:
+        logger.warning("twig_event_retry", retry_num=retry_num)
+        return HttpResponse(status=200)
+
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        logger.warning("twig_event_invalid_json")
+        return HttpResponse("Invalid JSON", status=400)
+
+    event_type = data.get("type")
+    logger.info("twig_event_received", event_type=event_type)
+
+    if event_type == "url_verification":
+        challenge = data.get("challenge", "")
+        return JsonResponse({"challenge": challenge})
+
+    if event_type == "event_callback":
+        event = data.get("event", {})
+        slack_team_id = data.get("team_id", "")
+        logger.info(
+            "twig_event_callback",
+            inner_event_type=event.get("type"),
+            slack_team_id=slack_team_id,
+            channel=event.get("channel"),
+            user=event.get("user"),
+        )
+
+        if event.get("type") == "app_mention":
+            route_twig_event_to_relevant_region(request, event, slack_team_id)
+        else:
+            logger.info("twig_event_ignored", inner_event_type=event.get("type"))
+
+        return HttpResponse(status=202)
+
+    logger.info("twig_event_unhandled_type", event_type=event_type)
+    return HttpResponse(status=200)
