@@ -1,4 +1,5 @@
 import os
+from datetime import UTC, datetime
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
@@ -9,8 +10,10 @@ from django.test import override_settings
 
 from boto3 import resource
 from botocore.config import Config
+from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.integration import Integration
 from posthog.models.utils import uuid7
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -20,6 +23,7 @@ from posthog.settings import (
 )
 
 from products.error_tracking.backend.models import (
+    ErrorTrackingExternalReference,
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
@@ -113,7 +117,8 @@ class TestErrorTracking(APIBaseTest):
         issue = self.create_issue(["fingerprint"])
 
         response = self.client.patch(
-            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}", data={"status": "resolved"}
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+            data={"status": "resolved"},
         )
         issue.refresh_from_db()
 
@@ -165,7 +170,8 @@ class TestErrorTracking(APIBaseTest):
         assert ErrorTrackingIssue.objects.count() == 2
 
         repsonse = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/issues/{issue_one.id}/merge", data={"ids": [issue_two.id]}
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue_one.id}/merge",
+            data={"ids": [issue_two.id]},
         )
 
         assert repsonse.status_code == 200
@@ -232,9 +238,14 @@ class TestErrorTracking(APIBaseTest):
         assert symbol_set.content_hash == "this_is_a_content_hash"
 
     def test_can_upload_a_source_map(self) -> None:
-        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER=TEST_BUCKET):
+        with self.settings(
+            OBJECT_STORAGE_ENABLED=True,
+            OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER=TEST_BUCKET,
+        ):
             symbol_set = ErrorTrackingSymbolSet.objects.create(
-                ref="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js", team=self.team, storage_ptr=None
+                ref="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js",
+                team=self.team,
+                storage_ptr=None,
             )
 
             with open(get_path_to("source.js.map"), "rb") as image:
@@ -251,7 +262,9 @@ class TestErrorTracking(APIBaseTest):
 
     def test_rejects_upload_when_object_storage_is_unavailable(self) -> None:
         symbol_set = ErrorTrackingSymbolSet.objects.create(
-            ref="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js", team=self.team, storage_ptr=None
+            ref="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js",
+            team=self.team,
+            storage_ptr=None,
         )
         with override_settings(OBJECT_STORAGE_ENABLED=False):
             fake_big_file = SimpleUploadedFile(name="large_source.js.map", content=b"", content_type="text/plain")
@@ -271,10 +284,14 @@ class TestErrorTracking(APIBaseTest):
         other_team = self.create_team_with_organization(organization=self.organization)
         ErrorTrackingSymbolSet.objects.create(ref="source_1", team=self.team, storage_ptr=None)
         ErrorTrackingSymbolSet.objects.create(
-            ref="source_2", team=self.team, storage_ptr="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js"
+            ref="source_2",
+            team=self.team,
+            storage_ptr="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js",
         )
         ErrorTrackingSymbolSet.objects.create(
-            ref="source_2", team=other_team, storage_ptr="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js"
+            ref="source_2",
+            team=other_team,
+            storage_ptr="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js",
         )
 
         self.assertEqual(ErrorTrackingSymbolSet.objects.count(), 3)
@@ -288,13 +305,25 @@ class TestErrorTracking(APIBaseTest):
         symbol_set = ErrorTrackingSymbolSet.objects.create(ref="source_1", team=self.team, storage_ptr=None)
         other_symbol_set = ErrorTrackingSymbolSet.objects.create(ref="source_2", team=self.team, storage_ptr=None)
         ErrorTrackingStackFrame.objects.create(
-            raw_id="raw_id", team=self.team, symbol_set=symbol_set, resolved=True, contents={}
+            raw_id="raw_id",
+            team=self.team,
+            symbol_set=symbol_set,
+            resolved=True,
+            contents={},
         )
         ErrorTrackingStackFrame.objects.create(
-            raw_id="other_raw_id", team=self.team, symbol_set=other_symbol_set, resolved=True, contents={}
+            raw_id="other_raw_id",
+            team=self.team,
+            symbol_set=other_symbol_set,
+            resolved=True,
+            contents={},
         )
         ErrorTrackingStackFrame.objects.create(
-            raw_id="raw_id", team=other_team, symbol_set=symbol_set, resolved=True, contents={}
+            raw_id="raw_id",
+            team=other_team,
+            symbol_set=symbol_set,
+            resolved=True,
+            contents={},
         )
 
         self.assertEqual(ErrorTrackingStackFrame.objects.count(), 3)
@@ -306,14 +335,16 @@ class TestErrorTracking(APIBaseTest):
         # fetching can be filtered by raw_ids
         data = {"raw_ids": ["raw_id"]}
         response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get", data=data
+            f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get",
+            data=data,
         )
         self.assertEqual(len(response.json()["results"]), 1)
 
         # fetching can be filtered by symbol set
         data = {"symbol_set": symbol_set.id}
         response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get", data=data
+            f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get",
+            data=data,
         )
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["symbol_set_ref"], symbol_set.ref)
@@ -328,7 +359,10 @@ class TestErrorTracking(APIBaseTest):
         )
         # assigns the issue
         self.assertEqual(ErrorTrackingIssueAssignment.objects.count(), 1)
-        self.assertEqual(ErrorTrackingIssueAssignment.objects.filter(issue=issue, user_id=self.user.id).count(), 1)
+        self.assertEqual(
+            ErrorTrackingIssueAssignment.objects.filter(issue=issue, user_id=self.user.id).count(),
+            1,
+        )
 
         self._assert_logs_the_activity(
             issue.id,
@@ -382,7 +416,11 @@ class TestErrorTracking(APIBaseTest):
 
         self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
-            data={"ids": [issue_one.id, issue_two.id], "action": "set_status", "status": "resolved"},
+            data={
+                "ids": [issue_one.id, issue_two.id],
+                "action": "set_status",
+                "status": "resolved",
+            },
         )
 
         issue_one.refresh_from_db()
@@ -408,9 +446,13 @@ class TestErrorTracking(APIBaseTest):
             },
         )
 
-        self.assertEqual(len(ErrorTrackingIssueAssignment.objects.filter(issue=issue_one, user=self.user)), 0)
         self.assertEqual(
-            len(ErrorTrackingIssueAssignment.objects.filter(issue__in=[issue_one, issue_two], role=role)), 2
+            len(ErrorTrackingIssueAssignment.objects.filter(issue=issue_one, user=self.user)),
+            0,
+        )
+        self.assertEqual(
+            len(ErrorTrackingIssueAssignment.objects.filter(issue__in=[issue_one, issue_two], role=role)),
+            2,
         )
 
     def test_can_start_bulk_symbol_set_upload(self) -> None:
@@ -714,7 +756,12 @@ class TestErrorTracking(APIBaseTest):
 
         self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_finish_upload",
-            data={"content_hashes": {str(symbol_set_one.id): "hash_one", str(symbol_set_two.id): "hash_two"}},
+            data={
+                "content_hashes": {
+                    str(symbol_set_one.id): "hash_one",
+                    str(symbol_set_two.id): "hash_two",
+                }
+            },
         )
 
         assert ErrorTrackingSymbolSet.objects.get(id=symbol_set_one.id).content_hash == "hash_one"
@@ -755,4 +802,128 @@ class TestErrorTracking(APIBaseTest):
 
     def test_fetch_release_by_hash_id_not_found(self) -> None:
         response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/releases/hash/nonexistent-hash")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_lookup_by_event_missing_event_uuid(self):
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/issues/lookup_by_event/?timestamp=2024-01-01T00:00:00Z"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_lookup_by_event_missing_timestamp(self):
+        event_uuid = str(uuid7())
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/issues/lookup_by_event/?event_uuid={event_uuid}"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("not-a-timestamp",),
+            ("2024-13-01T00:00:00Z",),
+        ]
+    )
+    def test_lookup_by_event_invalid_timestamp(self, timestamp):
+        event_uuid = str(uuid7())
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/issues/lookup_by_event/?event_uuid={event_uuid}&timestamp={timestamp}"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_lookup_by_event_rejects_non_utc_timestamp(self):
+        event_uuid = str(uuid7())
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/issues/lookup_by_event/?event_uuid={event_uuid}&timestamp=2024-01-01T00:00:00%2B05:00"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("products.error_tracking.backend.api.issues.execute_hogql_query")
+    def test_lookup_by_event_passes_timestamp_bounds_to_query(self, mock_hogql):
+        mock_hogql.return_value = type("Response", (), {"results": []})()
+
+        event_uuid = str(uuid7())
+        self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/issues/lookup_by_event/?event_uuid={event_uuid}&timestamp=2024-01-15T12:00:00Z"
+        )
+
+        mock_hogql.assert_called_once()
+        query = mock_hogql.call_args[1]["query"]
+        timestamp_exprs = [
+            expr
+            for expr in query.where.exprs
+            if hasattr(expr, "left") and hasattr(expr.left, "chain") and expr.left.chain == ["timestamp"]
+        ]
+        assert len(timestamp_exprs) == 2
+        expected_from = datetime(2024, 1, 14, 12, 0, 0, tzinfo=UTC)
+        expected_to = datetime(2024, 1, 16, 12, 0, 0, tzinfo=UTC)
+        assert timestamp_exprs[0].right.value == expected_from
+        assert timestamp_exprs[1].right.value == expected_to
+
+    @patch("products.error_tracking.backend.api.issues.execute_hogql_query")
+    def test_lookup_by_event_not_found(self, mock_hogql):
+        mock_hogql.return_value = type("Response", (), {"results": []})()
+
+        event_uuid = str(uuid7())
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/issues/lookup_by_event/?event_uuid={event_uuid}&timestamp=2024-01-01T00:00:00Z"
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("products.error_tracking.backend.api.issues.execute_hogql_query")
+    def test_lookup_by_event_null_issue_id(self, mock_hogql):
+        mock_hogql.return_value = type("Response", (), {"results": [[None]]})()
+
+        event_uuid = str(uuid7())
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/issues/lookup_by_event/?event_uuid={event_uuid}&timestamp=2024-01-01T00:00:00Z"
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("products.error_tracking.backend.api.issues.execute_hogql_query")
+    def test_lookup_by_event_returns_empty_when_no_external_issues(self, mock_hogql):
+        issue = self.create_issue(["fingerprint"])
+
+        mock_hogql.return_value = type("Response", (), {"results": [[str(issue.id)]]})()
+
+        event_uuid = str(uuid7())
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/issues/lookup_by_event/?event_uuid={event_uuid}&timestamp=2024-01-01T00:00:00Z"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["external_urls"] == []
+
+    @patch("products.error_tracking.backend.api.issues.execute_hogql_query")
+    def test_lookup_by_event_returns_external_urls(self, mock_hogql):
+        issue = self.create_issue(["fingerprint"])
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            config={"account": {"name": "PostHog"}},
+            sensitive_config={},
+        )
+        ErrorTrackingExternalReference.objects.create(
+            issue=issue,
+            integration=integration,
+            external_context={"repository": "posthog", "number": 123},
+        )
+
+        mock_hogql.return_value = type("Response", (), {"results": [[str(issue.id)]]})()
+
+        event_uuid = str(uuid7())
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/issues/lookup_by_event/?event_uuid={event_uuid}&timestamp=2024-01-01T00:00:00Z"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["external_urls"] == [
+            {"url": "https://github.com/PostHog/posthog/issues/123", "kind": "github"},
+        ]
+
+    @patch("products.error_tracking.backend.api.issues.execute_hogql_query")
+    def test_lookup_by_event_issue_not_in_db(self, mock_hogql):
+        mock_hogql.return_value = type("Response", (), {"results": [[str(uuid7())]]})()
+
+        event_uuid = str(uuid7())
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/issues/lookup_by_event/?event_uuid={event_uuid}&timestamp=2024-01-01T00:00:00Z"
+        )
         assert response.status_code == status.HTTP_404_NOT_FOUND
