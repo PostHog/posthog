@@ -1,11 +1,16 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use common_metrics::{gauge, histogram};
+use common_metrics::{gauge, histogram, inc};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::metrics::consts::{
-    RAYON_DISPATCHER_AVAILABLE_PERMITS, RAYON_DISPATCHER_SEMAPHORE_WAIT_TIME,
+    RAYON_DISPATCHER_AVAILABLE_PERMITS, RAYON_DISPATCHER_CONTENDED_ACQUIRES,
+    RAYON_DISPATCHER_EXECUTION_TIME, RAYON_DISPATCHER_INFLIGHT_TASKS,
+    RAYON_DISPATCHER_SEMAPHORE_WAIT_TIME, RAYON_DISPATCHER_TOTAL_ACQUIRES,
 };
+
+static INFLIGHT_TASKS: AtomicUsize = AtomicUsize::new(0);
 
 /// Bounds concurrent batch dispatches to the Rayon thread pool.
 ///
@@ -44,11 +49,17 @@ impl RayonDispatcher {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
+        let available_before = self.available_permits();
         gauge(
             RAYON_DISPATCHER_AVAILABLE_PERMITS,
             &[],
-            self.available_permits() as f64,
+            available_before as f64,
         );
+
+        inc(RAYON_DISPATCHER_TOTAL_ACQUIRES, &[], 1);
+        if available_before == 0 {
+            inc(RAYON_DISPATCHER_CONTENDED_ACQUIRES, &[], 1);
+        }
 
         let wait_start = std::time::Instant::now();
         let permit = self.acquire().await;
@@ -61,7 +72,19 @@ impl RayonDispatcher {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         rayon::spawn(move || {
+            let inflight = INFLIGHT_TASKS.fetch_add(1, Ordering::Relaxed) + 1;
+            gauge(RAYON_DISPATCHER_INFLIGHT_TASKS, &[], inflight as f64);
+
+            let exec_start = std::time::Instant::now();
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));
+            histogram(
+                RAYON_DISPATCHER_EXECUTION_TIME,
+                &[],
+                exec_start.elapsed().as_secs_f64() * 1000.0,
+            );
+
+            INFLIGHT_TASKS.fetch_sub(1, Ordering::Relaxed);
+
             if let Ok(value) = result {
                 drop(tx.send(value));
             }
@@ -89,7 +112,6 @@ impl RayonDispatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[tokio::test]
     async fn spawn_returns_result() {
