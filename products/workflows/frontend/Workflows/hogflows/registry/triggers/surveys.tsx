@@ -18,8 +18,13 @@ import {
 } from 'products/workflows/frontend/Workflows/hogflows/registry/triggers/triggerTypeRegistry'
 import { workflowLogic } from 'products/workflows/frontend/Workflows/workflowLogic'
 
-import { surveyTriggerLogic } from '../../steps/surveyTriggerLogic'
+import {
+    buildSurveySampleEvent,
+    getSampleValueForQuestionType,
+    surveyTriggerLogic,
+} from '../../steps/surveyTriggerLogic'
 import { HogFlowAction } from '../../types'
+import { SAMPLE_GROUPS, SAMPLE_PERSON } from './sampleGlobals'
 
 export function isSurveyTriggerConfig(config: Extract<HogFlowAction, { type: 'trigger' }>['config']): boolean {
     if (config.type !== 'event') {
@@ -315,6 +320,19 @@ registerTriggerType({
             return { valid: false, errors: { filters: 'Please select a survey' } }
         }
         return { valid: true, errors: {} }
+    },
+    buildSampleGlobals: (workflow) => {
+        const allSurveys = surveyTriggerLogic.findMounted()?.values.allSurveys ?? []
+        const selectedSurveyId = getSelectedSurveyId(workflow?.trigger)
+        const selectedSurvey =
+            selectedSurveyId && selectedSurveyId !== 'any'
+                ? (allSurveys.find((s) => s.id === selectedSurveyId) ?? null)
+                : null
+        return {
+            event: buildSurveySampleEvent(selectedSurvey, getSampleValueForQuestionType),
+            person: SAMPLE_PERSON,
+            groups: SAMPLE_GROUPS,
+        }
     },
     ConfigComponent: StepTriggerConfigurationSurvey,
 })

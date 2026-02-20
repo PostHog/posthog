@@ -9,6 +9,7 @@ import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogF
 import { CyclotronJobInputType, HogFunctionMappingType } from '~/types'
 
 import { workflowLogic } from '../../../workflowLogic'
+import { buildSampleGlobals } from '../../registry/triggers/sampleGlobals'
 import { HogFlowFunctionMappings } from './HogFlowFunctionMappings'
 
 export function HogFlowFunctionConfiguration({
@@ -29,6 +30,7 @@ export function HogFlowFunctionConfiguration({
     const { workflow, hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading } = useValues(workflowLogic)
 
     const template = hogFunctionTemplatesById[templateId]
+
     useEffect(() => {
         // oxlint-disable-next-line exhaustive-deps
         if (template && Object.keys(inputs ?? {}).length === 0) {
@@ -48,57 +50,7 @@ export function HogFlowFunctionConfiguration({
         return <div>Template not found!</div>
     }
 
-    const triggerType = workflow?.trigger?.type
-
-    // Build workflow variables object for autocomplete
-    const workflowVariables: Record<string, any> = {}
-    if (workflow?.variables) {
-        workflow.variables.forEach((variable) => {
-            // Use placeholder values based on variable type
-            if (variable.type === 'string') {
-                workflowVariables[variable.key] = 'example_value'
-            } else if (variable.type === 'number') {
-                workflowVariables[variable.key] = 123
-            } else if (variable.type === 'boolean') {
-                workflowVariables[variable.key] = true
-            } else if (variable.type === 'dictionary' || variable.type === 'json') {
-                workflowVariables[variable.key] = {}
-            } else {
-                workflowVariables[variable.key] = null
-            }
-        })
-    }
-
-    const sampleGlobals: Record<string, any> = {
-        variables: workflowVariables,
-    }
-
-    if (triggerType === 'webhook') {
-        sampleGlobals.request = {
-            method: 'POST',
-            headers: {},
-            body: {},
-            params: {},
-        }
-    } else if (triggerType === 'event') {
-        // Event-based triggers
-        sampleGlobals.event = {
-            event: 'example_event',
-            distinct_id: 'user123',
-            properties: {
-                $current_url: 'https://example.com',
-            },
-            timestamp: '2024-01-01T12:00:00Z',
-        }
-        sampleGlobals.person = {
-            id: 'person123',
-            properties: {
-                email: 'user@example.com',
-                name: 'John Doe',
-            },
-        }
-        sampleGlobals.groups = {}
-    }
+    const sampleGlobals = buildSampleGlobals(workflow)
 
     return (
         <>
