@@ -1,6 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useEffect } from 'react'
 
 import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
 import {
@@ -269,13 +268,6 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
 
 export function LLMAnalyticsEvaluationsScene(): JSX.Element {
     const { searchParams } = useValues(router)
-    const { replace } = useActions(router)
-
-    useEffect(() => {
-        if (searchParams.tab === 'settings') {
-            replace(urls.settings('environment-llm-analytics', 'llm-analytics-byok'))
-        }
-    }, [searchParams.tab, replace])
 
     const tabs: LemonTab<string>[] = [
         {
