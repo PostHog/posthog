@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import { llmAnalyticsAIDataLogic } from '../llmAnalyticsAIDataLogic'
 
@@ -19,26 +18,19 @@ export function useAIData(eventData: EventData | undefined): UseAIDataResult {
     const { aiDataCache, isEventLoading } = useValues(llmAnalyticsAIDataLogic)
     const { loadAIDataForEvent } = useActions(llmAnalyticsAIDataLogic)
 
-    const eventId = eventData?.uuid
-    const input = eventData?.input
-    const output = eventData?.output
-    const cached = eventId ? aiDataCache[eventId] : undefined
-    const loading = eventId ? isEventLoading(eventId) : false
-
-    useEffect(() => {
-        if (!eventId || cached || loading) {
-            return
-        }
-
-        loadAIDataForEvent({
-            eventId,
-            input,
-            output,
-        })
-    }, [cached, loading, loadAIDataForEvent, eventId, input, output])
-
-    if (!eventId) {
+    if (!eventData) {
         return { input: undefined, output: undefined, isLoading: false }
+    }
+
+    const cached = aiDataCache[eventData.uuid]
+    const loading = isEventLoading(eventData.uuid)
+
+    if (!cached && !loading) {
+        loadAIDataForEvent({
+            eventId: eventData.uuid,
+            input: eventData.input,
+            output: eventData.output,
+        })
     }
 
     return {

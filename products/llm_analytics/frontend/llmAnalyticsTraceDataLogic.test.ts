@@ -5,7 +5,6 @@ import {
     getEffectiveEventId,
     getInitialFocusEventId,
     getSingleTraceLoadTiming,
-    resolveTraceEventById,
     restoreTree,
 } from './llmAnalyticsTraceDataLogic'
 
@@ -379,39 +378,6 @@ describe('getEffectiveEventId', () => {
 
     it('returns null when both eventId and initialFocusEventId are null', () => {
         expect(getEffectiveEventId(null, null)).toBeNull()
-    })
-})
-
-describe('resolveTraceEventById', () => {
-    const showableEvents: LLMTraceEvent[] = [
-        {
-            id: 'event-1',
-            event: '$ai_generation',
-            properties: {
-                $ai_generation_id: 'gen-1',
-            },
-            createdAt: '2024-01-01T00:00:00Z',
-        },
-        {
-            id: 'event-2',
-            event: '$ai_span',
-            properties: {
-                $ai_span_id: 'span-2',
-            },
-            createdAt: '2024-01-01T00:00:00Z',
-        },
-    ]
-
-    it.each([
-        ['event id', 'event-1'],
-        ['generation id', 'gen-1'],
-        ['span id', 'span-2'],
-    ])('matches by %s', (_label, eventId) => {
-        expect(resolveTraceEventById(showableEvents, eventId)).toBeTruthy()
-    })
-
-    it('returns null when no event matches', () => {
-        expect(resolveTraceEventById(showableEvents, 'missing')).toBeNull()
     })
 })
 

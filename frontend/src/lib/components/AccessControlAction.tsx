@@ -23,12 +23,12 @@ export interface AccessControlActionProps<P extends AccessControlActionChildrenP
 // the `disabled` and `disabledReason` props. This means we are accepting any component and
 // then setting the props at runtime even in case they "shouldn't" receive them.
 // This is not problematic during runtime but it's admitedly slightly confusing
-export const AccessControlAction = React.forwardRef(function AccessControlActionInner<
-    P extends AccessControlActionChildrenProps,
->(
-    { children, resourceType, minAccessLevel, userAccessLevel }: AccessControlActionProps<P>,
-    ref: React.ForwardedRef<unknown>
-): JSX.Element {
+export function AccessControlAction<P extends AccessControlActionChildrenProps>({
+    children,
+    resourceType,
+    minAccessLevel,
+    userAccessLevel,
+}: AccessControlActionProps<P>): JSX.Element {
     const disabledReason = getAccessControlDisabledReason(resourceType, minAccessLevel, userAccessLevel)
 
     // Check if children is a component function or a rendered element
@@ -43,12 +43,10 @@ export const AccessControlAction = React.forwardRef(function AccessControlAction
         return <Component {...componentProps} />
     }
 
-    // If it's a rendered element, we need to clone it overloading the props.
-    // Forward ref to support wrappers used as popover/dropdown triggers.
-    const element = children as React.ReactElement<P>
+    // If it's a rendered element, we need to clone it overloading the props
+    const element = children as React.FunctionComponentElement<P>
     return React.cloneElement<P>(element, {
         disabled: element.props.disabled ?? !!disabledReason,
         disabledReason: element.props.disabledReason ?? disabledReason,
-        ref,
-    } as Partial<P> & { ref: React.ForwardedRef<unknown> })
-})
+    } as Partial<P>)
+}
