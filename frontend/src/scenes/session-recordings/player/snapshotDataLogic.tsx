@@ -4,7 +4,7 @@ import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { RecordingDeletedError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -94,6 +94,14 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             {
                 startPolling: () => true,
                 stopPolling: () => false,
+            },
+        ],
+        snapshotLoadError: [
+            null as Error | null,
+            {
+                loadSnapshotsForSource: () => null,
+                loadSnapshotsForSourceSuccess: () => null,
+                loadSnapshotsForSourceFailure: (_, { errorObject }) => errorObject ?? null,
             },
         ],
     })),
@@ -597,6 +605,23 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     return false
                 }
                 return !cache.store.canPlayAt(mode.targetTimestamp)
+            },
+        ],
+
+        isRecordingDeleted: [
+            (s) => [s.snapshotLoadError],
+            (snapshotLoadError): boolean => {
+                return snapshotLoadError instanceof RecordingDeletedError
+            },
+        ],
+
+        recordingDeletedAt: [
+            (s) => [s.snapshotLoadError],
+            (snapshotLoadError): number | null => {
+                if (snapshotLoadError instanceof RecordingDeletedError) {
+                    return snapshotLoadError.deletedAt
+                }
+                return null
             },
         ],
     })),

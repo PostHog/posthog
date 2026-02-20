@@ -230,6 +230,7 @@ import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingFingerprint,
     ErrorTrackingRelease,
+    ErrorTrackingSpikeDetectionConfig,
     ErrorTrackingStackFrame,
     ErrorTrackingStackFrameRecord,
     ErrorTrackingSymbolSet,
@@ -331,6 +332,13 @@ export class RateLimitError extends Error {
     constructor(public retryAfterSeconds: number) {
         super('Rate limit exceeded')
         this.name = 'RateLimitError'
+    }
+}
+
+export class RecordingDeletedError extends Error {
+    constructor(public deletedAt: number | null) {
+        super('Recording has been permanently deleted')
+        this.name = 'RecordingDeletedError'
     }
 }
 
@@ -1258,6 +1266,10 @@ export class ApiRequest {
 
     public errorTrackingIssueCohort(issueId: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
         return this.errorTrackingIssue(issueId, teamId).addPathComponent(`cohort`)
+    }
+
+    public errorTrackingSpikeDetectionConfig(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('spike_detection_config')
     }
 
     public quickFilters(teamId?: TeamType['id']): ApiRequest {
@@ -2809,6 +2821,9 @@ const api = {
         async create(data: Partial<EventSchema>, projectId?: ProjectType['id']): Promise<EventSchema> {
             return new ApiRequest().eventSchemas(projectId).create({ data })
         },
+        async update(id: string, data: Partial<EventSchema>, projectId?: ProjectType['id']): Promise<EventSchema> {
+            return new ApiRequest().eventSchemasDetail(id, projectId).update({ data })
+        },
         async delete(id: string, projectId?: ProjectType['id']): Promise<void> {
             return new ApiRequest().eventSchemasDetail(id, projectId).delete()
         },
@@ -3640,6 +3655,19 @@ const api = {
         async assignCohort(issueId: ErrorTrackingIssue['id'], cohortId: CohortType['id']): Promise<{ id: string }> {
             return await new ApiRequest().errorTrackingIssueCohort(issueId).put({ data: { cohortId } })
         },
+
+        async getSpikeDetectionConfig(): Promise<ErrorTrackingSpikeDetectionConfig> {
+            return await new ApiRequest().errorTrackingSpikeDetectionConfig().get()
+        },
+
+        async updateSpikeDetectionConfig(
+            data: Partial<ErrorTrackingSpikeDetectionConfig>
+        ): Promise<ErrorTrackingSpikeDetectionConfig> {
+            return await new ApiRequest()
+                .errorTrackingSpikeDetectionConfig()
+                .withAction('update_config')
+                .update({ data })
+        },
     },
 
     quickFilters: {
@@ -3761,11 +3789,19 @@ const api = {
             params: SessionRecordingSnapshotParams,
             headers: Record<string, string> = {}
         ): Promise<string[] | Uint8Array> {
-            const response = await new ApiRequest()
-                .recording(recordingId)
-                .withAction('snapshots')
-                .withQueryString(params)
-                .getResponse({ headers })
+            let response: Response
+            try {
+                response = await new ApiRequest()
+                    .recording(recordingId)
+                    .withAction('snapshots')
+                    .withQueryString(params)
+                    .getResponse({ headers })
+            } catch (e) {
+                if (e instanceof ApiError && e.status === 410 && e.data?.error === 'recording_deleted') {
+                    throw new RecordingDeletedError(e.data?.deleted_at ?? null)
+                }
+                throw e
+            }
 
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
 

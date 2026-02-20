@@ -456,11 +456,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 'closeSecondaryMetricModal',
                 'openPrimarySharedMetricModal',
                 'openSecondarySharedMetricModal',
-                'openStopExperimentModal',
-                'closeStopExperimentModal',
                 'closePauseExperimentModal',
                 'closeResumeExperimentModal',
-                'closeShipVariantModal',
+                'closeFinishExperimentModal',
                 'openReleaseConditionsModal',
             ],
         ],
@@ -1284,7 +1282,6 @@ export const experimentLogic = kea<experimentLogicType>([
                         ? values.isPrimaryMetricSignificant(values.experiment.metrics[0].uuid)
                         : false
                 )
-            actions.closeStopExperimentModal()
             values.experiment && eventUsageLogic.actions.reportExperimentStopped(values.experiment)
         },
         pauseExperiment: async () => {
@@ -1384,10 +1381,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
         },
-        shipVariantSuccess: ({ payload }) => {
-            lemonToast.success('The selected variant has been shipped')
-            actions.closeShipVariantModal()
-            if (payload.shouldStopExperiment && !values.isExperimentStopped) {
+        finishExperimentSuccess: () => {
+            lemonToast.success('Experiment ended. The selected variant has been rolled out to all users.')
+            actions.closeFinishExperimentModal()
+            if (!values.isExperimentStopped) {
                 actions.endExperiment()
             }
             actions.reportExperimentVariantShipped(values.experiment)
@@ -1398,9 +1395,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 ;[0, 400, 800].forEach((delay) => setTimeout(trigger, delay))
             }
         },
-        shipVariantFailure: ({ error }) => {
+        finishExperimentFailure: ({ error }) => {
             lemonToast.error(error)
-            actions.closeShipVariantModal()
+            actions.closeFinishExperimentModal()
         },
         updateExperimentVariantImages: async ({ variantPreviewMediaIds }) => {
             try {
@@ -1949,7 +1946,7 @@ export const experimentLogic = kea<experimentLogicType>([
         featureFlag: [
             null as FeatureFlagType | null,
             {
-                shipVariant: async ({ selectedVariantKey, shouldStopExperiment }) => {
+                finishExperiment: async ({ selectedVariantKey }) => {
                     if (!values.experiment.feature_flag) {
                         throw new Error('Experiment does not have a feature flag linked')
                     }
@@ -1962,7 +1959,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         { filters: newFilters }
                     )
 
-                    return shouldStopExperiment
+                    return null
                 },
             },
         ],

@@ -7,7 +7,15 @@ import { BuiltLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useState } from 'react'
 
-import { IconCopy, IconEllipsis, IconFilter, IconPencil, IconStack, IconTrash, IconWarning } from '@posthog/icons'
+import {
+    IconCopy,
+    IconEllipsis,
+    IconFilter,
+    IconGroupIntersect,
+    IconPencil,
+    IconTrash,
+    IconWarning,
+} from '@posthog/icons'
 import {
     LemonBadge,
     LemonCheckbox,
@@ -81,8 +89,10 @@ import {
     HogQLMathType,
     InsightShortId,
     InsightType,
+    PropertyFilterType,
     PropertyFilterValue,
     PropertyMathType,
+    PropertyOperator,
 } from '~/types'
 
 import { LocalFilter } from '../entityFilterLogic'
@@ -376,6 +386,66 @@ export function ActionFilterRow({
                     })
                     return
                 }
+                if (taxonomicGroupType === TaxonomicFilterGroupType.PageviewEvents) {
+                    updateFilter({
+                        type: EntityTypes.EVENTS,
+                        id: '$pageview',
+                        name: '$pageview',
+                        index,
+                    })
+                    updateFilterProperty({
+                        index,
+                        properties: [
+                            {
+                                key: '$current_url',
+                                value: changedValue ? String(changedValue) : '',
+                                operator: PropertyOperator.IContains,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                    })
+                    return
+                }
+                if (taxonomicGroupType === TaxonomicFilterGroupType.ScreenEvents) {
+                    updateFilter({
+                        type: EntityTypes.EVENTS,
+                        id: '$screen',
+                        name: '$screen',
+                        index,
+                    })
+                    updateFilterProperty({
+                        index,
+                        properties: [
+                            {
+                                key: '$screen_name',
+                                value: changedValue ? String(changedValue) : '',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                    })
+                    return
+                }
+                if (taxonomicGroupType === TaxonomicFilterGroupType.AutocaptureEvents) {
+                    updateFilter({
+                        type: EntityTypes.EVENTS,
+                        id: '$autocapture',
+                        name: '$autocapture',
+                        index,
+                    })
+                    updateFilterProperty({
+                        index,
+                        properties: [
+                            {
+                                key: '$el_text',
+                                value: changedValue ? String(changedValue) : '',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                    })
+                    return
+                }
                 const groupType = taxonomicFilterGroupTypeToEntityType(taxonomicGroupType)
                 if (groupType === EntityTypes.DATA_WAREHOUSE) {
                     const extraValues = Object.fromEntries(
@@ -489,7 +559,7 @@ export function ActionFilterRow({
     const combineInlineButton = (
         <LemonButton
             key="combine-inline"
-            icon={<IconStack />}
+            icon={<IconGroupIntersect />}
             title="Count multiple events as a single event"
             data-attr={`show-prop-combine-${index}`}
             noPadding

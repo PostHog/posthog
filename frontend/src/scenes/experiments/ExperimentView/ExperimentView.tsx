@@ -45,7 +45,6 @@ import {
     LegacyResultsQuery,
     LoadingState,
     PageHeaderCustom,
-    StopExperimentModal,
 } from './components'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
@@ -375,7 +374,6 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                     <DistributionModal />
                     <ReleaseConditionsModal />
 
-                    <StopExperimentModal />
                     <EditConclusionModal />
 
                     <VariantDeltaTimeseries />

@@ -1,6 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useCallback, useMemo } from 'react'
 
+import { IconBell } from '@posthog/icons'
 import {
     LemonBadge,
     LemonButton,
@@ -8,6 +10,7 @@ import {
     LemonInput,
     LemonTable,
     LemonTableColumn,
+    LemonTag,
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -22,14 +25,70 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { urls } from 'scenes/urls'
 
-import { HogFunctionType } from '~/types'
+import { HogFunctionConfigurationContextId, HogFunctionType } from '~/types'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
+import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
 import { HogFunctionOrderModal } from './HogFunctionOrderModal'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
 import { HogFunctionListLogicProps, hogFunctionsListLogic } from './hogFunctionsListLogic'
+
+const INTERNAL_DESTINATION_CONTEXT: Partial<
+    Record<HogFunctionConfigurationContextId, { label: string; url?: string }>
+> = {
+    'activity-log': {
+        label: 'Activity log',
+        url: urls.settings('environment-activity-logs', 'activity-log-notifications'),
+    },
+    'discussion-mention': {
+        label: 'Discussions',
+        url: urls.settings('environment-discussions', 'discussion-mention-integrations'),
+    },
+    'error-tracking': {
+        label: 'Error tracking',
+        url: urls.errorTrackingConfiguration() + '#selectedSetting=error-tracking-alerting',
+    },
+    'insight-alerts': { label: 'Insight alerts' },
+}
+
+function NotificationContextTag({ hogFunction }: { hogFunction: HogFunctionType }): JSX.Element | null {
+    const eventId = hogFunction.filters?.events?.[0]?.id
+    const contextId = eventToHogFunctionContextId(eventId)
+    const context = INTERNAL_DESTINATION_CONTEXT[contextId]
+    if (!context) {
+        return null
+    }
+
+    const tooltipTitle = context.url
+        ? `Notification managed in ${context.label} settings. Click to go there.`
+        : `Notification managed in ${context.label} settings.`
+
+    return (
+        <Tooltip title={tooltipTitle}>
+            <LemonTag
+                size="small"
+                type="muted"
+                icon={<IconBell />}
+                onClick={
+                    context.url
+                        ? (e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              router.actions.push(context.url!)
+                          }
+                        : undefined
+                }
+                className={
+                    context.url ? 'cursor-pointer hover:bg-fill-button-tertiary-hover transition-colors' : undefined
+                }
+            >
+                {context.label}
+            </LemonTag>
+        </Tooltip>
+    )
+}
 
 const urlForHogFunction = (hogFunction: HogFunctionType): string => {
     if (hogFunction.id.startsWith('plugin-')) {
@@ -94,6 +153,9 @@ export function HogFunctionList({
                                     <Tooltip title="Click to update configuration, view metrics, and more">
                                         <span>{hogFunction.name}</span>
                                     </Tooltip>
+                                    {hogFunction.type === 'internal_destination' && (
+                                        <NotificationContextTag hogFunction={hogFunction} />
+                                    )}
                                 </>
                             }
                             description={hogFunction.description}

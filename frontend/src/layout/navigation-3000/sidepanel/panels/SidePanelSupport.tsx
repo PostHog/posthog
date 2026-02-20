@@ -27,7 +27,6 @@ import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { SidePanelContentContainer } from '../SidePanelContentContainer'
 import { sidePanelLogic } from '../sidePanelLogic'
 import { sidePanelStatusIncidentIoLogic } from './sidePanelStatusIncidentIoLogic'
-import { sidePanelStatusLogic } from './sidePanelStatusLogic'
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }): React.ReactElement => {
     return (
@@ -41,21 +40,14 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 }
 
 const StatusPageAlert = (): JSX.Element | null => {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const useIncidentIo = !!featureFlags[FEATURE_FLAGS.INCIDENT_IO_STATUS_PAGE]
     const { openSidePanel } = useActions(sidePanelLogic)
-
-    const { status: atlassianStatus, statusPage } = useValues(sidePanelStatusLogic)
-    const { status: incidentIoStatus, statusDescription: incidentIoDescription } =
-        useValues(sidePanelStatusIncidentIoLogic)
-
-    const status = useIncidentIo ? incidentIoStatus : atlassianStatus
+    const { status, statusDescription } = useValues(sidePanelStatusIncidentIoLogic)
 
     if (status === 'operational') {
         return null
     }
 
-    const description = useIncidentIo ? incidentIoDescription : statusPage?.status.description || 'Active incident'
+    const description = statusDescription || 'Active incident'
 
     const severityClass = status.includes('outage')
         ? 'bg-danger-highlight border-danger'

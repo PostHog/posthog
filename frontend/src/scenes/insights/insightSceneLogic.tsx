@@ -441,7 +441,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
 
             const currentScene = sceneLogic.findMounted()?.values
 
-            const alertChanged = alert_id !== values.alertId
+            const alertChanged = (alert_id ?? null) !== values.alertId
 
             if (
                 currentScene?.activeSceneId === Scene.Insight &&
@@ -468,14 +468,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             if (
                 insightId !== values.insightId ||
                 insightMode !== values.insightMode ||
-                itemId !== values.itemId ||
+                (itemId ?? null) !== values.itemId ||
                 (sceneSource ?? null) !== values.sceneSource ||
                 alertChanged ||
-                !objectsEqual(variablesOverride, values.variablesOverride) ||
-                !objectsEqual(filtersOverride, values.filtersOverride) ||
-                !objectsEqual(tileFiltersOverride, values.tileFiltersOverride) ||
-                dashboard !== values.dashboardId ||
-                dashboardName !== values.dashboardName
+                !objectsEqual(variablesOverride ?? null, values.variablesOverride) ||
+                !objectsEqual(filtersOverride ?? null, values.filtersOverride) ||
+                !objectsEqual(tileFiltersOverride ?? null, values.tileFiltersOverride) ||
+                (dashboard ?? null) !== values.dashboardId ||
+                (dashboardName ?? null) !== values.dashboardName
             ) {
                 actions.setSceneState(
                     insightId,

@@ -42,6 +42,17 @@ const mockProviderKeys: LLMProviderKey[] = [
         created_by: null,
         last_used_at: null,
     },
+    {
+        id: 'key-4',
+        provider: 'fireworks',
+        name: 'Fireworks Key',
+        state: 'ok',
+        error_message: null,
+        api_key_masked: 'fw-...3456',
+        created_at: '2024-01-04T00:00:00Z',
+        created_by: null,
+        last_used_at: null,
+    },
 ]
 
 const mockEvaluation: EvaluationConfig = {
@@ -274,6 +285,8 @@ describe('llmEvaluationLogic', () => {
                 expect(byProvider.gemini).toHaveLength(0)
                 expect(byProvider.openrouter).toHaveLength(1)
                 expect(byProvider.openrouter[0].id).toBe('key-3')
+                expect(byProvider.fireworks).toHaveLength(1)
+                expect(byProvider.fireworks[0].id).toBe('key-4')
             })
         })
 

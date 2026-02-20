@@ -1487,7 +1487,7 @@ export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: AnyEntityNode[]
+    series: (AnyEntityNode | GroupNode)[]
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
@@ -4681,9 +4681,10 @@ export enum MarketingAnalyticsBaseColumns {
     ReportedROAS = 'Reported ROAS',
 }
 
-export enum MarketingAnalyticsHelperForColumnNames {
+export enum MarketingAnalyticsConstants {
     Goal = 'Goal',
     CostPer = 'Cost per',
+    ConstantValuePrefix = 'const:',
 }
 
 /** Category for core events (lifecycle stages) */

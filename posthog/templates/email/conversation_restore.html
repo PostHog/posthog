@@ -1,0 +1,36 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block heading %}Restore your conversations{% endblock %}
+{% block section %}
+<!-- prettier-ignore -->
+<p>
+    You requested a link to restore your previous conversations with <b>{{ team_name }}</b>.
+</p>
+<p>
+    Click the button below to access your conversation history on this device.
+</p>
+<div class="mb mt text-center">
+    <a class="button" href="{{ restore_url }}">Restore conversations</a>
+</div>
+<div class="mt">
+    <p>
+        This link will expire in 60 minutes and can only be used once.
+    </p>
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{{ restore_url }}">{{ restore_url }}</a>
+    </p>
+</div>
+<p>
+    If you didn't request this link, you can safely ignore this email.
+</p>
+{% endblock %}
+
+{% block footer %}
+Need help?
+<a href="https://posthog.com/questions?{{ utm_tags }}"
+    target="_blank"><b>Visit support</b></a>
+or
+<a href="https://posthog.com/docs?{{ utm_tags }}"
+    target="_blank"><b>Read our documentation</b></a>.
+
+{% endblock %}

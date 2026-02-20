@@ -129,6 +129,7 @@
         "onlyBuiltDependencies": [
             "@modelcontextprotocol/ext-apps",
             "@parcel/watcher",
+            "chartjs-plugin-stacked100",
             "@swc/core",
             "core-js",
             "core-js-pure",

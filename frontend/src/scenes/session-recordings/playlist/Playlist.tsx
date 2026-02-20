@@ -276,7 +276,7 @@ export function Playlist({
                                             filters={filters}
                                             setFilters={setFilters}
                                             type={type}
-                                            shortId={logicKey}
+                                            shortId={type === 'collection' ? logicKey : undefined}
                                         />
                                     </div>
                                 </div>

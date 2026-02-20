@@ -150,7 +150,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                     iconType: 'data_pipeline',
                 }
 
-                if (type === 'internal_destination' && (alertId || returnTo)) {
+                if (type === 'internal_destination' && alertId) {
                     // returnTo contains the full path back to the alert edit view
                     // Strip the alert_id param for the insight breadcrumb
                     const alertPath = returnTo ?? urls.alert(alertId!)
@@ -242,6 +242,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                         {
                             key: Scene.HogFunction,
                             name: 'Notifications',
+                            path: returnTo,
                         },
                         finalCrumb,
                     ]

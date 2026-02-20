@@ -10,6 +10,7 @@
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
         "posthog-js": "catalog:",
+        "partial-json": "^0.1.7",
         "torph": "^0.0.5"
     },
     "devDependencies": {

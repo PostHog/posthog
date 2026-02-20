@@ -260,7 +260,8 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                             type="primary"
                                             data-attr="save-cohort"
                                             htmlType="submit"
-                                            loading={cohortLoading || cohort.is_calculating}
+                                            loading={cohortLoading}
+                                            disabledReason={cohortLoading ? 'Saving cohort...' : undefined}
                                             form="cohort"
                                             size="small"
                                         >
