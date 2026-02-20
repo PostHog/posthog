@@ -12,6 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { isExperimentMetricValid } from '~/queries/schema-guards'
 import {
     ExperimentExposureCriteria,
     ExperimentMetric,
@@ -154,8 +155,6 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 ['updateFlag'],
                 teamLogic,
                 ['addProductIntent'],
-                router,
-                ['locationChanged'],
             ],
         }
     }),
@@ -317,17 +316,26 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             if (props.experiment || values.experiment.id !== 'new') {
                 return
             }
-            const { searchParams } = router.values.currentLocation
-            const urlMetric = searchParams.metric
-            const urlName = searchParams.name
-            if (urlMetric || urlName) {
-                actions.setExperiment({
-                    ...NEW_EXPERIMENT,
-                    metrics: urlMetric ? [urlMetric] : [],
-                    name: urlName ?? '',
-                })
-                return
+
+            try {
+                const { searchParams } = router.values.currentLocation
+                const { metric, name } = searchParams
+
+                const parsedMetric = typeof metric === 'string' ? JSON.parse(metric) : metric
+
+                if (name && isExperimentMetricValid(parsedMetric)) {
+                    actions.setExperiment({
+                        ...NEW_EXPERIMENT,
+                        metrics: parsedMetric ? [parsedMetric] : [],
+                        name: name ?? '',
+                    })
+                    return
+                }
+            } catch (error) {
+                console.error('Error parsing metric from URL', error)
+                // Continue to draft fallback
             }
+
             const draft = readDraftFromStorage(props.tabId)
             if (draft) {
                 actions.setExperiment(draft)
@@ -341,23 +349,6 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
         },
     })),
     listeners(({ values, actions, props }) => ({
-        locationChanged: ({ searchParams, pathname }) => {
-            if (props.experiment || values.experiment.id !== 'new') {
-                return
-            }
-            if (!pathname.includes('/experiments/new')) {
-                return
-            }
-            const urlMetric = searchParams.metric
-            const urlName = searchParams.name
-            if (urlMetric || urlName) {
-                actions.setExperiment({
-                    ...NEW_EXPERIMENT,
-                    metrics: urlMetric ? [urlMetric] : [],
-                    name: urlName ?? '',
-                })
-            }
-        },
         clearDraft: () => {
             if (props.experiment || values.experiment.id !== 'new') {
                 return
