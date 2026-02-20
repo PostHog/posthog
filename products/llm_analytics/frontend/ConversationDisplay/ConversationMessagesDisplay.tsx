@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useValues } from 'kea'
 import React from 'react'
 
 import { IconCode, IconEye, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
@@ -12,12 +13,8 @@ import { isObject } from 'lib/utils'
 
 import { LLMInputOutput } from '../LLMInputOutput'
 import { SearchHighlight } from '../SearchHighlight'
-<<<<<<< HEAD
-=======
 import { MessageSentimentBar } from '../components/SentimentTag'
-import { llmAnalyticsTraceLogic } from '../llmAnalyticsTraceLogic'
 import { llmSentimentLazyLoaderLogic } from '../llmSentimentLazyLoaderLogic'
->>>>>>> ab34249ab8 (feat(llma): add sentiment UI to traces table and trace detail view)
 import { containsSearchQuery } from '../searchUtils'
 import { CompatMessage, MultiModalContentItem, VercelSDKImageMessage } from '../types'
 import {
@@ -65,13 +62,9 @@ export function ConversationMessagesDisplay({
     raisedError,
     bordered = false,
     searchQuery,
-<<<<<<< HEAD
     displayOption,
     traceId,
-=======
-    traceId,
     generationEventId,
->>>>>>> ab34249ab8 (feat(llma): add sentiment UI to traces table and trace detail view)
 }: {
     inputNormalized: CompatMessage[]
     outputNormalized: CompatMessage[]
@@ -82,9 +75,9 @@ export function ConversationMessagesDisplay({
     raisedError?: boolean
     bordered?: boolean
     searchQuery?: string
-<<<<<<< HEAD
     displayOption?: ConversationDisplayOption
     traceId?: string | null
+    generationEventId?: string
 }): JSX.Element {
     const [messageShowStates, setMessageShowStates] = React.useState(() =>
         getInitialMessageShowStates(inputNormalized.length, outputNormalized.length, displayOption)
@@ -94,23 +87,10 @@ export function ConversationMessagesDisplay({
     const previousSearchQueryRef = React.useRef('')
     const inputMessageShowStates = messageShowStates.input
     const outputMessageShowStates = messageShowStates.output
-=======
-    traceId?: string
-    generationEventId?: string
-}): JSX.Element {
-    const {
-        inputMessageShowStates,
-        outputMessageShowStates,
-        searchQuery: currentSearchQuery,
-        displayOption,
-    } = useValues(llmAnalyticsTraceLogic)
     const { getGenerationSentiment } = useValues(llmSentimentLazyLoaderLogic)
 
     const generationSentiment =
         traceId && generationEventId ? getGenerationSentiment(traceId, generationEventId) : undefined
-    const { initializeMessageStates, toggleMessage, showAllMessages, hideAllMessages, applySearchResults } =
-        useActions(llmAnalyticsTraceLogic)
->>>>>>> ab34249ab8 (feat(llma): add sentiment UI to traces table and trace detail view)
 
     const toggleMessage = (type: MessageType, index: number): void => {
         setMessageShowStates((state) => {
@@ -213,26 +193,6 @@ export function ConversationMessagesDisplay({
     // avoiding fragile counters that can drift when normalizeMessage transforms messages.
     const inputDisplay =
         inputNormalized.length > 0 ? (
-<<<<<<< HEAD
-            inputNormalized.map((message, i) => (
-                <React.Fragment key={i}>
-                    <LLMMessageDisplay
-                        message={message}
-                        show={inputMessageShowStates[i] || false}
-                        onToggle={() => toggleMessage('input', i)}
-                        searchQuery={searchQuery}
-                        traceId={traceId}
-                        isRenderingMarkdown={isRenderingMarkdown}
-                        isRenderingXml={isRenderingXml}
-                        onToggleMarkdownRendering={() => setIsRenderingMarkdown((state) => !state)}
-                        onToggleXmlRendering={() => setIsRenderingXml((state) => !state)}
-                    />
-                    {i < inputNormalized.length - 1 && (
-                        <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
-                    )}
-                </React.Fragment>
-            ))
-=======
             inputNormalized.map((message, i) => {
                 const sourceIndex = inputSourceIndices?.[i]
                 const messageSentiment =
@@ -246,6 +206,11 @@ export function ConversationMessagesDisplay({
                             show={inputMessageShowStates[i] || false}
                             onToggle={() => toggleMessage('input', i)}
                             searchQuery={searchQuery}
+                            traceId={traceId}
+                            isRenderingMarkdown={isRenderingMarkdown}
+                            isRenderingXml={isRenderingXml}
+                            onToggleMarkdownRendering={() => setIsRenderingMarkdown((state) => !state)}
+                            onToggleXmlRendering={() => setIsRenderingXml((state) => !state)}
                             messageSentiment={
                                 messageSentiment
                                     ? { label: messageSentiment.label, score: messageSentiment.score }
@@ -258,7 +223,6 @@ export function ConversationMessagesDisplay({
                     </React.Fragment>
                 )
             })
->>>>>>> ab34249ab8 (feat(llma): add sentiment UI to traces table and trace detail view)
         ) : (
             <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">No input</div>
         )
@@ -482,15 +446,12 @@ export const LLMMessageDisplay = React.memo(
         minimal = false,
         onToggle,
         searchQuery,
-<<<<<<< HEAD
         traceId,
         isRenderingMarkdown = true,
         isRenderingXml = false,
         onToggleMarkdownRendering,
         onToggleXmlRendering,
-=======
         messageSentiment,
->>>>>>> ab34249ab8 (feat(llma): add sentiment UI to traces table and trace detail view)
     }: {
         message: CompatMessage
         isOutput?: boolean
@@ -500,15 +461,12 @@ export const LLMMessageDisplay = React.memo(
         minimal?: boolean
         onToggle?: () => void
         searchQuery?: string
-<<<<<<< HEAD
         traceId?: string | null
         isRenderingMarkdown?: boolean
         isRenderingXml?: boolean
         onToggleMarkdownRendering?: () => void
         onToggleXmlRendering?: () => void
-=======
         messageSentiment?: { label: string; score: number }
->>>>>>> ab34249ab8 (feat(llma): add sentiment UI to traces table and trace detail view)
     }): JSX.Element => {
         const { role, content, ...additionalKwargs } = message
         let resolvedIsRenderingMarkdown = isRenderingMarkdown

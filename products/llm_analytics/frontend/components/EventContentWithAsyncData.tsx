@@ -10,11 +10,7 @@ import { AIDataLoading } from './AIDataLoading'
 
 interface EventContentGenerationProps {
     eventId: string
-<<<<<<< HEAD
     traceId?: string | null
-=======
-    traceId?: string
->>>>>>> ab34249ab8 (feat(llma): add sentiment UI to traces table and trace detail view)
     rawInput: unknown
     rawOutput: unknown
     tools: unknown
@@ -75,13 +71,9 @@ export function EventContentGeneration({
             httpStatus={typeof httpStatus === 'number' ? httpStatus : undefined}
             raisedError={raisedError}
             searchQuery={searchQuery}
-<<<<<<< HEAD
             displayOption={displayOption}
             traceId={traceId}
-=======
-            traceId={traceId}
             generationEventId={eventId}
->>>>>>> ab34249ab8 (feat(llma): add sentiment UI to traces table and trace detail view)
         />
     )
 }

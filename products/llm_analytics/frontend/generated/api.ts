@@ -416,33 +416,16 @@ export const getLlmAnalyticsSentimentCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/llm_analytics/sentiment/`
 }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 5fbdd92278 (chore: update OpenAPI generated types)
 export const llmAnalyticsSentimentCreate = async (
     projectId: string,
     sentimentRequestApi: SentimentRequestApi,
     options?: RequestInit
 ): Promise<SentimentResponseApi> => {
     return apiMutator<SentimentResponseApi>(getLlmAnalyticsSentimentCreateUrl(projectId), {
-<<<<<<< HEAD
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sentimentRequestApi),
-=======
-export const llmAnalyticsSentimentCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLlmAnalyticsSentimentCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
->>>>>>> ab34249ab8 (feat(llma): add sentiment UI to traces table and trace detail view)
-=======
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sentimentRequestApi),
->>>>>>> 5fbdd92278 (chore: update OpenAPI generated types)
     })
 }
 
@@ -450,33 +433,16 @@ export const getLlmAnalyticsSentimentBatchCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/llm_analytics/sentiment/batch/`
 }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 5fbdd92278 (chore: update OpenAPI generated types)
 export const llmAnalyticsSentimentBatchCreate = async (
     projectId: string,
     sentimentBatchRequestApi: SentimentBatchRequestApi,
     options?: RequestInit
 ): Promise<SentimentBatchResponseApi> => {
     return apiMutator<SentimentBatchResponseApi>(getLlmAnalyticsSentimentBatchCreateUrl(projectId), {
-<<<<<<< HEAD
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sentimentBatchRequestApi),
-=======
-export const llmAnalyticsSentimentBatchCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLlmAnalyticsSentimentBatchCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
->>>>>>> ab34249ab8 (feat(llma): add sentiment UI to traces table and trace detail view)
-=======
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sentimentBatchRequestApi),
->>>>>>> 5fbdd92278 (chore: update OpenAPI generated types)
     })
 }
 

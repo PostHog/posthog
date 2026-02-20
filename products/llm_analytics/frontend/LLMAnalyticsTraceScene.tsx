@@ -320,11 +320,7 @@ function TraceMetadata({
     showBillingInfo?: boolean
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-<<<<<<< HEAD
     const { personsCache } = useValues(llmPersonsLazyLoaderLogic)
-=======
-    const { personsCache, isDistinctIdLoading } = useValues(llmPersonsLazyLoaderLogic)
-    const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
     const { getTraceSentiment, isTraceLoading } = useValues(llmSentimentLazyLoaderLogic)
 
     const showSentiment = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
