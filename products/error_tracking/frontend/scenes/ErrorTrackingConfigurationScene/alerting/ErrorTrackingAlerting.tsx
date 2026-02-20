@@ -5,8 +5,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
+import { getFiltersFromSubTemplateId } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { hogFunctionsListLogic } from 'scenes/hog-functions/list/hogFunctionsListLogic'
-import { HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES } from 'scenes/hog-functions/sub-templates/sub-templates'
 
 import { CyclotronJobFiltersType, HogFunctionSubTemplateIdType } from '~/types'
 
@@ -20,22 +20,6 @@ const SUB_TEMPLATE_IDS: HogFunctionSubTemplateIdType[] = [
     'error-tracking-issue-reopened',
     'error-tracking-issue-spiking',
 ]
-
-const getFiltersFromSubTemplateId = (
-    subTemplateId: HogFunctionSubTemplateIdType
-): CyclotronJobFiltersType | undefined => {
-    const commonProperties = HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[subTemplateId]
-    return commonProperties.filters ?? undefined
-}
-
-const getConfigurationOverrides = (
-    subTemplateId?: HogFunctionSubTemplateIdType
-): CyclotronJobFiltersType | undefined => {
-    if (subTemplateId) {
-        return getFiltersFromSubTemplateId(subTemplateId)
-    }
-    return undefined
-}
 
 export function ErrorTrackingAlerting(): JSX.Element {
     const [newView, setNewView] = useState<NewView>('none')
@@ -67,7 +51,7 @@ export function ErrorTrackingAlerting(): JSX.Element {
             resetWizard()
             loadHogFunctions()
         }
-    }, [alertCreated]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [alertCreated])
 
     if (newView === 'wizard') {
         return (
@@ -89,7 +73,7 @@ export function ErrorTrackingAlerting(): JSX.Element {
             <HogFunctionTemplateList
                 type="destination"
                 subTemplateIds={SUB_TEMPLATE_IDS}
-                getConfigurationOverrides={getConfigurationOverrides}
+                getConfigurationOverrides={(id) => (id ? getFiltersFromSubTemplateId(id) : undefined)}
                 extraControls={
                     <LemonButton type="secondary" size="small" onClick={() => setNewView('none')}>
                         Cancel
