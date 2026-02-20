@@ -63,7 +63,6 @@ jobs:
               with:
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
-                  version: 0.9.9
 
             - name: Install python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
@@ -143,7 +142,6 @@ jobs:
               with:
                   enable-cache: true
                   save-cache: false
-                  version: 0.9.9
 
             - name: Install python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
