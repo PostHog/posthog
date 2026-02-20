@@ -1,3 +1,4 @@
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useCallback } from 'react'
 
@@ -10,6 +11,7 @@ export const scene: SceneExport = {
 }
 
 export function NewTabScene(): JSX.Element {
+    const { searchParams } = useValues(router)
     const handleItemSelect = useCallback((item: SearchItem) => {
         if (item.href) {
             router.actions.push(item.href)
@@ -23,6 +25,7 @@ export function NewTabScene(): JSX.Element {
             onItemSelect={handleItemSelect}
             showAskAiLink
             className="size-full grow"
+            defaultSearchValue={searchParams.source === 'sql_editor' ? 'sql editor' : ''}
         >
             <div className="sticky top-0 w-full max-w-[640px] mx-auto">
                 <Search.Input autoFocus className="pt-8" />

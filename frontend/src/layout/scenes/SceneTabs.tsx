@@ -23,6 +23,7 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
+import { Scene } from '~/scenes/sceneTypes'
 
 import { sidePanelOfframpLogic } from '../navigation-3000/sidepanel/sidePanelOfframpLogic'
 import { navigationLogic } from '../navigation/navigationLogic'
@@ -30,7 +31,7 @@ import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
 import { ConfigurePinnedTabsModal } from './ConfigurePinnedTabsModal'
 
 export function SceneTabs(): JSX.Element {
-    const { tabs } = useValues(sceneLogic)
+    const { tabs, sceneId } = useValues(sceneLogic)
     const { newTab, reorderTabs, clearFrozenWidths } = useActions(sceneLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
@@ -128,7 +129,9 @@ export function SceneTabs(): JSX.Element {
                                 onClick={(e) => {
                                     e.preventDefault()
                                     const source = e.detail === 0 ? 'keyboard_shortcut' : 'new_tab_button'
-                                    newTab(null, { source })
+                                    const newTabHref =
+                                        sceneId === Scene.SQLEditor ? `${urls.newTab()}?source=sql_editor` : null
+                                    newTab(newTabHref, { source })
                                 }}
                                 tooltip="New tab"
                                 tooltipCloseDelayMs={0}
