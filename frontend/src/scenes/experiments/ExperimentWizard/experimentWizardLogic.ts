@@ -1,7 +1,4 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
-
-import { urls } from 'scenes/urls'
 
 import type { Experiment, FeatureFlagType } from '~/types'
 
@@ -70,7 +67,6 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         _applyStep: (step: ExperimentWizardStep) => ({ step }),
         markStepDeparted: (step: ExperimentWizardStep) => ({ step }),
         resetWizard: true,
-        openFullEditor: true,
         setLinkedFeatureFlag: (flag: FeatureFlagType | null) => ({ flag }),
     }),
 
@@ -167,9 +163,6 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        openFullEditor: () => {
-            router.actions.push(urls.experiment('new'))
-        },
         loadFeatureFlagsSuccess: ({
             featureFlags,
         }: {

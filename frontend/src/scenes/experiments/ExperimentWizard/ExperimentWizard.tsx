@@ -14,7 +14,7 @@ import { VariantsStep } from './steps/VariantsStep'
 export function ExperimentWizard(): JSX.Element {
     const { currentStep, isLastStep, isFirstStep, isExperimentSubmitting, stepValidationErrors } =
         useValues(experimentWizardLogic)
-    const { nextStep, prevStep, setStep, saveExperiment, openFullEditor } = useActions(experimentWizardLogic)
+    const { nextStep, prevStep, setStep, saveExperiment } = useActions(experimentWizardLogic)
 
     return (
         <div className="min-h-screen bg-bg-light">
@@ -65,17 +65,7 @@ export function ExperimentWizard(): JSX.Element {
                     </div>
                 </div>
 
-                <div className="text-center text-xs text-muted space-y-1">
-                    <p>
-                        Prefer the old layout?{' '}
-                        <button
-                            type="button"
-                            onClick={openFullEditor}
-                            className="text-link hover:underline cursor-pointer"
-                        >
-                            Open full editor
-                        </button>
-                    </p>
+                <div className="text-center text-xs text-muted">
                     <p>
                         Looking for no-code? They are created using the toolbar,{' '}
                         <Link

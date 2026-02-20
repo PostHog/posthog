@@ -1,6 +1,7 @@
 import { BindLogic, useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import type { SceneExport } from 'scenes/sceneTypes'
@@ -33,7 +34,7 @@ export function Experiment(props: ExperimentSceneLogicProps): JSX.Element {
     if (!tabId) {
         throw new Error('<Experiment /> must receive a tabId prop')
     }
-    const { formMode, experimentMissing, experimentId, wizardMode } = useValues(experimentSceneLogic({ tabId }))
+    const { formMode, experimentMissing, experimentId } = useValues(experimentSceneLogic({ tabId }))
     const { currentTeamId } = useValues(teamLogic)
 
     useFileSystemLogView({
@@ -54,21 +55,18 @@ export function Experiment(props: ExperimentSceneLogicProps): JSX.Element {
 
     return (
         <BindLogic logic={experimentLogic} props={logicProps}>
-            {isCreateMode ? (
-                <ExperimentCreateMode tabId={tabId} wizardMode={wizardMode} />
-            ) : (
-                <ExperimentView tabId={tabId} />
-            )}
+            {isCreateMode ? <ExperimentCreateMode tabId={tabId} /> : <ExperimentView tabId={tabId} />}
         </BindLogic>
     )
 }
 
-function ExperimentCreateMode({ tabId, wizardMode }: { tabId: string; wizardMode: boolean }): JSX.Element {
-    // Mount createExperimentLogic at this level so it persists across wizard <-> form switches
+function ExperimentCreateMode({ tabId }: { tabId: string }): JSX.Element {
     const logic = createExperimentLogic({ tabId })
     useAttachedLogic(logic, experimentSceneLogic({ tabId }))
 
-    if (wizardMode) {
+    const showWizard = useFeatureFlag('EXPERIMENTS_WIZARD_CREATION_FORM')
+
+    if (showWizard) {
         return (
             <BindLogic logic={experimentWizardLogic} props={{ tabId }}>
                 <ExperimentWizard />

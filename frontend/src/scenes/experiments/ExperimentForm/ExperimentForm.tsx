@@ -1,10 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconMagicWand } from '@posthog/icons'
-
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
@@ -61,7 +58,6 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
         clearDraft,
         saveExperiment,
         validateField,
-        switchToWizard,
     } = useActions(logic)
 
     const handleCancel = (): void => {
@@ -172,23 +168,6 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
     return (
         <div>
             <SceneContent>
-                {!isEditMode && (
-                    <LemonBanner
-                        type="info"
-                        className="mb-4"
-                        action={{
-                            children: (
-                                <span className="flex items-center gap-1">
-                                    <IconMagicWand className="text-sm" />
-                                    Use the guided wizard
-                                </span>
-                            ),
-                            onClick: switchToWizard,
-                        }}
-                    >
-                        Need more guidance to create your experiment?
-                    </LemonBanner>
-                )}
                 {renderFormHeader()}
 
                 {!isEditMode && (
