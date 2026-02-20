@@ -15,6 +15,8 @@ from products.conversations.backend.models.constants import Priority, Status
 class TestExternalTicketAPI(BaseTest):
     def setUp(self):
         super().setUp()
+        self.team.conversations_enabled = True
+        self.team.save(update_fields=["conversations_enabled"])
         self.client = APIClient()
         self.ticket = Ticket.objects.create_with_number(
             team=self.team,
@@ -51,6 +53,12 @@ class TestExternalTicketAPI(BaseTest):
         response = self.client.get(self.url, **headers)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_rejects_when_conversations_disabled(self):
+        self.team.conversations_enabled = False
+        self.team.save(update_fields=["conversations_enabled"])
+        response = self.client.get(self.url, **self._auth_headers())
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
     # -- GET ticket -------------------------------------------------------
 
     def test_get_ticket_returns_all_fields(self):
@@ -77,7 +85,7 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_get_ticket_cross_team_isolation(self):
-        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        other_team = Team.objects.create(organization=self.organization, name="Other team", conversations_enabled=True)
         response = self.client.get(self.url, **self._auth_headers(token=other_team.api_token))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
@@ -139,7 +147,7 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_patch_cross_team_isolation(self):
-        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        other_team = Team.objects.create(organization=self.organization, name="Other team", conversations_enabled=True)
         response = self.client.patch(
             self.url,
             {"status": "resolved"},
