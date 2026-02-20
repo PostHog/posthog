@@ -1,57 +1,23 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
 import { getFiltersFromSubTemplateId } from 'scenes/hog-functions/list/LinkedHogFunctions'
-import { hogFunctionsListLogic } from 'scenes/hog-functions/list/hogFunctionsListLogic'
 
-import { CyclotronJobFiltersType, HogFunctionSubTemplateIdType } from '~/types'
+import { CyclotronJobFiltersType } from '~/types'
 
 import { ErrorTrackingAlertWizard } from './ErrorTrackingAlertWizard'
-import { errorTrackingAlertWizardLogic } from './errorTrackingAlertWizardLogic'
+import { SUB_TEMPLATE_IDS, errorTrackingAlertWizardLogic } from './errorTrackingAlertWizardLogic'
 
-type NewView = 'none' | 'wizard' | 'traditional'
-
-const SUB_TEMPLATE_IDS: HogFunctionSubTemplateIdType[] = [
-    'error-tracking-issue-created',
-    'error-tracking-issue-reopened',
-    'error-tracking-issue-spiking',
-]
+const HOG_FUNCTION_FILTER_LIST = SUB_TEMPLATE_IDS.map(getFiltersFromSubTemplateId).filter(
+    (f) => !!f
+) as CyclotronJobFiltersType[]
 
 export function ErrorTrackingAlerting(): JSX.Element {
-    const [newView, setNewView] = useState<NewView>('none')
-
-    const hogFunctionFilterList = useMemo(
-        () => SUB_TEMPLATE_IDS.map(getFiltersFromSubTemplateId).filter((f) => !!f) as CyclotronJobFiltersType[],
-        []
-    )
-
-    const logicKey = useMemo(() => {
-        return JSON.stringify({ type: 'internal_destination', subTemplateIds: SUB_TEMPLATE_IDS })
-    }, [])
-
-    const listLogicProps = useMemo(
-        () => ({
-            type: 'internal_destination' as const,
-            forceFilterGroups: hogFunctionFilterList,
-        }),
-        [hogFunctionFilterList]
-    )
-
-    const { alertCreated } = useValues(errorTrackingAlertWizardLogic)
-    const { resetWizard } = useActions(errorTrackingAlertWizardLogic)
-    const { loadHogFunctions } = useActions(hogFunctionsListLogic(listLogicProps))
-
-    useEffect(() => {
-        if (alertCreated) {
-            setNewView('none')
-            resetWizard()
-            loadHogFunctions()
-        }
-    }, [alertCreated])
+    const { newView } = useValues(errorTrackingAlertWizardLogic)
+    const { setNewView, resetWizard } = useActions(errorTrackingAlertWizardLogic)
 
     if (newView === 'wizard') {
         return (
@@ -85,8 +51,7 @@ export function ErrorTrackingAlerting(): JSX.Element {
 
     return (
         <HogFunctionList
-            key={logicKey}
-            forceFilterGroups={hogFunctionFilterList}
+            forceFilterGroups={HOG_FUNCTION_FILTER_LIST}
             type="internal_destination"
             extraControls={
                 <LemonButton type="primary" size="small" onClick={() => setNewView('wizard')}>

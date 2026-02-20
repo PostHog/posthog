@@ -9,13 +9,20 @@ import {
     HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES,
 } from 'scenes/hog-functions/sub-templates/sub-templates'
 
-import { CyclotronJobInputType, HogFunctionTemplateType, HogFunctionType } from '~/types'
+import { CyclotronJobInputType, HogFunctionSubTemplateIdType, HogFunctionTemplateType, HogFunctionType } from '~/types'
 
 import type { errorTrackingAlertWizardLogicType } from './errorTrackingAlertWizardLogicType'
 
 export type WizardDestination = 'slack' | 'discord' | 'github' | 'microsoft-teams' | 'linear'
 export type WizardTrigger = 'error-tracking-issue-created' | 'error-tracking-issue-reopened'
 export type WizardStep = 'destination' | 'trigger' | 'configure'
+export type AlertCreationView = 'none' | 'wizard' | 'traditional'
+
+export const SUB_TEMPLATE_IDS: HogFunctionSubTemplateIdType[] = [
+    'error-tracking-issue-created',
+    'error-tracking-issue-reopened',
+    'error-tracking-issue-spiking',
+]
 
 export interface DestinationOption {
     key: WizardDestination
@@ -100,6 +107,7 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
     path(['products', 'error_tracking', 'frontend', 'alerting', 'errorTrackingAlertWizardLogic']),
 
     actions({
+        setNewView: (view: NewView) => ({ view }),
         setStep: (step: WizardStep) => ({ step }),
         setDestination: (destination: WizardDestination) => ({ destination }),
         setTrigger: (trigger: WizardTrigger) => ({ trigger }),
@@ -110,6 +118,13 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
     }),
 
     reducers({
+        newView: [
+            'none' as NewView,
+            {
+                setNewView: (_, { view }) => view,
+                createAlertSuccess: () => 'none' as NewView,
+            },
+        ],
         currentStep: [
             'destination' as WizardStep,
             {
@@ -246,6 +261,10 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
     }),
 
     listeners(({ values, actions }) => ({
+        createAlertSuccess: () => {
+            actions.resetWizard()
+        },
+
         setTrigger: () => {
             const dest = values.selectedDestination
             if (dest) {
