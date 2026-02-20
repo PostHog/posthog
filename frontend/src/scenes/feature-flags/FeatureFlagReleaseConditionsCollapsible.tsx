@@ -460,28 +460,11 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                                 return null
                                                             }
 
-                                                            const usersReceivingFlag = Math.floor(
-                                                                (affectedUserCount * clamp(rolloutPct, 0, 100)) / 100
-                                                            )
-
-                                                            if (rolloutPct === 100) {
-                                                                return (
-                                                                    <>
-                                                                        <b>{humanFriendlyNumber(affectedUserCount)}</b>{' '}
-                                                                        of {humanFriendlyNumber(totalUsers)}{' '}
-                                                                        {aggregationTargetName} match these conditions
-                                                                    </>
-                                                                )
-                                                            }
                                                             return (
                                                                 <>
-                                                                    Will match ~
-                                                                    <b>{humanFriendlyNumber(usersReceivingFlag)}</b> of{' '}
-                                                                    {humanFriendlyNumber(totalUsers)}{' '}
-                                                                    {aggregationTargetName} (
-                                                                    {humanFriendlyNumber(affectedUserCount)} matching ×{' '}
-                                                                    {rolloutPct}
-                                                                    %)
+                                                                    {rolloutPct}% of{' '}
+                                                                    <b>{humanFriendlyNumber(affectedUserCount)}</b>{' '}
+                                                                    matching the filters
                                                                 </>
                                                             )
                                                         })()}
