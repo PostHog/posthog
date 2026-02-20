@@ -924,3 +924,110 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             person_display = response.results[0][1]
             assert person_display["display_name"] == anon_distinct_id
             assert person_display["distinct_id"] == anon_distinct_id
+
+    @snapshot_clickhouse_queries
+    def test_person_id_filter_with_person_display_name(self):
+        """Test that personId filter works correctly when combined with person_display_name column."""
+        persons = self._create_test_sessions(
+            data=[
+                ("user1", "session1", "2024-01-01T12:00:00Z", {}),
+                ("user2", "session2", "2024-01-01T12:05:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person_display_name -- Person"],
+                personId=str(persons[0].uuid),
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+            assert response.results[0][1]["display_name"] == "user1@posthog.com"
+
+    def test_person_property_filter_unsupported_operator_raises(self):
+        """Test that unsupported operators raise NotImplementedError."""
+        from posthog.schema import PersonPropertyFilter
+
+        query = SessionsQuery(
+            after="2024-01-01",
+            kind="SessionsQuery",
+            select=["session_id"],
+            properties=[
+                PersonPropertyFilter(key="path", value="/home", operator="is_cleaned_path_exact", type="person")
+            ],
+        )
+
+        runner = SessionsQueryRunner(query=query, team=self.team)
+        with self.assertRaises(NotImplementedError) as context:
+            runner.to_query()
+
+        assert "is_cleaned_path_exact" in str(context.exception)
+        assert "not applicable" in str(context.exception)
+
+    @snapshot_clickhouse_queries
+    def test_person_property_filter_between_operator(self):
+        """Test filtering sessions by person property with between operator."""
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["user1"],
+            properties={"score": "25"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["user2"],
+            properties={"score": "35"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["user3"],
+            properties={"score": "45"},
+        )
+        session1 = str(uuid7("2024-01-01T12:00:00Z"))
+        session2 = str(uuid7("2024-01-01T12:05:00Z"))
+        session3 = str(uuid7("2024-01-01T12:10:00Z"))
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user1",
+            timestamp="2024-01-01T12:00:00Z",
+            properties={"$session_id": session1},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user2",
+            timestamp="2024-01-01T12:05:00Z",
+            properties={"$session_id": session2},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user3",
+            timestamp="2024-01-01T12:10:00Z",
+            properties={"$session_id": session3},
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            from posthog.schema import PersonPropertyFilter
+
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person.properties.score"],
+                properties=[PersonPropertyFilter(key="score", value=["20", "30"], operator="between", type="person")],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+            assert response.results[0][1] == "25"

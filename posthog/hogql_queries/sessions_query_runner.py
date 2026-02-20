@@ -8,7 +8,16 @@ from posthog.schema import CachedSessionsQueryResponse, DashboardFilter, Session
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_order_expr
-from posthog.hogql.property import action_to_expr, has_aggregation, map_virtual_properties, property_to_expr
+from posthog.hogql.property import (
+    _caret_bounds,
+    _tilde_bounds,
+    _wildcard_bounds,
+    action_to_expr,
+    has_aggregation,
+    map_virtual_properties,
+    property_to_expr,
+    semver_range_compare,
+)
 
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.api.utils import get_pk_or_uuid
@@ -17,6 +26,12 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import Action, Person
 from posthog.models.person.person import READ_DB_FOR_PERSONS, get_distinct_ids_for_subquery
 from posthog.utils import relative_date_parse
+
+# Comment separator used in column names (e.g. "field -- Label")
+COMMENT_SEPARATOR = "--"
+
+# Regex pattern for simple HogQL identifiers that don't need backtick quoting
+SIMPLE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
 
 # Allow-listed fields returned when you select "*" from sessions
 SELECT_STAR_FROM_SESSIONS_FIELDS = [
@@ -50,7 +65,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
         # Build coalesce expression for person properties
         props = []
         for key in property_keys:
-            if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
+            if SIMPLE_IDENTIFIER_PATTERN.match(key):
                 props.append(f"toString(__person_lookup.properties.{key})")
             else:
                 props.append(f"toString(__person_lookup.properties.`{key}`)")
@@ -64,7 +79,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
         needs_person_join = self._needs_person_join()
         select_input: list[str] = []
         for col in self.select_input_raw():
-            col_name = col.split("--")[0].strip()
+            col_name = col.split(COMMENT_SEPARATOR)[0].strip()
             # Selecting a "*" expands the list of columns
             if col == "*":
                 # Qualify with sessions. prefix when person join is present to avoid ambiguity
@@ -91,12 +106,12 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
     def _needs_person_join(self) -> bool:
         """Check if any selected column, orderBy, or filter requires person join."""
         for col in self.select_input_raw():
-            col_name = col.split("--")[0].strip()
+            col_name = col.split(COMMENT_SEPARATOR)[0].strip()
             if col_name == "person_display_name" or col_name.startswith("person.properties."):
                 return True
         if self.query.orderBy:
             for col in self.query.orderBy:
-                col_name = col.split("--")[0].strip()
+                col_name = col.split(COMMENT_SEPARATOR)[0].strip()
                 if col_name == "person_display_name" or col_name.startswith("person.properties."):
                     return True
         if self.query.properties:
@@ -107,8 +122,8 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
 
     def _transform_person_property_col(self, col: str) -> str:
         """Transform person.properties.X to use __person_lookup alias."""
-        if "--" in col:
-            expr, comment = col.split("--", 1)
+        if COMMENT_SEPARATOR in col:
+            expr, comment = col.split(COMMENT_SEPARATOR, 1)
             expr = expr.strip()
             comment = comment.strip()
         else:
@@ -118,13 +133,13 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
         transformed = expr.replace("person.properties.", "__person_lookup.properties.")
 
         if comment:
-            return f"{transformed} -- {comment}"
+            return f"{transformed} {COMMENT_SEPARATOR} {comment}"
         return transformed
 
     def _transform_session_property_col(self, col: str, needs_person_join: bool) -> str:
         """Transform session.X to X or sessions.X (when person join is present to avoid ambiguity)."""
-        if "--" in col:
-            expr, comment = col.split("--", 1)
+        if COMMENT_SEPARATOR in col:
+            expr, comment = col.split(COMMENT_SEPARATOR, 1)
             expr = expr.strip()
             comment = comment.strip()
         else:
@@ -139,7 +154,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
             transformed = property_name
 
         if comment:
-            return f"{transformed} -- {comment}"
+            return f"{transformed} {COMMENT_SEPARATOR} {comment}"
         return transformed
 
     def _person_property_to_expr(self, prop) -> ast.Expr:
@@ -149,13 +164,10 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
         operator = getattr(prop, "operator", "exact")
 
         # Build the property field reference
-        if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
-            field = ast.Field(chain=["__person_lookup", "properties", key])
-        else:
-            field = ast.Field(chain=["__person_lookup", "properties", key])
+        field = ast.Field(chain=["__person_lookup", "properties", key])
 
         # Handle different operators
-        if operator == "exact":
+        if operator in ("exact", "is_date_exact"):
             if isinstance(value, list):
                 return ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
@@ -207,36 +219,117 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                 left=field,
                 right=ast.Constant(value=None),
             )
-        elif operator == "gt":
+        elif operator in ("gt", "is_date_after"):
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.Gt,
                 left=field,
                 right=ast.Constant(value=value),
             )
-        elif operator == "lt":
+        elif operator in ("lt", "is_date_before"):
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.Lt,
                 left=field,
                 right=ast.Constant(value=value),
             )
-        elif operator == "gte":
+        elif operator in ("gte", "min"):
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
                 left=field,
                 right=ast.Constant(value=value),
             )
-        elif operator == "lte":
+        elif operator in ("lte", "max"):
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.LtEq,
                 left=field,
                 right=ast.Constant(value=value),
             )
-        else:
-            # Fallback to exact match for unknown operators
+        elif operator == "between":
+            if not isinstance(value, list) or len(value) != 2:
+                raise ValueError(f"between operator requires a list of 2 values, got {value}")
+            return ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq, left=field, right=ast.Constant(value=value[0])
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.LtEq, left=field, right=ast.Constant(value=value[1])
+                    ),
+                ]
+            )
+        elif operator == "not_between":
+            if not isinstance(value, list) or len(value) != 2:
+                raise ValueError(f"not_between operator requires a list of 2 values, got {value}")
+            return ast.Or(
+                exprs=[
+                    ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=field, right=ast.Constant(value=value[0])),
+                    ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=field, right=ast.Constant(value=value[1])),
+                ]
+            )
+        elif operator == "in":
+            if not isinstance(value, list):
+                raise ValueError(f"in operator requires a list of values, got {value}")
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=field,
+                right=ast.Array(exprs=[ast.Constant(value=v) for v in value]),
+            )
+        elif operator == "not_in":
+            if not isinstance(value, list):
+                raise ValueError(f"not_in operator requires a list of values, got {value}")
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.NotIn,
+                left=field,
+                right=ast.Array(exprs=[ast.Constant(value=v) for v in value]),
+            )
+        elif operator == "semver_eq":
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
-                left=field,
-                right=ast.Constant(value=value),
+                left=ast.Call(name="sortableSemver", args=[field]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            )
+        elif operator == "semver_neq":
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq,
+                left=ast.Call(name="sortableSemver", args=[field]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            )
+        elif operator == "semver_gt":
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt,
+                left=ast.Call(name="sortableSemver", args=[field]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            )
+        elif operator == "semver_gte":
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Call(name="sortableSemver", args=[field]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            )
+        elif operator == "semver_lt":
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Call(name="sortableSemver", args=[field]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            )
+        elif operator == "semver_lte":
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Call(name="sortableSemver", args=[field]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            )
+        elif operator == "semver_tilde":
+            return semver_range_compare(field, value, "Tilde", _tilde_bounds)
+        elif operator == "semver_caret":
+            return semver_range_compare(field, value, "Caret", _caret_bounds)
+        elif operator == "semver_wildcard":
+            return semver_range_compare(field, value, "Wildcard", _wildcard_bounds)
+        elif operator in ("is_cleaned_path_exact", "flag_evaluates_to"):
+            raise NotImplementedError(
+                f"Person property filter operator '{operator}' is not applicable for person properties"
+            )
+        else:
+            raise NotImplementedError(
+                f"Person property filter operator '{operator}' is not supported in sessions query"
             )
 
     def to_query(self) -> ast.SelectQuery:
@@ -288,9 +381,10 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                         person: Optional[Person] = get_pk_or_uuid(
                             Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team=self.team), self.query.personId
                         ).first()
+                        # Always qualify with sessions. to avoid ambiguity when person join is present
                         where_exprs.append(
                             ast.CompareOperation(
-                                left=ast.Call(name="cityHash64", args=[ast.Field(chain=["distinct_id"])]),
+                                left=ast.Call(name="cityHash64", args=[ast.Field(chain=["sessions", "distinct_id"])]),
                                 right=ast.Tuple(
                                     exprs=[
                                         ast.Call(name="cityHash64", args=[ast.Constant(value=id)])
@@ -408,7 +502,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                 if self.query.orderBy is not None:
                     order_columns: list[str] = []
                     for col in self.query.orderBy:
-                        col_name = col.split("--")[0].strip()
+                        col_name = col.split(COMMENT_SEPARATOR)[0].strip()
                         if col_name == "person_display_name":
                             # Replace person_display_name with the actual expression
                             property_keys = (
@@ -416,12 +510,12 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                             )
                             props = []
                             for key in property_keys:
-                                if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
+                                if SIMPLE_IDENTIFIER_PATTERN.match(key):
                                     props.append(f"toString(__person_lookup.properties.{key})")
                                 else:
                                     props.append(f"toString(__person_lookup.properties.`{key}`)")
                             expr = f"(coalesce({', '.join([*props, 'sessions.distinct_id'])}), toString(__person_lookup.id))"
-                            new_col = re.sub(r"person_display_name -- Person\s*", expr, col)
+                            new_col = re.sub(rf"person_display_name {COMMENT_SEPARATOR} Person\s*", expr, col)
                             order_columns.append(new_col)
                         elif col_name.startswith("person.properties."):
                             order_columns.append(self._transform_person_property_col(col))
@@ -511,7 +605,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
 
         # Convert person_display_name tuple to dict
         for column_index, col in enumerate(self.select_input_raw()):
-            if col.split("--")[0].strip() == "person_display_name":
+            if col.split(COMMENT_SEPARATOR)[0].strip() == "person_display_name":
                 for index, result in enumerate(self.paginator.results):
                     row = list(self.paginator.results[index])
                     row[column_index] = {
