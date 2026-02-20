@@ -231,6 +231,27 @@ def sync_execute(
     elif tags.product == Product.ENDPOINTS:
         ch_user = ClickHouseUser.ENDPOINTS
 
+    if (
+        not TEST
+        and ch_user == ClickHouseUser.APP
+        and (tags.team_id is None or tags.product is None or tags.kind is None or tags.query_type is None)
+    ):
+        missing = []
+        if tags.team_id is None:
+            missing.append("team_id")
+        if tags.product is None:
+            missing.append("product")
+        if tags.kind is None:
+            missing.append("kind")
+        if tags.query_type is None:
+            missing.append("query_type")
+
+        logger.warning(
+            "sync_execute called with missing query tags: %s\n%s",
+            ", ".join(missing),
+            "".join(traceback.format_stack()),
+        )
+
     settings = {
         **core_settings,
         "log_comment": tags.to_json(),
@@ -259,7 +280,11 @@ def sync_execute(
                 with_column_types=with_column_types,
                 query_id=query_id,
             )
-            if "INSERT INTO" in prepared_sql and client.last_query.progress.written_rows > 0:
+            if (
+                "INSERT INTO" in prepared_sql
+                and hasattr(client, "last_query")
+                and client.last_query.progress.written_rows > 0
+            ):
                 result = client.last_query.progress.written_rows
     except Exception as e:
         exception_type = clickhouse_error_type(e)

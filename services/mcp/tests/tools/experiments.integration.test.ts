@@ -145,7 +145,7 @@ describe('Experiments', { concurrent: false }, () => {
                         name: 'Average Page Load Time',
                         metric_type: 'mean' as const,
                         event_name: '$pageview',
-                        properties: { page: '/checkout' },
+                        properties: [{ key: 'page', value: '/checkout', operator: 'exact', type: 'event' }],
                         description: 'Measure average page load time for checkout page',
                     },
                 ],

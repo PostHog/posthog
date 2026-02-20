@@ -68,6 +68,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import(
             '../../products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/ErrorTrackingConfigurationScene'
         ),
+    FeatureFlagTemplates: () => import('../../products/feature_flags/frontend/FeatureFlagTemplatesScene'),
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
     FlappyHog: () => import('../../products/games/FlappyHog/FlappyHog'),
     Links: () => import('../../products/links/frontend/LinksScene'),
@@ -114,7 +115,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/support/tickets': ['SupportTickets', 'supportTickets'],
     '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
     '/support/settings': ['SupportSettings', 'supportSettings'],
-    '/customer_analytics': ['CustomerAnalytics', 'customerAnalytics'],
+    '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
+    '/customer_analytics/journeys': ['CustomerAnalytics', 'customerAnalyticsJourneys'],
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-warehouse': ['DataWarehouse', 'dataWarehouse'],
     '/models': ['Models', 'models'],
@@ -129,6 +131,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
     '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
     '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
+    '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
     '/games/flappyhog': ['FlappyHog', 'flappyHog'],
     '/links': ['Links', 'links'],
@@ -181,6 +184,8 @@ export const productRedirects: Record<
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
 > = {
     '/support': '/support/tickets',
+    '/customer_analytics': (_params, searchParams, hashParams) =>
+        combineUrl('/customer_analytics/dashboard', searchParams, hashParams).url,
     '/llm-analytics': (_params, searchParams, hashParams) =>
         combineUrl(`/llm-analytics/dashboard`, searchParams, hashParams).url,
     '/llm-observability': (_params, searchParams, hashParams) =>
@@ -304,6 +309,11 @@ export const productConfiguration: Record<string, any> = {
     ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue', layout: 'app-raw' },
     ErrorTrackingIssueFingerprints: { projectBased: true, name: 'Error tracking issue fingerprints' },
     ErrorTrackingConfiguration: { projectBased: true, name: 'Error tracking configuration' },
+    FeatureFlagTemplates: {
+        projectBased: true,
+        name: 'Feature flag templates',
+        defaultDocsPath: '/docs/feature-flags/creating-feature-flags',
+    },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
     FlappyHog: { name: 'FlappyHog', projectBased: true, activityScope: 'Games' },
     Links: {
@@ -492,6 +502,8 @@ export const productUrls = {
     supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
     supportSettings: (): string => '/support/settings',
     customerAnalytics: (): string => '/customer_analytics',
+    customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
+    customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
     customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
@@ -579,6 +591,7 @@ export const productUrls = {
         action ? `/experiments/shared-metrics/${id}/${action}` : `/experiments/shared-metrics/${id}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
+    featureFlagTemplates: (): string => '/feature_flags/templates',
     featureFlagNew: ({
         type,
         sourceId,
@@ -1438,7 +1451,8 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: 'Analytics',
         href: urls.revenueAnalytics(),
         type: 'revenue',
-        tags: ['beta'],
+        flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
+        tags: ['alpha'],
         sceneKey: 'RevenueAnalytics',
         sceneKeys: ['RevenueAnalytics'],
     },

@@ -21,6 +21,7 @@ pub mod pipeline;
 pub mod posthog_utils;
 pub mod router;
 pub mod server;
+pub mod stages;
 pub mod symbol_store;
 pub mod teams;
 #[cfg(test)]

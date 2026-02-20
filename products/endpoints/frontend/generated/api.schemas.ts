@@ -22,38 +22,40 @@ export interface DateRangeApi {
 export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
 
 export const PropertyOperatorApi = {
-    exact: 'exact',
-    is_not: 'is_not',
-    icontains: 'icontains',
-    not_icontains: 'not_icontains',
-    regex: 'regex',
-    not_regex: 'not_regex',
-    gt: 'gt',
-    gte: 'gte',
-    lt: 'lt',
-    lte: 'lte',
-    is_set: 'is_set',
-    is_not_set: 'is_not_set',
-    is_date_exact: 'is_date_exact',
-    is_date_before: 'is_date_before',
-    is_date_after: 'is_date_after',
-    between: 'between',
-    not_between: 'not_between',
-    min: 'min',
-    max: 'max',
-    in: 'in',
-    not_in: 'not_in',
-    is_cleaned_path_exact: 'is_cleaned_path_exact',
-    flag_evaluates_to: 'flag_evaluates_to',
-    semver_eq: 'semver_eq',
-    semver_neq: 'semver_neq',
-    semver_gt: 'semver_gt',
-    semver_gte: 'semver_gte',
-    semver_lt: 'semver_lt',
-    semver_lte: 'semver_lte',
-    semver_tilde: 'semver_tilde',
-    semver_caret: 'semver_caret',
-    semver_wildcard: 'semver_wildcard',
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+    Gt: 'gt',
+    Gte: 'gte',
+    Lt: 'lt',
+    Lte: 'lte',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    IsDateExact: 'is_date_exact',
+    IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
+    Between: 'between',
+    NotBetween: 'not_between',
+    Min: 'min',
+    Max: 'max',
+    In: 'in',
+    NotIn: 'not_in',
+    IsCleanedPathExact: 'is_cleaned_path_exact',
+    FlagEvaluatesTo: 'flag_evaluates_to',
+    SemverEq: 'semver_eq',
+    SemverNeq: 'semver_neq',
+    SemverGt: 'semver_gt',
+    SemverGte: 'semver_gte',
+    SemverLt: 'semver_lt',
+    SemverLte: 'semver_lte',
+    SemverTilde: 'semver_tilde',
+    SemverCaret: 'semver_caret',
+    SemverWildcard: 'semver_wildcard',
+    IcontainsMulti: 'icontains_multi',
+    NotIcontainsMulti: 'not_icontains_multi',
 } as const
 
 /**
@@ -62,7 +64,7 @@ export const PropertyOperatorApi = {
 export type EventPropertyFilterApiType = (typeof EventPropertyFilterApiType)[keyof typeof EventPropertyFilterApiType]
 
 export const EventPropertyFilterApiType = {
-    event: 'event',
+    Event: 'event',
 } as const
 
 export interface EventPropertyFilterApi {
@@ -81,7 +83,7 @@ export interface EventPropertyFilterApi {
 export type PersonPropertyFilterApiType = (typeof PersonPropertyFilterApiType)[keyof typeof PersonPropertyFilterApiType]
 
 export const PersonPropertyFilterApiType = {
-    person: 'person',
+    Person: 'person',
 } as const
 
 export interface PersonPropertyFilterApi {
@@ -97,17 +99,17 @@ export interface PersonPropertyFilterApi {
 export type KeyApi = (typeof KeyApi)[keyof typeof KeyApi]
 
 export const KeyApi = {
-    tag_name: 'tag_name',
-    text: 'text',
-    href: 'href',
-    selector: 'selector',
+    TagName: 'tag_name',
+    Text: 'text',
+    Href: 'href',
+    Selector: 'selector',
 } as const
 
 export type ElementPropertyFilterApiType =
     (typeof ElementPropertyFilterApiType)[keyof typeof ElementPropertyFilterApiType]
 
 export const ElementPropertyFilterApiType = {
-    element: 'element',
+    Element: 'element',
 } as const
 
 export interface ElementPropertyFilterApi {
@@ -123,7 +125,7 @@ export type EventMetadataPropertyFilterApiType =
     (typeof EventMetadataPropertyFilterApiType)[keyof typeof EventMetadataPropertyFilterApiType]
 
 export const EventMetadataPropertyFilterApiType = {
-    event_metadata: 'event_metadata',
+    EventMetadata: 'event_metadata',
 } as const
 
 export interface EventMetadataPropertyFilterApi {
@@ -139,7 +141,7 @@ export type SessionPropertyFilterApiType =
     (typeof SessionPropertyFilterApiType)[keyof typeof SessionPropertyFilterApiType]
 
 export const SessionPropertyFilterApiType = {
-    session: 'session',
+    Session: 'session',
 } as const
 
 export interface SessionPropertyFilterApi {
@@ -154,13 +156,13 @@ export interface SessionPropertyFilterApi {
 export type CohortPropertyFilterApiKey = (typeof CohortPropertyFilterApiKey)[keyof typeof CohortPropertyFilterApiKey]
 
 export const CohortPropertyFilterApiKey = {
-    id: 'id',
+    Id: 'id',
 } as const
 
 export type CohortPropertyFilterApiType = (typeof CohortPropertyFilterApiType)[keyof typeof CohortPropertyFilterApiType]
 
 export const CohortPropertyFilterApiType = {
-    cohort: 'cohort',
+    Cohort: 'cohort',
 } as const
 
 export interface CohortPropertyFilterApi {
@@ -177,16 +179,16 @@ export interface CohortPropertyFilterApi {
 export type DurationTypeApi = (typeof DurationTypeApi)[keyof typeof DurationTypeApi]
 
 export const DurationTypeApi = {
-    duration: 'duration',
-    active_seconds: 'active_seconds',
-    inactive_seconds: 'inactive_seconds',
+    Duration: 'duration',
+    ActiveSeconds: 'active_seconds',
+    InactiveSeconds: 'inactive_seconds',
 } as const
 
 export type RecordingPropertyFilterApiType =
     (typeof RecordingPropertyFilterApiType)[keyof typeof RecordingPropertyFilterApiType]
 
 export const RecordingPropertyFilterApiType = {
-    recording: 'recording',
+    Recording: 'recording',
 } as const
 
 export interface RecordingPropertyFilterApi {
@@ -202,7 +204,7 @@ export type LogEntryPropertyFilterApiType =
     (typeof LogEntryPropertyFilterApiType)[keyof typeof LogEntryPropertyFilterApiType]
 
 export const LogEntryPropertyFilterApiType = {
-    log_entry: 'log_entry',
+    LogEntry: 'log_entry',
 } as const
 
 export interface LogEntryPropertyFilterApi {
@@ -217,7 +219,7 @@ export interface LogEntryPropertyFilterApi {
 export type GroupPropertyFilterApiType = (typeof GroupPropertyFilterApiType)[keyof typeof GroupPropertyFilterApiType]
 
 export const GroupPropertyFilterApiType = {
-    group: 'group',
+    Group: 'group',
 } as const
 
 export interface GroupPropertyFilterApi {
@@ -238,7 +240,7 @@ export type FeaturePropertyFilterApiType =
     (typeof FeaturePropertyFilterApiType)[keyof typeof FeaturePropertyFilterApiType]
 
 export const FeaturePropertyFilterApiType = {
-    feature: 'feature',
+    Feature: 'feature',
 } as const
 
 export interface FeaturePropertyFilterApi {
@@ -258,7 +260,7 @@ export type FlagPropertyFilterApiOperator =
     (typeof FlagPropertyFilterApiOperator)[keyof typeof FlagPropertyFilterApiOperator]
 
 export const FlagPropertyFilterApiOperator = {
-    flag_evaluates_to: 'flag_evaluates_to',
+    FlagEvaluatesTo: 'flag_evaluates_to',
 } as const
 
 /**
@@ -267,7 +269,7 @@ export const FlagPropertyFilterApiOperator = {
 export type FlagPropertyFilterApiType = (typeof FlagPropertyFilterApiType)[keyof typeof FlagPropertyFilterApiType]
 
 export const FlagPropertyFilterApiType = {
-    flag: 'flag',
+    Flag: 'flag',
 } as const
 
 export interface FlagPropertyFilterApi {
@@ -286,7 +288,7 @@ export interface FlagPropertyFilterApi {
 export type HogQLPropertyFilterApiType = (typeof HogQLPropertyFilterApiType)[keyof typeof HogQLPropertyFilterApiType]
 
 export const HogQLPropertyFilterApiType = {
-    hogql: 'hogql',
+    Hogql: 'hogql',
 } as const
 
 export interface HogQLPropertyFilterApi {
@@ -300,7 +302,7 @@ export interface HogQLPropertyFilterApi {
 export type EmptyPropertyFilterApiType = (typeof EmptyPropertyFilterApiType)[keyof typeof EmptyPropertyFilterApiType]
 
 export const EmptyPropertyFilterApiType = {
-    empty: 'empty',
+    Empty: 'empty',
 } as const
 
 export interface EmptyPropertyFilterApi {
@@ -311,7 +313,7 @@ export type DataWarehousePropertyFilterApiType =
     (typeof DataWarehousePropertyFilterApiType)[keyof typeof DataWarehousePropertyFilterApiType]
 
 export const DataWarehousePropertyFilterApiType = {
-    data_warehouse: 'data_warehouse',
+    DataWarehouse: 'data_warehouse',
 } as const
 
 export interface DataWarehousePropertyFilterApi {
@@ -327,7 +329,7 @@ export type DataWarehousePersonPropertyFilterApiType =
     (typeof DataWarehousePersonPropertyFilterApiType)[keyof typeof DataWarehousePersonPropertyFilterApiType]
 
 export const DataWarehousePersonPropertyFilterApiType = {
-    data_warehouse_person_property: 'data_warehouse_person_property',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
 } as const
 
 export interface DataWarehousePersonPropertyFilterApi {
@@ -343,7 +345,7 @@ export type ErrorTrackingIssueFilterApiType =
     (typeof ErrorTrackingIssueFilterApiType)[keyof typeof ErrorTrackingIssueFilterApiType]
 
 export const ErrorTrackingIssueFilterApiType = {
-    error_tracking_issue: 'error_tracking_issue',
+    ErrorTrackingIssue: 'error_tracking_issue',
 } as const
 
 export interface ErrorTrackingIssueFilterApi {
@@ -358,9 +360,9 @@ export interface ErrorTrackingIssueFilterApi {
 export type LogPropertyFilterTypeApi = (typeof LogPropertyFilterTypeApi)[keyof typeof LogPropertyFilterTypeApi]
 
 export const LogPropertyFilterTypeApi = {
-    log: 'log',
-    log_attribute: 'log_attribute',
-    log_resource_attribute: 'log_resource_attribute',
+    Log: 'log',
+    LogAttribute: 'log_attribute',
+    LogResourceAttribute: 'log_resource_attribute',
 } as const
 
 export interface LogPropertyFilterApi {
@@ -376,7 +378,7 @@ export type RevenueAnalyticsPropertyFilterApiType =
     (typeof RevenueAnalyticsPropertyFilterApiType)[keyof typeof RevenueAnalyticsPropertyFilterApiType]
 
 export const RevenueAnalyticsPropertyFilterApiType = {
-    revenue_analytics: 'revenue_analytics',
+    RevenueAnalytics: 'revenue_analytics',
 } as const
 
 export interface RevenueAnalyticsPropertyFilterApi {
@@ -426,41 +428,41 @@ export const HogQLQueryApiKind = {
 export type BounceRatePageViewModeApi = (typeof BounceRatePageViewModeApi)[keyof typeof BounceRatePageViewModeApi]
 
 export const BounceRatePageViewModeApi = {
-    count_pageviews: 'count_pageviews',
-    uniq_urls: 'uniq_urls',
-    uniq_page_screen_autocaptures: 'uniq_page_screen_autocaptures',
+    CountPageviews: 'count_pageviews',
+    UniqUrls: 'uniq_urls',
+    UniqPageScreenAutocaptures: 'uniq_page_screen_autocaptures',
 } as const
 
 export type FilterLogicalOperatorApi = (typeof FilterLogicalOperatorApi)[keyof typeof FilterLogicalOperatorApi]
 
 export const FilterLogicalOperatorApi = {
-    AND: 'AND',
-    OR: 'OR',
+    And: 'AND',
+    Or: 'OR',
 } as const
 
 export type CustomChannelFieldApi = (typeof CustomChannelFieldApi)[keyof typeof CustomChannelFieldApi]
 
 export const CustomChannelFieldApi = {
-    utm_source: 'utm_source',
-    utm_medium: 'utm_medium',
-    utm_campaign: 'utm_campaign',
-    referring_domain: 'referring_domain',
-    url: 'url',
-    pathname: 'pathname',
-    hostname: 'hostname',
+    UtmSource: 'utm_source',
+    UtmMedium: 'utm_medium',
+    UtmCampaign: 'utm_campaign',
+    ReferringDomain: 'referring_domain',
+    Url: 'url',
+    Pathname: 'pathname',
+    Hostname: 'hostname',
 } as const
 
 export type CustomChannelOperatorApi = (typeof CustomChannelOperatorApi)[keyof typeof CustomChannelOperatorApi]
 
 export const CustomChannelOperatorApi = {
-    exact: 'exact',
-    is_not: 'is_not',
-    is_set: 'is_set',
-    is_not_set: 'is_not_set',
-    icontains: 'icontains',
-    not_icontains: 'not_icontains',
-    regex: 'regex',
-    not_regex: 'not_regex',
+    Exact: 'exact',
+    IsNot: 'is_not',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
 } as const
 
 export interface CustomChannelConditionApi {
@@ -487,75 +489,75 @@ export interface DataWarehouseEventsModifierApi {
 export type InCohortViaApi = (typeof InCohortViaApi)[keyof typeof InCohortViaApi]
 
 export const InCohortViaApi = {
-    auto: 'auto',
-    leftjoin: 'leftjoin',
-    subquery: 'subquery',
-    leftjoin_conjoined: 'leftjoin_conjoined',
+    Auto: 'auto',
+    Leftjoin: 'leftjoin',
+    Subquery: 'subquery',
+    LeftjoinConjoined: 'leftjoin_conjoined',
 } as const
 
 export type MaterializationModeApi = (typeof MaterializationModeApi)[keyof typeof MaterializationModeApi]
 
 export const MaterializationModeApi = {
-    auto: 'auto',
-    legacy_null_as_string: 'legacy_null_as_string',
-    legacy_null_as_null: 'legacy_null_as_null',
-    disabled: 'disabled',
+    Auto: 'auto',
+    LegacyNullAsString: 'legacy_null_as_string',
+    LegacyNullAsNull: 'legacy_null_as_null',
+    Disabled: 'disabled',
 } as const
 
 export type MaterializedColumnsOptimizationModeApi =
     (typeof MaterializedColumnsOptimizationModeApi)[keyof typeof MaterializedColumnsOptimizationModeApi]
 
 export const MaterializedColumnsOptimizationModeApi = {
-    disabled: 'disabled',
-    optimized: 'optimized',
+    Disabled: 'disabled',
+    Optimized: 'optimized',
 } as const
 
 export type PersonsArgMaxVersionApi = (typeof PersonsArgMaxVersionApi)[keyof typeof PersonsArgMaxVersionApi]
 
 export const PersonsArgMaxVersionApi = {
-    auto: 'auto',
-    v1: 'v1',
-    v2: 'v2',
+    Auto: 'auto',
+    V1: 'v1',
+    V2: 'v2',
 } as const
 
 export type PersonsJoinModeApi = (typeof PersonsJoinModeApi)[keyof typeof PersonsJoinModeApi]
 
 export const PersonsJoinModeApi = {
-    inner: 'inner',
-    left: 'left',
+    Inner: 'inner',
+    Left: 'left',
 } as const
 
 export type PersonsOnEventsModeApi = (typeof PersonsOnEventsModeApi)[keyof typeof PersonsOnEventsModeApi]
 
 export const PersonsOnEventsModeApi = {
-    disabled: 'disabled',
-    person_id_no_override_properties_on_events: 'person_id_no_override_properties_on_events',
-    person_id_override_properties_on_events: 'person_id_override_properties_on_events',
-    person_id_override_properties_joined: 'person_id_override_properties_joined',
+    Disabled: 'disabled',
+    PersonIdNoOverridePropertiesOnEvents: 'person_id_no_override_properties_on_events',
+    PersonIdOverridePropertiesOnEvents: 'person_id_override_properties_on_events',
+    PersonIdOverridePropertiesJoined: 'person_id_override_properties_joined',
 } as const
 
 export type PropertyGroupsModeApi = (typeof PropertyGroupsModeApi)[keyof typeof PropertyGroupsModeApi]
 
 export const PropertyGroupsModeApi = {
-    enabled: 'enabled',
-    disabled: 'disabled',
-    optimized: 'optimized',
+    Enabled: 'enabled',
+    Disabled: 'disabled',
+    Optimized: 'optimized',
 } as const
 
 export type SessionTableVersionApi = (typeof SessionTableVersionApi)[keyof typeof SessionTableVersionApi]
 
 export const SessionTableVersionApi = {
-    auto: 'auto',
-    v1: 'v1',
-    v2: 'v2',
-    v3: 'v3',
+    Auto: 'auto',
+    V1: 'v1',
+    V2: 'v2',
+    V3: 'v3',
 } as const
 
 export type SessionsV2JoinModeApi = (typeof SessionsV2JoinModeApi)[keyof typeof SessionsV2JoinModeApi]
 
 export const SessionsV2JoinModeApi = {
-    string: 'string',
-    uuid: 'uuid',
+    String: 'string',
+    Uuid: 'uuid',
 } as const
 
 export interface HogQLQueryModifiersApi {
@@ -620,10 +622,10 @@ export interface HogQLNoticeApi {
 export type QueryIndexUsageApi = (typeof QueryIndexUsageApi)[keyof typeof QueryIndexUsageApi]
 
 export const QueryIndexUsageApi = {
-    undecisive: 'undecisive',
-    no: 'no',
-    partial: 'partial',
-    yes: 'yes',
+    Undecisive: 'undecisive',
+    No: 'no',
+    Partial: 'partial',
+    Yes: 'yes',
 } as const
 
 export interface HogQLMetadataResponseApi {
@@ -838,29 +840,29 @@ export interface HogQLQueryApi {
 export type BreakdownTypeApi = (typeof BreakdownTypeApi)[keyof typeof BreakdownTypeApi]
 
 export const BreakdownTypeApi = {
-    cohort: 'cohort',
-    person: 'person',
-    event: 'event',
-    event_metadata: 'event_metadata',
-    group: 'group',
-    session: 'session',
-    hogql: 'hogql',
-    data_warehouse: 'data_warehouse',
-    data_warehouse_person_property: 'data_warehouse_person_property',
-    revenue_analytics: 'revenue_analytics',
+    Cohort: 'cohort',
+    Person: 'person',
+    Event: 'event',
+    EventMetadata: 'event_metadata',
+    Group: 'group',
+    Session: 'session',
+    Hogql: 'hogql',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
+    RevenueAnalytics: 'revenue_analytics',
 } as const
 
 export type MultipleBreakdownTypeApi = (typeof MultipleBreakdownTypeApi)[keyof typeof MultipleBreakdownTypeApi]
 
 export const MultipleBreakdownTypeApi = {
-    cohort: 'cohort',
-    person: 'person',
-    event: 'event',
-    event_metadata: 'event_metadata',
-    group: 'group',
-    session: 'session',
-    hogql: 'hogql',
-    revenue_analytics: 'revenue_analytics',
+    Cohort: 'cohort',
+    Person: 'person',
+    Event: 'event',
+    EventMetadata: 'event_metadata',
+    Group: 'group',
+    Session: 'session',
+    Hogql: 'hogql',
+    RevenueAnalytics: 'revenue_analytics',
 } as const
 
 export interface BreakdownApi {
@@ -920,12 +922,12 @@ export interface CustomEventConversionGoalApi {
 export type IntervalTypeApi = (typeof IntervalTypeApi)[keyof typeof IntervalTypeApi]
 
 export const IntervalTypeApi = {
-    second: 'second',
-    minute: 'minute',
-    hour: 'hour',
-    day: 'day',
-    week: 'week',
-    month: 'month',
+    Second: 'second',
+    Minute: 'minute',
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
 } as const
 
 export type TrendsQueryApiKind = (typeof TrendsQueryApiKind)[keyof typeof TrendsQueryApiKind]
@@ -1005,236 +1007,236 @@ export const GroupNodeApiKind = {
 export type BaseMathTypeApi = (typeof BaseMathTypeApi)[keyof typeof BaseMathTypeApi]
 
 export const BaseMathTypeApi = {
-    total: 'total',
-    dau: 'dau',
-    weekly_active: 'weekly_active',
-    monthly_active: 'monthly_active',
-    unique_session: 'unique_session',
-    first_time_for_user: 'first_time_for_user',
-    first_matching_event_for_user: 'first_matching_event_for_user',
+    Total: 'total',
+    Dau: 'dau',
+    WeeklyActive: 'weekly_active',
+    MonthlyActive: 'monthly_active',
+    UniqueSession: 'unique_session',
+    FirstTimeForUser: 'first_time_for_user',
+    FirstMatchingEventForUser: 'first_matching_event_for_user',
 } as const
 
 export type FunnelMathTypeApi = (typeof FunnelMathTypeApi)[keyof typeof FunnelMathTypeApi]
 
 export const FunnelMathTypeApi = {
-    total: 'total',
-    first_time_for_user: 'first_time_for_user',
-    first_time_for_user_with_filters: 'first_time_for_user_with_filters',
+    Total: 'total',
+    FirstTimeForUser: 'first_time_for_user',
+    FirstTimeForUserWithFilters: 'first_time_for_user_with_filters',
 } as const
 
 export type PropertyMathTypeApi = (typeof PropertyMathTypeApi)[keyof typeof PropertyMathTypeApi]
 
 export const PropertyMathTypeApi = {
-    avg: 'avg',
-    sum: 'sum',
-    min: 'min',
-    max: 'max',
-    median: 'median',
-    p75: 'p75',
-    p90: 'p90',
-    p95: 'p95',
-    p99: 'p99',
+    Avg: 'avg',
+    Sum: 'sum',
+    Min: 'min',
+    Max: 'max',
+    Median: 'median',
+    P75: 'p75',
+    P90: 'p90',
+    P95: 'p95',
+    P99: 'p99',
 } as const
 
 export type CountPerActorMathTypeApi = (typeof CountPerActorMathTypeApi)[keyof typeof CountPerActorMathTypeApi]
 
 export const CountPerActorMathTypeApi = {
-    avg_count_per_actor: 'avg_count_per_actor',
-    min_count_per_actor: 'min_count_per_actor',
-    max_count_per_actor: 'max_count_per_actor',
-    median_count_per_actor: 'median_count_per_actor',
-    p75_count_per_actor: 'p75_count_per_actor',
-    p90_count_per_actor: 'p90_count_per_actor',
-    p95_count_per_actor: 'p95_count_per_actor',
-    p99_count_per_actor: 'p99_count_per_actor',
+    AvgCountPerActor: 'avg_count_per_actor',
+    MinCountPerActor: 'min_count_per_actor',
+    MaxCountPerActor: 'max_count_per_actor',
+    MedianCountPerActor: 'median_count_per_actor',
+    P75CountPerActor: 'p75_count_per_actor',
+    P90CountPerActor: 'p90_count_per_actor',
+    P95CountPerActor: 'p95_count_per_actor',
+    P99CountPerActor: 'p99_count_per_actor',
 } as const
 
 export type ExperimentMetricMathTypeApi = (typeof ExperimentMetricMathTypeApi)[keyof typeof ExperimentMetricMathTypeApi]
 
 export const ExperimentMetricMathTypeApi = {
-    total: 'total',
-    sum: 'sum',
-    unique_session: 'unique_session',
-    min: 'min',
-    max: 'max',
-    avg: 'avg',
-    dau: 'dau',
-    unique_group: 'unique_group',
-    hogql: 'hogql',
+    Total: 'total',
+    Sum: 'sum',
+    UniqueSession: 'unique_session',
+    Min: 'min',
+    Max: 'max',
+    Avg: 'avg',
+    Dau: 'dau',
+    UniqueGroup: 'unique_group',
+    Hogql: 'hogql',
 } as const
 
 export type CalendarHeatmapMathTypeApi = (typeof CalendarHeatmapMathTypeApi)[keyof typeof CalendarHeatmapMathTypeApi]
 
 export const CalendarHeatmapMathTypeApi = {
-    total: 'total',
-    dau: 'dau',
+    Total: 'total',
+    Dau: 'dau',
 } as const
 
 export type MathGroupTypeIndexApi = (typeof MathGroupTypeIndexApi)[keyof typeof MathGroupTypeIndexApi]
 
 export const MathGroupTypeIndexApi = {
-    NUMBER_0: 0,
-    NUMBER_1: 1,
-    NUMBER_2: 2,
-    NUMBER_3: 3,
-    NUMBER_4: 4,
+    Number0: 0,
+    Number1: 1,
+    Number2: 2,
+    Number3: 3,
+    Number4: 4,
 } as const
 
 export type CurrencyCodeApi = (typeof CurrencyCodeApi)[keyof typeof CurrencyCodeApi]
 
 export const CurrencyCodeApi = {
-    AED: 'AED',
-    AFN: 'AFN',
-    ALL: 'ALL',
-    AMD: 'AMD',
-    ANG: 'ANG',
-    AOA: 'AOA',
-    ARS: 'ARS',
-    AUD: 'AUD',
-    AWG: 'AWG',
-    AZN: 'AZN',
-    BAM: 'BAM',
-    BBD: 'BBD',
-    BDT: 'BDT',
-    BGN: 'BGN',
-    BHD: 'BHD',
-    BIF: 'BIF',
-    BMD: 'BMD',
-    BND: 'BND',
-    BOB: 'BOB',
-    BRL: 'BRL',
-    BSD: 'BSD',
-    BTC: 'BTC',
-    BTN: 'BTN',
-    BWP: 'BWP',
-    BYN: 'BYN',
-    BZD: 'BZD',
-    CAD: 'CAD',
-    CDF: 'CDF',
-    CHF: 'CHF',
-    CLP: 'CLP',
-    CNY: 'CNY',
-    COP: 'COP',
-    CRC: 'CRC',
-    CVE: 'CVE',
-    CZK: 'CZK',
-    DJF: 'DJF',
-    DKK: 'DKK',
-    DOP: 'DOP',
-    DZD: 'DZD',
-    EGP: 'EGP',
-    ERN: 'ERN',
-    ETB: 'ETB',
-    EUR: 'EUR',
-    FJD: 'FJD',
-    GBP: 'GBP',
-    GEL: 'GEL',
-    GHS: 'GHS',
-    GIP: 'GIP',
-    GMD: 'GMD',
-    GNF: 'GNF',
-    GTQ: 'GTQ',
-    GYD: 'GYD',
-    HKD: 'HKD',
-    HNL: 'HNL',
-    HRK: 'HRK',
-    HTG: 'HTG',
-    HUF: 'HUF',
-    IDR: 'IDR',
-    ILS: 'ILS',
-    INR: 'INR',
-    IQD: 'IQD',
-    IRR: 'IRR',
-    ISK: 'ISK',
-    JMD: 'JMD',
-    JOD: 'JOD',
-    JPY: 'JPY',
-    KES: 'KES',
-    KGS: 'KGS',
-    KHR: 'KHR',
-    KMF: 'KMF',
-    KRW: 'KRW',
-    KWD: 'KWD',
-    KYD: 'KYD',
-    KZT: 'KZT',
-    LAK: 'LAK',
-    LBP: 'LBP',
-    LKR: 'LKR',
-    LRD: 'LRD',
-    LTL: 'LTL',
-    LVL: 'LVL',
-    LSL: 'LSL',
-    LYD: 'LYD',
-    MAD: 'MAD',
-    MDL: 'MDL',
-    MGA: 'MGA',
-    MKD: 'MKD',
-    MMK: 'MMK',
-    MNT: 'MNT',
-    MOP: 'MOP',
-    MRU: 'MRU',
-    MTL: 'MTL',
-    MUR: 'MUR',
-    MVR: 'MVR',
-    MWK: 'MWK',
-    MXN: 'MXN',
-    MYR: 'MYR',
-    MZN: 'MZN',
-    NAD: 'NAD',
-    NGN: 'NGN',
-    NIO: 'NIO',
-    NOK: 'NOK',
-    NPR: 'NPR',
-    NZD: 'NZD',
-    OMR: 'OMR',
-    PAB: 'PAB',
-    PEN: 'PEN',
-    PGK: 'PGK',
-    PHP: 'PHP',
-    PKR: 'PKR',
-    PLN: 'PLN',
-    PYG: 'PYG',
-    QAR: 'QAR',
-    RON: 'RON',
-    RSD: 'RSD',
-    RUB: 'RUB',
-    RWF: 'RWF',
-    SAR: 'SAR',
-    SBD: 'SBD',
-    SCR: 'SCR',
-    SDG: 'SDG',
-    SEK: 'SEK',
-    SGD: 'SGD',
-    SRD: 'SRD',
-    SSP: 'SSP',
-    STN: 'STN',
-    SYP: 'SYP',
-    SZL: 'SZL',
-    THB: 'THB',
-    TJS: 'TJS',
-    TMT: 'TMT',
-    TND: 'TND',
-    TOP: 'TOP',
-    TRY: 'TRY',
-    TTD: 'TTD',
-    TWD: 'TWD',
-    TZS: 'TZS',
-    UAH: 'UAH',
-    UGX: 'UGX',
-    USD: 'USD',
-    UYU: 'UYU',
-    UZS: 'UZS',
-    VES: 'VES',
-    VND: 'VND',
-    VUV: 'VUV',
-    WST: 'WST',
-    XAF: 'XAF',
-    XCD: 'XCD',
-    XOF: 'XOF',
-    XPF: 'XPF',
-    YER: 'YER',
-    ZAR: 'ZAR',
-    ZMW: 'ZMW',
+    Aed: 'AED',
+    Afn: 'AFN',
+    All: 'ALL',
+    Amd: 'AMD',
+    Ang: 'ANG',
+    Aoa: 'AOA',
+    Ars: 'ARS',
+    Aud: 'AUD',
+    Awg: 'AWG',
+    Azn: 'AZN',
+    Bam: 'BAM',
+    Bbd: 'BBD',
+    Bdt: 'BDT',
+    Bgn: 'BGN',
+    Bhd: 'BHD',
+    Bif: 'BIF',
+    Bmd: 'BMD',
+    Bnd: 'BND',
+    Bob: 'BOB',
+    Brl: 'BRL',
+    Bsd: 'BSD',
+    Btc: 'BTC',
+    Btn: 'BTN',
+    Bwp: 'BWP',
+    Byn: 'BYN',
+    Bzd: 'BZD',
+    Cad: 'CAD',
+    Cdf: 'CDF',
+    Chf: 'CHF',
+    Clp: 'CLP',
+    Cny: 'CNY',
+    Cop: 'COP',
+    Crc: 'CRC',
+    Cve: 'CVE',
+    Czk: 'CZK',
+    Djf: 'DJF',
+    Dkk: 'DKK',
+    Dop: 'DOP',
+    Dzd: 'DZD',
+    Egp: 'EGP',
+    Ern: 'ERN',
+    Etb: 'ETB',
+    Eur: 'EUR',
+    Fjd: 'FJD',
+    Gbp: 'GBP',
+    Gel: 'GEL',
+    Ghs: 'GHS',
+    Gip: 'GIP',
+    Gmd: 'GMD',
+    Gnf: 'GNF',
+    Gtq: 'GTQ',
+    Gyd: 'GYD',
+    Hkd: 'HKD',
+    Hnl: 'HNL',
+    Hrk: 'HRK',
+    Htg: 'HTG',
+    Huf: 'HUF',
+    Idr: 'IDR',
+    Ils: 'ILS',
+    Inr: 'INR',
+    Iqd: 'IQD',
+    Irr: 'IRR',
+    Isk: 'ISK',
+    Jmd: 'JMD',
+    Jod: 'JOD',
+    Jpy: 'JPY',
+    Kes: 'KES',
+    Kgs: 'KGS',
+    Khr: 'KHR',
+    Kmf: 'KMF',
+    Krw: 'KRW',
+    Kwd: 'KWD',
+    Kyd: 'KYD',
+    Kzt: 'KZT',
+    Lak: 'LAK',
+    Lbp: 'LBP',
+    Lkr: 'LKR',
+    Lrd: 'LRD',
+    Ltl: 'LTL',
+    Lvl: 'LVL',
+    Lsl: 'LSL',
+    Lyd: 'LYD',
+    Mad: 'MAD',
+    Mdl: 'MDL',
+    Mga: 'MGA',
+    Mkd: 'MKD',
+    Mmk: 'MMK',
+    Mnt: 'MNT',
+    Mop: 'MOP',
+    Mru: 'MRU',
+    Mtl: 'MTL',
+    Mur: 'MUR',
+    Mvr: 'MVR',
+    Mwk: 'MWK',
+    Mxn: 'MXN',
+    Myr: 'MYR',
+    Mzn: 'MZN',
+    Nad: 'NAD',
+    Ngn: 'NGN',
+    Nio: 'NIO',
+    Nok: 'NOK',
+    Npr: 'NPR',
+    Nzd: 'NZD',
+    Omr: 'OMR',
+    Pab: 'PAB',
+    Pen: 'PEN',
+    Pgk: 'PGK',
+    Php: 'PHP',
+    Pkr: 'PKR',
+    Pln: 'PLN',
+    Pyg: 'PYG',
+    Qar: 'QAR',
+    Ron: 'RON',
+    Rsd: 'RSD',
+    Rub: 'RUB',
+    Rwf: 'RWF',
+    Sar: 'SAR',
+    Sbd: 'SBD',
+    Scr: 'SCR',
+    Sdg: 'SDG',
+    Sek: 'SEK',
+    Sgd: 'SGD',
+    Srd: 'SRD',
+    Ssp: 'SSP',
+    Stn: 'STN',
+    Syp: 'SYP',
+    Szl: 'SZL',
+    Thb: 'THB',
+    Tjs: 'TJS',
+    Tmt: 'TMT',
+    Tnd: 'TND',
+    Top: 'TOP',
+    Try: 'TRY',
+    Ttd: 'TTD',
+    Twd: 'TWD',
+    Tzs: 'TZS',
+    Uah: 'UAH',
+    Ugx: 'UGX',
+    Usd: 'USD',
+    Uyu: 'UYU',
+    Uzs: 'UZS',
+    Ves: 'VES',
+    Vnd: 'VND',
+    Vuv: 'VUV',
+    Wst: 'WST',
+    Xaf: 'XAF',
+    Xcd: 'XCD',
+    Xof: 'XOF',
+    Xpf: 'XPF',
+    Yer: 'YER',
+    Zar: 'ZAR',
+    Zmw: 'ZMW',
 } as const
 
 export interface RevenueCurrencyPropertyConfigApi {
@@ -1675,21 +1677,21 @@ export interface GroupNodeApi {
 export type AggregationAxisFormatApi = (typeof AggregationAxisFormatApi)[keyof typeof AggregationAxisFormatApi]
 
 export const AggregationAxisFormatApi = {
-    numeric: 'numeric',
-    duration: 'duration',
-    duration_ms: 'duration_ms',
-    percentage: 'percentage',
-    percentage_scaled: 'percentage_scaled',
-    currency: 'currency',
+    Numeric: 'numeric',
+    Duration: 'duration',
+    DurationMs: 'duration_ms',
+    Percentage: 'percentage',
+    PercentageScaled: 'percentage_scaled',
+    Currency: 'currency',
 } as const
 
 export type DetailedResultsAggregationTypeApi =
     (typeof DetailedResultsAggregationTypeApi)[keyof typeof DetailedResultsAggregationTypeApi]
 
 export const DetailedResultsAggregationTypeApi = {
-    total: 'total',
-    average: 'average',
-    median: 'median',
+    Total: 'total',
+    Average: 'average',
+    Median: 'median',
 } as const
 
 export type ChartDisplayTypeApi = (typeof ChartDisplayTypeApi)[keyof typeof ChartDisplayTypeApi]
@@ -1722,8 +1724,8 @@ export interface TrendsFormulaNodeApi {
 export type PositionApi = (typeof PositionApi)[keyof typeof PositionApi]
 
 export const PositionApi = {
-    start: 'start',
-    end: 'end',
+    Start: 'start',
+    End: 'end',
 } as const
 
 export interface GoalLineApi {
@@ -1741,35 +1743,35 @@ export interface GoalLineApi {
 export type ResultCustomizationByApi = (typeof ResultCustomizationByApi)[keyof typeof ResultCustomizationByApi]
 
 export const ResultCustomizationByApi = {
-    value: 'value',
-    position: 'position',
+    Value: 'value',
+    Position: 'position',
 } as const
 
 export type ResultCustomizationByValueApiAssignmentBy =
     (typeof ResultCustomizationByValueApiAssignmentBy)[keyof typeof ResultCustomizationByValueApiAssignmentBy]
 
 export const ResultCustomizationByValueApiAssignmentBy = {
-    value: 'value',
+    Value: 'value',
 } as const
 
 export type DataColorTokenApi = (typeof DataColorTokenApi)[keyof typeof DataColorTokenApi]
 
 export const DataColorTokenApi = {
-    'preset-1': 'preset-1',
-    'preset-2': 'preset-2',
-    'preset-3': 'preset-3',
-    'preset-4': 'preset-4',
-    'preset-5': 'preset-5',
-    'preset-6': 'preset-6',
-    'preset-7': 'preset-7',
-    'preset-8': 'preset-8',
-    'preset-9': 'preset-9',
-    'preset-10': 'preset-10',
-    'preset-11': 'preset-11',
-    'preset-12': 'preset-12',
-    'preset-13': 'preset-13',
-    'preset-14': 'preset-14',
-    'preset-15': 'preset-15',
+    Preset1: 'preset-1',
+    Preset2: 'preset-2',
+    Preset3: 'preset-3',
+    Preset4: 'preset-4',
+    Preset5: 'preset-5',
+    Preset6: 'preset-6',
+    Preset7: 'preset-7',
+    Preset8: 'preset-8',
+    Preset9: 'preset-9',
+    Preset10: 'preset-10',
+    Preset11: 'preset-11',
+    Preset12: 'preset-12',
+    Preset13: 'preset-13',
+    Preset14: 'preset-14',
+    Preset15: 'preset-15',
 } as const
 
 export interface ResultCustomizationByValueApi {
@@ -1783,7 +1785,7 @@ export type ResultCustomizationByPositionApiAssignmentBy =
     (typeof ResultCustomizationByPositionApiAssignmentBy)[keyof typeof ResultCustomizationByPositionApiAssignmentBy]
 
 export const ResultCustomizationByPositionApiAssignmentBy = {
-    position: 'position',
+    Position: 'position',
 } as const
 
 export interface ResultCustomizationByPositionApi {
@@ -1796,8 +1798,8 @@ export interface ResultCustomizationByPositionApi {
 export type YAxisScaleTypeApi = (typeof YAxisScaleTypeApi)[keyof typeof YAxisScaleTypeApi]
 
 export const YAxisScaleTypeApi = {
-    log10: 'log10',
-    linear: 'linear',
+    Log10: 'log10',
+    Linear: 'linear',
 } as const
 
 /**
@@ -1945,10 +1947,10 @@ export interface TrendsQueryApi {
 export type BreakdownAttributionTypeApi = (typeof BreakdownAttributionTypeApi)[keyof typeof BreakdownAttributionTypeApi]
 
 export const BreakdownAttributionTypeApi = {
-    first_touch: 'first_touch',
-    last_touch: 'last_touch',
-    all_events: 'all_events',
-    step: 'step',
+    FirstTouch: 'first_touch',
+    LastTouch: 'last_touch',
+    AllEvents: 'all_events',
+    Step: 'step',
 } as const
 
 export type FunnelExclusionEventsNodeApiKind =
@@ -2175,43 +2177,43 @@ export interface FunnelExclusionActionsNodeApi {
 export type StepOrderValueApi = (typeof StepOrderValueApi)[keyof typeof StepOrderValueApi]
 
 export const StepOrderValueApi = {
-    strict: 'strict',
-    unordered: 'unordered',
-    ordered: 'ordered',
+    Strict: 'strict',
+    Unordered: 'unordered',
+    Ordered: 'ordered',
 } as const
 
 export type FunnelStepReferenceApi = (typeof FunnelStepReferenceApi)[keyof typeof FunnelStepReferenceApi]
 
 export const FunnelStepReferenceApi = {
-    total: 'total',
-    previous: 'previous',
+    Total: 'total',
+    Previous: 'previous',
 } as const
 
 export type FunnelVizTypeApi = (typeof FunnelVizTypeApi)[keyof typeof FunnelVizTypeApi]
 
 export const FunnelVizTypeApi = {
-    steps: 'steps',
-    time_to_convert: 'time_to_convert',
-    trends: 'trends',
+    Steps: 'steps',
+    TimeToConvert: 'time_to_convert',
+    Trends: 'trends',
 } as const
 
 export type FunnelConversionWindowTimeUnitApi =
     (typeof FunnelConversionWindowTimeUnitApi)[keyof typeof FunnelConversionWindowTimeUnitApi]
 
 export const FunnelConversionWindowTimeUnitApi = {
-    second: 'second',
-    minute: 'minute',
-    hour: 'hour',
-    day: 'day',
-    week: 'week',
-    month: 'month',
+    Second: 'second',
+    Minute: 'minute',
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
 } as const
 
 export type FunnelLayoutApi = (typeof FunnelLayoutApi)[keyof typeof FunnelLayoutApi]
 
 export const FunnelLayoutApi = {
-    horizontal: 'horizontal',
-    vertical: 'vertical',
+    Horizontal: 'horizontal',
+    Vertical: 'vertical',
 } as const
 
 /**
@@ -2261,6 +2263,11 @@ export interface FunnelsFilterApi {
      * @nullable
      */
     resultCustomizations?: FunnelsFilterApiResultCustomizations
+    /**
+     * Display linear regression trend lines on the chart (only for historical trends viz)
+     * @nullable
+     */
+    showTrendLines?: boolean | null
     /** @nullable */
     showValuesOnSeries?: boolean | null
     /** @nullable */
@@ -2356,7 +2363,7 @@ export interface FunnelsQueryApi {
      */
     samplingFactor?: number | null
     /** Events and actions to include */
-    series: (EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi)[]
+    series: (GroupNodeApi | EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi)[]
     /** Tags that will be added to the Query log comment */
     tags?: QueryLogTagsApi | null
     /**
@@ -2414,26 +2421,26 @@ export interface RetentionQueryResponseApi {
 export type AggregationTypeApi = (typeof AggregationTypeApi)[keyof typeof AggregationTypeApi]
 
 export const AggregationTypeApi = {
-    count: 'count',
-    sum: 'sum',
-    avg: 'avg',
+    Count: 'count',
+    Sum: 'sum',
+    Avg: 'avg',
 } as const
 
 export type RetentionDashboardDisplayTypeApi =
     (typeof RetentionDashboardDisplayTypeApi)[keyof typeof RetentionDashboardDisplayTypeApi]
 
 export const RetentionDashboardDisplayTypeApi = {
-    table_only: 'table_only',
-    graph_only: 'graph_only',
-    all: 'all',
+    TableOnly: 'table_only',
+    GraphOnly: 'graph_only',
+    All: 'all',
 } as const
 
 export type MeanRetentionCalculationApi = (typeof MeanRetentionCalculationApi)[keyof typeof MeanRetentionCalculationApi]
 
 export const MeanRetentionCalculationApi = {
-    simple: 'simple',
-    weighted: 'weighted',
-    none: 'none',
+    Simple: 'simple',
+    Weighted: 'weighted',
+    None: 'none',
 } as const
 
 export type RetentionPeriodApi = (typeof RetentionPeriodApi)[keyof typeof RetentionPeriodApi]
@@ -2448,16 +2455,16 @@ export const RetentionPeriodApi = {
 export type RetentionReferenceApi = (typeof RetentionReferenceApi)[keyof typeof RetentionReferenceApi]
 
 export const RetentionReferenceApi = {
-    total: 'total',
-    previous: 'previous',
+    Total: 'total',
+    Previous: 'previous',
 } as const
 
 export type RetentionTypeApi = (typeof RetentionTypeApi)[keyof typeof RetentionTypeApi]
 
 export const RetentionTypeApi = {
-    retention_recurring: 'retention_recurring',
-    retention_first_time: 'retention_first_time',
-    retention_first_ever_occurrence: 'retention_first_ever_occurrence',
+    RetentionRecurring: 'retention_recurring',
+    RetentionFirstTime: 'retention_first_time',
+    RetentionFirstEverOccurrence: 'retention_first_ever_occurrence',
 } as const
 
 export type RetentionEntityKindApi = (typeof RetentionEntityKindApi)[keyof typeof RetentionEntityKindApi]
@@ -2470,11 +2477,11 @@ export const RetentionEntityKindApi = {
 export type EntityTypeApi = (typeof EntityTypeApi)[keyof typeof EntityTypeApi]
 
 export const EntityTypeApi = {
-    actions: 'actions',
-    events: 'events',
-    data_warehouse: 'data_warehouse',
-    new_entity: 'new_entity',
-    groups: 'groups',
+    Actions: 'actions',
+    Events: 'events',
+    DataWarehouse: 'data_warehouse',
+    NewEntity: 'new_entity',
+    Groups: 'groups',
 } as const
 
 export interface RetentionEntityApi {
@@ -2520,8 +2527,8 @@ export interface RetentionEntityApi {
 export type TimeWindowModeApi = (typeof TimeWindowModeApi)[keyof typeof TimeWindowModeApi]
 
 export const TimeWindowModeApi = {
-    strict_calendar_dates: 'strict_calendar_dates',
-    '24_hour_windows': '24_hour_windows',
+    StrictCalendarDates: 'strict_calendar_dates',
+    '24HourWindows': '24_hour_windows',
 } as const
 
 export interface RetentionFilterApi {
@@ -2633,9 +2640,9 @@ export interface RetentionQueryApi {
 export type FunnelPathTypeApi = (typeof FunnelPathTypeApi)[keyof typeof FunnelPathTypeApi]
 
 export const FunnelPathTypeApi = {
-    funnel_path_before_step: 'funnel_path_before_step',
-    funnel_path_between_steps: 'funnel_path_between_steps',
-    funnel_path_after_step: 'funnel_path_after_step',
+    FunnelPathBeforeStep: 'funnel_path_before_step',
+    FunnelPathBetweenSteps: 'funnel_path_between_steps',
+    FunnelPathAfterStep: 'funnel_path_after_step',
 } as const
 
 export interface FunnelPathsFilterApi {
@@ -2654,10 +2661,10 @@ export const PathsQueryApiKind = {
 export type PathTypeApi = (typeof PathTypeApi)[keyof typeof PathTypeApi]
 
 export const PathTypeApi = {
-    $pageview: '$pageview',
-    $screen: '$screen',
-    custom_event: 'custom_event',
-    hogql: 'hogql',
+    Pageview: '$pageview',
+    Screen: '$screen',
+    CustomEvent: 'custom_event',
+    Hogql: 'hogql',
 } as const
 
 export interface PathCleaningFilterApi {
@@ -2846,16 +2853,16 @@ export type StickinessComputationModeApi =
     (typeof StickinessComputationModeApi)[keyof typeof StickinessComputationModeApi]
 
 export const StickinessComputationModeApi = {
-    non_cumulative: 'non_cumulative',
-    cumulative: 'cumulative',
+    NonCumulative: 'non_cumulative',
+    Cumulative: 'cumulative',
 } as const
 
 export type StickinessOperatorApi = (typeof StickinessOperatorApi)[keyof typeof StickinessOperatorApi]
 
 export const StickinessOperatorApi = {
-    gte: 'gte',
-    lte: 'lte',
-    exact: 'exact',
+    Gte: 'gte',
+    Lte: 'lte',
+    Exact: 'exact',
 } as const
 
 export interface StickinessCriteriaApi {
@@ -2966,10 +2973,10 @@ export const LifecycleQueryApiKind = {
 export type LifecycleToggleApi = (typeof LifecycleToggleApi)[keyof typeof LifecycleToggleApi]
 
 export const LifecycleToggleApi = {
-    new: 'new',
-    resurrecting: 'resurrecting',
-    returning: 'returning',
-    dormant: 'dormant',
+    New: 'new',
+    Resurrecting: 'resurrecting',
+    Returning: 'returning',
+    Dormant: 'dormant',
 } as const
 
 export interface LifecycleFilterApi {
@@ -3094,7 +3101,7 @@ export const WebStatsBreakdownApi = {
     InitialUTMContent: 'InitialUTMContent',
     InitialUTMSourceMediumCampaign: 'InitialUTMSourceMediumCampaign',
     Browser: 'Browser',
-    OS: 'OS',
+    Os: 'OS',
     Viewport: 'Viewport',
     DeviceType: 'DeviceType',
     Country: 'Country',
@@ -3135,8 +3142,8 @@ export type WebAnalyticsOrderByDirectionApi =
     (typeof WebAnalyticsOrderByDirectionApi)[keyof typeof WebAnalyticsOrderByDirectionApi]
 
 export const WebAnalyticsOrderByDirectionApi = {
-    ASC: 'ASC',
-    DESC: 'DESC',
+    Asc: 'ASC',
+    Desc: 'DESC',
 } as const
 
 export interface SamplingRateApi {
@@ -3231,7 +3238,12 @@ export interface WebStatsTableQueryApi {
     offset?: number | null
     /** @nullable */
     orderBy?: (typeof WebStatsTableQueryApiOrderByItem)[keyof typeof WebStatsTableQueryApiOrderByItem][] | null
-    properties: (EventPropertyFilterApi | PersonPropertyFilterApi | SessionPropertyFilterApi)[]
+    properties: (
+        | EventPropertyFilterApi
+        | PersonPropertyFilterApi
+        | SessionPropertyFilterApi
+        | CohortPropertyFilterApi
+    )[]
     response?: WebStatsTableQueryResponseApi | null
     sampling?: WebAnalyticsSamplingApi | null
     /**
@@ -3258,10 +3270,10 @@ export const WebOverviewQueryApiKind = {
 export type WebAnalyticsItemKindApi = (typeof WebAnalyticsItemKindApi)[keyof typeof WebAnalyticsItemKindApi]
 
 export const WebAnalyticsItemKindApi = {
-    unit: 'unit',
-    duration_s: 'duration_s',
-    percentage: 'percentage',
-    currency: 'currency',
+    Unit: 'unit',
+    DurationS: 'duration_s',
+    Percentage: 'percentage',
+    Currency: 'currency',
 } as const
 
 export interface WebOverviewItemApi {
@@ -3342,7 +3354,12 @@ export interface WebOverviewQueryApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** @nullable */
     orderBy?: (typeof WebOverviewQueryApiOrderByItem)[keyof typeof WebOverviewQueryApiOrderByItem][] | null
-    properties: (EventPropertyFilterApi | PersonPropertyFilterApi | SessionPropertyFilterApi)[]
+    properties: (
+        | EventPropertyFilterApi
+        | PersonPropertyFilterApi
+        | SessionPropertyFilterApi
+        | CohortPropertyFilterApi
+    )[]
     response?: WebOverviewQueryResponseApi | null
     sampling?: WebAnalyticsSamplingApi | null
     /**
@@ -3460,9 +3477,9 @@ export interface DashboardFilterApi {
 export type EndpointRefreshModeApi = (typeof EndpointRefreshModeApi)[keyof typeof EndpointRefreshModeApi]
 
 export const EndpointRefreshModeApi = {
-    cache: 'cache',
-    force: 'force',
-    direct: 'direct',
+    Cache: 'cache',
+    Force: 'force',
+    Direct: 'direct',
 } as const
 
 export interface EndpointRunRequestApi {

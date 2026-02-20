@@ -10,9 +10,12 @@ from posthog.schema import (
     Compare,
     CompareFilter,
     DateRange,
+    EventPropertyFilter,
     EventsNode,
+    GroupNode,
     IntervalType,
     MathGroupTypeIndex,
+    PropertyOperator,
     TrendsFilter,
     TrendsQuery,
 )
@@ -438,3 +441,66 @@ class TestTrendsActorsQueryBuilder(BaseTest):
                         )
                     ],
                 )
+
+    def test_group_node_preserves_event_property_filters(self):
+        trends_query = TrendsQuery(
+            series=[
+                GroupNode(
+                    operator="OR",
+                    nodes=[
+                        EventsNode(
+                            event="event_a",
+                            properties=[
+                                EventPropertyFilter(key="state", value=["completed"], operator=PropertyOperator.EXACT)
+                            ],
+                        ),
+                        EventsNode(event="event_b"),
+                    ],
+                )
+            ],
+            dateRange=DateRange(date_from="-7d"),
+        )
+
+        builder = self._get_builder(trends_query=trends_query)
+        result = builder._event_or_action_where_expr()
+
+        assert isinstance(result, ast.Or)
+        assert len(result.exprs) == 2
+
+        # First expression should be AND(event = 'event_a', state = 'completed')
+        first = result.exprs[0]
+        assert isinstance(first, ast.And)
+        assert len(first.exprs) == 2
+        assert isinstance(first.exprs[0], ast.CompareOperation)
+        assert first.exprs[0].right == ast.Constant(value="event_a")
+        assert isinstance(first.exprs[1], ast.CompareOperation)
+        assert first.exprs[1].left.chain == ["properties", "state"]  # type: ignore
+
+        # Second expression should be just event = 'event_b'
+        assert isinstance(result.exprs[1], ast.CompareOperation)
+        assert result.exprs[1].right == ast.Constant(value="event_b")
+
+    def test_group_node_without_property_filters(self):
+        trends_query = TrendsQuery(
+            series=[
+                GroupNode(
+                    operator="OR",
+                    nodes=[
+                        EventsNode(event="event_a"),
+                        EventsNode(event="event_b"),
+                    ],
+                )
+            ],
+            dateRange=DateRange(date_from="-7d"),
+        )
+
+        builder = self._get_builder(trends_query=trends_query)
+        result = builder._event_or_action_where_expr()
+
+        assert isinstance(result, ast.Or)
+        assert len(result.exprs) == 2
+        # Both should be simple event comparisons with no property filter wrapping
+        assert isinstance(result.exprs[0], ast.CompareOperation)
+        assert result.exprs[0].right == ast.Constant(value="event_a")
+        assert isinstance(result.exprs[1], ast.CompareOperation)
+        assert result.exprs[1].right == ast.Constant(value="event_b")

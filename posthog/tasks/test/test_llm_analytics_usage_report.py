@@ -19,6 +19,8 @@ from posthog.tasks.llm_analytics_usage_report import (
     _get_all_llm_analytics_reports,
     get_all_ai_dimension_breakdowns,
     get_all_ai_metrics,
+    get_llm_feedback_survey_metrics,
+    get_llm_prompt_fetched_counts,
     get_teams_with_ai_events,
     send_llm_analytics_usage_reports,
 )
@@ -86,7 +88,6 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         self._create_ai_events(self.team, distinct_id, "$ai_metric", 1)
         self._create_ai_events(self.team, distinct_id, "$ai_feedback", 4)
         self._create_ai_events(self.team, distinct_id, "$ai_evaluation", 6)
-
         # Create events with cost and token properties
         self._create_ai_events(
             self.team,
@@ -291,6 +292,65 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         assert breakdowns.cost_model_provider_breakdown.get("custom") == 5
         assert breakdowns.cost_model_provider_breakdown.get("anthropic") == 3
 
+    def test_get_llm_feedback_survey_metrics(self) -> None:
+        distinct_id = str(uuid4())
+        _create_person(distinct_ids=[distinct_id], team=self.team)
+
+        period_start, period_end = get_previous_day()
+        timestamp = datetime.now(UTC) - timedelta(hours=12)
+
+        survey_id_1 = str(uuid4())
+        survey_id_2 = str(uuid4())
+        trace_id = str(uuid4())
+
+        # "survey shown" for survey 1 with ai_trace_id
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "survey shown",
+            1,
+            properties={"$survey_id": survey_id_1, "$ai_trace_id": trace_id},
+            timestamp=timestamp,
+        )
+        # "survey sent" (response) for survey 1 with ai_trace_id
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "survey sent",
+            3,
+            properties={"$survey_id": survey_id_1, "$ai_trace_id": trace_id},
+            timestamp=timestamp,
+        )
+        # "survey sent" for survey 2 with ai_trace_id
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "survey sent",
+            2,
+            properties={"$survey_id": survey_id_2, "$ai_trace_id": trace_id},
+            timestamp=timestamp,
+        )
+        # "survey sent" without ai_trace_id — should be excluded
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "survey sent",
+            10,
+            properties={"$survey_id": str(uuid4())},
+            timestamp=timestamp,
+        )
+
+        # Need AI events so get_teams_with_ai_events finds this team
+        self._create_ai_events(self.team, distinct_id, "$ai_generation", 1)
+
+        team_ids = get_teams_with_ai_events(period_start, period_end)
+        survey_metrics = get_llm_feedback_survey_metrics(period_start, period_end, team_ids)
+
+        assert self.team.id in survey_metrics
+        metrics = survey_metrics[self.team.id]
+        assert metrics.active_survey_count == 2  # survey_id_1 and survey_id_2
+        assert metrics.response_count == 5  # 3 + 2 (only "survey sent" events)
+
     def test_full_llm_analytics_report(self) -> None:
         """Test the full LLM Analytics report generation."""
         # Create second organization and team
@@ -333,6 +393,16 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
                 "$ai_cost_model_provider": "openai",
             },
         )
+        self._create_ai_events(self.team, distinct_id_1, "$llm_prompt_fetched", 4)
+
+        # Create survey events linked to LLM traces for team 1
+        self._create_ai_events(
+            self.team,
+            distinct_id_1,
+            "survey sent",
+            4,
+            properties={"$survey_id": str(uuid4()), "$ai_trace_id": str(uuid4())},
+        )
 
         # Create AI events for team 2
         self._create_ai_events(team_2, distinct_id_2, "$ai_embedding", 7)
@@ -347,6 +417,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
                 "$ai_output_cost_usd": 0.015,
             },
         )
+        self._create_ai_events(team_2, distinct_id_2, "$llm_prompt_fetched", 1)
 
         # Generate reports
         org_reports = _get_all_llm_analytics_reports(period_start, period_end)
@@ -361,6 +432,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         assert org_1_report["organization_name"] == self.organization.name
         assert org_1_report["ai_generation_count"] == 13  # 10 + 3
         assert org_1_report["ai_evaluation_count"] == 5
+        assert org_1_report["llm_prompt_fetched_count"] == 4
         assert org_1_report["total_ai_cost_usd"] == pytest.approx(0.150, rel=1e-6)  # 3 * 0.050
         assert org_1_report["input_cost_usd"] == pytest.approx(0.060, rel=1e-6)  # 3 * 0.020
         assert org_1_report["output_cost_usd"] == pytest.approx(0.090, rel=1e-6)  # 3 * 0.030
@@ -379,13 +451,18 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         assert org_1_report["cost_model_used_breakdown"] == {"openai/gpt-4o-mini": 3}
         assert org_1_report["cost_model_source_breakdown"] == {"openrouter": 3}
         assert org_1_report["cost_model_provider_breakdown"] == {"openai": 3}
+        assert org_1_report["active_llm_feedback_survey_count"] == 1
+        assert org_1_report["llm_feedback_survey_response_count"] == 4
 
         # Verify org 2 report
         org_2_report = org_reports[str(org_2.id)]
         assert org_2_report["organization_name"] == org_2.name
         assert org_2_report["ai_embedding_count"] == 7
         assert org_2_report["ai_generation_count"] == 2
+        assert org_2_report["llm_prompt_fetched_count"] == 1
         assert org_2_report["total_ai_cost_usd"] == pytest.approx(0.050, rel=1e-6)  # 2 * 0.025
+        assert org_2_report["active_llm_feedback_survey_count"] == 0
+        assert org_2_report["llm_feedback_survey_response_count"] == 0
 
     @patch("posthog.tasks.llm_analytics_usage_report.capture_llm_analytics_report")
     @patch("posthog.tasks.llm_analytics_usage_report.get_ph_client")
@@ -403,6 +480,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         # Create some AI events
         self._create_ai_events(self.team, distinct_id, "$ai_generation", 5)
         self._create_ai_events(self.team, distinct_id, "$ai_evaluation", 3)
+        self._create_ai_events(self.team, distinct_id, "$llm_prompt_fetched", 2)
 
         # Run the task
         send_llm_analytics_usage_reports()
@@ -416,16 +494,43 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         report_dict = call_args[1]["report_dict"]
         assert report_dict["ai_generation_count"] == 5
         assert report_dict["ai_evaluation_count"] == 3
+        assert report_dict["llm_prompt_fetched_count"] == 2
 
-    def test_no_ai_events_returns_empty_report(self) -> None:
-        """Test that when there are no AI events, an empty report is returned."""
+    def test_no_trigger_events_returns_empty_report(self) -> None:
+        """Test that when there are no trigger events, an empty report is returned."""
         period_start, period_end = get_previous_day()
 
-        # Generate reports without creating any AI events
+        # Generate reports without creating any trigger events
         org_reports = _get_all_llm_analytics_reports(period_start, period_end)
 
         # Should return empty dict
         assert len(org_reports) == 0
+
+    def test_prompt_fetched_only_team_generates_report_with_zero_ai_metrics(self) -> None:
+        """Test that prompt fetched events trigger reporting without affecting AI metric totals."""
+        org_2 = Organization.objects.create(name="Org 2")
+        team_2 = Team.objects.create(organization=org_2, name="Team 2")
+
+        distinct_id = str(uuid4())
+        _create_person(distinct_ids=[distinct_id], team=team_2)
+
+        period_start, period_end = get_previous_day()
+
+        self._create_ai_events(team_2, distinct_id, "$llm_prompt_fetched", 2)
+
+        org_reports = _get_all_llm_analytics_reports(period_start, period_end)
+
+        assert len(org_reports) == 1
+        org_report = org_reports[str(org_2.id)]
+        assert org_report["organization_name"] == org_2.name
+        assert org_report["ai_generation_count"] == 0
+        assert org_report["ai_embedding_count"] == 0
+        assert org_report["ai_span_count"] == 0
+        assert org_report["ai_trace_count"] == 0
+        assert org_report["ai_metric_count"] == 0
+        assert org_report["ai_feedback_count"] == 0
+        assert org_report["ai_evaluation_count"] == 0
+        assert org_report["llm_prompt_fetched_count"] == 2
 
     def test_multiple_teams_in_same_org(self) -> None:
         """Test that multiple teams in the same org are aggregated correctly."""
@@ -648,31 +753,88 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         assert breakdowns.framework_breakdown.get("none") == 15  # All events (3+2+4+1+5) have no framework
 
     def test_get_teams_with_ai_events(self) -> None:
-        """Test that get_teams_with_ai_events returns correct team IDs."""
+        """Test that get_teams_with_ai_events returns correct team IDs for trigger events."""
         # Create second team
         org_2 = Organization.objects.create(name="Org 2")
         team_2 = Team.objects.create(organization=org_2, name="Team 2")
         team_3 = Team.objects.create(organization=self.organization, name="Team 3 - no events")
+        org_4 = Organization.objects.create(name="Org 4")
+        team_4 = Team.objects.create(organization=org_4, name="Team 4 - prompt fetched only")
 
         distinct_id_1 = str(uuid4())
         distinct_id_2 = str(uuid4())
+        distinct_id_4 = str(uuid4())
         _create_person(distinct_ids=[distinct_id_1], team=self.team)
         _create_person(distinct_ids=[distinct_id_2], team=team_2)
+        _create_person(distinct_ids=[distinct_id_4], team=team_4)
 
         period_start, period_end = get_previous_day()
 
-        # Create AI events for team 1 and team 2, but not team 3
+        # Create AI events for team 1 and team 2, prompt-fetched events for team 4, but nothing for team 3.
         self._create_ai_events(self.team, distinct_id_1, "$ai_generation", 5)
         self._create_ai_events(team_2, distinct_id_2, "$ai_embedding", 3)
+        self._create_ai_events(team_4, distinct_id_4, "$llm_prompt_fetched", 1)
 
-        # Get teams with AI events
+        # Get teams with trigger events
         team_ids = get_teams_with_ai_events(period_start, period_end)
 
         # Verify correct teams are returned
         assert self.team.id in team_ids
         assert team_2.id in team_ids
+        assert team_4.id in team_ids
         assert team_3.id not in team_ids
-        assert len(team_ids) == 2
+        assert len(team_ids) == 3
+
+    def test_get_llm_prompt_fetched_counts(self) -> None:
+        """Test that get_llm_prompt_fetched_counts returns per-team prompt fetch totals."""
+        org_2 = Organization.objects.create(name="Org 2")
+        team_2 = Team.objects.create(organization=org_2, name="Team 2")
+        team_3 = Team.objects.create(organization=self.organization, name="Team 3 - no prompt fetched")
+
+        distinct_id_1 = str(uuid4())
+        distinct_id_2 = str(uuid4())
+        distinct_id_3 = str(uuid4())
+        _create_person(distinct_ids=[distinct_id_1], team=self.team)
+        _create_person(distinct_ids=[distinct_id_2], team=team_2)
+        _create_person(distinct_ids=[distinct_id_3], team=team_3)
+
+        period_start, period_end = get_previous_day()
+
+        self._create_ai_events(self.team, distinct_id_1, "$llm_prompt_fetched", 4)
+        self._create_ai_events(team_2, distinct_id_2, "$llm_prompt_fetched", 2)
+        self._create_ai_events(team_2, distinct_id_2, "$ai_generation", 7)
+        self._create_ai_events(team_3, distinct_id_3, "$ai_generation", 3)
+
+        team_ids = get_teams_with_ai_events(period_start, period_end)
+        prompt_fetched_counts = get_llm_prompt_fetched_counts(period_start, period_end, team_ids)
+
+        assert prompt_fetched_counts[self.team.id] == 4
+        assert prompt_fetched_counts[team_2.id] == 2
+        assert team_3.id not in prompt_fetched_counts
+
+    @patch("posthog.tasks.llm_analytics_usage_report.capture_exception")
+    @patch("posthog.tasks.llm_analytics_usage_report.get_llm_prompt_fetched_counts", side_effect=Exception("boom"))
+    def test_prompt_fetched_count_failure_does_not_fail_usage_report(
+        self,
+        mock_get_llm_prompt_fetched_counts: MagicMock,
+        mock_capture_exception: MagicMock,
+    ) -> None:
+        """Test that report generation continues when prompt fetched count query fails."""
+        distinct_id = str(uuid4())
+        _create_person(distinct_ids=[distinct_id], team=self.team)
+
+        period_start, period_end = get_previous_day()
+        self._create_ai_events(self.team, distinct_id, "$ai_generation", 5)
+        self._create_ai_events(self.team, distinct_id, "$llm_prompt_fetched", 3)
+
+        org_reports = _get_all_llm_analytics_reports(period_start, period_end)
+
+        assert len(org_reports) == 1
+        org_report = org_reports[str(self.organization.id)]
+        assert org_report["ai_generation_count"] == 5
+        assert org_report["llm_prompt_fetched_count"] == 0
+        mock_get_llm_prompt_fetched_counts.assert_called_once()
+        assert mock_capture_exception.call_count == 1
 
     @patch("posthog.tasks.llm_analytics_usage_report.capture_llm_analytics_report")
     @patch("posthog.tasks.llm_analytics_usage_report.get_ph_client")

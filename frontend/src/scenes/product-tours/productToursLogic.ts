@@ -6,6 +6,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { PaginatedResponse } from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
@@ -28,6 +29,7 @@ import {
 } from '~/types'
 
 import type { productToursLogicType } from './productToursLogicType'
+import { getExplainerStepContent } from './stepUtils'
 
 export const BUTTON_ACTION_OPTIONS: { value: ProductTourButtonAction; label: string }[] = [
     { value: 'dismiss', label: 'Dismiss' },
@@ -105,7 +107,7 @@ export function getDefaultTourStepButtons(stepIndex: number, totalSteps: number)
     return {
         primary: {
             text: isLastStep ? 'Done' : 'Next',
-            action: isLastStep ? 'dismiss' : 'next_step',
+            action: 'next_step',
         },
         ...(isFirstStep
             ? {}
@@ -184,6 +186,9 @@ function createDefaultBannerContent(): ProductTourContent {
                     action: {
                         type: 'none',
                     },
+                    animation: {
+                        duration: 300,
+                    },
                 },
             },
         ],
@@ -193,6 +198,23 @@ function createDefaultBannerContent(): ProductTourContent {
             whiteLabel: true, // banners simply have no branding
         },
         displayFrequency: 'until_interacted',
+    }
+}
+
+function createDefaultTourContent(): ProductTourContent {
+    return {
+        type: 'tour',
+        steps: [
+            {
+                id: uuid(),
+                type: 'modal',
+                content: getExplainerStepContent(),
+            },
+        ],
+        appearance: {
+            showOverlay: true,
+            dismissOnClickOutside: true,
+        },
     }
 }
 
@@ -237,8 +259,9 @@ export const productToursLogic = kea<productToursLogicType>([
         setTab: (tab: ProductToursTabs) => ({ tab }),
         createAnnouncement: (name: string) => ({ name }),
         createBanner: (name: string) => ({ name }),
+        createTour: (name: string) => ({ name }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         productTours: {
             __default: [] as ProductTour[],
             loadProductTours: async () => {
@@ -255,6 +278,45 @@ export const productToursLogic = kea<productToursLogicType>([
                 const updatedTour = await api.productTours.update(id, updatePayload)
                 lemonToast.success('Product tour updated')
                 return values.productTours.map((t: ProductTour) => (t.id === id ? updatedTour : t))
+            },
+        },
+        duplicatedProductTour: {
+            __default: null as ProductTour | null,
+            duplicateProductTour: async (tour: ProductTour) => {
+                const duplicatedContent: ProductTourContent = {
+                    ...tour.content,
+                    steps: (tour.content?.steps ?? []).map((step) => ({
+                        ...step,
+                        id: uuid(),
+                    })),
+                }
+
+                try {
+                    const createdTour = await api.productTours.create({
+                        name: `${tour.name} (copy ${dayjs().format('YYYY-MM-DD HH:mm:ss')})`,
+                        description: tour.description,
+                        content: duplicatedContent,
+                        targeting_flag_filters: tour.targeting_flag_filters,
+                        linked_flag_id: tour.linked_flag_id,
+                        auto_launch: tour.auto_launch,
+                    })
+
+                    lemonToast.success('Product tour duplicated', {
+                        toastId: `product-tour-duplicated-${createdTour.id}`,
+                        button: {
+                            label: 'View tour',
+                            action: () => {
+                                router.actions.push(urls.productTour(createdTour.id))
+                            },
+                        },
+                    })
+
+                    actions.loadProductTours()
+                    return createdTour
+                } catch {
+                    lemonToast.error('Error duplicating Product tour')
+                    return null
+                }
             },
         },
     })),
@@ -297,7 +359,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 })
                 actions.reportProductTourCreated(announcement, 'app')
                 actions.loadProductTours()
-                router.actions.push(urls.productTour(announcement.id, 'edit=true&tab=steps'))
+                router.actions.push(urls.productTour(announcement.id, 'edit=true'))
             } catch {
                 lemonToast.error('Failed to create announcement')
             }
@@ -314,9 +376,26 @@ export const productToursLogic = kea<productToursLogicType>([
                 })
                 actions.reportProductTourCreated(banner, 'app')
                 actions.loadProductTours()
-                router.actions.push(urls.productTour(banner.id, 'edit=true&tab=steps'))
+                router.actions.push(urls.productTour(banner.id, 'edit=true'))
             } catch {
                 lemonToast.error('Failed to create banner')
+            }
+        },
+        createTour: async ({ name }) => {
+            try {
+                const tour = await api.productTours.create({
+                    name,
+                    content: createDefaultTourContent(),
+                })
+                void addProductIntent({
+                    product_type: ProductKey.PRODUCT_TOURS,
+                    intent_context: ProductIntentContext.PRODUCT_TOUR_CREATED,
+                })
+                actions.reportProductTourCreated(tour, 'app')
+                actions.loadProductTours()
+                router.actions.push(urls.productTour(tour.id, 'edit=true'))
+            } catch {
+                lemonToast.error('Failed to create tour')
             }
         },
         loadProductToursSuccess: () => {

@@ -7,6 +7,1052 @@
  * PostHog API - core
  * OpenAPI spec version: 1.0.0
  */
+export interface OrganizationDomainApi {
+    readonly id: string
+    /** @maxLength 128 */
+    domain: string
+    /** Determines whether a domain is verified or not. */
+    readonly is_verified: boolean
+    /** @nullable */
+    readonly verified_at: string | null
+    readonly verification_challenge: string
+    jit_provisioning_enabled?: boolean
+    /** @maxLength 28 */
+    sso_enforcement?: string
+    /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
+    readonly has_saml: boolean
+    /**
+     * @maxLength 512
+     * @nullable
+     */
+    saml_entity_id?: string | null
+    /**
+     * @maxLength 512
+     * @nullable
+     */
+    saml_acs_url?: string | null
+    /** @nullable */
+    saml_x509_cert?: string | null
+    /** Returns whether SCIM is configured and enabled for this domain. */
+    readonly has_scim: boolean
+    scim_enabled?: boolean
+    /** @nullable */
+    readonly scim_base_url: string | null
+    /** @nullable */
+    readonly scim_bearer_token: string | null
+}
+
+export interface PaginatedOrganizationDomainListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OrganizationDomainApi[]
+}
+
+export interface PatchedOrganizationDomainApi {
+    readonly id?: string
+    /** @maxLength 128 */
+    domain?: string
+    /** Determines whether a domain is verified or not. */
+    readonly is_verified?: boolean
+    /** @nullable */
+    readonly verified_at?: string | null
+    readonly verification_challenge?: string
+    jit_provisioning_enabled?: boolean
+    /** @maxLength 28 */
+    sso_enforcement?: string
+    /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
+    readonly has_saml?: boolean
+    /**
+     * @maxLength 512
+     * @nullable
+     */
+    saml_entity_id?: string | null
+    /**
+     * @maxLength 512
+     * @nullable
+     */
+    saml_acs_url?: string | null
+    /** @nullable */
+    saml_x509_cert?: string | null
+    /** Returns whether SCIM is configured and enabled for this domain. */
+    readonly has_scim?: boolean
+    scim_enabled?: boolean
+    /** @nullable */
+    readonly scim_base_url?: string | null
+    /** @nullable */
+    readonly scim_bearer_token?: string | null
+}
+
+/**
+ * * `1` - member
+ * `8` - administrator
+ * `15` - owner
+ */
+export type OrganizationMembershipLevelApi =
+    (typeof OrganizationMembershipLevelApi)[keyof typeof OrganizationMembershipLevelApi]
+
+export const OrganizationMembershipLevelApi = {
+    Number1: 1,
+    Number8: 8,
+    Number15: 15,
+} as const
+
+/**
+ * * `engineering` - Engineering
+ * `data` - Data
+ * `product` - Product Management
+ * `founder` - Founder
+ * `leadership` - Leadership
+ * `marketing` - Marketing
+ * `sales` - Sales / Success
+ * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+
+export const NullEnumApi = {} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+}
+
+export interface OrganizationInviteApi {
+    readonly id: string
+    /** @maxLength 254 */
+    target_email: string
+    /** @maxLength 30 */
+    first_name?: string
+    readonly emailing_attempt_made: boolean
+    /**
+     * @minimum 0
+     * @maximum 32767
+     */
+    level?: OrganizationMembershipLevelApi
+    /** Check if invite is older than INVITE_DAYS_VALIDITY days. */
+    readonly is_expired: boolean
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    /** @nullable */
+    message?: string | null
+    /** List of team IDs and corresponding access levels to private projects. */
+    private_project_access?: unknown | null
+    send_email?: boolean
+    combine_pending_invites?: boolean
+}
+
+export interface PaginatedOrganizationInviteListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OrganizationInviteApi[]
+}
+
+export interface OrganizationMemberApi {
+    readonly id: string
+    readonly user: UserBasicApi
+    /**
+     * @minimum 0
+     * @maximum 32767
+     */
+    level?: OrganizationMembershipLevelApi
+    readonly joined_at: string
+    readonly updated_at: string
+    readonly is_2fa_enabled: boolean
+    readonly has_social_auth: boolean
+    readonly last_login: string
+}
+
+export interface PaginatedOrganizationMemberListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: OrganizationMemberApi[]
+}
+
+export interface PatchedOrganizationMemberApi {
+    readonly id?: string
+    readonly user?: UserBasicApi
+    /**
+     * @minimum 0
+     * @maximum 32767
+     */
+    level?: OrganizationMembershipLevelApi
+    readonly joined_at?: string
+    readonly updated_at?: string
+    readonly is_2fa_enabled?: boolean
+    readonly has_social_auth?: boolean
+    readonly last_login?: string
+}
+
+/**
+ * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
+passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
+backward compatibility of the REST API.
+Do not use this in greenfield endpoints!
+ */
+export interface ProjectBackwardCompatBasicApi {
+    readonly id: number
+    readonly uuid: string
+    readonly organization: string
+    readonly api_token: string
+    readonly name: string
+    readonly completed_snippet_onboarding: boolean
+    readonly has_completed_onboarding_for: unknown | null
+    readonly ingested_event: boolean
+    readonly is_demo: boolean
+    readonly timezone: string
+    readonly access_control: boolean
+}
+
+export interface PaginatedProjectBackwardCompatBasicListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ProjectBackwardCompatBasicApi[]
+}
+
+export type ProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
+
+export type EffectiveMembershipLevelEnumApi =
+    (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
+
+export const EffectiveMembershipLevelEnumApi = {
+    Number1: 1,
+    Number8: 8,
+    Number15: 15,
+} as const
+
+/**
+ * * `0` - Sunday
+ * `1` - Monday
+ */
+export type WeekStartDayEnumApi = (typeof WeekStartDayEnumApi)[keyof typeof WeekStartDayEnumApi]
+
+export const WeekStartDayEnumApi = {
+    Number0: 0,
+    Number1: 1,
+} as const
+
+/**
+ * * `b2b` - B2B
+ * `b2c` - B2C
+ * `other` - Other
+ */
+export type BusinessModelEnumApi = (typeof BusinessModelEnumApi)[keyof typeof BusinessModelEnumApi]
+
+export const BusinessModelEnumApi = {
+    B2b: 'b2b',
+    B2c: 'b2c',
+    Other: 'other',
+} as const
+
+/**
+ * * `ingest_first_event` - ingest_first_event
+ * `set_up_reverse_proxy` - set_up_reverse_proxy
+ * `create_first_insight` - create_first_insight
+ * `create_first_dashboard` - create_first_dashboard
+ * `track_custom_events` - track_custom_events
+ * `define_actions` - define_actions
+ * `set_up_cohorts` - set_up_cohorts
+ * `explore_trends_insight` - explore_trends_insight
+ * `create_funnel` - create_funnel
+ * `explore_retention_insight` - explore_retention_insight
+ * `explore_paths_insight` - explore_paths_insight
+ * `explore_stickiness_insight` - explore_stickiness_insight
+ * `explore_lifecycle_insight` - explore_lifecycle_insight
+ * `add_authorized_domain` - add_authorized_domain
+ * `set_up_web_vitals` - set_up_web_vitals
+ * `review_web_analytics_dashboard` - review_web_analytics_dashboard
+ * `filter_web_analytics` - filter_web_analytics
+ * `set_up_web_analytics_conversion_goals` - set_up_web_analytics_conversion_goals
+ * `visit_web_vitals_dashboard` - visit_web_vitals_dashboard
+ * `setup_session_recordings` - setup_session_recordings
+ * `watch_session_recording` - watch_session_recording
+ * `configure_recording_settings` - configure_recording_settings
+ * `create_recording_playlist` - create_recording_playlist
+ * `enable_console_logs` - enable_console_logs
+ * `create_feature_flag` - create_feature_flag
+ * `implement_flag_in_code` - implement_flag_in_code
+ * `update_feature_flag_release_conditions` - update_feature_flag_release_conditions
+ * `create_multivariate_flag` - create_multivariate_flag
+ * `set_up_flag_payloads` - set_up_flag_payloads
+ * `set_up_flag_evaluation_runtimes` - set_up_flag_evaluation_runtimes
+ * `create_experiment` - create_experiment
+ * `implement_experiment_variants` - implement_experiment_variants
+ * `launch_experiment` - launch_experiment
+ * `review_experiment_results` - review_experiment_results
+ * `create_survey` - create_survey
+ * `launch_survey` - launch_survey
+ * `collect_survey_responses` - collect_survey_responses
+ * `connect_source` - connect_source
+ * `run_first_query` - run_first_query
+ * `join_external_data` - join_external_data
+ * `create_saved_view` - create_saved_view
+ * `enable_error_tracking` - enable_error_tracking
+ * `upload_source_maps` - upload_source_maps
+ * `view_first_error` - view_first_error
+ * `resolve_first_error` - resolve_first_error
+ * `ingest_first_llm_event` - ingest_first_llm_event
+ * `view_first_trace` - view_first_trace
+ * `track_costs` - track_costs
+ * `set_up_llm_evaluation` - set_up_llm_evaluation
+ * `run_ai_playground` - run_ai_playground
+ * `enable_revenue_analytics_viewset` - enable_revenue_analytics_viewset
+ * `connect_revenue_source` - connect_revenue_source
+ * `set_up_revenue_goal` - set_up_revenue_goal
+ * `enable_log_capture` - enable_log_capture
+ * `view_first_logs` - view_first_logs
+ * `create_first_workflow` - create_first_workflow
+ * `set_up_first_workflow_channel` - set_up_first_workflow_channel
+ * `configure_workflow_trigger` - configure_workflow_trigger
+ * `add_workflow_action` - add_workflow_action
+ * `launch_workflow` - launch_workflow
+ * `create_first_endpoint` - create_first_endpoint
+ * `configure_endpoint` - configure_endpoint
+ * `test_endpoint` - test_endpoint
+ * `create_early_access_feature` - create_early_access_feature
+ * `update_feature_stage` - update_feature_stage
+ */
+export type AvailableSetupTaskIdsEnumApi =
+    (typeof AvailableSetupTaskIdsEnumApi)[keyof typeof AvailableSetupTaskIdsEnumApi]
+
+export const AvailableSetupTaskIdsEnumApi = {
+    IngestFirstEvent: 'ingest_first_event',
+    SetUpReverseProxy: 'set_up_reverse_proxy',
+    CreateFirstInsight: 'create_first_insight',
+    CreateFirstDashboard: 'create_first_dashboard',
+    TrackCustomEvents: 'track_custom_events',
+    DefineActions: 'define_actions',
+    SetUpCohorts: 'set_up_cohorts',
+    ExploreTrendsInsight: 'explore_trends_insight',
+    CreateFunnel: 'create_funnel',
+    ExploreRetentionInsight: 'explore_retention_insight',
+    ExplorePathsInsight: 'explore_paths_insight',
+    ExploreStickinessInsight: 'explore_stickiness_insight',
+    ExploreLifecycleInsight: 'explore_lifecycle_insight',
+    AddAuthorizedDomain: 'add_authorized_domain',
+    SetUpWebVitals: 'set_up_web_vitals',
+    ReviewWebAnalyticsDashboard: 'review_web_analytics_dashboard',
+    FilterWebAnalytics: 'filter_web_analytics',
+    SetUpWebAnalyticsConversionGoals: 'set_up_web_analytics_conversion_goals',
+    VisitWebVitalsDashboard: 'visit_web_vitals_dashboard',
+    SetupSessionRecordings: 'setup_session_recordings',
+    WatchSessionRecording: 'watch_session_recording',
+    ConfigureRecordingSettings: 'configure_recording_settings',
+    CreateRecordingPlaylist: 'create_recording_playlist',
+    EnableConsoleLogs: 'enable_console_logs',
+    CreateFeatureFlag: 'create_feature_flag',
+    ImplementFlagInCode: 'implement_flag_in_code',
+    UpdateFeatureFlagReleaseConditions: 'update_feature_flag_release_conditions',
+    CreateMultivariateFlag: 'create_multivariate_flag',
+    SetUpFlagPayloads: 'set_up_flag_payloads',
+    SetUpFlagEvaluationRuntimes: 'set_up_flag_evaluation_runtimes',
+    CreateExperiment: 'create_experiment',
+    ImplementExperimentVariants: 'implement_experiment_variants',
+    LaunchExperiment: 'launch_experiment',
+    ReviewExperimentResults: 'review_experiment_results',
+    CreateSurvey: 'create_survey',
+    LaunchSurvey: 'launch_survey',
+    CollectSurveyResponses: 'collect_survey_responses',
+    ConnectSource: 'connect_source',
+    RunFirstQuery: 'run_first_query',
+    JoinExternalData: 'join_external_data',
+    CreateSavedView: 'create_saved_view',
+    EnableErrorTracking: 'enable_error_tracking',
+    UploadSourceMaps: 'upload_source_maps',
+    ViewFirstError: 'view_first_error',
+    ResolveFirstError: 'resolve_first_error',
+    IngestFirstLlmEvent: 'ingest_first_llm_event',
+    ViewFirstTrace: 'view_first_trace',
+    TrackCosts: 'track_costs',
+    SetUpLlmEvaluation: 'set_up_llm_evaluation',
+    RunAiPlayground: 'run_ai_playground',
+    EnableRevenueAnalyticsViewset: 'enable_revenue_analytics_viewset',
+    ConnectRevenueSource: 'connect_revenue_source',
+    SetUpRevenueGoal: 'set_up_revenue_goal',
+    EnableLogCapture: 'enable_log_capture',
+    ViewFirstLogs: 'view_first_logs',
+    CreateFirstWorkflow: 'create_first_workflow',
+    SetUpFirstWorkflowChannel: 'set_up_first_workflow_channel',
+    ConfigureWorkflowTrigger: 'configure_workflow_trigger',
+    AddWorkflowAction: 'add_workflow_action',
+    LaunchWorkflow: 'launch_workflow',
+    CreateFirstEndpoint: 'create_first_endpoint',
+    ConfigureEndpoint: 'configure_endpoint',
+    TestEndpoint: 'test_endpoint',
+    CreateEarlyAccessFeature: 'create_early_access_feature',
+    UpdateFeatureStage: 'update_feature_stage',
+} as const
+
+/**
+ * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
+passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
+backward compatibility of the REST API.
+Do not use this in greenfield endpoints!
+ */
+export interface ProjectBackwardCompatApi {
+    readonly id: number
+    readonly organization: string
+    /**
+     * @minLength 1
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * @maxLength 1000
+     * @nullable
+     */
+    product_description?: string | null
+    readonly created_at: string
+    readonly effective_membership_level: EffectiveMembershipLevelEnumApi | null
+    readonly has_group_types: boolean
+    readonly group_types: readonly ProjectBackwardCompatApiGroupTypesItem[]
+    /** @nullable */
+    readonly live_events_token: string | null
+    readonly updated_at: string
+    readonly uuid: string
+    readonly api_token: string
+    app_urls?: (string | null)[]
+    /**
+     * @maxLength 500
+     * @nullable
+     */
+    slack_incoming_webhook?: string | null
+    anonymize_ips?: boolean
+    completed_snippet_onboarding?: boolean
+    readonly ingested_event: boolean
+    test_account_filters?: unknown
+    /** @nullable */
+    test_account_filters_default_checked?: boolean | null
+    path_cleaning_filters?: unknown | null
+    is_demo?: boolean
+    timezone?: string
+    data_attributes?: unknown
+    /** @nullable */
+    person_display_name_properties?: string[] | null
+    correlation_config?: unknown | null
+    /** @nullable */
+    autocapture_opt_out?: boolean | null
+    /** @nullable */
+    autocapture_exceptions_opt_in?: boolean | null
+    /** @nullable */
+    autocapture_web_vitals_opt_in?: boolean | null
+    autocapture_web_vitals_allowed_metrics?: unknown | null
+    autocapture_exceptions_errors_to_ignore?: unknown | null
+    /** @nullable */
+    capture_console_log_opt_in?: boolean | null
+    /** @nullable */
+    capture_performance_opt_in?: boolean | null
+    session_recording_opt_in?: boolean
+    /**
+     * @nullable
+     * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
+     */
+    session_recording_sample_rate?: string | null
+    /**
+     * @minimum 0
+     * @maximum 30000
+     * @nullable
+     */
+    session_recording_minimum_duration_milliseconds?: number | null
+    session_recording_linked_flag?: unknown | null
+    session_recording_network_payload_capture_config?: unknown | null
+    session_recording_masking_config?: unknown | null
+    session_replay_config?: unknown | null
+    survey_config?: unknown | null
+    access_control?: boolean
+    /**
+     * @minimum -32768
+     * @maximum 32767
+     */
+    week_start_day?: WeekStartDayEnumApi | NullEnumApi | null
+    /** @nullable */
+    primary_dashboard?: number | null
+    /** @nullable */
+    live_events_columns?: string[] | null
+    /** @nullable */
+    recording_domains?: (string | null)[] | null
+    readonly person_on_events_querying_enabled: string
+    /** @nullable */
+    inject_web_apps?: boolean | null
+    extra_settings?: unknown | null
+    modifiers?: unknown | null
+    readonly default_modifiers: string
+    has_completed_onboarding_for?: unknown | null
+    /** @nullable */
+    surveys_opt_in?: boolean | null
+    /** @nullable */
+    heatmaps_opt_in?: boolean | null
+    readonly product_intents: string
+    /** @nullable */
+    flags_persistence_default?: boolean | null
+    /** @nullable */
+    readonly secret_api_token: string | null
+    /** @nullable */
+    readonly secret_api_token_backup: string | null
+    /** @nullable */
+    receive_org_level_activity_logs?: boolean | null
+    /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
+
+* `b2b` - B2B
+* `b2c` - B2C
+* `other` - Other */
+    business_model?: BusinessModelEnumApi | BlankEnumApi | NullEnumApi | null
+    /** @nullable */
+    conversations_enabled?: boolean | null
+    conversations_settings?: unknown | null
+    logs_settings?: unknown | null
+    readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnumApi[]
+}
+
+export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
+
+/**
+ * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
+passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
+backward compatibility of the REST API.
+Do not use this in greenfield endpoints!
+ */
+export interface PatchedProjectBackwardCompatApi {
+    readonly id?: number
+    readonly organization?: string
+    /**
+     * @minLength 1
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * @maxLength 1000
+     * @nullable
+     */
+    product_description?: string | null
+    readonly created_at?: string
+    readonly effective_membership_level?: EffectiveMembershipLevelEnumApi | null
+    readonly has_group_types?: boolean
+    readonly group_types?: readonly PatchedProjectBackwardCompatApiGroupTypesItem[]
+    /** @nullable */
+    readonly live_events_token?: string | null
+    readonly updated_at?: string
+    readonly uuid?: string
+    readonly api_token?: string
+    app_urls?: (string | null)[]
+    /**
+     * @maxLength 500
+     * @nullable
+     */
+    slack_incoming_webhook?: string | null
+    anonymize_ips?: boolean
+    completed_snippet_onboarding?: boolean
+    readonly ingested_event?: boolean
+    test_account_filters?: unknown
+    /** @nullable */
+    test_account_filters_default_checked?: boolean | null
+    path_cleaning_filters?: unknown | null
+    is_demo?: boolean
+    timezone?: string
+    data_attributes?: unknown
+    /** @nullable */
+    person_display_name_properties?: string[] | null
+    correlation_config?: unknown | null
+    /** @nullable */
+    autocapture_opt_out?: boolean | null
+    /** @nullable */
+    autocapture_exceptions_opt_in?: boolean | null
+    /** @nullable */
+    autocapture_web_vitals_opt_in?: boolean | null
+    autocapture_web_vitals_allowed_metrics?: unknown | null
+    autocapture_exceptions_errors_to_ignore?: unknown | null
+    /** @nullable */
+    capture_console_log_opt_in?: boolean | null
+    /** @nullable */
+    capture_performance_opt_in?: boolean | null
+    session_recording_opt_in?: boolean
+    /**
+     * @nullable
+     * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
+     */
+    session_recording_sample_rate?: string | null
+    /**
+     * @minimum 0
+     * @maximum 30000
+     * @nullable
+     */
+    session_recording_minimum_duration_milliseconds?: number | null
+    session_recording_linked_flag?: unknown | null
+    session_recording_network_payload_capture_config?: unknown | null
+    session_recording_masking_config?: unknown | null
+    session_replay_config?: unknown | null
+    survey_config?: unknown | null
+    access_control?: boolean
+    /**
+     * @minimum -32768
+     * @maximum 32767
+     */
+    week_start_day?: WeekStartDayEnumApi | NullEnumApi | null
+    /** @nullable */
+    primary_dashboard?: number | null
+    /** @nullable */
+    live_events_columns?: string[] | null
+    /** @nullable */
+    recording_domains?: (string | null)[] | null
+    readonly person_on_events_querying_enabled?: string
+    /** @nullable */
+    inject_web_apps?: boolean | null
+    extra_settings?: unknown | null
+    modifiers?: unknown | null
+    readonly default_modifiers?: string
+    has_completed_onboarding_for?: unknown | null
+    /** @nullable */
+    surveys_opt_in?: boolean | null
+    /** @nullable */
+    heatmaps_opt_in?: boolean | null
+    readonly product_intents?: string
+    /** @nullable */
+    flags_persistence_default?: boolean | null
+    /** @nullable */
+    readonly secret_api_token?: string | null
+    /** @nullable */
+    readonly secret_api_token_backup?: string | null
+    /** @nullable */
+    receive_org_level_activity_logs?: boolean | null
+    /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
+
+* `b2b` - B2B
+* `b2c` - B2C
+* `other` - Other */
+    business_model?: BusinessModelEnumApi | BlankEnumApi | NullEnumApi | null
+    /** @nullable */
+    conversations_enabled?: boolean | null
+    conversations_settings?: unknown | null
+    logs_settings?: unknown | null
+    readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnumApi[]
+}
+
+export interface RoleApi {
+    readonly id: string
+    /** @maxLength 200 */
+    name: string
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    readonly members: string
+    readonly is_default: string
+}
+
+export interface PaginatedRoleListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: RoleApi[]
+}
+
+export interface PatchedRoleApi {
+    readonly id?: string
+    /** @maxLength 200 */
+    name?: string
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    readonly members?: string
+    readonly is_default?: string
+}
+
+/**
+ * * `USR` - user
+ * `GIT` - GitHub
+ */
+export type CreationTypeEnumApi = (typeof CreationTypeEnumApi)[keyof typeof CreationTypeEnumApi]
+
+export const CreationTypeEnumApi = {
+    Usr: 'USR',
+    Git: 'GIT',
+} as const
+
+/**
+ * * `dashboard_item` - insight
+ * `dashboard` - dashboard
+ * `project` - project
+ * `organization` - organization
+ * `recording` - recording
+ */
+export type AnnotationScopeEnumApi = (typeof AnnotationScopeEnumApi)[keyof typeof AnnotationScopeEnumApi]
+
+export const AnnotationScopeEnumApi = {
+    DashboardItem: 'dashboard_item',
+    Dashboard: 'dashboard',
+    Project: 'project',
+    Organization: 'organization',
+    Recording: 'recording',
+} as const
+
+export interface AnnotationApi {
+    readonly id: number
+    /**
+     * @maxLength 8192
+     * @nullable
+     */
+    content?: string | null
+    /** @nullable */
+    date_marker?: string | null
+    creation_type?: CreationTypeEnumApi
+    /** @nullable */
+    dashboard_item?: number | null
+    /** @nullable */
+    dashboard_id?: number | null
+    /** @nullable */
+    readonly dashboard_name: string | null
+    /** @nullable */
+    readonly insight_short_id: string | null
+    /** @nullable */
+    readonly insight_name: string | null
+    /** @nullable */
+    readonly insight_derived_name: string | null
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    readonly created_at: string | null
+    readonly updated_at: string
+    deleted?: boolean
+    scope?: AnnotationScopeEnumApi
+}
+
+export interface PaginatedAnnotationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AnnotationApi[]
+}
+
+export interface PatchedAnnotationApi {
+    readonly id?: number
+    /**
+     * @maxLength 8192
+     * @nullable
+     */
+    content?: string | null
+    /** @nullable */
+    date_marker?: string | null
+    creation_type?: CreationTypeEnumApi
+    /** @nullable */
+    dashboard_item?: number | null
+    /** @nullable */
+    dashboard_id?: number | null
+    /** @nullable */
+    readonly dashboard_name?: string | null
+    /** @nullable */
+    readonly insight_short_id?: string | null
+    /** @nullable */
+    readonly insight_name?: string | null
+    /** @nullable */
+    readonly insight_derived_name?: string | null
+    readonly created_by?: UserBasicApi
+    /** @nullable */
+    readonly created_at?: string | null
+    readonly updated_at?: string
+    deleted?: boolean
+    scope?: AnnotationScopeEnumApi
+}
+
+export interface CommentApi {
+    readonly id: string
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    deleted?: boolean | null
+    mentions?: number[]
+    slug?: string
+    /** @nullable */
+    content?: string | null
+    rich_content?: unknown | null
+    readonly version: number
+    readonly created_at: string
+    /**
+     * @maxLength 72
+     * @nullable
+     */
+    item_id?: string | null
+    item_context?: unknown | null
+    /** @maxLength 79 */
+    scope: string
+    /** @nullable */
+    source_comment?: string | null
+}
+
+export interface PaginatedCommentListApi {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CommentApi[]
+}
+
+export interface PatchedCommentApi {
+    readonly id?: string
+    readonly created_by?: UserBasicApi
+    /** @nullable */
+    deleted?: boolean | null
+    mentions?: number[]
+    slug?: string
+    /** @nullable */
+    content?: string | null
+    rich_content?: unknown | null
+    readonly version?: number
+    readonly created_at?: string
+    /**
+     * @maxLength 72
+     * @nullable
+     */
+    item_id?: string | null
+    item_context?: unknown | null
+    /** @maxLength 79 */
+    scope?: string
+    /** @nullable */
+    source_comment?: string | null
+}
+
+/**
+ * * `team` - Only team
+ * `global` - Global
+ * `feature_flag` - Feature Flag
+ */
+export type DashboardTemplateScopeEnumApi =
+    (typeof DashboardTemplateScopeEnumApi)[keyof typeof DashboardTemplateScopeEnumApi]
+
+export const DashboardTemplateScopeEnumApi = {
+    Team: 'team',
+    Global: 'global',
+    FeatureFlag: 'feature_flag',
+} as const
+
+export interface DashboardTemplateApi {
+    readonly id: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    template_name?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    dashboard_description?: string | null
+    dashboard_filters?: unknown | null
+    /** @nullable */
+    tags?: string[] | null
+    tiles?: unknown | null
+    variables?: unknown | null
+    /** @nullable */
+    deleted?: boolean | null
+    /** @nullable */
+    readonly created_at: string | null
+    /** @nullable */
+    created_by?: number | null
+    /**
+     * @maxLength 8201
+     * @nullable
+     */
+    image_url?: string | null
+    /** @nullable */
+    readonly team_id: number | null
+    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi | null
+    /** @nullable */
+    availability_contexts?: string[] | null
+}
+
+export interface PaginatedDashboardTemplateListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DashboardTemplateApi[]
+}
+
+export interface PatchedDashboardTemplateApi {
+    readonly id?: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    template_name?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    dashboard_description?: string | null
+    dashboard_filters?: unknown | null
+    /** @nullable */
+    tags?: string[] | null
+    tiles?: unknown | null
+    variables?: unknown | null
+    /** @nullable */
+    deleted?: boolean | null
+    /** @nullable */
+    readonly created_at?: string | null
+    /** @nullable */
+    created_by?: number | null
+    /**
+     * @maxLength 8201
+     * @nullable
+     */
+    image_url?: string | null
+    /** @nullable */
+    readonly team_id?: number | null
+    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi | null
+    /** @nullable */
+    availability_contexts?: string[] | null
+}
+
+/**
+ * * `allow` - Allow
+ * `reject` - Reject
+ */
+export type EnforcementModeEnumApi = (typeof EnforcementModeEnumApi)[keyof typeof EnforcementModeEnumApi]
+
+export const EnforcementModeEnumApi = {
+    Allow: 'allow',
+    Reject: 'reject',
+} as const
+
+/**
+ * Serializer mixin that handles tags for objects.
+ */
+export interface EnterpriseEventDefinitionApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    /** @nullable */
+    owner?: number | null
+    /** @nullable */
+    description?: string | null
+    tags?: unknown[]
+    /** @nullable */
+    readonly created_at: string | null
+    readonly updated_at: string
+    readonly updated_by: UserBasicApi
+    /** @nullable */
+    readonly last_seen_at: string | null
+    readonly last_updated_at: string
+    verified?: boolean
+    /** @nullable */
+    readonly verified_at: string | null
+    readonly verified_by: UserBasicApi
+    /** @nullable */
+    hidden?: boolean | null
+    enforcement_mode?: EnforcementModeEnumApi
+    readonly is_action: boolean
+    readonly action_id: number
+    readonly is_calculating: boolean
+    readonly last_calculated_at: string
+    readonly created_by: UserBasicApi
+    post_to_slack?: boolean
+    default_columns?: string[]
+    readonly media_preview_urls: readonly string[]
+}
+
+export interface PaginatedEnterpriseEventDefinitionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: EnterpriseEventDefinitionApi[]
+}
+
+/**
+ * Serializer mixin that handles tags for objects.
+ */
+export interface PatchedEnterpriseEventDefinitionApi {
+    readonly id?: string
+    /** @maxLength 400 */
+    name?: string
+    /** @nullable */
+    owner?: number | null
+    /** @nullable */
+    description?: string | null
+    tags?: unknown[]
+    /** @nullable */
+    readonly created_at?: string | null
+    readonly updated_at?: string
+    readonly updated_by?: UserBasicApi
+    /** @nullable */
+    readonly last_seen_at?: string | null
+    readonly last_updated_at?: string
+    verified?: boolean
+    /** @nullable */
+    readonly verified_at?: string | null
+    readonly verified_by?: UserBasicApi
+    /** @nullable */
+    hidden?: boolean | null
+    enforcement_mode?: EnforcementModeEnumApi
+    readonly is_action?: boolean
+    readonly action_id?: number
+    readonly is_calculating?: boolean
+    readonly last_calculated_at?: string
+    readonly created_by?: UserBasicApi
+    post_to_slack?: boolean
+    default_columns?: string[]
+    readonly media_preview_urls?: readonly string[]
+}
+
+export type EventDefinitionApiProperties = { [key: string]: unknown }
+
+export interface EventDefinitionApi {
+    elements: unknown[]
+    event: string
+    properties: EventDefinitionApiProperties
+}
+
 /**
  * * `image/png` - image/png
  * `application/pdf` - application/pdf
@@ -20,15 +1066,15 @@
 export type ExportFormatEnumApi = (typeof ExportFormatEnumApi)[keyof typeof ExportFormatEnumApi]
 
 export const ExportFormatEnumApi = {
-    'image/png': 'image/png',
-    'application/pdf': 'application/pdf',
-    'text/csv': 'text/csv',
-    'application/vndopenxmlformats-officedocumentspreadsheetmlsheet':
+    ImagePng: 'image/png',
+    ApplicationPdf: 'application/pdf',
+    TextCsv: 'text/csv',
+    ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet:
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'video/webm': 'video/webm',
-    'video/mp4': 'video/mp4',
-    'image/gif': 'image/gif',
-    'application/json': 'application/json',
+    VideoWebm: 'video/webm',
+    VideoMp4: 'video/mp4',
+    ImageGif: 'image/gif',
+    ApplicationJson: 'application/json',
 } as const
 
 /**
@@ -153,91 +1199,32 @@ export interface SharingConfigurationApi {
 export type KindCf2EnumApi = (typeof KindCf2EnumApi)[keyof typeof KindCf2EnumApi]
 
 export const KindCf2EnumApi = {
-    slack: 'slack',
-    salesforce: 'salesforce',
-    hubspot: 'hubspot',
-    'google-pubsub': 'google-pubsub',
-    'google-cloud-storage': 'google-cloud-storage',
-    'google-ads': 'google-ads',
-    'google-sheets': 'google-sheets',
-    snapchat: 'snapchat',
-    'linkedin-ads': 'linkedin-ads',
-    'reddit-ads': 'reddit-ads',
-    'tiktok-ads': 'tiktok-ads',
-    'bing-ads': 'bing-ads',
-    intercom: 'intercom',
-    email: 'email',
-    linear: 'linear',
-    github: 'github',
-    gitlab: 'gitlab',
-    'meta-ads': 'meta-ads',
-    twilio: 'twilio',
-    clickup: 'clickup',
-    vercel: 'vercel',
-    databricks: 'databricks',
-    'azure-blob': 'azure-blob',
-    firebase: 'firebase',
-    jira: 'jira',
+    Slack: 'slack',
+    Salesforce: 'salesforce',
+    Hubspot: 'hubspot',
+    GooglePubsub: 'google-pubsub',
+    GoogleCloudStorage: 'google-cloud-storage',
+    GoogleAds: 'google-ads',
+    GoogleSheets: 'google-sheets',
+    Snapchat: 'snapchat',
+    LinkedinAds: 'linkedin-ads',
+    RedditAds: 'reddit-ads',
+    TiktokAds: 'tiktok-ads',
+    BingAds: 'bing-ads',
+    Intercom: 'intercom',
+    Email: 'email',
+    Linear: 'linear',
+    Github: 'github',
+    Gitlab: 'gitlab',
+    MetaAds: 'meta-ads',
+    Twilio: 'twilio',
+    Clickup: 'clickup',
+    Vercel: 'vercel',
+    Databricks: 'databricks',
+    AzureBlob: 'azure-blob',
+    Firebase: 'firebase',
+    Jira: 'jira',
 } as const
-
-/**
- * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
- */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
-
-export const RoleAtOrganizationEnumApi = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
-}
 
 /**
  * Standard Integration serializer.
@@ -275,6 +1262,163 @@ export interface PatchedIntegrationApi {
 }
 
 /**
+ * * `DateTime` - DateTime
+ * `String` - String
+ * `Numeric` - Numeric
+ * `Boolean` - Boolean
+ * `Duration` - Duration
+ */
+export type PropertyType549EnumApi = (typeof PropertyType549EnumApi)[keyof typeof PropertyType549EnumApi]
+
+export const PropertyType549EnumApi = {
+    DateTime: 'DateTime',
+    String: 'String',
+    Numeric: 'Numeric',
+    Boolean: 'Boolean',
+    Duration: 'Duration',
+} as const
+
+/**
+ * Serializer mixin that handles tags for objects.
+ */
+export interface EnterprisePropertyDefinitionApi {
+    readonly id: string
+    readonly name: string
+    /** @nullable */
+    description?: string | null
+    tags?: unknown[]
+    readonly is_numerical: boolean
+    readonly updated_at: string
+    readonly updated_by: UserBasicApi
+    /** @nullable */
+    readonly is_seen_on_filtered_events: boolean | null
+    property_type?: PropertyType549EnumApi | BlankEnumApi | NullEnumApi | null
+    verified?: boolean
+    /** @nullable */
+    readonly verified_at: string | null
+    readonly verified_by: UserBasicApi
+    /** @nullable */
+    hidden?: boolean | null
+}
+
+export interface PaginatedEnterprisePropertyDefinitionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: EnterprisePropertyDefinitionApi[]
+}
+
+/**
+ * Serializer mixin that handles tags for objects.
+ */
+export interface PatchedEnterprisePropertyDefinitionApi {
+    readonly id?: string
+    readonly name?: string
+    /** @nullable */
+    description?: string | null
+    tags?: unknown[]
+    readonly is_numerical?: boolean
+    readonly updated_at?: string
+    readonly updated_by?: UserBasicApi
+    /** @nullable */
+    readonly is_seen_on_filtered_events?: boolean | null
+    property_type?: PropertyType549EnumApi | BlankEnumApi | NullEnumApi | null
+    verified?: boolean
+    /** @nullable */
+    readonly verified_at?: string | null
+    readonly verified_by?: UserBasicApi
+    /** @nullable */
+    hidden?: boolean | null
+}
+
+/**
+ * * `FeatureFlag` - feature flag
+ */
+export type ModelNameEnumApi = (typeof ModelNameEnumApi)[keyof typeof ModelNameEnumApi]
+
+export const ModelNameEnumApi = {
+    FeatureFlag: 'FeatureFlag',
+} as const
+
+/**
+ * * `daily` - daily
+ * `weekly` - weekly
+ * `monthly` - monthly
+ * `yearly` - yearly
+ */
+export type RecurrenceIntervalEnumApi = (typeof RecurrenceIntervalEnumApi)[keyof typeof RecurrenceIntervalEnumApi]
+
+export const RecurrenceIntervalEnumApi = {
+    Daily: 'daily',
+    Weekly: 'weekly',
+    Monthly: 'monthly',
+    Yearly: 'yearly',
+} as const
+
+export interface ScheduledChangeApi {
+    readonly id: number
+    readonly team_id: number
+    /** @maxLength 200 */
+    record_id: string
+    model_name: ModelNameEnumApi
+    payload?: unknown
+    scheduled_at: string
+    /** @nullable */
+    executed_at?: string | null
+    /**
+     * Return the safely formatted failure reason instead of raw data.
+     * @nullable
+     */
+    readonly failure_reason: string | null
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    readonly updated_at: string
+    is_recurring?: boolean
+    recurrence_interval?: RecurrenceIntervalEnumApi | BlankEnumApi | NullEnumApi | null
+    /** @nullable */
+    readonly last_executed_at: string | null
+    /** @nullable */
+    end_date?: string | null
+}
+
+export interface PaginatedScheduledChangeListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ScheduledChangeApi[]
+}
+
+export interface PatchedScheduledChangeApi {
+    readonly id?: number
+    readonly team_id?: number
+    /** @maxLength 200 */
+    record_id?: string
+    model_name?: ModelNameEnumApi
+    payload?: unknown
+    scheduled_at?: string
+    /** @nullable */
+    executed_at?: string | null
+    /**
+     * Return the safely formatted failure reason instead of raw data.
+     * @nullable
+     */
+    readonly failure_reason?: string | null
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    readonly updated_at?: string
+    is_recurring?: boolean
+    recurrence_interval?: RecurrenceIntervalEnumApi | BlankEnumApi | NullEnumApi | null
+    /** @nullable */
+    readonly last_executed_at?: string | null
+    /** @nullable */
+    end_date?: string | null
+}
+
+/**
  * * `email` - Email
  * `slack` - Slack
  * `webhook` - Webhook
@@ -282,9 +1426,9 @@ export interface PatchedIntegrationApi {
 export type TargetTypeEnumApi = (typeof TargetTypeEnumApi)[keyof typeof TargetTypeEnumApi]
 
 export const TargetTypeEnumApi = {
-    email: 'email',
-    slack: 'slack',
-    webhook: 'webhook',
+    Email: 'email',
+    Slack: 'slack',
+    Webhook: 'webhook',
 } as const
 
 /**
@@ -296,10 +1440,10 @@ export const TargetTypeEnumApi = {
 export type FrequencyEnumApi = (typeof FrequencyEnumApi)[keyof typeof FrequencyEnumApi]
 
 export const FrequencyEnumApi = {
-    daily: 'daily',
-    weekly: 'weekly',
-    monthly: 'monthly',
-    yearly: 'yearly',
+    Daily: 'daily',
+    Weekly: 'weekly',
+    Monthly: 'monthly',
+    Yearly: 'yearly',
 } as const
 
 /**
@@ -314,13 +1458,13 @@ export const FrequencyEnumApi = {
 export type ByweekdayEnumApi = (typeof ByweekdayEnumApi)[keyof typeof ByweekdayEnumApi]
 
 export const ByweekdayEnumApi = {
-    monday: 'monday',
-    tuesday: 'tuesday',
-    wednesday: 'wednesday',
-    thursday: 'thursday',
-    friday: 'friday',
-    saturday: 'saturday',
-    sunday: 'sunday',
+    Monday: 'monday',
+    Tuesday: 'tuesday',
+    Wednesday: 'wednesday',
+    Thursday: 'thursday',
+    Friday: 'friday',
+    Saturday: 'saturday',
+    Sunday: 'sunday',
 } as const
 
 /**
@@ -430,2194 +1574,6 @@ export interface PatchedSubscriptionApi {
     invite_message?: string | null
 }
 
-export interface OrganizationDomainApi {
-    readonly id: string
-    /** @maxLength 128 */
-    domain: string
-    /** Determines whether a domain is verified or not. */
-    readonly is_verified: boolean
-    /** @nullable */
-    readonly verified_at: string | null
-    readonly verification_challenge: string
-    jit_provisioning_enabled?: boolean
-    /** @maxLength 28 */
-    sso_enforcement?: string
-    /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
-    readonly has_saml: boolean
-    /**
-     * @maxLength 512
-     * @nullable
-     */
-    saml_entity_id?: string | null
-    /**
-     * @maxLength 512
-     * @nullable
-     */
-    saml_acs_url?: string | null
-    /** @nullable */
-    saml_x509_cert?: string | null
-    /** Returns whether SCIM is configured and enabled for this domain. */
-    readonly has_scim: boolean
-    scim_enabled?: boolean
-    /** @nullable */
-    readonly scim_base_url: string | null
-    /** @nullable */
-    readonly scim_bearer_token: string | null
-}
-
-export interface PaginatedOrganizationDomainListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: OrganizationDomainApi[]
-}
-
-export interface PatchedOrganizationDomainApi {
-    readonly id?: string
-    /** @maxLength 128 */
-    domain?: string
-    /** Determines whether a domain is verified or not. */
-    readonly is_verified?: boolean
-    /** @nullable */
-    readonly verified_at?: string | null
-    readonly verification_challenge?: string
-    jit_provisioning_enabled?: boolean
-    /** @maxLength 28 */
-    sso_enforcement?: string
-    /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
-    readonly has_saml?: boolean
-    /**
-     * @maxLength 512
-     * @nullable
-     */
-    saml_entity_id?: string | null
-    /**
-     * @maxLength 512
-     * @nullable
-     */
-    saml_acs_url?: string | null
-    /** @nullable */
-    saml_x509_cert?: string | null
-    /** Returns whether SCIM is configured and enabled for this domain. */
-    readonly has_scim?: boolean
-    scim_enabled?: boolean
-    /** @nullable */
-    readonly scim_base_url?: string | null
-    /** @nullable */
-    readonly scim_bearer_token?: string | null
-}
-
-/**
- * * `1` - member
- * `8` - administrator
- * `15` - owner
- */
-export type OrganizationMembershipLevelApi =
-    (typeof OrganizationMembershipLevelApi)[keyof typeof OrganizationMembershipLevelApi]
-
-export const OrganizationMembershipLevelApi = {
-    NUMBER_1: 1,
-    NUMBER_8: 8,
-    NUMBER_15: 15,
-} as const
-
-export interface OrganizationInviteApi {
-    readonly id: string
-    /** @maxLength 254 */
-    target_email: string
-    /** @maxLength 30 */
-    first_name?: string
-    readonly emailing_attempt_made: boolean
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    level?: OrganizationMembershipLevelApi
-    /** Check if invite is older than INVITE_DAYS_VALIDITY days. */
-    readonly is_expired: boolean
-    readonly created_by: UserBasicApi
-    readonly created_at: string
-    readonly updated_at: string
-    /** @nullable */
-    message?: string | null
-    /** List of team IDs and corresponding access levels to private projects. */
-    private_project_access?: unknown | null
-    send_email?: boolean
-    combine_pending_invites?: boolean
-}
-
-export interface PaginatedOrganizationInviteListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: OrganizationInviteApi[]
-}
-
-export interface OrganizationMemberApi {
-    readonly id: string
-    readonly user: UserBasicApi
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    level?: OrganizationMembershipLevelApi
-    readonly joined_at: string
-    readonly updated_at: string
-    readonly is_2fa_enabled: boolean
-    readonly has_social_auth: boolean
-    readonly last_login: string
-}
-
-export interface PaginatedOrganizationMemberListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: OrganizationMemberApi[]
-}
-
-export interface PatchedOrganizationMemberApi {
-    readonly id?: string
-    readonly user?: UserBasicApi
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    level?: OrganizationMembershipLevelApi
-    readonly joined_at?: string
-    readonly updated_at?: string
-    readonly is_2fa_enabled?: boolean
-    readonly has_social_auth?: boolean
-    readonly last_login?: string
-}
-
-/**
- * * `Africa/Abidjan` - Africa/Abidjan
- * `Africa/Accra` - Africa/Accra
- * `Africa/Addis_Ababa` - Africa/Addis_Ababa
- * `Africa/Algiers` - Africa/Algiers
- * `Africa/Asmara` - Africa/Asmara
- * `Africa/Asmera` - Africa/Asmera
- * `Africa/Bamako` - Africa/Bamako
- * `Africa/Bangui` - Africa/Bangui
- * `Africa/Banjul` - Africa/Banjul
- * `Africa/Bissau` - Africa/Bissau
- * `Africa/Blantyre` - Africa/Blantyre
- * `Africa/Brazzaville` - Africa/Brazzaville
- * `Africa/Bujumbura` - Africa/Bujumbura
- * `Africa/Cairo` - Africa/Cairo
- * `Africa/Casablanca` - Africa/Casablanca
- * `Africa/Ceuta` - Africa/Ceuta
- * `Africa/Conakry` - Africa/Conakry
- * `Africa/Dakar` - Africa/Dakar
- * `Africa/Dar_es_Salaam` - Africa/Dar_es_Salaam
- * `Africa/Djibouti` - Africa/Djibouti
- * `Africa/Douala` - Africa/Douala
- * `Africa/El_Aaiun` - Africa/El_Aaiun
- * `Africa/Freetown` - Africa/Freetown
- * `Africa/Gaborone` - Africa/Gaborone
- * `Africa/Harare` - Africa/Harare
- * `Africa/Johannesburg` - Africa/Johannesburg
- * `Africa/Juba` - Africa/Juba
- * `Africa/Kampala` - Africa/Kampala
- * `Africa/Khartoum` - Africa/Khartoum
- * `Africa/Kigali` - Africa/Kigali
- * `Africa/Kinshasa` - Africa/Kinshasa
- * `Africa/Lagos` - Africa/Lagos
- * `Africa/Libreville` - Africa/Libreville
- * `Africa/Lome` - Africa/Lome
- * `Africa/Luanda` - Africa/Luanda
- * `Africa/Lubumbashi` - Africa/Lubumbashi
- * `Africa/Lusaka` - Africa/Lusaka
- * `Africa/Malabo` - Africa/Malabo
- * `Africa/Maputo` - Africa/Maputo
- * `Africa/Maseru` - Africa/Maseru
- * `Africa/Mbabane` - Africa/Mbabane
- * `Africa/Mogadishu` - Africa/Mogadishu
- * `Africa/Monrovia` - Africa/Monrovia
- * `Africa/Nairobi` - Africa/Nairobi
- * `Africa/Ndjamena` - Africa/Ndjamena
- * `Africa/Niamey` - Africa/Niamey
- * `Africa/Nouakchott` - Africa/Nouakchott
- * `Africa/Ouagadougou` - Africa/Ouagadougou
- * `Africa/Porto-Novo` - Africa/Porto-Novo
- * `Africa/Sao_Tome` - Africa/Sao_Tome
- * `Africa/Timbuktu` - Africa/Timbuktu
- * `Africa/Tripoli` - Africa/Tripoli
- * `Africa/Tunis` - Africa/Tunis
- * `Africa/Windhoek` - Africa/Windhoek
- * `America/Adak` - America/Adak
- * `America/Anchorage` - America/Anchorage
- * `America/Anguilla` - America/Anguilla
- * `America/Antigua` - America/Antigua
- * `America/Araguaina` - America/Araguaina
- * `America/Argentina/Buenos_Aires` - America/Argentina/Buenos_Aires
- * `America/Argentina/Catamarca` - America/Argentina/Catamarca
- * `America/Argentina/ComodRivadavia` - America/Argentina/ComodRivadavia
- * `America/Argentina/Cordoba` - America/Argentina/Cordoba
- * `America/Argentina/Jujuy` - America/Argentina/Jujuy
- * `America/Argentina/La_Rioja` - America/Argentina/La_Rioja
- * `America/Argentina/Mendoza` - America/Argentina/Mendoza
- * `America/Argentina/Rio_Gallegos` - America/Argentina/Rio_Gallegos
- * `America/Argentina/Salta` - America/Argentina/Salta
- * `America/Argentina/San_Juan` - America/Argentina/San_Juan
- * `America/Argentina/San_Luis` - America/Argentina/San_Luis
- * `America/Argentina/Tucuman` - America/Argentina/Tucuman
- * `America/Argentina/Ushuaia` - America/Argentina/Ushuaia
- * `America/Aruba` - America/Aruba
- * `America/Asuncion` - America/Asuncion
- * `America/Atikokan` - America/Atikokan
- * `America/Atka` - America/Atka
- * `America/Bahia` - America/Bahia
- * `America/Bahia_Banderas` - America/Bahia_Banderas
- * `America/Barbados` - America/Barbados
- * `America/Belem` - America/Belem
- * `America/Belize` - America/Belize
- * `America/Blanc-Sablon` - America/Blanc-Sablon
- * `America/Boa_Vista` - America/Boa_Vista
- * `America/Bogota` - America/Bogota
- * `America/Boise` - America/Boise
- * `America/Buenos_Aires` - America/Buenos_Aires
- * `America/Cambridge_Bay` - America/Cambridge_Bay
- * `America/Campo_Grande` - America/Campo_Grande
- * `America/Cancun` - America/Cancun
- * `America/Caracas` - America/Caracas
- * `America/Catamarca` - America/Catamarca
- * `America/Cayenne` - America/Cayenne
- * `America/Cayman` - America/Cayman
- * `America/Chicago` - America/Chicago
- * `America/Chihuahua` - America/Chihuahua
- * `America/Ciudad_Juarez` - America/Ciudad_Juarez
- * `America/Coral_Harbour` - America/Coral_Harbour
- * `America/Cordoba` - America/Cordoba
- * `America/Costa_Rica` - America/Costa_Rica
- * `America/Creston` - America/Creston
- * `America/Cuiaba` - America/Cuiaba
- * `America/Curacao` - America/Curacao
- * `America/Danmarkshavn` - America/Danmarkshavn
- * `America/Dawson` - America/Dawson
- * `America/Dawson_Creek` - America/Dawson_Creek
- * `America/Denver` - America/Denver
- * `America/Detroit` - America/Detroit
- * `America/Dominica` - America/Dominica
- * `America/Edmonton` - America/Edmonton
- * `America/Eirunepe` - America/Eirunepe
- * `America/El_Salvador` - America/El_Salvador
- * `America/Ensenada` - America/Ensenada
- * `America/Fort_Nelson` - America/Fort_Nelson
- * `America/Fort_Wayne` - America/Fort_Wayne
- * `America/Fortaleza` - America/Fortaleza
- * `America/Glace_Bay` - America/Glace_Bay
- * `America/Godthab` - America/Godthab
- * `America/Goose_Bay` - America/Goose_Bay
- * `America/Grand_Turk` - America/Grand_Turk
- * `America/Grenada` - America/Grenada
- * `America/Guadeloupe` - America/Guadeloupe
- * `America/Guatemala` - America/Guatemala
- * `America/Guayaquil` - America/Guayaquil
- * `America/Guyana` - America/Guyana
- * `America/Halifax` - America/Halifax
- * `America/Havana` - America/Havana
- * `America/Hermosillo` - America/Hermosillo
- * `America/Indiana/Indianapolis` - America/Indiana/Indianapolis
- * `America/Indiana/Knox` - America/Indiana/Knox
- * `America/Indiana/Marengo` - America/Indiana/Marengo
- * `America/Indiana/Petersburg` - America/Indiana/Petersburg
- * `America/Indiana/Tell_City` - America/Indiana/Tell_City
- * `America/Indiana/Vevay` - America/Indiana/Vevay
- * `America/Indiana/Vincennes` - America/Indiana/Vincennes
- * `America/Indiana/Winamac` - America/Indiana/Winamac
- * `America/Indianapolis` - America/Indianapolis
- * `America/Inuvik` - America/Inuvik
- * `America/Iqaluit` - America/Iqaluit
- * `America/Jamaica` - America/Jamaica
- * `America/Jujuy` - America/Jujuy
- * `America/Juneau` - America/Juneau
- * `America/Kentucky/Louisville` - America/Kentucky/Louisville
- * `America/Kentucky/Monticello` - America/Kentucky/Monticello
- * `America/Knox_IN` - America/Knox_IN
- * `America/Kralendijk` - America/Kralendijk
- * `America/La_Paz` - America/La_Paz
- * `America/Lima` - America/Lima
- * `America/Los_Angeles` - America/Los_Angeles
- * `America/Louisville` - America/Louisville
- * `America/Lower_Princes` - America/Lower_Princes
- * `America/Maceio` - America/Maceio
- * `America/Managua` - America/Managua
- * `America/Manaus` - America/Manaus
- * `America/Marigot` - America/Marigot
- * `America/Martinique` - America/Martinique
- * `America/Matamoros` - America/Matamoros
- * `America/Mazatlan` - America/Mazatlan
- * `America/Mendoza` - America/Mendoza
- * `America/Menominee` - America/Menominee
- * `America/Merida` - America/Merida
- * `America/Metlakatla` - America/Metlakatla
- * `America/Mexico_City` - America/Mexico_City
- * `America/Miquelon` - America/Miquelon
- * `America/Moncton` - America/Moncton
- * `America/Monterrey` - America/Monterrey
- * `America/Montevideo` - America/Montevideo
- * `America/Montreal` - America/Montreal
- * `America/Montserrat` - America/Montserrat
- * `America/Nassau` - America/Nassau
- * `America/New_York` - America/New_York
- * `America/Nipigon` - America/Nipigon
- * `America/Nome` - America/Nome
- * `America/Noronha` - America/Noronha
- * `America/North_Dakota/Beulah` - America/North_Dakota/Beulah
- * `America/North_Dakota/Center` - America/North_Dakota/Center
- * `America/North_Dakota/New_Salem` - America/North_Dakota/New_Salem
- * `America/Nuuk` - America/Nuuk
- * `America/Ojinaga` - America/Ojinaga
- * `America/Panama` - America/Panama
- * `America/Pangnirtung` - America/Pangnirtung
- * `America/Paramaribo` - America/Paramaribo
- * `America/Phoenix` - America/Phoenix
- * `America/Port-au-Prince` - America/Port-au-Prince
- * `America/Port_of_Spain` - America/Port_of_Spain
- * `America/Porto_Acre` - America/Porto_Acre
- * `America/Porto_Velho` - America/Porto_Velho
- * `America/Puerto_Rico` - America/Puerto_Rico
- * `America/Punta_Arenas` - America/Punta_Arenas
- * `America/Rainy_River` - America/Rainy_River
- * `America/Rankin_Inlet` - America/Rankin_Inlet
- * `America/Recife` - America/Recife
- * `America/Regina` - America/Regina
- * `America/Resolute` - America/Resolute
- * `America/Rio_Branco` - America/Rio_Branco
- * `America/Rosario` - America/Rosario
- * `America/Santa_Isabel` - America/Santa_Isabel
- * `America/Santarem` - America/Santarem
- * `America/Santiago` - America/Santiago
- * `America/Santo_Domingo` - America/Santo_Domingo
- * `America/Sao_Paulo` - America/Sao_Paulo
- * `America/Scoresbysund` - America/Scoresbysund
- * `America/Shiprock` - America/Shiprock
- * `America/Sitka` - America/Sitka
- * `America/St_Barthelemy` - America/St_Barthelemy
- * `America/St_Johns` - America/St_Johns
- * `America/St_Kitts` - America/St_Kitts
- * `America/St_Lucia` - America/St_Lucia
- * `America/St_Thomas` - America/St_Thomas
- * `America/St_Vincent` - America/St_Vincent
- * `America/Swift_Current` - America/Swift_Current
- * `America/Tegucigalpa` - America/Tegucigalpa
- * `America/Thule` - America/Thule
- * `America/Thunder_Bay` - America/Thunder_Bay
- * `America/Tijuana` - America/Tijuana
- * `America/Toronto` - America/Toronto
- * `America/Tortola` - America/Tortola
- * `America/Vancouver` - America/Vancouver
- * `America/Virgin` - America/Virgin
- * `America/Whitehorse` - America/Whitehorse
- * `America/Winnipeg` - America/Winnipeg
- * `America/Yakutat` - America/Yakutat
- * `America/Yellowknife` - America/Yellowknife
- * `Antarctica/Casey` - Antarctica/Casey
- * `Antarctica/Davis` - Antarctica/Davis
- * `Antarctica/DumontDUrville` - Antarctica/DumontDUrville
- * `Antarctica/Macquarie` - Antarctica/Macquarie
- * `Antarctica/Mawson` - Antarctica/Mawson
- * `Antarctica/McMurdo` - Antarctica/McMurdo
- * `Antarctica/Palmer` - Antarctica/Palmer
- * `Antarctica/Rothera` - Antarctica/Rothera
- * `Antarctica/South_Pole` - Antarctica/South_Pole
- * `Antarctica/Syowa` - Antarctica/Syowa
- * `Antarctica/Troll` - Antarctica/Troll
- * `Antarctica/Vostok` - Antarctica/Vostok
- * `Arctic/Longyearbyen` - Arctic/Longyearbyen
- * `Asia/Aden` - Asia/Aden
- * `Asia/Almaty` - Asia/Almaty
- * `Asia/Amman` - Asia/Amman
- * `Asia/Anadyr` - Asia/Anadyr
- * `Asia/Aqtau` - Asia/Aqtau
- * `Asia/Aqtobe` - Asia/Aqtobe
- * `Asia/Ashgabat` - Asia/Ashgabat
- * `Asia/Ashkhabad` - Asia/Ashkhabad
- * `Asia/Atyrau` - Asia/Atyrau
- * `Asia/Baghdad` - Asia/Baghdad
- * `Asia/Bahrain` - Asia/Bahrain
- * `Asia/Baku` - Asia/Baku
- * `Asia/Bangkok` - Asia/Bangkok
- * `Asia/Barnaul` - Asia/Barnaul
- * `Asia/Beirut` - Asia/Beirut
- * `Asia/Bishkek` - Asia/Bishkek
- * `Asia/Brunei` - Asia/Brunei
- * `Asia/Calcutta` - Asia/Calcutta
- * `Asia/Chita` - Asia/Chita
- * `Asia/Choibalsan` - Asia/Choibalsan
- * `Asia/Chongqing` - Asia/Chongqing
- * `Asia/Chungking` - Asia/Chungking
- * `Asia/Colombo` - Asia/Colombo
- * `Asia/Dacca` - Asia/Dacca
- * `Asia/Damascus` - Asia/Damascus
- * `Asia/Dhaka` - Asia/Dhaka
- * `Asia/Dili` - Asia/Dili
- * `Asia/Dubai` - Asia/Dubai
- * `Asia/Dushanbe` - Asia/Dushanbe
- * `Asia/Famagusta` - Asia/Famagusta
- * `Asia/Gaza` - Asia/Gaza
- * `Asia/Harbin` - Asia/Harbin
- * `Asia/Hebron` - Asia/Hebron
- * `Asia/Ho_Chi_Minh` - Asia/Ho_Chi_Minh
- * `Asia/Hong_Kong` - Asia/Hong_Kong
- * `Asia/Hovd` - Asia/Hovd
- * `Asia/Irkutsk` - Asia/Irkutsk
- * `Asia/Istanbul` - Asia/Istanbul
- * `Asia/Jakarta` - Asia/Jakarta
- * `Asia/Jayapura` - Asia/Jayapura
- * `Asia/Jerusalem` - Asia/Jerusalem
- * `Asia/Kabul` - Asia/Kabul
- * `Asia/Kamchatka` - Asia/Kamchatka
- * `Asia/Karachi` - Asia/Karachi
- * `Asia/Kashgar` - Asia/Kashgar
- * `Asia/Kathmandu` - Asia/Kathmandu
- * `Asia/Katmandu` - Asia/Katmandu
- * `Asia/Khandyga` - Asia/Khandyga
- * `Asia/Kolkata` - Asia/Kolkata
- * `Asia/Krasnoyarsk` - Asia/Krasnoyarsk
- * `Asia/Kuala_Lumpur` - Asia/Kuala_Lumpur
- * `Asia/Kuching` - Asia/Kuching
- * `Asia/Kuwait` - Asia/Kuwait
- * `Asia/Macao` - Asia/Macao
- * `Asia/Macau` - Asia/Macau
- * `Asia/Magadan` - Asia/Magadan
- * `Asia/Makassar` - Asia/Makassar
- * `Asia/Manila` - Asia/Manila
- * `Asia/Muscat` - Asia/Muscat
- * `Asia/Nicosia` - Asia/Nicosia
- * `Asia/Novokuznetsk` - Asia/Novokuznetsk
- * `Asia/Novosibirsk` - Asia/Novosibirsk
- * `Asia/Omsk` - Asia/Omsk
- * `Asia/Oral` - Asia/Oral
- * `Asia/Phnom_Penh` - Asia/Phnom_Penh
- * `Asia/Pontianak` - Asia/Pontianak
- * `Asia/Pyongyang` - Asia/Pyongyang
- * `Asia/Qatar` - Asia/Qatar
- * `Asia/Qostanay` - Asia/Qostanay
- * `Asia/Qyzylorda` - Asia/Qyzylorda
- * `Asia/Rangoon` - Asia/Rangoon
- * `Asia/Riyadh` - Asia/Riyadh
- * `Asia/Saigon` - Asia/Saigon
- * `Asia/Sakhalin` - Asia/Sakhalin
- * `Asia/Samarkand` - Asia/Samarkand
- * `Asia/Seoul` - Asia/Seoul
- * `Asia/Shanghai` - Asia/Shanghai
- * `Asia/Singapore` - Asia/Singapore
- * `Asia/Srednekolymsk` - Asia/Srednekolymsk
- * `Asia/Taipei` - Asia/Taipei
- * `Asia/Tashkent` - Asia/Tashkent
- * `Asia/Tbilisi` - Asia/Tbilisi
- * `Asia/Tehran` - Asia/Tehran
- * `Asia/Tel_Aviv` - Asia/Tel_Aviv
- * `Asia/Thimbu` - Asia/Thimbu
- * `Asia/Thimphu` - Asia/Thimphu
- * `Asia/Tokyo` - Asia/Tokyo
- * `Asia/Tomsk` - Asia/Tomsk
- * `Asia/Ujung_Pandang` - Asia/Ujung_Pandang
- * `Asia/Ulaanbaatar` - Asia/Ulaanbaatar
- * `Asia/Ulan_Bator` - Asia/Ulan_Bator
- * `Asia/Urumqi` - Asia/Urumqi
- * `Asia/Ust-Nera` - Asia/Ust-Nera
- * `Asia/Vientiane` - Asia/Vientiane
- * `Asia/Vladivostok` - Asia/Vladivostok
- * `Asia/Yakutsk` - Asia/Yakutsk
- * `Asia/Yangon` - Asia/Yangon
- * `Asia/Yekaterinburg` - Asia/Yekaterinburg
- * `Asia/Yerevan` - Asia/Yerevan
- * `Atlantic/Azores` - Atlantic/Azores
- * `Atlantic/Bermuda` - Atlantic/Bermuda
- * `Atlantic/Canary` - Atlantic/Canary
- * `Atlantic/Cape_Verde` - Atlantic/Cape_Verde
- * `Atlantic/Faeroe` - Atlantic/Faeroe
- * `Atlantic/Faroe` - Atlantic/Faroe
- * `Atlantic/Jan_Mayen` - Atlantic/Jan_Mayen
- * `Atlantic/Madeira` - Atlantic/Madeira
- * `Atlantic/Reykjavik` - Atlantic/Reykjavik
- * `Atlantic/South_Georgia` - Atlantic/South_Georgia
- * `Atlantic/St_Helena` - Atlantic/St_Helena
- * `Atlantic/Stanley` - Atlantic/Stanley
- * `Australia/ACT` - Australia/ACT
- * `Australia/Adelaide` - Australia/Adelaide
- * `Australia/Brisbane` - Australia/Brisbane
- * `Australia/Broken_Hill` - Australia/Broken_Hill
- * `Australia/Canberra` - Australia/Canberra
- * `Australia/Currie` - Australia/Currie
- * `Australia/Darwin` - Australia/Darwin
- * `Australia/Eucla` - Australia/Eucla
- * `Australia/Hobart` - Australia/Hobart
- * `Australia/LHI` - Australia/LHI
- * `Australia/Lindeman` - Australia/Lindeman
- * `Australia/Lord_Howe` - Australia/Lord_Howe
- * `Australia/Melbourne` - Australia/Melbourne
- * `Australia/NSW` - Australia/NSW
- * `Australia/North` - Australia/North
- * `Australia/Perth` - Australia/Perth
- * `Australia/Queensland` - Australia/Queensland
- * `Australia/South` - Australia/South
- * `Australia/Sydney` - Australia/Sydney
- * `Australia/Tasmania` - Australia/Tasmania
- * `Australia/Victoria` - Australia/Victoria
- * `Australia/West` - Australia/West
- * `Australia/Yancowinna` - Australia/Yancowinna
- * `Brazil/Acre` - Brazil/Acre
- * `Brazil/DeNoronha` - Brazil/DeNoronha
- * `Brazil/East` - Brazil/East
- * `Brazil/West` - Brazil/West
- * `CET` - CET
- * `CST6CDT` - CST6CDT
- * `Canada/Atlantic` - Canada/Atlantic
- * `Canada/Central` - Canada/Central
- * `Canada/Eastern` - Canada/Eastern
- * `Canada/Mountain` - Canada/Mountain
- * `Canada/Newfoundland` - Canada/Newfoundland
- * `Canada/Pacific` - Canada/Pacific
- * `Canada/Saskatchewan` - Canada/Saskatchewan
- * `Canada/Yukon` - Canada/Yukon
- * `Chile/Continental` - Chile/Continental
- * `Chile/EasterIsland` - Chile/EasterIsland
- * `Cuba` - Cuba
- * `EET` - EET
- * `EST` - EST
- * `EST5EDT` - EST5EDT
- * `Egypt` - Egypt
- * `Eire` - Eire
- * `Etc/GMT` - Etc/GMT
- * `Etc/GMT+0` - Etc/GMT+0
- * `Etc/GMT+1` - Etc/GMT+1
- * `Etc/GMT+10` - Etc/GMT+10
- * `Etc/GMT+11` - Etc/GMT+11
- * `Etc/GMT+12` - Etc/GMT+12
- * `Etc/GMT+2` - Etc/GMT+2
- * `Etc/GMT+3` - Etc/GMT+3
- * `Etc/GMT+4` - Etc/GMT+4
- * `Etc/GMT+5` - Etc/GMT+5
- * `Etc/GMT+6` - Etc/GMT+6
- * `Etc/GMT+7` - Etc/GMT+7
- * `Etc/GMT+8` - Etc/GMT+8
- * `Etc/GMT+9` - Etc/GMT+9
- * `Etc/GMT-0` - Etc/GMT-0
- * `Etc/GMT-1` - Etc/GMT-1
- * `Etc/GMT-10` - Etc/GMT-10
- * `Etc/GMT-11` - Etc/GMT-11
- * `Etc/GMT-12` - Etc/GMT-12
- * `Etc/GMT-13` - Etc/GMT-13
- * `Etc/GMT-14` - Etc/GMT-14
- * `Etc/GMT-2` - Etc/GMT-2
- * `Etc/GMT-3` - Etc/GMT-3
- * `Etc/GMT-4` - Etc/GMT-4
- * `Etc/GMT-5` - Etc/GMT-5
- * `Etc/GMT-6` - Etc/GMT-6
- * `Etc/GMT-7` - Etc/GMT-7
- * `Etc/GMT-8` - Etc/GMT-8
- * `Etc/GMT-9` - Etc/GMT-9
- * `Etc/GMT0` - Etc/GMT0
- * `Etc/Greenwich` - Etc/Greenwich
- * `Etc/UCT` - Etc/UCT
- * `Etc/UTC` - Etc/UTC
- * `Etc/Universal` - Etc/Universal
- * `Etc/Zulu` - Etc/Zulu
- * `Europe/Amsterdam` - Europe/Amsterdam
- * `Europe/Andorra` - Europe/Andorra
- * `Europe/Astrakhan` - Europe/Astrakhan
- * `Europe/Athens` - Europe/Athens
- * `Europe/Belfast` - Europe/Belfast
- * `Europe/Belgrade` - Europe/Belgrade
- * `Europe/Berlin` - Europe/Berlin
- * `Europe/Bratislava` - Europe/Bratislava
- * `Europe/Brussels` - Europe/Brussels
- * `Europe/Bucharest` - Europe/Bucharest
- * `Europe/Budapest` - Europe/Budapest
- * `Europe/Busingen` - Europe/Busingen
- * `Europe/Chisinau` - Europe/Chisinau
- * `Europe/Copenhagen` - Europe/Copenhagen
- * `Europe/Dublin` - Europe/Dublin
- * `Europe/Gibraltar` - Europe/Gibraltar
- * `Europe/Guernsey` - Europe/Guernsey
- * `Europe/Helsinki` - Europe/Helsinki
- * `Europe/Isle_of_Man` - Europe/Isle_of_Man
- * `Europe/Istanbul` - Europe/Istanbul
- * `Europe/Jersey` - Europe/Jersey
- * `Europe/Kaliningrad` - Europe/Kaliningrad
- * `Europe/Kiev` - Europe/Kiev
- * `Europe/Kirov` - Europe/Kirov
- * `Europe/Kyiv` - Europe/Kyiv
- * `Europe/Lisbon` - Europe/Lisbon
- * `Europe/Ljubljana` - Europe/Ljubljana
- * `Europe/London` - Europe/London
- * `Europe/Luxembourg` - Europe/Luxembourg
- * `Europe/Madrid` - Europe/Madrid
- * `Europe/Malta` - Europe/Malta
- * `Europe/Mariehamn` - Europe/Mariehamn
- * `Europe/Minsk` - Europe/Minsk
- * `Europe/Monaco` - Europe/Monaco
- * `Europe/Moscow` - Europe/Moscow
- * `Europe/Nicosia` - Europe/Nicosia
- * `Europe/Oslo` - Europe/Oslo
- * `Europe/Paris` - Europe/Paris
- * `Europe/Podgorica` - Europe/Podgorica
- * `Europe/Prague` - Europe/Prague
- * `Europe/Riga` - Europe/Riga
- * `Europe/Rome` - Europe/Rome
- * `Europe/Samara` - Europe/Samara
- * `Europe/San_Marino` - Europe/San_Marino
- * `Europe/Sarajevo` - Europe/Sarajevo
- * `Europe/Saratov` - Europe/Saratov
- * `Europe/Simferopol` - Europe/Simferopol
- * `Europe/Skopje` - Europe/Skopje
- * `Europe/Sofia` - Europe/Sofia
- * `Europe/Stockholm` - Europe/Stockholm
- * `Europe/Tallinn` - Europe/Tallinn
- * `Europe/Tirane` - Europe/Tirane
- * `Europe/Tiraspol` - Europe/Tiraspol
- * `Europe/Ulyanovsk` - Europe/Ulyanovsk
- * `Europe/Uzhgorod` - Europe/Uzhgorod
- * `Europe/Vaduz` - Europe/Vaduz
- * `Europe/Vatican` - Europe/Vatican
- * `Europe/Vienna` - Europe/Vienna
- * `Europe/Vilnius` - Europe/Vilnius
- * `Europe/Volgograd` - Europe/Volgograd
- * `Europe/Warsaw` - Europe/Warsaw
- * `Europe/Zagreb` - Europe/Zagreb
- * `Europe/Zaporozhye` - Europe/Zaporozhye
- * `Europe/Zurich` - Europe/Zurich
- * `GB` - GB
- * `GB-Eire` - GB-Eire
- * `GMT` - GMT
- * `GMT+0` - GMT+0
- * `GMT-0` - GMT-0
- * `GMT0` - GMT0
- * `Greenwich` - Greenwich
- * `HST` - HST
- * `Hongkong` - Hongkong
- * `Iceland` - Iceland
- * `Indian/Antananarivo` - Indian/Antananarivo
- * `Indian/Chagos` - Indian/Chagos
- * `Indian/Christmas` - Indian/Christmas
- * `Indian/Cocos` - Indian/Cocos
- * `Indian/Comoro` - Indian/Comoro
- * `Indian/Kerguelen` - Indian/Kerguelen
- * `Indian/Mahe` - Indian/Mahe
- * `Indian/Maldives` - Indian/Maldives
- * `Indian/Mauritius` - Indian/Mauritius
- * `Indian/Mayotte` - Indian/Mayotte
- * `Indian/Reunion` - Indian/Reunion
- * `Iran` - Iran
- * `Israel` - Israel
- * `Jamaica` - Jamaica
- * `Japan` - Japan
- * `Kwajalein` - Kwajalein
- * `Libya` - Libya
- * `MET` - MET
- * `MST` - MST
- * `MST7MDT` - MST7MDT
- * `Mexico/BajaNorte` - Mexico/BajaNorte
- * `Mexico/BajaSur` - Mexico/BajaSur
- * `Mexico/General` - Mexico/General
- * `NZ` - NZ
- * `NZ-CHAT` - NZ-CHAT
- * `Navajo` - Navajo
- * `PRC` - PRC
- * `PST8PDT` - PST8PDT
- * `Pacific/Apia` - Pacific/Apia
- * `Pacific/Auckland` - Pacific/Auckland
- * `Pacific/Bougainville` - Pacific/Bougainville
- * `Pacific/Chatham` - Pacific/Chatham
- * `Pacific/Chuuk` - Pacific/Chuuk
- * `Pacific/Easter` - Pacific/Easter
- * `Pacific/Efate` - Pacific/Efate
- * `Pacific/Enderbury` - Pacific/Enderbury
- * `Pacific/Fakaofo` - Pacific/Fakaofo
- * `Pacific/Fiji` - Pacific/Fiji
- * `Pacific/Funafuti` - Pacific/Funafuti
- * `Pacific/Galapagos` - Pacific/Galapagos
- * `Pacific/Gambier` - Pacific/Gambier
- * `Pacific/Guadalcanal` - Pacific/Guadalcanal
- * `Pacific/Guam` - Pacific/Guam
- * `Pacific/Honolulu` - Pacific/Honolulu
- * `Pacific/Johnston` - Pacific/Johnston
- * `Pacific/Kanton` - Pacific/Kanton
- * `Pacific/Kiritimati` - Pacific/Kiritimati
- * `Pacific/Kosrae` - Pacific/Kosrae
- * `Pacific/Kwajalein` - Pacific/Kwajalein
- * `Pacific/Majuro` - Pacific/Majuro
- * `Pacific/Marquesas` - Pacific/Marquesas
- * `Pacific/Midway` - Pacific/Midway
- * `Pacific/Nauru` - Pacific/Nauru
- * `Pacific/Niue` - Pacific/Niue
- * `Pacific/Norfolk` - Pacific/Norfolk
- * `Pacific/Noumea` - Pacific/Noumea
- * `Pacific/Pago_Pago` - Pacific/Pago_Pago
- * `Pacific/Palau` - Pacific/Palau
- * `Pacific/Pitcairn` - Pacific/Pitcairn
- * `Pacific/Pohnpei` - Pacific/Pohnpei
- * `Pacific/Ponape` - Pacific/Ponape
- * `Pacific/Port_Moresby` - Pacific/Port_Moresby
- * `Pacific/Rarotonga` - Pacific/Rarotonga
- * `Pacific/Saipan` - Pacific/Saipan
- * `Pacific/Samoa` - Pacific/Samoa
- * `Pacific/Tahiti` - Pacific/Tahiti
- * `Pacific/Tarawa` - Pacific/Tarawa
- * `Pacific/Tongatapu` - Pacific/Tongatapu
- * `Pacific/Truk` - Pacific/Truk
- * `Pacific/Wake` - Pacific/Wake
- * `Pacific/Wallis` - Pacific/Wallis
- * `Pacific/Yap` - Pacific/Yap
- * `Poland` - Poland
- * `Portugal` - Portugal
- * `ROC` - ROC
- * `ROK` - ROK
- * `Singapore` - Singapore
- * `Turkey` - Turkey
- * `UCT` - UCT
- * `US/Alaska` - US/Alaska
- * `US/Aleutian` - US/Aleutian
- * `US/Arizona` - US/Arizona
- * `US/Central` - US/Central
- * `US/East-Indiana` - US/East-Indiana
- * `US/Eastern` - US/Eastern
- * `US/Hawaii` - US/Hawaii
- * `US/Indiana-Starke` - US/Indiana-Starke
- * `US/Michigan` - US/Michigan
- * `US/Mountain` - US/Mountain
- * `US/Pacific` - US/Pacific
- * `US/Samoa` - US/Samoa
- * `UTC` - UTC
- * `Universal` - Universal
- * `W-SU` - W-SU
- * `WET` - WET
- * `Zulu` - Zulu
- */
-export type TimezoneEnumApi = (typeof TimezoneEnumApi)[keyof typeof TimezoneEnumApi]
-
-export const TimezoneEnumApi = {
-    'Africa/Abidjan': 'Africa/Abidjan',
-    'Africa/Accra': 'Africa/Accra',
-    'Africa/Addis_Ababa': 'Africa/Addis_Ababa',
-    'Africa/Algiers': 'Africa/Algiers',
-    'Africa/Asmara': 'Africa/Asmara',
-    'Africa/Asmera': 'Africa/Asmera',
-    'Africa/Bamako': 'Africa/Bamako',
-    'Africa/Bangui': 'Africa/Bangui',
-    'Africa/Banjul': 'Africa/Banjul',
-    'Africa/Bissau': 'Africa/Bissau',
-    'Africa/Blantyre': 'Africa/Blantyre',
-    'Africa/Brazzaville': 'Africa/Brazzaville',
-    'Africa/Bujumbura': 'Africa/Bujumbura',
-    'Africa/Cairo': 'Africa/Cairo',
-    'Africa/Casablanca': 'Africa/Casablanca',
-    'Africa/Ceuta': 'Africa/Ceuta',
-    'Africa/Conakry': 'Africa/Conakry',
-    'Africa/Dakar': 'Africa/Dakar',
-    'Africa/Dar_es_Salaam': 'Africa/Dar_es_Salaam',
-    'Africa/Djibouti': 'Africa/Djibouti',
-    'Africa/Douala': 'Africa/Douala',
-    'Africa/El_Aaiun': 'Africa/El_Aaiun',
-    'Africa/Freetown': 'Africa/Freetown',
-    'Africa/Gaborone': 'Africa/Gaborone',
-    'Africa/Harare': 'Africa/Harare',
-    'Africa/Johannesburg': 'Africa/Johannesburg',
-    'Africa/Juba': 'Africa/Juba',
-    'Africa/Kampala': 'Africa/Kampala',
-    'Africa/Khartoum': 'Africa/Khartoum',
-    'Africa/Kigali': 'Africa/Kigali',
-    'Africa/Kinshasa': 'Africa/Kinshasa',
-    'Africa/Lagos': 'Africa/Lagos',
-    'Africa/Libreville': 'Africa/Libreville',
-    'Africa/Lome': 'Africa/Lome',
-    'Africa/Luanda': 'Africa/Luanda',
-    'Africa/Lubumbashi': 'Africa/Lubumbashi',
-    'Africa/Lusaka': 'Africa/Lusaka',
-    'Africa/Malabo': 'Africa/Malabo',
-    'Africa/Maputo': 'Africa/Maputo',
-    'Africa/Maseru': 'Africa/Maseru',
-    'Africa/Mbabane': 'Africa/Mbabane',
-    'Africa/Mogadishu': 'Africa/Mogadishu',
-    'Africa/Monrovia': 'Africa/Monrovia',
-    'Africa/Nairobi': 'Africa/Nairobi',
-    'Africa/Ndjamena': 'Africa/Ndjamena',
-    'Africa/Niamey': 'Africa/Niamey',
-    'Africa/Nouakchott': 'Africa/Nouakchott',
-    'Africa/Ouagadougou': 'Africa/Ouagadougou',
-    'Africa/Porto-Novo': 'Africa/Porto-Novo',
-    'Africa/Sao_Tome': 'Africa/Sao_Tome',
-    'Africa/Timbuktu': 'Africa/Timbuktu',
-    'Africa/Tripoli': 'Africa/Tripoli',
-    'Africa/Tunis': 'Africa/Tunis',
-    'Africa/Windhoek': 'Africa/Windhoek',
-    'America/Adak': 'America/Adak',
-    'America/Anchorage': 'America/Anchorage',
-    'America/Anguilla': 'America/Anguilla',
-    'America/Antigua': 'America/Antigua',
-    'America/Araguaina': 'America/Araguaina',
-    'America/Argentina/Buenos_Aires': 'America/Argentina/Buenos_Aires',
-    'America/Argentina/Catamarca': 'America/Argentina/Catamarca',
-    'America/Argentina/ComodRivadavia': 'America/Argentina/ComodRivadavia',
-    'America/Argentina/Cordoba': 'America/Argentina/Cordoba',
-    'America/Argentina/Jujuy': 'America/Argentina/Jujuy',
-    'America/Argentina/La_Rioja': 'America/Argentina/La_Rioja',
-    'America/Argentina/Mendoza': 'America/Argentina/Mendoza',
-    'America/Argentina/Rio_Gallegos': 'America/Argentina/Rio_Gallegos',
-    'America/Argentina/Salta': 'America/Argentina/Salta',
-    'America/Argentina/San_Juan': 'America/Argentina/San_Juan',
-    'America/Argentina/San_Luis': 'America/Argentina/San_Luis',
-    'America/Argentina/Tucuman': 'America/Argentina/Tucuman',
-    'America/Argentina/Ushuaia': 'America/Argentina/Ushuaia',
-    'America/Aruba': 'America/Aruba',
-    'America/Asuncion': 'America/Asuncion',
-    'America/Atikokan': 'America/Atikokan',
-    'America/Atka': 'America/Atka',
-    'America/Bahia': 'America/Bahia',
-    'America/Bahia_Banderas': 'America/Bahia_Banderas',
-    'America/Barbados': 'America/Barbados',
-    'America/Belem': 'America/Belem',
-    'America/Belize': 'America/Belize',
-    'America/Blanc-Sablon': 'America/Blanc-Sablon',
-    'America/Boa_Vista': 'America/Boa_Vista',
-    'America/Bogota': 'America/Bogota',
-    'America/Boise': 'America/Boise',
-    'America/Buenos_Aires': 'America/Buenos_Aires',
-    'America/Cambridge_Bay': 'America/Cambridge_Bay',
-    'America/Campo_Grande': 'America/Campo_Grande',
-    'America/Cancun': 'America/Cancun',
-    'America/Caracas': 'America/Caracas',
-    'America/Catamarca': 'America/Catamarca',
-    'America/Cayenne': 'America/Cayenne',
-    'America/Cayman': 'America/Cayman',
-    'America/Chicago': 'America/Chicago',
-    'America/Chihuahua': 'America/Chihuahua',
-    'America/Ciudad_Juarez': 'America/Ciudad_Juarez',
-    'America/Coral_Harbour': 'America/Coral_Harbour',
-    'America/Cordoba': 'America/Cordoba',
-    'America/Costa_Rica': 'America/Costa_Rica',
-    'America/Creston': 'America/Creston',
-    'America/Cuiaba': 'America/Cuiaba',
-    'America/Curacao': 'America/Curacao',
-    'America/Danmarkshavn': 'America/Danmarkshavn',
-    'America/Dawson': 'America/Dawson',
-    'America/Dawson_Creek': 'America/Dawson_Creek',
-    'America/Denver': 'America/Denver',
-    'America/Detroit': 'America/Detroit',
-    'America/Dominica': 'America/Dominica',
-    'America/Edmonton': 'America/Edmonton',
-    'America/Eirunepe': 'America/Eirunepe',
-    'America/El_Salvador': 'America/El_Salvador',
-    'America/Ensenada': 'America/Ensenada',
-    'America/Fort_Nelson': 'America/Fort_Nelson',
-    'America/Fort_Wayne': 'America/Fort_Wayne',
-    'America/Fortaleza': 'America/Fortaleza',
-    'America/Glace_Bay': 'America/Glace_Bay',
-    'America/Godthab': 'America/Godthab',
-    'America/Goose_Bay': 'America/Goose_Bay',
-    'America/Grand_Turk': 'America/Grand_Turk',
-    'America/Grenada': 'America/Grenada',
-    'America/Guadeloupe': 'America/Guadeloupe',
-    'America/Guatemala': 'America/Guatemala',
-    'America/Guayaquil': 'America/Guayaquil',
-    'America/Guyana': 'America/Guyana',
-    'America/Halifax': 'America/Halifax',
-    'America/Havana': 'America/Havana',
-    'America/Hermosillo': 'America/Hermosillo',
-    'America/Indiana/Indianapolis': 'America/Indiana/Indianapolis',
-    'America/Indiana/Knox': 'America/Indiana/Knox',
-    'America/Indiana/Marengo': 'America/Indiana/Marengo',
-    'America/Indiana/Petersburg': 'America/Indiana/Petersburg',
-    'America/Indiana/Tell_City': 'America/Indiana/Tell_City',
-    'America/Indiana/Vevay': 'America/Indiana/Vevay',
-    'America/Indiana/Vincennes': 'America/Indiana/Vincennes',
-    'America/Indiana/Winamac': 'America/Indiana/Winamac',
-    'America/Indianapolis': 'America/Indianapolis',
-    'America/Inuvik': 'America/Inuvik',
-    'America/Iqaluit': 'America/Iqaluit',
-    'America/Jamaica': 'America/Jamaica',
-    'America/Jujuy': 'America/Jujuy',
-    'America/Juneau': 'America/Juneau',
-    'America/Kentucky/Louisville': 'America/Kentucky/Louisville',
-    'America/Kentucky/Monticello': 'America/Kentucky/Monticello',
-    'America/Knox_IN': 'America/Knox_IN',
-    'America/Kralendijk': 'America/Kralendijk',
-    'America/La_Paz': 'America/La_Paz',
-    'America/Lima': 'America/Lima',
-    'America/Los_Angeles': 'America/Los_Angeles',
-    'America/Louisville': 'America/Louisville',
-    'America/Lower_Princes': 'America/Lower_Princes',
-    'America/Maceio': 'America/Maceio',
-    'America/Managua': 'America/Managua',
-    'America/Manaus': 'America/Manaus',
-    'America/Marigot': 'America/Marigot',
-    'America/Martinique': 'America/Martinique',
-    'America/Matamoros': 'America/Matamoros',
-    'America/Mazatlan': 'America/Mazatlan',
-    'America/Mendoza': 'America/Mendoza',
-    'America/Menominee': 'America/Menominee',
-    'America/Merida': 'America/Merida',
-    'America/Metlakatla': 'America/Metlakatla',
-    'America/Mexico_City': 'America/Mexico_City',
-    'America/Miquelon': 'America/Miquelon',
-    'America/Moncton': 'America/Moncton',
-    'America/Monterrey': 'America/Monterrey',
-    'America/Montevideo': 'America/Montevideo',
-    'America/Montreal': 'America/Montreal',
-    'America/Montserrat': 'America/Montserrat',
-    'America/Nassau': 'America/Nassau',
-    'America/New_York': 'America/New_York',
-    'America/Nipigon': 'America/Nipigon',
-    'America/Nome': 'America/Nome',
-    'America/Noronha': 'America/Noronha',
-    'America/North_Dakota/Beulah': 'America/North_Dakota/Beulah',
-    'America/North_Dakota/Center': 'America/North_Dakota/Center',
-    'America/North_Dakota/New_Salem': 'America/North_Dakota/New_Salem',
-    'America/Nuuk': 'America/Nuuk',
-    'America/Ojinaga': 'America/Ojinaga',
-    'America/Panama': 'America/Panama',
-    'America/Pangnirtung': 'America/Pangnirtung',
-    'America/Paramaribo': 'America/Paramaribo',
-    'America/Phoenix': 'America/Phoenix',
-    'America/Port-au-Prince': 'America/Port-au-Prince',
-    'America/Port_of_Spain': 'America/Port_of_Spain',
-    'America/Porto_Acre': 'America/Porto_Acre',
-    'America/Porto_Velho': 'America/Porto_Velho',
-    'America/Puerto_Rico': 'America/Puerto_Rico',
-    'America/Punta_Arenas': 'America/Punta_Arenas',
-    'America/Rainy_River': 'America/Rainy_River',
-    'America/Rankin_Inlet': 'America/Rankin_Inlet',
-    'America/Recife': 'America/Recife',
-    'America/Regina': 'America/Regina',
-    'America/Resolute': 'America/Resolute',
-    'America/Rio_Branco': 'America/Rio_Branco',
-    'America/Rosario': 'America/Rosario',
-    'America/Santa_Isabel': 'America/Santa_Isabel',
-    'America/Santarem': 'America/Santarem',
-    'America/Santiago': 'America/Santiago',
-    'America/Santo_Domingo': 'America/Santo_Domingo',
-    'America/Sao_Paulo': 'America/Sao_Paulo',
-    'America/Scoresbysund': 'America/Scoresbysund',
-    'America/Shiprock': 'America/Shiprock',
-    'America/Sitka': 'America/Sitka',
-    'America/St_Barthelemy': 'America/St_Barthelemy',
-    'America/St_Johns': 'America/St_Johns',
-    'America/St_Kitts': 'America/St_Kitts',
-    'America/St_Lucia': 'America/St_Lucia',
-    'America/St_Thomas': 'America/St_Thomas',
-    'America/St_Vincent': 'America/St_Vincent',
-    'America/Swift_Current': 'America/Swift_Current',
-    'America/Tegucigalpa': 'America/Tegucigalpa',
-    'America/Thule': 'America/Thule',
-    'America/Thunder_Bay': 'America/Thunder_Bay',
-    'America/Tijuana': 'America/Tijuana',
-    'America/Toronto': 'America/Toronto',
-    'America/Tortola': 'America/Tortola',
-    'America/Vancouver': 'America/Vancouver',
-    'America/Virgin': 'America/Virgin',
-    'America/Whitehorse': 'America/Whitehorse',
-    'America/Winnipeg': 'America/Winnipeg',
-    'America/Yakutat': 'America/Yakutat',
-    'America/Yellowknife': 'America/Yellowknife',
-    'Antarctica/Casey': 'Antarctica/Casey',
-    'Antarctica/Davis': 'Antarctica/Davis',
-    'Antarctica/DumontDUrville': 'Antarctica/DumontDUrville',
-    'Antarctica/Macquarie': 'Antarctica/Macquarie',
-    'Antarctica/Mawson': 'Antarctica/Mawson',
-    'Antarctica/McMurdo': 'Antarctica/McMurdo',
-    'Antarctica/Palmer': 'Antarctica/Palmer',
-    'Antarctica/Rothera': 'Antarctica/Rothera',
-    'Antarctica/South_Pole': 'Antarctica/South_Pole',
-    'Antarctica/Syowa': 'Antarctica/Syowa',
-    'Antarctica/Troll': 'Antarctica/Troll',
-    'Antarctica/Vostok': 'Antarctica/Vostok',
-    'Arctic/Longyearbyen': 'Arctic/Longyearbyen',
-    'Asia/Aden': 'Asia/Aden',
-    'Asia/Almaty': 'Asia/Almaty',
-    'Asia/Amman': 'Asia/Amman',
-    'Asia/Anadyr': 'Asia/Anadyr',
-    'Asia/Aqtau': 'Asia/Aqtau',
-    'Asia/Aqtobe': 'Asia/Aqtobe',
-    'Asia/Ashgabat': 'Asia/Ashgabat',
-    'Asia/Ashkhabad': 'Asia/Ashkhabad',
-    'Asia/Atyrau': 'Asia/Atyrau',
-    'Asia/Baghdad': 'Asia/Baghdad',
-    'Asia/Bahrain': 'Asia/Bahrain',
-    'Asia/Baku': 'Asia/Baku',
-    'Asia/Bangkok': 'Asia/Bangkok',
-    'Asia/Barnaul': 'Asia/Barnaul',
-    'Asia/Beirut': 'Asia/Beirut',
-    'Asia/Bishkek': 'Asia/Bishkek',
-    'Asia/Brunei': 'Asia/Brunei',
-    'Asia/Calcutta': 'Asia/Calcutta',
-    'Asia/Chita': 'Asia/Chita',
-    'Asia/Choibalsan': 'Asia/Choibalsan',
-    'Asia/Chongqing': 'Asia/Chongqing',
-    'Asia/Chungking': 'Asia/Chungking',
-    'Asia/Colombo': 'Asia/Colombo',
-    'Asia/Dacca': 'Asia/Dacca',
-    'Asia/Damascus': 'Asia/Damascus',
-    'Asia/Dhaka': 'Asia/Dhaka',
-    'Asia/Dili': 'Asia/Dili',
-    'Asia/Dubai': 'Asia/Dubai',
-    'Asia/Dushanbe': 'Asia/Dushanbe',
-    'Asia/Famagusta': 'Asia/Famagusta',
-    'Asia/Gaza': 'Asia/Gaza',
-    'Asia/Harbin': 'Asia/Harbin',
-    'Asia/Hebron': 'Asia/Hebron',
-    'Asia/Ho_Chi_Minh': 'Asia/Ho_Chi_Minh',
-    'Asia/Hong_Kong': 'Asia/Hong_Kong',
-    'Asia/Hovd': 'Asia/Hovd',
-    'Asia/Irkutsk': 'Asia/Irkutsk',
-    'Asia/Istanbul': 'Asia/Istanbul',
-    'Asia/Jakarta': 'Asia/Jakarta',
-    'Asia/Jayapura': 'Asia/Jayapura',
-    'Asia/Jerusalem': 'Asia/Jerusalem',
-    'Asia/Kabul': 'Asia/Kabul',
-    'Asia/Kamchatka': 'Asia/Kamchatka',
-    'Asia/Karachi': 'Asia/Karachi',
-    'Asia/Kashgar': 'Asia/Kashgar',
-    'Asia/Kathmandu': 'Asia/Kathmandu',
-    'Asia/Katmandu': 'Asia/Katmandu',
-    'Asia/Khandyga': 'Asia/Khandyga',
-    'Asia/Kolkata': 'Asia/Kolkata',
-    'Asia/Krasnoyarsk': 'Asia/Krasnoyarsk',
-    'Asia/Kuala_Lumpur': 'Asia/Kuala_Lumpur',
-    'Asia/Kuching': 'Asia/Kuching',
-    'Asia/Kuwait': 'Asia/Kuwait',
-    'Asia/Macao': 'Asia/Macao',
-    'Asia/Macau': 'Asia/Macau',
-    'Asia/Magadan': 'Asia/Magadan',
-    'Asia/Makassar': 'Asia/Makassar',
-    'Asia/Manila': 'Asia/Manila',
-    'Asia/Muscat': 'Asia/Muscat',
-    'Asia/Nicosia': 'Asia/Nicosia',
-    'Asia/Novokuznetsk': 'Asia/Novokuznetsk',
-    'Asia/Novosibirsk': 'Asia/Novosibirsk',
-    'Asia/Omsk': 'Asia/Omsk',
-    'Asia/Oral': 'Asia/Oral',
-    'Asia/Phnom_Penh': 'Asia/Phnom_Penh',
-    'Asia/Pontianak': 'Asia/Pontianak',
-    'Asia/Pyongyang': 'Asia/Pyongyang',
-    'Asia/Qatar': 'Asia/Qatar',
-    'Asia/Qostanay': 'Asia/Qostanay',
-    'Asia/Qyzylorda': 'Asia/Qyzylorda',
-    'Asia/Rangoon': 'Asia/Rangoon',
-    'Asia/Riyadh': 'Asia/Riyadh',
-    'Asia/Saigon': 'Asia/Saigon',
-    'Asia/Sakhalin': 'Asia/Sakhalin',
-    'Asia/Samarkand': 'Asia/Samarkand',
-    'Asia/Seoul': 'Asia/Seoul',
-    'Asia/Shanghai': 'Asia/Shanghai',
-    'Asia/Singapore': 'Asia/Singapore',
-    'Asia/Srednekolymsk': 'Asia/Srednekolymsk',
-    'Asia/Taipei': 'Asia/Taipei',
-    'Asia/Tashkent': 'Asia/Tashkent',
-    'Asia/Tbilisi': 'Asia/Tbilisi',
-    'Asia/Tehran': 'Asia/Tehran',
-    'Asia/Tel_Aviv': 'Asia/Tel_Aviv',
-    'Asia/Thimbu': 'Asia/Thimbu',
-    'Asia/Thimphu': 'Asia/Thimphu',
-    'Asia/Tokyo': 'Asia/Tokyo',
-    'Asia/Tomsk': 'Asia/Tomsk',
-    'Asia/Ujung_Pandang': 'Asia/Ujung_Pandang',
-    'Asia/Ulaanbaatar': 'Asia/Ulaanbaatar',
-    'Asia/Ulan_Bator': 'Asia/Ulan_Bator',
-    'Asia/Urumqi': 'Asia/Urumqi',
-    'Asia/Ust-Nera': 'Asia/Ust-Nera',
-    'Asia/Vientiane': 'Asia/Vientiane',
-    'Asia/Vladivostok': 'Asia/Vladivostok',
-    'Asia/Yakutsk': 'Asia/Yakutsk',
-    'Asia/Yangon': 'Asia/Yangon',
-    'Asia/Yekaterinburg': 'Asia/Yekaterinburg',
-    'Asia/Yerevan': 'Asia/Yerevan',
-    'Atlantic/Azores': 'Atlantic/Azores',
-    'Atlantic/Bermuda': 'Atlantic/Bermuda',
-    'Atlantic/Canary': 'Atlantic/Canary',
-    'Atlantic/Cape_Verde': 'Atlantic/Cape_Verde',
-    'Atlantic/Faeroe': 'Atlantic/Faeroe',
-    'Atlantic/Faroe': 'Atlantic/Faroe',
-    'Atlantic/Jan_Mayen': 'Atlantic/Jan_Mayen',
-    'Atlantic/Madeira': 'Atlantic/Madeira',
-    'Atlantic/Reykjavik': 'Atlantic/Reykjavik',
-    'Atlantic/South_Georgia': 'Atlantic/South_Georgia',
-    'Atlantic/St_Helena': 'Atlantic/St_Helena',
-    'Atlantic/Stanley': 'Atlantic/Stanley',
-    'Australia/ACT': 'Australia/ACT',
-    'Australia/Adelaide': 'Australia/Adelaide',
-    'Australia/Brisbane': 'Australia/Brisbane',
-    'Australia/Broken_Hill': 'Australia/Broken_Hill',
-    'Australia/Canberra': 'Australia/Canberra',
-    'Australia/Currie': 'Australia/Currie',
-    'Australia/Darwin': 'Australia/Darwin',
-    'Australia/Eucla': 'Australia/Eucla',
-    'Australia/Hobart': 'Australia/Hobart',
-    'Australia/LHI': 'Australia/LHI',
-    'Australia/Lindeman': 'Australia/Lindeman',
-    'Australia/Lord_Howe': 'Australia/Lord_Howe',
-    'Australia/Melbourne': 'Australia/Melbourne',
-    'Australia/NSW': 'Australia/NSW',
-    'Australia/North': 'Australia/North',
-    'Australia/Perth': 'Australia/Perth',
-    'Australia/Queensland': 'Australia/Queensland',
-    'Australia/South': 'Australia/South',
-    'Australia/Sydney': 'Australia/Sydney',
-    'Australia/Tasmania': 'Australia/Tasmania',
-    'Australia/Victoria': 'Australia/Victoria',
-    'Australia/West': 'Australia/West',
-    'Australia/Yancowinna': 'Australia/Yancowinna',
-    'Brazil/Acre': 'Brazil/Acre',
-    'Brazil/DeNoronha': 'Brazil/DeNoronha',
-    'Brazil/East': 'Brazil/East',
-    'Brazil/West': 'Brazil/West',
-    CET: 'CET',
-    CST6CDT: 'CST6CDT',
-    'Canada/Atlantic': 'Canada/Atlantic',
-    'Canada/Central': 'Canada/Central',
-    'Canada/Eastern': 'Canada/Eastern',
-    'Canada/Mountain': 'Canada/Mountain',
-    'Canada/Newfoundland': 'Canada/Newfoundland',
-    'Canada/Pacific': 'Canada/Pacific',
-    'Canada/Saskatchewan': 'Canada/Saskatchewan',
-    'Canada/Yukon': 'Canada/Yukon',
-    'Chile/Continental': 'Chile/Continental',
-    'Chile/EasterIsland': 'Chile/EasterIsland',
-    Cuba: 'Cuba',
-    EET: 'EET',
-    EST: 'EST',
-    EST5EDT: 'EST5EDT',
-    Egypt: 'Egypt',
-    Eire: 'Eire',
-    'Etc/GMT': 'Etc/GMT',
-    'Etc/GMT+0': 'Etc/GMT+0',
-    'Etc/GMT+1': 'Etc/GMT+1',
-    'Etc/GMT+10': 'Etc/GMT+10',
-    'Etc/GMT+11': 'Etc/GMT+11',
-    'Etc/GMT+12': 'Etc/GMT+12',
-    'Etc/GMT+2': 'Etc/GMT+2',
-    'Etc/GMT+3': 'Etc/GMT+3',
-    'Etc/GMT+4': 'Etc/GMT+4',
-    'Etc/GMT+5': 'Etc/GMT+5',
-    'Etc/GMT+6': 'Etc/GMT+6',
-    'Etc/GMT+7': 'Etc/GMT+7',
-    'Etc/GMT+8': 'Etc/GMT+8',
-    'Etc/GMT+9': 'Etc/GMT+9',
-    'Etc/GMT-0': 'Etc/GMT-0',
-    'Etc/GMT-1': 'Etc/GMT-1',
-    'Etc/GMT-10': 'Etc/GMT-10',
-    'Etc/GMT-11': 'Etc/GMT-11',
-    'Etc/GMT-12': 'Etc/GMT-12',
-    'Etc/GMT-13': 'Etc/GMT-13',
-    'Etc/GMT-14': 'Etc/GMT-14',
-    'Etc/GMT-2': 'Etc/GMT-2',
-    'Etc/GMT-3': 'Etc/GMT-3',
-    'Etc/GMT-4': 'Etc/GMT-4',
-    'Etc/GMT-5': 'Etc/GMT-5',
-    'Etc/GMT-6': 'Etc/GMT-6',
-    'Etc/GMT-7': 'Etc/GMT-7',
-    'Etc/GMT-8': 'Etc/GMT-8',
-    'Etc/GMT-9': 'Etc/GMT-9',
-    'Etc/GMT0': 'Etc/GMT0',
-    'Etc/Greenwich': 'Etc/Greenwich',
-    'Etc/UCT': 'Etc/UCT',
-    'Etc/UTC': 'Etc/UTC',
-    'Etc/Universal': 'Etc/Universal',
-    'Etc/Zulu': 'Etc/Zulu',
-    'Europe/Amsterdam': 'Europe/Amsterdam',
-    'Europe/Andorra': 'Europe/Andorra',
-    'Europe/Astrakhan': 'Europe/Astrakhan',
-    'Europe/Athens': 'Europe/Athens',
-    'Europe/Belfast': 'Europe/Belfast',
-    'Europe/Belgrade': 'Europe/Belgrade',
-    'Europe/Berlin': 'Europe/Berlin',
-    'Europe/Bratislava': 'Europe/Bratislava',
-    'Europe/Brussels': 'Europe/Brussels',
-    'Europe/Bucharest': 'Europe/Bucharest',
-    'Europe/Budapest': 'Europe/Budapest',
-    'Europe/Busingen': 'Europe/Busingen',
-    'Europe/Chisinau': 'Europe/Chisinau',
-    'Europe/Copenhagen': 'Europe/Copenhagen',
-    'Europe/Dublin': 'Europe/Dublin',
-    'Europe/Gibraltar': 'Europe/Gibraltar',
-    'Europe/Guernsey': 'Europe/Guernsey',
-    'Europe/Helsinki': 'Europe/Helsinki',
-    'Europe/Isle_of_Man': 'Europe/Isle_of_Man',
-    'Europe/Istanbul': 'Europe/Istanbul',
-    'Europe/Jersey': 'Europe/Jersey',
-    'Europe/Kaliningrad': 'Europe/Kaliningrad',
-    'Europe/Kiev': 'Europe/Kiev',
-    'Europe/Kirov': 'Europe/Kirov',
-    'Europe/Kyiv': 'Europe/Kyiv',
-    'Europe/Lisbon': 'Europe/Lisbon',
-    'Europe/Ljubljana': 'Europe/Ljubljana',
-    'Europe/London': 'Europe/London',
-    'Europe/Luxembourg': 'Europe/Luxembourg',
-    'Europe/Madrid': 'Europe/Madrid',
-    'Europe/Malta': 'Europe/Malta',
-    'Europe/Mariehamn': 'Europe/Mariehamn',
-    'Europe/Minsk': 'Europe/Minsk',
-    'Europe/Monaco': 'Europe/Monaco',
-    'Europe/Moscow': 'Europe/Moscow',
-    'Europe/Nicosia': 'Europe/Nicosia',
-    'Europe/Oslo': 'Europe/Oslo',
-    'Europe/Paris': 'Europe/Paris',
-    'Europe/Podgorica': 'Europe/Podgorica',
-    'Europe/Prague': 'Europe/Prague',
-    'Europe/Riga': 'Europe/Riga',
-    'Europe/Rome': 'Europe/Rome',
-    'Europe/Samara': 'Europe/Samara',
-    'Europe/San_Marino': 'Europe/San_Marino',
-    'Europe/Sarajevo': 'Europe/Sarajevo',
-    'Europe/Saratov': 'Europe/Saratov',
-    'Europe/Simferopol': 'Europe/Simferopol',
-    'Europe/Skopje': 'Europe/Skopje',
-    'Europe/Sofia': 'Europe/Sofia',
-    'Europe/Stockholm': 'Europe/Stockholm',
-    'Europe/Tallinn': 'Europe/Tallinn',
-    'Europe/Tirane': 'Europe/Tirane',
-    'Europe/Tiraspol': 'Europe/Tiraspol',
-    'Europe/Ulyanovsk': 'Europe/Ulyanovsk',
-    'Europe/Uzhgorod': 'Europe/Uzhgorod',
-    'Europe/Vaduz': 'Europe/Vaduz',
-    'Europe/Vatican': 'Europe/Vatican',
-    'Europe/Vienna': 'Europe/Vienna',
-    'Europe/Vilnius': 'Europe/Vilnius',
-    'Europe/Volgograd': 'Europe/Volgograd',
-    'Europe/Warsaw': 'Europe/Warsaw',
-    'Europe/Zagreb': 'Europe/Zagreb',
-    'Europe/Zaporozhye': 'Europe/Zaporozhye',
-    'Europe/Zurich': 'Europe/Zurich',
-    GB: 'GB',
-    'GB-Eire': 'GB-Eire',
-    GMT: 'GMT',
-    'GMT+0': 'GMT+0',
-    'GMT-0': 'GMT-0',
-    GMT0: 'GMT0',
-    Greenwich: 'Greenwich',
-    HST: 'HST',
-    Hongkong: 'Hongkong',
-    Iceland: 'Iceland',
-    'Indian/Antananarivo': 'Indian/Antananarivo',
-    'Indian/Chagos': 'Indian/Chagos',
-    'Indian/Christmas': 'Indian/Christmas',
-    'Indian/Cocos': 'Indian/Cocos',
-    'Indian/Comoro': 'Indian/Comoro',
-    'Indian/Kerguelen': 'Indian/Kerguelen',
-    'Indian/Mahe': 'Indian/Mahe',
-    'Indian/Maldives': 'Indian/Maldives',
-    'Indian/Mauritius': 'Indian/Mauritius',
-    'Indian/Mayotte': 'Indian/Mayotte',
-    'Indian/Reunion': 'Indian/Reunion',
-    Iran: 'Iran',
-    Israel: 'Israel',
-    Jamaica: 'Jamaica',
-    Japan: 'Japan',
-    Kwajalein: 'Kwajalein',
-    Libya: 'Libya',
-    MET: 'MET',
-    MST: 'MST',
-    MST7MDT: 'MST7MDT',
-    'Mexico/BajaNorte': 'Mexico/BajaNorte',
-    'Mexico/BajaSur': 'Mexico/BajaSur',
-    'Mexico/General': 'Mexico/General',
-    NZ: 'NZ',
-    'NZ-CHAT': 'NZ-CHAT',
-    Navajo: 'Navajo',
-    PRC: 'PRC',
-    PST8PDT: 'PST8PDT',
-    'Pacific/Apia': 'Pacific/Apia',
-    'Pacific/Auckland': 'Pacific/Auckland',
-    'Pacific/Bougainville': 'Pacific/Bougainville',
-    'Pacific/Chatham': 'Pacific/Chatham',
-    'Pacific/Chuuk': 'Pacific/Chuuk',
-    'Pacific/Easter': 'Pacific/Easter',
-    'Pacific/Efate': 'Pacific/Efate',
-    'Pacific/Enderbury': 'Pacific/Enderbury',
-    'Pacific/Fakaofo': 'Pacific/Fakaofo',
-    'Pacific/Fiji': 'Pacific/Fiji',
-    'Pacific/Funafuti': 'Pacific/Funafuti',
-    'Pacific/Galapagos': 'Pacific/Galapagos',
-    'Pacific/Gambier': 'Pacific/Gambier',
-    'Pacific/Guadalcanal': 'Pacific/Guadalcanal',
-    'Pacific/Guam': 'Pacific/Guam',
-    'Pacific/Honolulu': 'Pacific/Honolulu',
-    'Pacific/Johnston': 'Pacific/Johnston',
-    'Pacific/Kanton': 'Pacific/Kanton',
-    'Pacific/Kiritimati': 'Pacific/Kiritimati',
-    'Pacific/Kosrae': 'Pacific/Kosrae',
-    'Pacific/Kwajalein': 'Pacific/Kwajalein',
-    'Pacific/Majuro': 'Pacific/Majuro',
-    'Pacific/Marquesas': 'Pacific/Marquesas',
-    'Pacific/Midway': 'Pacific/Midway',
-    'Pacific/Nauru': 'Pacific/Nauru',
-    'Pacific/Niue': 'Pacific/Niue',
-    'Pacific/Norfolk': 'Pacific/Norfolk',
-    'Pacific/Noumea': 'Pacific/Noumea',
-    'Pacific/Pago_Pago': 'Pacific/Pago_Pago',
-    'Pacific/Palau': 'Pacific/Palau',
-    'Pacific/Pitcairn': 'Pacific/Pitcairn',
-    'Pacific/Pohnpei': 'Pacific/Pohnpei',
-    'Pacific/Ponape': 'Pacific/Ponape',
-    'Pacific/Port_Moresby': 'Pacific/Port_Moresby',
-    'Pacific/Rarotonga': 'Pacific/Rarotonga',
-    'Pacific/Saipan': 'Pacific/Saipan',
-    'Pacific/Samoa': 'Pacific/Samoa',
-    'Pacific/Tahiti': 'Pacific/Tahiti',
-    'Pacific/Tarawa': 'Pacific/Tarawa',
-    'Pacific/Tongatapu': 'Pacific/Tongatapu',
-    'Pacific/Truk': 'Pacific/Truk',
-    'Pacific/Wake': 'Pacific/Wake',
-    'Pacific/Wallis': 'Pacific/Wallis',
-    'Pacific/Yap': 'Pacific/Yap',
-    Poland: 'Poland',
-    Portugal: 'Portugal',
-    ROC: 'ROC',
-    ROK: 'ROK',
-    Singapore: 'Singapore',
-    Turkey: 'Turkey',
-    UCT: 'UCT',
-    'US/Alaska': 'US/Alaska',
-    'US/Aleutian': 'US/Aleutian',
-    'US/Arizona': 'US/Arizona',
-    'US/Central': 'US/Central',
-    'US/East-Indiana': 'US/East-Indiana',
-    'US/Eastern': 'US/Eastern',
-    'US/Hawaii': 'US/Hawaii',
-    'US/Indiana-Starke': 'US/Indiana-Starke',
-    'US/Michigan': 'US/Michigan',
-    'US/Mountain': 'US/Mountain',
-    'US/Pacific': 'US/Pacific',
-    'US/Samoa': 'US/Samoa',
-    UTC: 'UTC',
-    Universal: 'Universal',
-    'W-SU': 'W-SU',
-    WET: 'WET',
-    Zulu: 'Zulu',
-} as const
-
-/**
- * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
-passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
-backward compatibility of the REST API.
-Do not use this in greenfield endpoints!
- */
-export interface ProjectBackwardCompatBasicApi {
-    readonly id: number
-    readonly uuid: string
-    readonly organization: string
-    readonly api_token: string
-    readonly name: string
-    readonly completed_snippet_onboarding: boolean
-    readonly has_completed_onboarding_for: unknown | null
-    readonly ingested_event: boolean
-    readonly is_demo: boolean
-    readonly timezone: TimezoneEnumApi
-    readonly access_control: boolean
-}
-
-export interface PaginatedProjectBackwardCompatBasicListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ProjectBackwardCompatBasicApi[]
-}
-
-export type ProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
-
-export type EffectiveMembershipLevelEnumApi =
-    (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
-
-export const EffectiveMembershipLevelEnumApi = {
-    NUMBER_1: 1,
-    NUMBER_8: 8,
-    NUMBER_15: 15,
-} as const
-
-/**
- * * `0` - Sunday
- * `1` - Monday
- */
-export type WeekStartDayEnumApi = (typeof WeekStartDayEnumApi)[keyof typeof WeekStartDayEnumApi]
-
-export const WeekStartDayEnumApi = {
-    NUMBER_0: 0,
-    NUMBER_1: 1,
-} as const
-
-/**
- * * `b2b` - B2B
- * `b2c` - B2C
- * `other` - Other
- */
-export type BusinessModelEnumApi = (typeof BusinessModelEnumApi)[keyof typeof BusinessModelEnumApi]
-
-export const BusinessModelEnumApi = {
-    b2b: 'b2b',
-    b2c: 'b2c',
-    other: 'other',
-} as const
-
-/**
- * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
-passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
-backward compatibility of the REST API.
-Do not use this in greenfield endpoints!
- */
-export interface ProjectBackwardCompatApi {
-    readonly id: number
-    readonly organization: string
-    /**
-     * @minLength 1
-     * @maxLength 200
-     */
-    name?: string
-    /**
-     * @maxLength 1000
-     * @nullable
-     */
-    product_description?: string | null
-    readonly created_at: string
-    readonly effective_membership_level: EffectiveMembershipLevelEnumApi | null
-    readonly has_group_types: boolean
-    readonly group_types: readonly ProjectBackwardCompatApiGroupTypesItem[]
-    /** @nullable */
-    readonly live_events_token: string | null
-    readonly updated_at: string
-    readonly uuid: string
-    readonly api_token: string
-    app_urls?: (string | null)[]
-    /**
-     * @maxLength 500
-     * @nullable
-     */
-    slack_incoming_webhook?: string | null
-    anonymize_ips?: boolean
-    completed_snippet_onboarding?: boolean
-    readonly ingested_event: boolean
-    test_account_filters?: unknown
-    /** @nullable */
-    test_account_filters_default_checked?: boolean | null
-    path_cleaning_filters?: unknown | null
-    is_demo?: boolean
-    timezone?: TimezoneEnumApi
-    data_attributes?: unknown
-    /** @nullable */
-    person_display_name_properties?: string[] | null
-    correlation_config?: unknown | null
-    /** @nullable */
-    autocapture_opt_out?: boolean | null
-    /** @nullable */
-    autocapture_exceptions_opt_in?: boolean | null
-    /** @nullable */
-    autocapture_web_vitals_opt_in?: boolean | null
-    autocapture_web_vitals_allowed_metrics?: unknown | null
-    autocapture_exceptions_errors_to_ignore?: unknown | null
-    /** @nullable */
-    capture_console_log_opt_in?: boolean | null
-    /** @nullable */
-    capture_performance_opt_in?: boolean | null
-    session_recording_opt_in?: boolean
-    /**
-     * @nullable
-     * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
-     */
-    session_recording_sample_rate?: string | null
-    /**
-     * @minimum 0
-     * @maximum 30000
-     * @nullable
-     */
-    session_recording_minimum_duration_milliseconds?: number | null
-    session_recording_linked_flag?: unknown | null
-    session_recording_network_payload_capture_config?: unknown | null
-    session_recording_masking_config?: unknown | null
-    session_replay_config?: unknown | null
-    survey_config?: unknown | null
-    access_control?: boolean
-    /**
-     * @minimum -32768
-     * @maximum 32767
-     */
-    week_start_day?: WeekStartDayEnumApi | NullEnumApi | null
-    /** @nullable */
-    primary_dashboard?: number | null
-    /** @nullable */
-    live_events_columns?: string[] | null
-    /** @nullable */
-    recording_domains?: (string | null)[] | null
-    readonly person_on_events_querying_enabled: string
-    /** @nullable */
-    inject_web_apps?: boolean | null
-    extra_settings?: unknown | null
-    modifiers?: unknown | null
-    readonly default_modifiers: string
-    has_completed_onboarding_for?: unknown | null
-    /** @nullable */
-    surveys_opt_in?: boolean | null
-    /** @nullable */
-    heatmaps_opt_in?: boolean | null
-    readonly product_intents: string
-    /** @nullable */
-    flags_persistence_default?: boolean | null
-    /** @nullable */
-    readonly secret_api_token: string | null
-    /** @nullable */
-    readonly secret_api_token_backup: string | null
-    /** @nullable */
-    receive_org_level_activity_logs?: boolean | null
-    /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
-
-* `b2b` - B2B
-* `b2c` - B2C
-* `other` - Other */
-    business_model?: BusinessModelEnumApi | BlankEnumApi | NullEnumApi | null
-    /** @nullable */
-    conversations_enabled?: boolean | null
-    conversations_settings?: unknown | null
-    logs_settings?: unknown | null
-}
-
-export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
-
-/**
- * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
-passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
-backward compatibility of the REST API.
-Do not use this in greenfield endpoints!
- */
-export interface PatchedProjectBackwardCompatApi {
-    readonly id?: number
-    readonly organization?: string
-    /**
-     * @minLength 1
-     * @maxLength 200
-     */
-    name?: string
-    /**
-     * @maxLength 1000
-     * @nullable
-     */
-    product_description?: string | null
-    readonly created_at?: string
-    readonly effective_membership_level?: EffectiveMembershipLevelEnumApi | null
-    readonly has_group_types?: boolean
-    readonly group_types?: readonly PatchedProjectBackwardCompatApiGroupTypesItem[]
-    /** @nullable */
-    readonly live_events_token?: string | null
-    readonly updated_at?: string
-    readonly uuid?: string
-    readonly api_token?: string
-    app_urls?: (string | null)[]
-    /**
-     * @maxLength 500
-     * @nullable
-     */
-    slack_incoming_webhook?: string | null
-    anonymize_ips?: boolean
-    completed_snippet_onboarding?: boolean
-    readonly ingested_event?: boolean
-    test_account_filters?: unknown
-    /** @nullable */
-    test_account_filters_default_checked?: boolean | null
-    path_cleaning_filters?: unknown | null
-    is_demo?: boolean
-    timezone?: TimezoneEnumApi
-    data_attributes?: unknown
-    /** @nullable */
-    person_display_name_properties?: string[] | null
-    correlation_config?: unknown | null
-    /** @nullable */
-    autocapture_opt_out?: boolean | null
-    /** @nullable */
-    autocapture_exceptions_opt_in?: boolean | null
-    /** @nullable */
-    autocapture_web_vitals_opt_in?: boolean | null
-    autocapture_web_vitals_allowed_metrics?: unknown | null
-    autocapture_exceptions_errors_to_ignore?: unknown | null
-    /** @nullable */
-    capture_console_log_opt_in?: boolean | null
-    /** @nullable */
-    capture_performance_opt_in?: boolean | null
-    session_recording_opt_in?: boolean
-    /**
-     * @nullable
-     * @pattern ^-?\d{0,1}(?:\.\d{0,2})?$
-     */
-    session_recording_sample_rate?: string | null
-    /**
-     * @minimum 0
-     * @maximum 30000
-     * @nullable
-     */
-    session_recording_minimum_duration_milliseconds?: number | null
-    session_recording_linked_flag?: unknown | null
-    session_recording_network_payload_capture_config?: unknown | null
-    session_recording_masking_config?: unknown | null
-    session_replay_config?: unknown | null
-    survey_config?: unknown | null
-    access_control?: boolean
-    /**
-     * @minimum -32768
-     * @maximum 32767
-     */
-    week_start_day?: WeekStartDayEnumApi | NullEnumApi | null
-    /** @nullable */
-    primary_dashboard?: number | null
-    /** @nullable */
-    live_events_columns?: string[] | null
-    /** @nullable */
-    recording_domains?: (string | null)[] | null
-    readonly person_on_events_querying_enabled?: string
-    /** @nullable */
-    inject_web_apps?: boolean | null
-    extra_settings?: unknown | null
-    modifiers?: unknown | null
-    readonly default_modifiers?: string
-    has_completed_onboarding_for?: unknown | null
-    /** @nullable */
-    surveys_opt_in?: boolean | null
-    /** @nullable */
-    heatmaps_opt_in?: boolean | null
-    readonly product_intents?: string
-    /** @nullable */
-    flags_persistence_default?: boolean | null
-    /** @nullable */
-    readonly secret_api_token?: string | null
-    /** @nullable */
-    readonly secret_api_token_backup?: string | null
-    /** @nullable */
-    receive_org_level_activity_logs?: boolean | null
-    /** Whether this project serves B2B or B2C customers, used to optimize the UI layout.
-
-* `b2b` - B2B
-* `b2c` - B2C
-* `other` - Other */
-    business_model?: BusinessModelEnumApi | BlankEnumApi | NullEnumApi | null
-    /** @nullable */
-    conversations_enabled?: boolean | null
-    conversations_settings?: unknown | null
-    logs_settings?: unknown | null
-}
-
-export interface RoleApi {
-    readonly id: string
-    /** @maxLength 200 */
-    name: string
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    readonly members: string
-    readonly is_default: string
-}
-
-export interface PaginatedRoleListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: RoleApi[]
-}
-
-export interface PatchedRoleApi {
-    readonly id?: string
-    /** @maxLength 200 */
-    name?: string
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    readonly members?: string
-    readonly is_default?: string
-}
-
-/**
- * * `USR` - user
- * `GIT` - GitHub
- */
-export type CreationTypeEnumApi = (typeof CreationTypeEnumApi)[keyof typeof CreationTypeEnumApi]
-
-export const CreationTypeEnumApi = {
-    USR: 'USR',
-    GIT: 'GIT',
-} as const
-
-/**
- * * `dashboard_item` - insight
- * `dashboard` - dashboard
- * `project` - project
- * `organization` - organization
- * `recording` - recording
- */
-export type AnnotationScopeEnumApi = (typeof AnnotationScopeEnumApi)[keyof typeof AnnotationScopeEnumApi]
-
-export const AnnotationScopeEnumApi = {
-    dashboard_item: 'dashboard_item',
-    dashboard: 'dashboard',
-    project: 'project',
-    organization: 'organization',
-    recording: 'recording',
-} as const
-
-export interface AnnotationApi {
-    readonly id: number
-    /**
-     * @maxLength 400
-     * @nullable
-     */
-    content?: string | null
-    /** @nullable */
-    date_marker?: string | null
-    creation_type?: CreationTypeEnumApi
-    /** @nullable */
-    dashboard_item?: number | null
-    /** @nullable */
-    dashboard_id?: number | null
-    /** @nullable */
-    readonly dashboard_name: string | null
-    /** @nullable */
-    readonly insight_short_id: string | null
-    /** @nullable */
-    readonly insight_name: string | null
-    /** @nullable */
-    readonly insight_derived_name: string | null
-    readonly created_by: UserBasicApi
-    /** @nullable */
-    readonly created_at: string | null
-    readonly updated_at: string
-    deleted?: boolean
-    scope?: AnnotationScopeEnumApi
-}
-
-export interface PaginatedAnnotationListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: AnnotationApi[]
-}
-
-export interface PatchedAnnotationApi {
-    readonly id?: number
-    /**
-     * @maxLength 400
-     * @nullable
-     */
-    content?: string | null
-    /** @nullable */
-    date_marker?: string | null
-    creation_type?: CreationTypeEnumApi
-    /** @nullable */
-    dashboard_item?: number | null
-    /** @nullable */
-    dashboard_id?: number | null
-    /** @nullable */
-    readonly dashboard_name?: string | null
-    /** @nullable */
-    readonly insight_short_id?: string | null
-    /** @nullable */
-    readonly insight_name?: string | null
-    /** @nullable */
-    readonly insight_derived_name?: string | null
-    readonly created_by?: UserBasicApi
-    /** @nullable */
-    readonly created_at?: string | null
-    readonly updated_at?: string
-    deleted?: boolean
-    scope?: AnnotationScopeEnumApi
-}
-
-export interface CommentApi {
-    readonly id: string
-    readonly created_by: UserBasicApi
-    /** @nullable */
-    deleted?: boolean | null
-    mentions?: number[]
-    slug?: string
-    /** @nullable */
-    content?: string | null
-    rich_content?: unknown | null
-    readonly version: number
-    readonly created_at: string
-    /**
-     * @maxLength 72
-     * @nullable
-     */
-    item_id?: string | null
-    item_context?: unknown | null
-    /** @maxLength 79 */
-    scope: string
-    /** @nullable */
-    source_comment?: string | null
-}
-
-export interface PaginatedCommentListApi {
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: CommentApi[]
-}
-
-export interface PatchedCommentApi {
-    readonly id?: string
-    readonly created_by?: UserBasicApi
-    /** @nullable */
-    deleted?: boolean | null
-    mentions?: number[]
-    slug?: string
-    /** @nullable */
-    content?: string | null
-    rich_content?: unknown | null
-    readonly version?: number
-    readonly created_at?: string
-    /**
-     * @maxLength 72
-     * @nullable
-     */
-    item_id?: string | null
-    item_context?: unknown | null
-    /** @maxLength 79 */
-    scope?: string
-    /** @nullable */
-    source_comment?: string | null
-}
-
-/**
- * * `team` - Only team
- * `global` - Global
- * `feature_flag` - Feature Flag
- */
-export type DashboardTemplateScopeEnumApi =
-    (typeof DashboardTemplateScopeEnumApi)[keyof typeof DashboardTemplateScopeEnumApi]
-
-export const DashboardTemplateScopeEnumApi = {
-    team: 'team',
-    global: 'global',
-    feature_flag: 'feature_flag',
-} as const
-
-export interface DashboardTemplateApi {
-    readonly id: string
-    /**
-     * @maxLength 400
-     * @nullable
-     */
-    template_name?: string | null
-    /**
-     * @maxLength 400
-     * @nullable
-     */
-    dashboard_description?: string | null
-    dashboard_filters?: unknown | null
-    /** @nullable */
-    tags?: string[] | null
-    tiles?: unknown | null
-    variables?: unknown | null
-    /** @nullable */
-    deleted?: boolean | null
-    /** @nullable */
-    readonly created_at: string | null
-    /** @nullable */
-    created_by?: number | null
-    /**
-     * @maxLength 8201
-     * @nullable
-     */
-    image_url?: string | null
-    /** @nullable */
-    readonly team_id: number | null
-    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi | null
-    /** @nullable */
-    availability_contexts?: string[] | null
-}
-
-export interface PaginatedDashboardTemplateListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DashboardTemplateApi[]
-}
-
-export interface PatchedDashboardTemplateApi {
-    readonly id?: string
-    /**
-     * @maxLength 400
-     * @nullable
-     */
-    template_name?: string | null
-    /**
-     * @maxLength 400
-     * @nullable
-     */
-    dashboard_description?: string | null
-    dashboard_filters?: unknown | null
-    /** @nullable */
-    tags?: string[] | null
-    tiles?: unknown | null
-    variables?: unknown | null
-    /** @nullable */
-    deleted?: boolean | null
-    /** @nullable */
-    readonly created_at?: string | null
-    /** @nullable */
-    created_by?: number | null
-    /**
-     * @maxLength 8201
-     * @nullable
-     */
-    image_url?: string | null
-    /** @nullable */
-    readonly team_id?: number | null
-    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | NullEnumApi | null
-    /** @nullable */
-    availability_contexts?: string[] | null
-}
-
-/**
- * Serializer mixin that handles tags for objects.
- */
-export interface EnterpriseEventDefinitionApi {
-    readonly id: string
-    /** @maxLength 400 */
-    name: string
-    /** @nullable */
-    owner?: number | null
-    /** @nullable */
-    description?: string | null
-    tags?: unknown[]
-    /** @nullable */
-    readonly created_at: string | null
-    readonly updated_at: string
-    readonly updated_by: UserBasicApi
-    /** @nullable */
-    readonly last_seen_at: string | null
-    readonly last_updated_at: string
-    verified?: boolean
-    /** @nullable */
-    readonly verified_at: string | null
-    readonly verified_by: UserBasicApi
-    /** @nullable */
-    hidden?: boolean | null
-    readonly is_action: boolean
-    readonly action_id: number
-    readonly is_calculating: boolean
-    readonly last_calculated_at: string
-    readonly created_by: UserBasicApi
-    post_to_slack?: boolean
-    default_columns?: string[]
-}
-
-export interface PaginatedEnterpriseEventDefinitionListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: EnterpriseEventDefinitionApi[]
-}
-
-/**
- * Serializer mixin that handles tags for objects.
- */
-export interface PatchedEnterpriseEventDefinitionApi {
-    readonly id?: string
-    /** @maxLength 400 */
-    name?: string
-    /** @nullable */
-    owner?: number | null
-    /** @nullable */
-    description?: string | null
-    tags?: unknown[]
-    /** @nullable */
-    readonly created_at?: string | null
-    readonly updated_at?: string
-    readonly updated_by?: UserBasicApi
-    /** @nullable */
-    readonly last_seen_at?: string | null
-    readonly last_updated_at?: string
-    verified?: boolean
-    /** @nullable */
-    readonly verified_at?: string | null
-    readonly verified_by?: UserBasicApi
-    /** @nullable */
-    hidden?: boolean | null
-    readonly is_action?: boolean
-    readonly action_id?: number
-    readonly is_calculating?: boolean
-    readonly last_calculated_at?: string
-    readonly created_by?: UserBasicApi
-    post_to_slack?: boolean
-    default_columns?: string[]
-}
-
-export type EventDefinitionApiProperties = { [key: string]: unknown }
-
-export interface EventDefinitionApi {
-    elements: unknown[]
-    event: string
-    properties: EventDefinitionApiProperties
-}
-
-/**
- * * `DateTime` - DateTime
- * `String` - String
- * `Numeric` - Numeric
- * `Boolean` - Boolean
- * `Duration` - Duration
- */
-export type PropertyType549EnumApi = (typeof PropertyType549EnumApi)[keyof typeof PropertyType549EnumApi]
-
-export const PropertyType549EnumApi = {
-    DateTime: 'DateTime',
-    String: 'String',
-    Numeric: 'Numeric',
-    Boolean: 'Boolean',
-    Duration: 'Duration',
-} as const
-
-/**
- * Serializer mixin that handles tags for objects.
- */
-export interface EnterprisePropertyDefinitionApi {
-    readonly id: string
-    readonly name: string
-    /** @nullable */
-    description?: string | null
-    tags?: unknown[]
-    readonly is_numerical: boolean
-    readonly updated_at: string
-    readonly updated_by: UserBasicApi
-    /** @nullable */
-    readonly is_seen_on_filtered_events: boolean | null
-    property_type?: PropertyType549EnumApi | BlankEnumApi | NullEnumApi | null
-    verified?: boolean
-    /** @nullable */
-    readonly verified_at: string | null
-    readonly verified_by: UserBasicApi
-    /** @nullable */
-    hidden?: boolean | null
-}
-
-export interface PaginatedEnterprisePropertyDefinitionListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: EnterprisePropertyDefinitionApi[]
-}
-
-/**
- * Serializer mixin that handles tags for objects.
- */
-export interface PatchedEnterprisePropertyDefinitionApi {
-    readonly id?: string
-    readonly name?: string
-    /** @nullable */
-    description?: string | null
-    tags?: unknown[]
-    readonly is_numerical?: boolean
-    readonly updated_at?: string
-    readonly updated_by?: UserBasicApi
-    /** @nullable */
-    readonly is_seen_on_filtered_events?: boolean | null
-    property_type?: PropertyType549EnumApi | BlankEnumApi | NullEnumApi | null
-    verified?: boolean
-    /** @nullable */
-    readonly verified_at?: string | null
-    readonly verified_by?: UserBasicApi
-    /** @nullable */
-    hidden?: boolean | null
-}
-
-/**
- * * `FeatureFlag` - feature flag
- */
-export type ModelNameEnumApi = (typeof ModelNameEnumApi)[keyof typeof ModelNameEnumApi]
-
-export const ModelNameEnumApi = {
-    FeatureFlag: 'FeatureFlag',
-} as const
-
-/**
- * * `daily` - daily
- * `weekly` - weekly
- * `monthly` - monthly
- * `yearly` - yearly
- */
-export type RecurrenceIntervalEnumApi = (typeof RecurrenceIntervalEnumApi)[keyof typeof RecurrenceIntervalEnumApi]
-
-export const RecurrenceIntervalEnumApi = {
-    daily: 'daily',
-    weekly: 'weekly',
-    monthly: 'monthly',
-    yearly: 'yearly',
-} as const
-
-export interface ScheduledChangeApi {
-    readonly id: number
-    readonly team_id: number
-    /** @maxLength 200 */
-    record_id: string
-    model_name: ModelNameEnumApi
-    payload?: unknown
-    scheduled_at: string
-    /** @nullable */
-    executed_at?: string | null
-    /**
-     * Return the safely formatted failure reason instead of raw data.
-     * @nullable
-     */
-    readonly failure_reason: string | null
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    readonly updated_at: string
-    is_recurring?: boolean
-    recurrence_interval?: RecurrenceIntervalEnumApi | BlankEnumApi | NullEnumApi | null
-    /** @nullable */
-    readonly last_executed_at: string | null
-    /** @nullable */
-    end_date?: string | null
-}
-
-export interface PaginatedScheduledChangeListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ScheduledChangeApi[]
-}
-
-export interface PatchedScheduledChangeApi {
-    readonly id?: number
-    readonly team_id?: number
-    /** @maxLength 200 */
-    record_id?: string
-    model_name?: ModelNameEnumApi
-    payload?: unknown
-    scheduled_at?: string
-    /** @nullable */
-    executed_at?: string | null
-    /**
-     * Return the safely formatted failure reason instead of raw data.
-     * @nullable
-     */
-    readonly failure_reason?: string | null
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    readonly updated_at?: string
-    is_recurring?: boolean
-    recurrence_interval?: RecurrenceIntervalEnumApi | BlankEnumApi | NullEnumApi | null
-    /** @nullable */
-    readonly last_executed_at?: string | null
-    /** @nullable */
-    end_date?: string | null
-}
-
 /**
  * * `disabled` - disabled
  * `toolbar` - toolbar
@@ -2625,8 +1581,8 @@ export interface PatchedScheduledChangeApi {
 export type ToolbarModeEnumApi = (typeof ToolbarModeEnumApi)[keyof typeof ToolbarModeEnumApi]
 
 export const ToolbarModeEnumApi = {
-    disabled: 'disabled',
-    toolbar: 'toolbar',
+    Disabled: 'disabled',
+    Toolbar: 'toolbar',
 } as const
 
 /**
@@ -2648,16 +1604,16 @@ export interface TeamBasicApi {
     readonly has_completed_onboarding_for: unknown | null
     readonly ingested_event: boolean
     readonly is_demo: boolean
-    readonly timezone: TimezoneEnumApi
+    readonly timezone: string
     readonly access_control: boolean
 }
 
 export type MembershipLevelEnumApi = (typeof MembershipLevelEnumApi)[keyof typeof MembershipLevelEnumApi]
 
 export const MembershipLevelEnumApi = {
-    NUMBER_1: 1,
-    NUMBER_8: 8,
-    NUMBER_15: 15,
+    Number1: 1,
+    Number8: 8,
+    Number15: 15,
 } as const
 
 /**
@@ -2669,10 +1625,10 @@ export const MembershipLevelEnumApi = {
 export type PluginsAccessLevelEnumApi = (typeof PluginsAccessLevelEnumApi)[keyof typeof PluginsAccessLevelEnumApi]
 
 export const PluginsAccessLevelEnumApi = {
-    NUMBER_0: 0,
-    NUMBER_3: 3,
-    NUMBER_6: 6,
-    NUMBER_9: 9,
+    Number0: 0,
+    Number3: 3,
+    Number6: 6,
+    Number9: 9,
 } as const
 
 /**
@@ -2683,8 +1639,8 @@ export type DefaultExperimentStatsMethodEnumApi =
     (typeof DefaultExperimentStatsMethodEnumApi)[keyof typeof DefaultExperimentStatsMethodEnumApi]
 
 export const DefaultExperimentStatsMethodEnumApi = {
-    bayesian: 'bayesian',
-    frequentist: 'frequentist',
+    Bayesian: 'bayesian',
+    Frequentist: 'frequentist',
 } as const
 
 export type OrganizationApiTeamsItem = { [key: string]: unknown }
@@ -2789,9 +1745,9 @@ export interface ScenePersonalisationBasicApi {
 export type ThemeModeEnumApi = (typeof ThemeModeEnumApi)[keyof typeof ThemeModeEnumApi]
 
 export const ThemeModeEnumApi = {
-    light: 'light',
-    dark: 'dark',
-    system: 'system',
+    Light: 'light',
+    Dark: 'dark',
+    System: 'system',
 } as const
 
 /**
@@ -2802,9 +1758,9 @@ export const ThemeModeEnumApi = {
 export type ShortcutPositionEnumApi = (typeof ShortcutPositionEnumApi)[keyof typeof ShortcutPositionEnumApi]
 
 export const ShortcutPositionEnumApi = {
-    above: 'above',
-    below: 'below',
-    hidden: 'hidden',
+    Above: 'above',
+    Below: 'below',
+    Hidden: 'hidden',
 } as const
 
 export type UserApiNotificationSettings = { [key: string]: unknown }
@@ -2940,54 +1896,6 @@ export interface PatchedUserApi {
     passkeys_enabled_for_2fa?: boolean | null
 }
 
-export type ExportsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type FileSystemListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
-}
-
-export type IntegrationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type SubscriptionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type DomainsListParams = {
     /**
      * Number of results to return per page.
@@ -3098,7 +2006,7 @@ export type EventDefinitionsByNameRetrieveParams = {
     name: string
 }
 
-export type ExportsList2Params = {
+export type ExportsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -3109,7 +2017,7 @@ export type ExportsList2Params = {
     offset?: number
 }
 
-export type FileSystemList2Params = {
+export type FileSystemListParams = {
     /**
      * Number of results to return per page.
      */
@@ -3143,7 +2051,7 @@ export type FlagValueValuesRetrieve400 = { [key: string]: unknown }
  */
 export type FlagValueValuesRetrieve404 = { [key: string]: unknown }
 
-export type IntegrationsList3Params = {
+export type IntegrationsList2Params = {
     /**
      * Number of results to return per page.
      */
@@ -3224,10 +2132,10 @@ export type PropertyDefinitionsListParams = {
 export type PropertyDefinitionsListType = (typeof PropertyDefinitionsListType)[keyof typeof PropertyDefinitionsListType]
 
 export const PropertyDefinitionsListType = {
-    event: 'event',
-    person: 'person',
-    group: 'group',
-    session: 'session',
+    Event: 'event',
+    Person: 'person',
+    Group: 'group',
+    Session: 'session',
 } as const
 
 export type ScheduledChangesListParams = {
@@ -3241,7 +2149,7 @@ export type ScheduledChangesListParams = {
     offset?: number
 }
 
-export type SubscriptionsList2Params = {
+export type SubscriptionsListParams = {
     /**
      * Number of results to return per page.
      */

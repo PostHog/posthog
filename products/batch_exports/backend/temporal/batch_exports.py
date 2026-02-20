@@ -905,7 +905,8 @@ async def execute_batch_export_insert_activity(
         initial_retry_interval_seconds: When retrying, seconds until the first retry.
         maximum_retry_interval_seconds: Maximum interval in seconds between retries.
     """
-    get_export_started_metric().add(1)
+    model_name = inputs.batch_export_model.name if inputs.batch_export_model else "events"
+    get_export_started_metric(model=model_name).add(1)
 
     if TEST:
         maximum_attempts = 1
@@ -962,7 +963,7 @@ async def execute_batch_export_insert_activity(
         raise
 
     finally:
-        get_export_finished_metric(status=finish_inputs.status.lower()).add(1)
+        get_export_finished_metric(status=finish_inputs.status.lower(), model=model_name).add(1)
 
         await workflow.execute_activity(
             finish_batch_export_run,

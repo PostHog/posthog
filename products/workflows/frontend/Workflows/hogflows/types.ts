@@ -55,7 +55,7 @@ export const HogFlowSchema = z.object({
 export const HogFlowTemplateSchema = HogFlowSchema.omit({ status: true }).extend({
     image_url: z.string().optional().nullable(),
     tags: z.array(z.string()).default([]),
-    scope: z.enum(['team', 'global']).optional().nullable(),
+    scope: z.enum(['team', 'global', 'organization']).optional().nullable(),
 })
 
 export const HogFlowBatchJobSchema = z.object({

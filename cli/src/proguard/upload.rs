@@ -37,7 +37,7 @@ pub fn upload(args: &Args) -> Result<()> {
     } = args;
 
     let ReleaseArgs {
-        project,
+        name,
         version,
         skip_release_on_fail,
     } = release;
@@ -53,8 +53,8 @@ pub fn upload(args: &Args) -> Result<()> {
         .map(ReleaseBuilder::init_from_git)
         .unwrap_or_default();
 
-    if let Some(project) = project {
-        release_builder.with_project(project);
+    if let Some(name) = name {
+        release_builder.with_name(name);
     }
     if let Some(version) = version {
         release_builder.with_version(version);

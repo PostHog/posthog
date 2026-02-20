@@ -128,6 +128,7 @@ class SessionMomentsLLMAnalyzer:
             logger.exception(exception_message)
             # Remove all the generated videos to not bloat the database
             asset_ids = list(moment_to_asset_id.values())
+            # nosemgrep: idor-lookup-without-team (internal AI pipeline, IDs from team-scoped context)
             await ExportedAsset.objects.filter(id__in=asset_ids).adelete()
             raise Exception(exception_message)
         return moment_to_asset_id
@@ -187,6 +188,7 @@ class SessionMomentsLLMAnalyzer:
         try:
             content: bytes | None = None
             # Fetch the asset from the database
+            # nosemgrep: idor-lookup-without-team (asset_id from internal _export_moment_video, not user input)
             asset = await ExportedAsset.objects.aget(id=asset_id)
             # Get content from either database or object storage
             if asset.content:
@@ -249,6 +251,7 @@ class SessionMomentsLLMAnalyzer:
             )
             # If the LLM validation fails - ensure to remove the generated video to not bloat the database,
             # as it would be linked to the summary (to reuse) only after the LLM video validation is completed
+            # nosemgrep: idor-lookup-without-team (internal AI pipeline, IDs from team-scoped context)
             await ExportedAsset.objects.filter(id=asset_id).adelete()
             return err  # Let caller handle the error
 

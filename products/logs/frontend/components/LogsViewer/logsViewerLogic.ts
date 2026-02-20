@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
@@ -7,7 +7,9 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
+import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 
 import { AttributeColumnConfig, LogsOrderBy, ParsedLogMessage } from '../../types'
 import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
@@ -28,28 +30,33 @@ export interface VisibleLogsTimeRange {
 export type LogCursor = number | null
 
 export interface LogsViewerLogicProps {
-    tabId: string
-    logs: ParsedLogMessage[]
-    orderBy: LogsOrderBy
-    onAddFilter?: (key: string, value: string, operator?: PropertyOperator, type?: PropertyFilterType) => void
+    id: string
 }
 
 export const logsViewerLogic = kea<logsViewerLogicType>([
-    path((tabId) => ['products', 'logs', 'frontend', 'components', 'LogsViewer', 'logsViewerLogic', tabId]),
+    path((id) => ['products', 'logs', 'frontend', 'components', 'LogsViewer', 'logsViewerLogic', id]),
     props({} as LogsViewerLogicProps),
-    key((props) => props.tabId),
-    connect(() => ({
+    key((props) => props.id),
+    connect(({ id }: LogsViewerLogicProps) => ({
         values: [
             logsViewerSettingsLogic,
             ['timezone', 'wrapBody', 'prettifyJson'],
-            logDetailsModalLogic,
+            logDetailsModalLogic({ id }),
             ['isLogDetailsOpen'],
+            logsViewerDataLogic({ id }),
+            ['parsedLogs as logs'],
+            logsViewerConfigLogic({ id }),
+            ['orderBy'],
         ],
         actions: [
             logsViewerSettingsLogic,
             ['setTimezone', 'setWrapBody', 'setPrettifyJson'],
-            logDetailsModalLogic,
+            logDetailsModalLogic({ id }),
             ['openLogDetails', 'closeLogDetails'],
+            logsViewerFiltersLogic({ id }),
+            ['addFilter'],
+            logsViewerDataLogic({ id }),
+            ['setLogs', 'clearLogs'],
         ],
     })),
 
@@ -79,17 +86,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         // Copy link to log
         copyLinkToLog: (logId: string) => ({ logId }),
 
-        // Sync logs from props
-        setLogs: (logs: ParsedLogMessage[]) => ({ logs }),
-
-        // Filter actions (emits to parent via props callback)
-        addFilter: (key: string, value: string, operator?: PropertyOperator, type?: PropertyFilterType) => ({
-            key,
-            value,
-            operator,
-            type,
-        }),
-
         // Attribute breakdowns (per-log)
         toggleAttributeBreakdown: (logId: string, attributeKey: string) => ({ logId, attributeKey }),
 
@@ -113,10 +109,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         togglePrettifyLog: (logId: string) => ({ logId }),
     }),
 
-    reducers(({ props }) => ({
-        // Synced from props via propsChanged
-        logs: [props.logs, { setLogs: (_, { logs }) => logs }],
-
+    reducers(() => ({
         pinnedLogs: [
             {} as Record<string, ParsedLogMessage>,
             { persist: true },
@@ -146,6 +139,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 setCursorIndex: (_, { index }) => index,
                 userSetCursorIndex: (_, { index }) => index,
                 resetCursor: () => null,
+                clearLogs: () => null,
             },
         ],
 
@@ -266,7 +260,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 },
                 setSelectedLogIds: (_, { selectedLogIds }) => selectedLogIds,
                 clearSelection: () => ({}),
-                setLogs: () => ({}), // Clear selection when logs change
+                clearLogs: () => ({}),
+                setLogs: () => ({}),
             },
         ],
 
@@ -282,20 +277,14 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     }
                     return next
                 },
+                clearLogs: () => new Set<string>(),
                 setLogs: () => new Set<string>(),
             },
         ],
     })),
 
-    propsChanged(({ actions, props }, oldProps) => {
-        if (props.logs !== oldProps.logs) {
-            actions.setLogs(props.logs)
-            actions.recomputeRowHeights()
-        }
-    }),
-
     selectors({
-        tabId: [(_, p) => [p.tabId], (tabId: string): string => tabId],
+        id: [(_, p) => [p.id], (id: string): string => id],
 
         pinnedLogsArray: [(s) => [s.pinnedLogs], (pinnedLogs): ParsedLogMessage[] => Object.values(pinnedLogs)],
 
@@ -315,7 +304,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         ],
 
         visibleLogsTimeRange: [
-            (s, p) => [s.logs, p.orderBy],
+            (state) => [state.logs, state.orderBy],
             (logs: ParsedLogMessage[], orderBy: LogsOrderBy): VisibleLogsTimeRange | null => {
                 if (logs.length === 0) {
                     return null
@@ -377,15 +366,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
-        setLogs: ({ logs }) => {
-            if (logs.length === 0) {
-                actions.resetCursor()
-            }
-        },
-        addFilter: ({ key, value, operator, type }) => {
-            props.onAddFilter?.(key, value, operator, type)
-        },
+    listeners(({ actions, values }) => ({
         togglePinLog: ({ log }) => {
             if (values.pinnedLogs[log.uuid]) {
                 posthog.capture('logs log pinned')
@@ -554,6 +535,9 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             if (cursorIndex !== null) {
                 actions.requestScrollToCursor()
             }
+        },
+        logs: () => {
+            actions.recomputeRowHeights()
         },
     })),
 ])

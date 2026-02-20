@@ -18,6 +18,10 @@ fn sanitize_key_for_path(key: &str) -> String {
     key.replace(['/', ':'], "_")
 }
 
+fn is_gzip_key(key: &str) -> bool {
+    key.ends_with(".gz")
+}
+
 pub struct GzipS3Source {
     client: S3Client,
     bucket: String,
@@ -130,7 +134,12 @@ impl DataSource for GzipS3Source {
 
             debug!("Got response: {:?}", output);
             if let Some(contents) = output.contents {
-                keys.extend(contents.iter().filter_map(|o| o.key.clone()));
+                keys.extend(
+                    contents
+                        .iter()
+                        .filter_map(|o| o.key.clone())
+                        .filter(|k| is_gzip_key(k)),
+                );
             }
             match output.next_continuation_token {
                 Some(token) => continuation_token = Some(token),
@@ -303,5 +312,25 @@ mod tests {
             sanitize_key_for_path("path/to/file.jsonl.gz"),
             "path_to_file.jsonl.gz"
         );
+    }
+
+    #[test]
+    fn test_is_gzip_key() {
+        let cases = vec![
+            // (key, expected)
+            ("analytics/366676/366676_2025-01-01_0#0.json.gz", true),
+            ("analytics/366676/366676_2025-01-01_0#1.json.gz", true),
+            ("path/to/file.jsonl.gz", true),
+            ("data.gz", true),
+            ("analytics/366676/366676_2025-01-01_0_complete", false),
+            ("analytics/366676/366676_2025-01-01_1_complete", false),
+            ("some/path/metadata.json", false),
+            ("some/path/readme.txt", false),
+            ("", false),
+        ];
+
+        for (key, expected) in cases {
+            assert_eq!(is_gzip_key(key), expected, "is_gzip_key({key:?})");
+        }
     }
 }

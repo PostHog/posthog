@@ -410,6 +410,7 @@ def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None 
         `True` if the batch export was paused, `False` if it was already paused.
     """
     try:
+        # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
         batch_export = BatchExport.objects.get(id=batch_export_id)
     except BatchExport.DoesNotExist:
         raise BatchExportIdError(batch_export_id)
@@ -438,6 +439,7 @@ async def apause_batch_export(temporal: Client, batch_export_id: str, note: str 
         `True` if the batch export was paused, `False` if it was already paused.
     """
     try:
+        # nosemgrep: idor-lookup-without-team (internal service called from Temporal, not user-facing)
         batch_export = await BatchExport.objects.aget(id=batch_export_id)
     except BatchExport.DoesNotExist:
         raise BatchExportIdError(batch_export_id)
@@ -478,6 +480,7 @@ def unpause_batch_export(
         BatchExportIdError: If the provided batch_export_id doesn't point to an existing BatchExport.
     """
     try:
+        # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
         batch_export = BatchExport.objects.get(id=batch_export_id)
     except BatchExport.DoesNotExist:
         raise BatchExportIdError(batch_export_id)
@@ -730,6 +733,7 @@ def update_batch_export_run(
     Arguments:
         run_id: The id of the BatchExportRun to update.
     """
+    # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
     model = BatchExportRun.objects.filter(id=run_id)
     update_at = dt.datetime.now(dt.UTC)
 
@@ -753,6 +757,7 @@ async def aupdate_batch_export_run(
     Arguments:
         run_id: The id of the BatchExportRun to update.
     """
+    # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
     model = BatchExportRun.objects.filter(id=run_id)
     update_at = dt.datetime.now(dt.UTC)
 
@@ -770,6 +775,7 @@ async def aupdate_batch_export_run(
 def count_failed_batch_export_runs(batch_export_id: UUID, last_n: int) -> int:
     """Count failed batch export runs in the 'last_n' runs."""
     count_of_failures = (
+        # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
         BatchExportRun.objects.filter(
             id__in=BatchExportRun.objects.filter(batch_export_id=batch_export_id)
             .order_by("-last_updated_at")
@@ -785,6 +791,7 @@ def count_failed_batch_export_runs(batch_export_id: UUID, last_n: int) -> int:
 async def acount_failed_batch_export_runs(batch_export_id: UUID, last_n: int) -> int:
     """Count failed batch export runs in the 'last_n' runs."""
     count_of_failures = (
+        # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
         await BatchExportRun.objects.filter(
             id__in=BatchExportRun.objects.filter(batch_export_id=batch_export_id)
             .order_by("-last_updated_at")
@@ -985,6 +992,7 @@ def update_batch_export_backfill_status(
         status: The new status to assign to the BatchExportBackfill.
         finished_at: The time the BatchExportBackfill finished.
     """
+    # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
     model = BatchExportBackfill.objects.filter(id=backfill_id)
     updated = model.update(status=status, finished_at=finished_at)
 
