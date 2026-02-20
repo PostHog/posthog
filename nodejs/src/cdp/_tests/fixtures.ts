@@ -299,6 +299,7 @@ export const createCohortMembershipEvent = (
         cohort_id: 1,
         team_id: 1,
         status: 'entered',
+        last_updated: new Date().toISOString().replace('T', ' ').replace('Z', ''),
         ...overrides,
     }
 }

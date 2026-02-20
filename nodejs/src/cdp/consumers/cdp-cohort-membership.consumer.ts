@@ -16,8 +16,8 @@ const CohortMembershipChangeSchema = z.object({
     person_id: z.string().uuid(),
     cohort_id: z.number(),
     team_id: z.number(),
-    status: z.enum(['entered', 'left', 'member', 'not_member']),
-    last_updated: z.string().optional(),
+    status: z.enum(['entered', 'left']),
+    last_updated: z.string(),
 })
 
 export type CohortMembershipChange = z.infer<typeof CohortMembershipChangeSchema>
@@ -70,20 +70,25 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
             for (const change of changes) {
                 const inCohort = change.status === 'entered'
                 placeholders.push(
-                    `($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, CURRENT_TIMESTAMP)`
+                    `($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, $${paramIndex + 4})`
                 )
-                values.push(change.team_id, change.cohort_id, change.person_id, inCohort)
-                paramIndex += 4
+                values.push(change.team_id, change.cohort_id, change.person_id, inCohort, change.last_updated)
+                paramIndex += 5
             }
 
-            // Single batch UPSERT query - handles both entered and left events
+            // Batch upsert with out-of-order protection: the WHERE guard ensures a stale
+            // message (e.g. a late "left" arriving after a newer "entered") is silently
+            // dropped rather than overwriting the current state. We use the producer's
+            // last_updated timestamp for comparison instead of CURRENT_TIMESTAMP so the
+            // ordering is based on when the change was computed, not when it was consumed.
             const query = `
                 INSERT INTO cohort_membership (team_id, cohort_id, person_id, in_cohort, last_updated)
                 VALUES ${placeholders.join(', ')}
                 ON CONFLICT (team_id, cohort_id, person_id)
-                DO UPDATE SET 
+                DO UPDATE SET
                     in_cohort = EXCLUDED.in_cohort,
-                    last_updated = CURRENT_TIMESTAMP
+                    last_updated = EXCLUDED.last_updated
+                WHERE cohort_membership.last_updated < EXCLUDED.last_updated
             `
 
             await this.hub.postgres.query(
