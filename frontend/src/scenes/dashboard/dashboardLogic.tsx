@@ -16,7 +16,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import uniqBy from 'lodash.uniqby'
-import { Layout, Layouts } from 'react-grid-layout'
+import { LayoutItem, ResponsiveLayouts } from 'react-grid-layout'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
@@ -249,7 +249,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /**
          * Dashboard layout & tiles.
          */
-        updateLayouts: (layouts: Layouts) => ({ layouts }),
+        updateLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: string | null) => ({ tileId, color }),
         duplicateTile: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
@@ -1232,7 +1232,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         layoutForItem: [
             (s) => [s.layout],
             (layout) => {
-                const layoutForItem: Record<string, Layout> = {}
+                const layoutForItem: Record<string, LayoutItem> = {}
                 if (layout) {
                     for (const obj of layout) {
                         layoutForItem[obj.i] = obj
