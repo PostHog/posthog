@@ -97,3 +97,61 @@ pub const FLAG_BATCH_EVALUATION_COUNTER: &str = "flags_batch_evaluation_total";
 // Histogram of flag counts per batch evaluation
 // Labels: evaluation_type ("sequential" or "parallel")
 pub const FLAG_BATCH_SIZE: &str = "flags_batch_size";
+
+// Tokio runtime metrics
+// These track worker thread utilization to inform thread pool sizing decisions.
+// Sampled periodically by TokioRuntimeMonitor (default: every 15s).
+
+// Fraction of wall-clock time that workers spent executing tasks (gauge, 0.0–1.0).
+// Computed as: sum(worker_busy_duration_delta) / (elapsed * num_workers).
+// < 0.3 means workers are idle 70%+ of the time — room to reduce worker count.
+// > 0.8 means approaching saturation.
+pub const TOKIO_RUNTIME_BUSY_RATIO: &str = "flags_tokio_busy_ratio";
+
+// Number of tasks currently alive (spawned but not yet completed) on the runtime (gauge).
+pub const TOKIO_RUNTIME_ALIVE_TASKS: &str = "flags_tokio_alive_tasks";
+
+// Tasks pending in the runtime's global injection queue (gauge).
+// Sustained values > 0 indicate workers cannot drain tasks fast enough.
+pub const TOKIO_RUNTIME_GLOBAL_QUEUE_DEPTH: &str = "flags_tokio_global_queue_depth";
+
+// Number of configured Tokio worker threads (gauge, constant after startup).
+pub const TOKIO_RUNTIME_NUM_WORKERS: &str = "flags_tokio_num_workers";
+
+// Per-worker local queue depth (gauge). Labels: worker="0", worker="1", etc.
+// High values indicate a specific worker is overloaded.
+pub const TOKIO_WORKER_LOCAL_QUEUE_DEPTH: &str = "flags_tokio_worker_local_queue_depth";
+
+// Per-worker poll count delta over the sampling interval (gauge). Labels: worker.
+// Shows throughput per worker — large imbalances suggest uneven task distribution.
+pub const TOKIO_WORKER_POLL_DELTA: &str = "flags_tokio_worker_poll_delta";
+
+// Per-worker park count delta over the sampling interval (gauge). Labels: worker.
+// A park event means the worker went idle. High park rates indicate light workloads.
+pub const TOKIO_WORKER_PARK_DELTA: &str = "flags_tokio_worker_park_delta";
+
+// Per-worker busy duration over the sampling interval in seconds (gauge). Labels: worker.
+// Used to detect load imbalance across workers.
+pub const TOKIO_WORKER_BUSY_DURATION_DELTA: &str = "flags_tokio_worker_busy_duration_delta_secs";
+
+// Number of threads in the blocking thread pool (gauge).
+pub const TOKIO_BLOCKING_THREADS: &str = "flags_tokio_blocking_threads";
+
+// Idle threads in the blocking thread pool (gauge).
+pub const TOKIO_IDLE_BLOCKING_THREADS: &str = "flags_tokio_idle_blocking_threads";
+
+// Tasks waiting for a blocking thread (gauge).
+// High values indicate spawn_blocking contention.
+pub const TOKIO_BLOCKING_QUEUE_DEPTH: &str = "flags_tokio_blocking_queue_depth";
+
+// Mean poll duration per worker in microseconds (gauge). Labels: worker.
+// Long poll times can indicate blocking or CPU-heavy futures on the Tokio runtime.
+pub const TOKIO_WORKER_MEAN_POLL_TIME_US: &str = "flags_tokio_worker_mean_poll_time_us";
+
+// Times a worker's local queue overflowed to the global queue (gauge, delta). Labels: worker.
+// Non-zero indicates a worker couldn't keep up and had to shed work.
+pub const TOKIO_WORKER_OVERFLOW_DELTA: &str = "flags_tokio_worker_overflow_delta";
+
+// Number of tasks stolen from other workers (gauge, delta). Labels: worker.
+// Active stealing indicates work imbalance being corrected by the scheduler.
+pub const TOKIO_WORKER_STEAL_DELTA: &str = "flags_tokio_worker_steal_delta";

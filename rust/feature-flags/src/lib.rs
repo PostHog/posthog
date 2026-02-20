@@ -14,6 +14,7 @@ pub mod router;
 pub mod server;
 pub mod site_apps;
 pub mod team;
+pub mod tokio_monitor;
 
 // Test modules don't need to be compiled with main binary
 // #[cfg(test)]
