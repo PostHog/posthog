@@ -74,8 +74,18 @@ function DestinationStep({ onBack }: { onBack: () => void }): JSX.Element {
                             <div className="flex items-center gap-4">
                                 <div className="shrink-0 w-10 h-10 rounded bg-border" />
                                 <div>
-                                    <h3 className="font-semibold text-base mb-0.5 invisible">Placeholder</h3>
-                                    <p className="text-sm mb-0 invisible">Placeholder description text</p>
+                                    <h3 className="font-semibold text-base mb-0.5 relative">
+                                        <span className="invisible">Placeholder</span>
+                                        <span className="absolute inset-y-0 left-0 flex items-center">
+                                            <span className="h-3 w-24 rounded bg-border block" />
+                                        </span>
+                                    </h3>
+                                    <p className="text-sm mb-0 relative">
+                                        <span className="invisible">Placeholder description</span>
+                                        <span className="absolute inset-y-0 left-0 flex items-center">
+                                            <span className="h-2.5 w-48 rounded bg-border block" />
+                                        </span>
+                                    </p>
                                 </div>
                             </div>
                         </div>

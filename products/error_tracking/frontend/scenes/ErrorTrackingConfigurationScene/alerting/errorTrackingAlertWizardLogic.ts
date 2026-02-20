@@ -190,6 +190,7 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
                         limit: 100,
                     })
 
+                    // TODO: REMOVE THIS ON PROD
                     await new Promise((resolve) => setTimeout(resolve, 1_000))
 
                     return response.results
