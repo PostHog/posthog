@@ -4,8 +4,10 @@ import { usePageVisibility } from './usePageVisibility'
 
 export function useInterval(callback: () => void, delay: number | null): void {
     const savedCallback = useRef(callback)
-    savedCallback.current = callback
 
+    useEffect(() => {
+        savedCallback.current = callback
+    }, [callback])
     const { isVisible } = usePageVisibility()
 
     useEffect(() => {
