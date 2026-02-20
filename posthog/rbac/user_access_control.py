@@ -961,8 +961,14 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
             # Get the required resource and access level for this field
             resource, required_level = field_mappings[field_name]
 
-            # Check if user has the required access level
-            if not user_access_control.check_access_level_for_resource(resource, required_level):
+            # Check if user has the required access level.
+            # "project" access is object-level (checked against the Team instance), not resource-level.
+            if resource == "project":
+                has_access = user_access_control.check_access_level_for_object(self.instance, required_level)
+            else:
+                has_access = user_access_control.check_access_level_for_resource(resource, required_level)
+
+            if not has_access:
                 display_name = resource_to_display_name(resource)
                 raise serializers.ValidationError(
                     {field_name: f"You need {required_level} access to {display_name} to modify this field."}
