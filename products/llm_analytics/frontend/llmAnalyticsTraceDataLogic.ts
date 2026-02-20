@@ -42,7 +42,7 @@ function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogic
         traceId,
         // Match trace logic defaults so we still fetch data if query is briefly undefined.
         dateRange: {
-            date_from: dayjs.utc(new Date(2025, 0, 10)).toISOString(),
+            date_from: dayjs.utc().subtract(1, 'year').startOf('day').toISOString(),
         },
     }
 
@@ -410,13 +410,13 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             })
         },
     })),
-    subscriptions(({ props }) => ({
+    subscriptions(({ actions, props }) => ({
         trace: (trace: LLMTrace | undefined) => {
             if (trace?.createdAt && props.traceId) {
                 llmAnalyticsTraceLogic.actions.loadNeighbors(props.traceId, trace.createdAt)
             }
 
-            llmAnalyticsTraceDataLogic(props).actions.reportSingleTraceLoadIfReady()
+            actions.reportSingleTraceLoadIfReady()
         },
     })),
 ])
