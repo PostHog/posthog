@@ -7,6 +7,8 @@ use etcd_client::EventType;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
+use assignment_coordination::store::parse_watch_value;
+
 use crate::error::{Error, Result};
 use crate::store::{self, PersonhogStore};
 use crate::types::{
@@ -202,7 +204,7 @@ impl RoutingTable {
                     for event in resp.events() {
                         match event.event_type() {
                             EventType::Put => {
-                                let assignment: PartitionAssignment = store::parse_watch_value(event)?;
+                                let assignment: PartitionAssignment = parse_watch_value(event)?;
                                 table.write().await.insert(assignment.partition, assignment.owner);
                             }
                             EventType::Delete => {
@@ -236,7 +238,7 @@ impl RoutingTable {
                     let resp = msg?.ok_or_else(|| Error::invalid_state("handoff watch stream ended".to_string()))?;
                     for event in resp.events() {
                         if event.event_type() == EventType::Put {
-                            match store::parse_watch_value::<HandoffState>(event) {
+                            match parse_watch_value::<HandoffState>(event) {
                                 Ok(handoff) if handoff.phase == HandoffPhase::Ready => {
                                     tracing::info!(
                                         router = %router_name,

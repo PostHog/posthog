@@ -5,6 +5,9 @@ use std::time::Duration;
 use etcd_client::EventType;
 use tokio_util::sync::CancellationToken;
 
+use assignment_coordination::store::parse_watch_value;
+use assignment_coordination::util::compute_required_handoffs;
+
 use crate::error::{Error, Result};
 use crate::store::{self, PersonhogStore};
 use crate::strategy::AssignmentStrategy;
@@ -217,7 +220,7 @@ impl Coordinator {
                     let resp = msg?.ok_or_else(|| Error::invalid_state("handoff watch stream ended".to_string()))?;
                     for event in resp.events() {
                         if event.event_type() == EventType::Put {
-                            match store::parse_watch_value::<HandoffState>(event) {
+                            match parse_watch_value::<HandoffState>(event) {
                                 Ok(handoff) => {
                                     Self::handle_handoff_update_static(&store, &handoff).await?;
                                 }
@@ -462,27 +465,6 @@ fn active_pod_names(pods: &[RegisteredPod]) -> Vec<String> {
     active.iter().map(|p| p.pod_name.clone()).collect()
 }
 
-/// Compare current and desired assignments to find needed handoffs.
-///
-/// Returns `(partition, old_owner, new_owner)` for each partition that needs
-/// to move.
-pub fn compute_required_handoffs(
-    current: &HashMap<u32, String>,
-    new: &HashMap<u32, String>,
-) -> Vec<(u32, String, String)> {
-    let mut handoffs = Vec::new();
-
-    for (partition, new_owner) in new {
-        if let Some(old_owner) = current.get(partition) {
-            if old_owner != new_owner {
-                handoffs.push((*partition, old_owner.clone(), new_owner.clone()));
-            }
-        }
-    }
-
-    handoffs
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -504,37 +486,5 @@ mod tests {
         let pods = vec![make_pod("pod-2"), draining, make_pod("pod-1")];
         let names = active_pod_names(&pods);
         assert_eq!(names, vec!["pod-1", "pod-2"]);
-    }
-
-    #[test]
-    fn compute_required_handoffs_no_change() {
-        let mut current = HashMap::new();
-        current.insert(0, "pod-0".to_string());
-        current.insert(1, "pod-1".to_string());
-        let new = current.clone();
-        assert!(compute_required_handoffs(&current, &new).is_empty());
-    }
-
-    #[test]
-    fn compute_required_handoffs_detects_moves() {
-        let mut current = HashMap::new();
-        current.insert(0, "pod-0".to_string());
-        current.insert(1, "pod-0".to_string());
-
-        let mut new = HashMap::new();
-        new.insert(0, "pod-0".to_string());
-        new.insert(1, "pod-1".to_string());
-
-        let handoffs = compute_required_handoffs(&current, &new);
-        assert_eq!(handoffs.len(), 1);
-        assert_eq!(handoffs[0], (1, "pod-0".to_string(), "pod-1".to_string()));
-    }
-
-    #[test]
-    fn compute_required_handoffs_new_partitions_ignored() {
-        let current = HashMap::new();
-        let mut new = HashMap::new();
-        new.insert(0, "pod-0".to_string());
-        assert!(compute_required_handoffs(&current, &new).is_empty());
     }
 }

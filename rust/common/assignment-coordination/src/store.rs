@@ -41,8 +41,16 @@ impl EtcdStore {
         &self.config.prefix
     }
 
-    pub fn client(&self) -> &Client {
-        &self.client
+    // ── Raw (non-JSON) helpers ────────────────────────────────────
+
+    pub async fn get_raw(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        let resp = self.client.clone().get(key, None).await?;
+        Ok(resp.kvs().first().map(|kv| kv.value().to_vec()))
+    }
+
+    pub async fn put_raw(&self, key: &str, value: impl Into<Vec<u8>>) -> Result<()> {
+        self.client.clone().put(key, value, None).await?;
+        Ok(())
     }
 
     // ── JSON helpers ─────────────────────────────────────────────
@@ -133,6 +141,11 @@ impl EtcdStore {
     // ── Cleanup ──────────────────────────────────────────────────
 
     pub async fn delete_all(&self) -> Result<()> {
+        if self.config.prefix.is_empty() || self.config.prefix == "/" {
+            return Err(Error::InvalidState(
+                "refusing delete_all with empty or root prefix".to_string(),
+            ));
+        }
         self.delete_prefix(&self.config.prefix).await
     }
 }

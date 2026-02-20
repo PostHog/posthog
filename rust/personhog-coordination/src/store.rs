@@ -22,7 +22,7 @@ enum StoreKey<'a> {
     HandoffAcksPrefix,
     Leader,
     Generation,
-    Config(&'a str),
+    TotalPartitions,
 }
 
 impl StoreKey<'_> {
@@ -43,7 +43,7 @@ impl StoreKey<'_> {
             StoreKey::HandoffAcksPrefix => format!("{prefix}handoff_acks/"),
             StoreKey::Leader => format!("{prefix}coordinator/leader"),
             StoreKey::Generation => format!("{prefix}generation"),
-            StoreKey::Config(name) => format!("{prefix}config/{name}"),
+            StoreKey::TotalPartitions => format!("{prefix}config/total_partitions"),
         }
     }
 }
@@ -145,10 +145,10 @@ impl PersonhogStore {
             .iter()
             .map(|a| {
                 let key = self.key(StoreKey::Assignment(a.partition));
-                let value = serde_json::to_vec(a).expect("serialize assignment");
-                TxnOp::put(key, value, None)
+                let value = serde_json::to_vec(a)?;
+                Ok(TxnOp::put(key, value, None))
             })
-            .collect();
+            .collect::<Result<Vec<_>>>()?;
         let txn = Txn::new().and_then(ops);
         self.inner.txn(txn).await?;
         Ok(())
@@ -329,43 +329,37 @@ impl PersonhogStore {
     // ── Config operations ───────────────────────────────────────
 
     pub async fn get_total_partitions(&self) -> Result<u32> {
-        let key = self.key(StoreKey::Config("total_partitions"));
-        let resp = self.inner.client().clone().get(key.clone(), None).await?;
-        let kv = resp.kvs().first().ok_or_else(|| Error::NotFound(key))?;
-        let s = std::str::from_utf8(kv.value())
+        let key = self.key(StoreKey::TotalPartitions);
+        let bytes = self
+            .inner
+            .get_raw(&key)
+            .await?
+            .ok_or_else(|| Error::NotFound(key))?;
+        let s = std::str::from_utf8(&bytes)
             .map_err(|e| Error::invalid_state(format!("non-utf8 total_partitions: {e}")))?;
         s.parse::<u32>()
             .map_err(|e| Error::invalid_state(format!("invalid total_partitions: {e}")))
     }
 
     pub async fn set_total_partitions(&self, count: u32) -> Result<()> {
-        self.inner
-            .client()
-            .clone()
-            .put(
-                self.key(StoreKey::Config("total_partitions")),
-                count.to_string(),
-                None,
-            )
-            .await?;
-        Ok(())
+        let key = self.key(StoreKey::TotalPartitions);
+        Ok(self.inner.put_raw(&key, count.to_string()).await?)
     }
 
     pub async fn get_generation(&self) -> Result<String> {
         let key = self.key(StoreKey::Generation);
-        let resp = self.inner.client().clone().get(key.clone(), None).await?;
-        let kv = resp.kvs().first().ok_or_else(|| Error::NotFound(key))?;
-        String::from_utf8(kv.value().to_vec())
+        let bytes = self
+            .inner
+            .get_raw(&key)
+            .await?
+            .ok_or_else(|| Error::NotFound(key))?;
+        String::from_utf8(bytes)
             .map_err(|e| Error::invalid_state(format!("non-utf8 generation: {e}")))
     }
 
     pub async fn set_generation(&self, generation: &str) -> Result<()> {
-        self.inner
-            .client()
-            .clone()
-            .put(self.key(StoreKey::Generation), generation, None)
-            .await?;
-        Ok(())
+        let key = self.key(StoreKey::Generation);
+        Ok(self.inner.put_raw(&key, generation).await?)
     }
 
     // ── Cleanup ─────────────────────────────────────────────────
@@ -390,14 +384,4 @@ pub fn extract_partition_from_ack_key(key: &str) -> Option<u32> {
     } else {
         None
     }
-}
-
-/// Parse a watch event's value as JSON into type `T`.
-pub fn parse_watch_value<T: serde::de::DeserializeOwned>(
-    event: &etcd_client::Event,
-) -> std::result::Result<T, Error> {
-    let kv = event
-        .kv()
-        .ok_or_else(|| Error::invalid_state("watch event missing kv"))?;
-    serde_json::from_slice(kv.value()).map_err(Error::from)
 }

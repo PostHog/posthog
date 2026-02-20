@@ -5,8 +5,10 @@ use async_trait::async_trait;
 use etcd_client::EventType;
 use tokio_util::sync::CancellationToken;
 
+use assignment_coordination::store::parse_watch_value;
+
 use crate::error::{Error, Result};
-use crate::store::{self, PersonhogStore};
+use crate::store::PersonhogStore;
 use crate::types::{HandoffPhase, HandoffState, PodStatus, RegisteredPod};
 use crate::util;
 
@@ -124,7 +126,7 @@ impl PodHandle {
                     let resp = msg?.ok_or_else(|| Error::invalid_state("handoff watch stream ended".to_string()))?;
                     for event in resp.events() {
                         if event.event_type() == EventType::Put {
-                            match store::parse_watch_value::<HandoffState>(event) {
+                            match parse_watch_value::<HandoffState>(event) {
                                 Ok(handoff) => {
                                     self.handle_handoff_event(&handoff).await?;
                                 }

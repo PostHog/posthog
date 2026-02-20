@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::hash::jump_consistent_hash;
 
-use assignment_coordination::strategy::AssignmentStrategy;
+use super::AssignmentStrategy;
 
 /// Assigns partitions using jump consistent hash.
 ///
