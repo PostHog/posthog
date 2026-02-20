@@ -8,19 +8,25 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { llmProviderKeysLogicType } from './llmProviderKeysLogicType'
 
 export type LLMProviderKeyState = 'unknown' | 'ok' | 'invalid' | 'error'
-export type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'openrouter' | 'fireworks'
+export type LLMProvider = 'openai' | 'anthropic' | 'google' | 'openrouter' | 'fireworks'
+type LegacyLLMProvider = 'gemini'
+type LLMProviderLike = LLMProvider | LegacyLLMProvider
 
 export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     openai: 'OpenAI',
     anthropic: 'Anthropic',
-    gemini: 'Google Gemini',
+    google: 'Google',
     openrouter: 'OpenRouter',
     fireworks: 'Fireworks',
 }
 
+export function normalizeProvider(provider: LLMProviderLike): LLMProvider {
+    return provider === 'gemini' ? 'google' : provider
+}
+
 export interface LLMProviderKey {
     id: string
-    provider: LLMProvider
+    provider: LLMProviderLike
     name: string
     state: LLMProviderKeyState
     error_message: string | null
@@ -72,12 +78,36 @@ export interface DependentEvaluation {
 export interface AlternativeKey {
     id: string
     name: string
-    provider: LLMProvider
+    provider: LLMProviderLike
 }
 
 export interface DependentConfigsResponse {
     evaluations: DependentEvaluation[]
     alternative_keys: AlternativeKey[]
+}
+
+function normalizeProviderKey(providerKey: LLMProviderKey): LLMProviderKey {
+    return { ...providerKey, provider: normalizeProvider(providerKey.provider) }
+}
+
+function normalizeDependentConfigs(response: DependentConfigsResponse): DependentConfigsResponse {
+    return {
+        ...response,
+        alternative_keys: response.alternative_keys.map((key) => ({
+            ...key,
+            provider: normalizeProvider(key.provider),
+        })),
+    }
+}
+
+function normalizeEvaluationConfig(config: EvaluationConfig | null): EvaluationConfig | null {
+    if (!config?.active_provider_key) {
+        return config
+    }
+    return {
+        ...config,
+        active_provider_key: normalizeProviderKey(config.active_provider_key),
+    }
 }
 
 export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
@@ -143,9 +173,10 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return null
                     }
-                    return await api.get(
+                    const response = await api.get(
                         `/api/environments/${teamId}/llm_analytics/provider_keys/${keyId}/dependent_configs/`
                     )
+                    return normalizeDependentConfigs(response)
                 },
             },
         ],
@@ -192,7 +223,8 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (!teamId) {
                         return null
                     }
-                    return await api.get(`/api/environments/${teamId}/llm_analytics/evaluation_config/`)
+                    const response = await api.get(`/api/environments/${teamId}/llm_analytics/evaluation_config/`)
+                    return normalizeEvaluationConfig(response)
                 },
             },
         ],
@@ -205,7 +237,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                         return []
                     }
                     const response = await api.get(`/api/environments/${teamId}/llm_analytics/provider_keys/`)
-                    return response.results
+                    return response.results.map(normalizeProviderKey)
                 },
                 createProviderKey: async ({
                     payload,
@@ -222,7 +254,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     )
                     actions.setNewKeyModalOpen(false)
                     actions.loadEvaluationConfig()
-                    return [...values.providerKeys, response]
+                    return [...values.providerKeys, normalizeProviderKey(response)]
                 },
                 updateProviderKey: async ({
                     id,
@@ -240,7 +272,9 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                         payload
                     )
                     actions.setEditingKey(null)
-                    return values.providerKeys.map((key: LLMProviderKey) => (key.id === id ? response : key))
+                    return values.providerKeys.map((key: LLMProviderKey) =>
+                        key.id === id ? normalizeProviderKey(response) : key
+                    )
                 },
                 deleteProviderKey: async ({
                     id,
@@ -275,7 +309,9 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     if (response.state !== 'ok') {
                         lemonToast.error(`Key validation failed: ${response.error_message || 'Unknown error'}`)
                     }
-                    return values.providerKeys.map((key: LLMProviderKey) => (key.id === id ? response : key))
+                    return values.providerKeys.map((key: LLMProviderKey) =>
+                        key.id === id ? normalizeProviderKey(response) : key
+                    )
                 },
             },
         ],

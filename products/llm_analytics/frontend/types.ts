@@ -78,13 +78,13 @@ export interface AnthropicDocumentMessage {
     }
 }
 
-export interface GeminiAudioMessage {
+export interface GoogleAudioMessage {
     type: 'audio'
     data: string
     mime_type: string
 }
 
-export interface GeminiImageMessage {
+export interface GoogleImageMessage {
     type: 'image'
     // snake_case (Python SDK)
     inline_data?: {
@@ -98,7 +98,7 @@ export interface GeminiImageMessage {
     }
 }
 
-export interface GeminiDocumentMessage {
+export interface GoogleDocumentMessage {
     type: 'document' | 'image' // 'image' when SDK misdetects PDF by MIME type
     // snake_case (Python SDK)
     inline_data?: {
@@ -198,6 +198,6 @@ export type MultiModalContentItem =
     | OpenAIAudioMessage
     | AnthropicImageMessage
     | AnthropicDocumentMessage
-    | GeminiImageMessage
-    | GeminiDocumentMessage
-    | GeminiAudioMessage
+    | GoogleImageMessage
+    | GoogleDocumentMessage
+    | GoogleAudioMessage

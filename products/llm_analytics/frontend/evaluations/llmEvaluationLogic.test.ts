@@ -282,7 +282,7 @@ describe('llmEvaluationLogic', () => {
                 expect(byProvider.openai[0].id).toBe('key-1')
                 expect(byProvider.anthropic).toHaveLength(1)
                 expect(byProvider.anthropic[0].id).toBe('key-2')
-                expect(byProvider.gemini).toHaveLength(0)
+                expect(byProvider.google).toHaveLength(0)
                 expect(byProvider.openrouter).toHaveLength(1)
                 expect(byProvider.openrouter[0].id).toBe('key-3')
                 expect(byProvider.fireworks).toHaveLength(1)

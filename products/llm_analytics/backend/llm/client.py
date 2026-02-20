@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     from products.llm_analytics.backend.llm.providers.base import Provider
     from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
+from products.llm_analytics.backend.models.provider_keys import canonicalize_llm_provider
+
 
 class Client:
     """Unified LLM client for llm_analytics."""
@@ -53,7 +55,9 @@ class Client:
 
     def _validate_provider(self, request_provider: str) -> None:
         """Validate that request provider matches provider key's provider."""
-        if self.provider_key is not None and self.provider_key.provider != request_provider:
+        if self.provider_key is not None and canonicalize_llm_provider(
+            self.provider_key.provider
+        ) != canonicalize_llm_provider(request_provider):
             raise ProviderMismatchError(self.provider_key.provider, request_provider)
 
     def complete(self, request: CompletionRequest) -> CompletionResponse:
@@ -91,17 +95,19 @@ def _get_provider(name: str) -> "Provider":
     """Get provider by name."""
     from products.llm_analytics.backend.llm.providers.anthropic import AnthropicAdapter
     from products.llm_analytics.backend.llm.providers.fireworks import FireworksAdapter
-    from products.llm_analytics.backend.llm.providers.gemini import GeminiAdapter
+    from products.llm_analytics.backend.llm.providers.google import GoogleAdapter
     from products.llm_analytics.backend.llm.providers.openai import OpenAIAdapter
     from products.llm_analytics.backend.llm.providers.openrouter import OpenRouterAdapter
 
-    match name:
+    canonical_name = canonicalize_llm_provider(name)
+
+    match canonical_name:
         case "openai":
             return OpenAIAdapter()
         case "anthropic":
             return AnthropicAdapter()
-        case "gemini":
-            return GeminiAdapter()
+        case "google":
+            return GoogleAdapter()
         case "openrouter":
             return OpenRouterAdapter()
         case "fireworks":

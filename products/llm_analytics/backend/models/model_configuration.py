@@ -9,6 +9,8 @@ from .provider_keys import LLMProvider
 POSTHOG_ALLOWED_MODELS: dict[str, list[str]] = {
     "openai": ["gpt-5-mini"],
     "anthropic": ["claude-haiku-4-5"],
+    "google": ["gemini-2.0-flash-lite"],
+    # Legacy alias for rows not yet migrated from gemini -> google.
     "gemini": ["gemini-2.0-flash-lite"],
 }
 

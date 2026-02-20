@@ -37,18 +37,23 @@ from products.llm_analytics.backend.llm import (
     get_default_models,
 )
 from products.llm_analytics.backend.llm.errors import UnsupportedProviderError
-from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
+from products.llm_analytics.backend.models.provider_keys import LLMProviderKey, canonicalize_llm_provider
 
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
 logger = logging.getLogger(__name__)
 
 
+class LLMProviderChoiceField(serializers.ChoiceField):
+    def to_internal_value(self, data):
+        return super().to_internal_value(canonicalize_llm_provider(str(data)))
+
+
 class LLMProxyCompletionSerializer(serializers.Serializer):
     system = serializers.CharField(allow_blank=True)
     messages = serializers.ListField(child=serializers.DictField())
     model = serializers.CharField()
-    provider = serializers.ChoiceField(choices=["openai", "anthropic", "gemini"])
+    provider = LLMProviderChoiceField(choices=["openai", "anthropic", "google"])
     thinking = serializers.BooleanField(default=False, required=False)
     temperature = serializers.FloatField(required=False)
     max_tokens = serializers.IntegerField(required=False)

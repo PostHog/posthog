@@ -21,10 +21,10 @@ class TestLLMToolsHandler:
         [
             (None, ToolFormat.OPENAI, None),
             (None, ToolFormat.ANTHROPIC, None),
-            (None, ToolFormat.GEMINI, None),
+            (None, ToolFormat.GOOGLE, None),
             ([], ToolFormat.OPENAI, None),
             ([], ToolFormat.ANTHROPIC, None),
-            ([], ToolFormat.GEMINI, None),
+            ([], ToolFormat.GOOGLE, None),
         ]
     )
     def test_convert_to_returns_none_for_empty_input(self, tools_data, target_format, expected):
@@ -51,9 +51,9 @@ class TestLLMToolsHandler:
             ([{"name": "get_weather", "input_schema": {"type": "object"}}], ToolFormat.ANTHROPIC),
             (
                 [{"functionDeclarations": [{"name": "get_weather", "parameters": {"type": "object"}}]}],
-                ToolFormat.GEMINI,
+                ToolFormat.GOOGLE,
             ),
-            ([{"name": "get_weather", "parameters": {"type": "object"}}], ToolFormat.GEMINI),
+            ([{"name": "get_weather", "parameters": {"type": "object"}}], ToolFormat.GOOGLE),
         ]
     )
     def test_format_detection(self, tools_data, expected_format):

@@ -21,7 +21,7 @@ class TestGetEvalConfig(SimpleTestCase):
         [
             ("openai", "LLMA_EVAL_OPENAI_API_KEY", "OPENAI_API_KEY", "LLMA_EVAL_OPENAI_BASE_URL", "OPENAI_BASE_URL"),
             ("anthropic", "LLMA_EVAL_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY", None, None),
-            ("gemini", "LLMA_EVAL_GEMINI_API_KEY", "GEMINI_API_KEY", None, None),
+            ("google", "LLMA_EVAL_GEMINI_API_KEY", "GEMINI_API_KEY", None, None),
         ]
     )
     def test_eval_specific_key_takes_precedence(
@@ -47,7 +47,7 @@ class TestGetEvalConfig(SimpleTestCase):
         [
             ("openai", "LLMA_EVAL_OPENAI_API_KEY", "OPENAI_API_KEY"),
             ("anthropic", "LLMA_EVAL_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY"),
-            ("gemini", "LLMA_EVAL_GEMINI_API_KEY", "GEMINI_API_KEY"),
+            ("google", "LLMA_EVAL_GEMINI_API_KEY", "GEMINI_API_KEY"),
         ]
     )
     def test_falls_back_to_general_key_when_eval_empty(self, provider, eval_key_setting, fallback_key_setting):
@@ -71,7 +71,7 @@ class TestGetEvalConfig(SimpleTestCase):
         [
             ("openai", "LLMA_EVAL_OPENAI_API_KEY", "OPENAI_API_KEY"),
             ("anthropic", "LLMA_EVAL_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY"),
-            ("gemini", "LLMA_EVAL_GEMINI_API_KEY", "GEMINI_API_KEY"),
+            ("google", "LLMA_EVAL_GEMINI_API_KEY", "GEMINI_API_KEY"),
         ]
     )
     def test_returns_none_when_no_key_available(self, provider, eval_key_setting, fallback_key_setting):
@@ -103,16 +103,23 @@ class TestGetEvalConfig(SimpleTestCase):
         assert config is not None
         assert config.base_url == "https://api.openai.com/v1"
 
-    def test_anthropic_and_gemini_have_no_base_url(self):
+    def test_anthropic_and_google_have_no_base_url(self):
         with override_settings(
             LLMA_EVAL_ANTHROPIC_API_KEY="anthropic-key",
             LLMA_EVAL_GEMINI_API_KEY="gemini-key",
         ):
             anthropic_config = get_eval_config("anthropic")
-            gemini_config = get_eval_config("gemini")
+            google_config = get_eval_config("google")
 
         assert anthropic_config is not None
         assert anthropic_config.base_url is None
 
+        assert google_config is not None
+        assert google_config.base_url is None
+
+    def test_gemini_alias_resolves_to_google_config(self):
+        with override_settings(LLMA_EVAL_GEMINI_API_KEY="gemini-key"):
+            gemini_config = get_eval_config("gemini")
+
         assert gemini_config is not None
-        assert gemini_config.base_url is None
+        assert gemini_config.api_key == "gemini-key"

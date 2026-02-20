@@ -1,7 +1,7 @@
 from products.llm_analytics.backend.llm.client import Client
 from products.llm_analytics.backend.llm.errors import LLMError, ProviderMismatchError, UnsupportedProviderError
 from products.llm_analytics.backend.llm.providers.anthropic import AnthropicConfig
-from products.llm_analytics.backend.llm.providers.gemini import GeminiConfig
+from products.llm_analytics.backend.llm.providers.google import GoogleConfig
 from products.llm_analytics.backend.llm.providers.openai import OpenAIConfig
 from products.llm_analytics.backend.llm.types import CompletionRequest, CompletionResponse, StreamChunk, Usage
 
@@ -20,7 +20,7 @@ def get_default_models() -> list[dict[str, str]]:
         [{"id": m, "name": m, "provider": "Anthropic", "description": ""} for m in AnthropicConfig.SUPPORTED_MODELS]
     )
     models.extend(
-        [{"id": m, "name": m, "provider": "Gemini", "description": ""} for m in GeminiConfig.SUPPORTED_MODELS]
+        [{"id": m, "name": m, "provider": "Google", "description": ""} for m in GoogleConfig.SUPPORTED_MODELS]
     )
     return models
 
@@ -38,5 +38,5 @@ __all__ = [
     "get_default_models",
     "OpenAIConfig",
     "AnthropicConfig",
-    "GeminiConfig",
+    "GoogleConfig",
 ]

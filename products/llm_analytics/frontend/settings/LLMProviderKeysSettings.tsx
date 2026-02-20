@@ -84,8 +84,8 @@ function getKeyPlaceholder(provider: LLMProvider): string {
             return 'sk-...'
         case 'anthropic':
             return 'sk-ant-...'
-        case 'gemini':
-            return 'Enter your Gemini API key'
+        case 'google':
+            return 'Enter your Google API key'
         case 'openrouter':
             return 'Enter your OpenRouter API key'
         case 'fireworks':
@@ -242,7 +242,7 @@ function AddKeyModal(): JSX.Element {
                         options={[
                             { value: 'openai', label: 'OpenAI' },
                             { value: 'anthropic', label: 'Anthropic' },
-                            { value: 'gemini', label: 'Google Gemini' },
+                            { value: 'google', label: 'Google' },
                             { value: 'openrouter', label: 'OpenRouter' },
                             { value: 'fireworks', label: 'Fireworks' },
                         ]}

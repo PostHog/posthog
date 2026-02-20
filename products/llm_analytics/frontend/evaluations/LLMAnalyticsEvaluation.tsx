@@ -225,7 +225,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                         options={[
                                             { value: 'openai', label: LLM_PROVIDER_LABELS.openai },
                                             { value: 'anthropic', label: LLM_PROVIDER_LABELS.anthropic },
-                                            { value: 'gemini', label: LLM_PROVIDER_LABELS.gemini },
+                                            { value: 'google', label: LLM_PROVIDER_LABELS.google },
                                             { value: 'openrouter', label: LLM_PROVIDER_LABELS.openrouter },
                                             { value: 'fireworks', label: LLM_PROVIDER_LABELS.fireworks },
                                         ]}

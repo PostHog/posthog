@@ -93,7 +93,7 @@ class TestFormatConversions:
         ]
 
         handler = LLMToolsHandler(openai_tools)
-        result = handler.convert_to(ToolFormat.GEMINI)
+        result = handler.convert_to(ToolFormat.GOOGLE)
 
         expected = [
             {
@@ -197,7 +197,7 @@ class TestFormatConversions:
         ]
 
         handler = LLMToolsHandler(anthropic_tools)
-        result = handler.convert_to(ToolFormat.GEMINI)
+        result = handler.convert_to(ToolFormat.GOOGLE)
 
         expected = [
             {
@@ -272,7 +272,7 @@ class TestFormatConversions:
         ]
 
         handler = LLMToolsHandler(openai_tools)
-        result = handler.convert_to(ToolFormat.GEMINI)
+        result = handler.convert_to(ToolFormat.GOOGLE)
 
         # Check that forbidden fields are removed
         assert result is not None

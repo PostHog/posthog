@@ -15,12 +15,12 @@ import { SearchHighlight } from '../SearchHighlight'
 import { containsSearchQuery } from '../searchUtils'
 import { CompatMessage, MultiModalContentItem, VercelSDKImageMessage } from '../types'
 import {
-    getGeminiInlineData,
+    getGoogleInlineData,
     isAnthropicDocumentMessage,
     isAnthropicImageMessage,
-    isGeminiAudioMessage,
-    isGeminiDocumentMessage,
-    isGeminiImageMessage,
+    isGoogleAudioMessage,
+    isGoogleDocumentMessage,
+    isGoogleImageMessage,
     isOpenAIAudioMessage,
     isOpenAIFileMessage,
     isOpenAIImageURLMessage,
@@ -330,8 +330,8 @@ function renderContentItem(item: MultiModalContentItem, searchQuery?: string): J
         )
     }
 
-    if (isGeminiImageMessage(item)) {
-        const inlineData = getGeminiInlineData(item)
+    if (isGoogleImageMessage(item)) {
+        const inlineData = getGoogleInlineData(item)
         if (!inlineData) {
             return null
         }
@@ -370,8 +370,8 @@ function renderContentItem(item: MultiModalContentItem, searchQuery?: string): J
         )
     }
 
-    if (isGeminiDocumentMessage(item)) {
-        const inlineData = getGeminiInlineData(item)
+    if (isGoogleDocumentMessage(item)) {
+        const inlineData = getGoogleInlineData(item)
         if (!inlineData) {
             return null
         }
@@ -388,7 +388,7 @@ function renderContentItem(item: MultiModalContentItem, searchQuery?: string): J
         )
     }
 
-    if (isOpenAIAudioMessage(item) || isGeminiAudioMessage(item)) {
+    if (isOpenAIAudioMessage(item) || isGoogleAudioMessage(item)) {
         const mimeType = 'mime_type' in item ? item.mime_type : undefined
         const transcript = 'transcript' in item ? item.transcript : undefined
 
