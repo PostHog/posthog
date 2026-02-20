@@ -34,6 +34,6 @@ export const isCompareFilter = (data: unknown): data is CompareFilter => {
     return validators.CompareFilter(data) as boolean
 }
 
-export const isExperimentMetricValid = (data: unknown): data is ExperimentMetric => {
+export const isExperimentMetric = (data: unknown): data is ExperimentMetric => {
     return validators.ExperimentMetric(data) as boolean
 }
