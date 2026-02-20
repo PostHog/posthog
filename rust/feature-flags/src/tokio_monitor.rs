@@ -234,47 +234,107 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn monitor_reports_stable_metrics() {
+    async fn spawned_task_increases_alive_count() {
         let handle = tokio::runtime::Handle::current();
-        let monitor = TokioRuntimeMonitor::new(&handle);
+        let before = handle.metrics().num_alive_tasks();
 
-        // Stable metrics should be callable without panicking
+        // Hold a task alive — single-threaded runtime won't poll it until we yield
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let task = tokio::spawn(async move {
+            rx.await.ok();
+        });
+
+        let after = handle.metrics().num_alive_tasks();
+        assert!(
+            after > before,
+            "alive tasks should increase after spawn: before={before}, after={after}"
+        );
+
+        let monitor = TokioRuntimeMonitor::new(&handle);
         monitor.report_stable_metrics();
+
+        tx.send(()).ok();
+        task.await.ok();
     }
 
     #[cfg(tokio_unstable)]
-    #[tokio::test]
-    async fn monitor_reports_unstable_metrics() {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn poll_and_busy_deltas_advance_after_work() {
         let handle = tokio::runtime::Handle::current();
         let metrics = handle.metrics();
         let num_workers = metrics.num_workers();
         let monitor = TokioRuntimeMonitor::new(&handle);
 
         let mut state = PerWorkerState::new(num_workers, &metrics);
+        let polls_before: Vec<u64> = state.prev_polls.clone();
+        let busy_before: Vec<Duration> = state.prev_busy.clone();
 
-        // Simulate some work so deltas are non-trivial
-        tokio::task::yield_now().await;
+        // Spawn real tasks so worker threads register polls
+        let mut handles = Vec::new();
+        for _ in 0..50 {
+            handles.push(tokio::spawn(async {
+                tokio::task::yield_now().await;
+            }));
+        }
+        for h in handles {
+            h.await.ok();
+        }
 
         monitor.report_unstable_metrics(&mut state, Duration::from_secs(15));
+
+        // report_unstable_metrics updates prev_* to current cumulative values
+        let polls_advanced = state
+            .prev_polls
+            .iter()
+            .zip(polls_before.iter())
+            .any(|(after, before)| after > before);
+        assert!(
+            polls_advanced,
+            "poll counts should advance: before={polls_before:?}, after={:?}",
+            state.prev_polls
+        );
+
+        let busy_advanced = state
+            .prev_busy
+            .iter()
+            .zip(busy_before.iter())
+            .any(|(after, before)| after > before);
+        assert!(
+            busy_advanced,
+            "busy durations should advance: before={busy_before:?}, after={:?}",
+            state.prev_busy
+        );
     }
 
     #[cfg(tokio_unstable)]
-    #[tokio::test]
-    async fn busy_ratio_is_bounded() {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn busy_ratio_bounded_with_real_elapsed() {
         let handle = tokio::runtime::Handle::current();
         let metrics = handle.metrics();
         let num_workers = metrics.num_workers();
-        let monitor = TokioRuntimeMonitor::new(&handle);
 
-        let mut state = PerWorkerState::new(num_workers, &metrics);
+        let busy_before: Vec<Duration> = (0..num_workers)
+            .map(|i| metrics.worker_total_busy_duration(i))
+            .collect();
 
-        // Wait briefly so there's a real elapsed duration
+        let start = std::time::Instant::now();
+        for _ in 0..1000 {
+            tokio::task::yield_now().await;
+        }
         tokio::time::sleep(Duration::from_millis(50)).await;
+        let elapsed = start.elapsed();
 
-        let elapsed = Duration::from_millis(50);
-        monitor.report_unstable_metrics(&mut state, elapsed);
+        let mut total_busy_delta = Duration::ZERO;
+        for i in 0..num_workers {
+            let busy_now = metrics.worker_total_busy_duration(i);
+            total_busy_delta += busy_now.saturating_sub(busy_before[i]);
+        }
 
-        // The busy_ratio gauge was set — we can't easily read it back from the
-        // metrics crate, but we verified it doesn't panic with real data.
+        let ratio =
+            total_busy_delta.as_secs_f64() / (elapsed.as_secs_f64() * num_workers as f64);
+        assert!(
+            (0.0..=1.0).contains(&ratio),
+            "busy ratio should be in [0, 1], got {ratio}"
+        );
     }
 }
