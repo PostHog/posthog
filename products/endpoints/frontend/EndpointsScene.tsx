@@ -20,10 +20,10 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { Endpoints } from './Endpoints'
-import { InsightPickerEndpointModal } from './InsightPickerEndpointModal'
 import { endpointsLogic } from './endpointsLogic'
 import { EndpointsUsage } from './EndpointsUsage'
 import { endpointsUsageLogic } from './endpointsUsageLogic'
+import { InsightPickerEndpointModal } from './InsightPickerEndpointModal'
 import { OverlayForNewEndpointMenu } from './newEndpointMenu'
 
 const ENDPOINTS_PRODUCT_DESCRIPTION =
