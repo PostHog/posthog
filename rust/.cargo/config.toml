@@ -1,4 +1,7 @@
 [build]
+# Unlocks Tokio's unstable RuntimeMetrics API (per-worker poll counts, blocking pool stats, etc.).
+# Used by feature-flags/src/tokio_monitor.rs — no other crate calls unstable APIs.
+# Applies workspace-wide because Cargo doesn't support per-crate config within a workspace.
 rustflags = ["--cfg", "tokio_unstable"]
 
 [env]
