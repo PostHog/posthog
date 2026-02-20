@@ -55,7 +55,7 @@ function LinkedIssueDisplay({
                 <p className="text-muted text-xs mb-2">
                     We use{' '}
                     <Link to={docsLink} target="_blank" className="text-link">
-                        PostHog Error tracking
+                        PostHog Error Tracking
                     </Link>{' '}
                     to group errors into issues. This can take a moment while we fingerprint the error.
                 </p>

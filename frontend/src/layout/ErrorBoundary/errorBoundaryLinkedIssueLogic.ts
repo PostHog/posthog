@@ -52,7 +52,7 @@ export const errorBoundaryLinkedIssueLogic = kea<errorBoundaryLinkedIssueLogicTy
     }),
 
     listeners(({ actions, props }) => ({
-        startPolling: async () => {
+        startPolling: async (_, breakpoint) => {
             try {
                 const result = await retryWithBackoff(
                     () => api.errorTracking.getGitHubIssueUrlsForEventUuid(props.eventUuid, props.timestamp),
@@ -63,6 +63,7 @@ export const errorBoundaryLinkedIssueLogic = kea<errorBoundaryLinkedIssueLogicTy
                         shouldRetry: (e: unknown) => (e as any)?.status === 404,
                     }
                 )
+                breakpoint()
                 actions.setExternalUrls(result.external_urls)
                 posthog.capture('error_boundary_issue_lookup_completed', {
                     error_boundary_exception_id: props.eventUuid,
