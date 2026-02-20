@@ -51,7 +51,6 @@ async def flush_kafka_batch(
     kafka_producer: "_KafkaProducer",
     pending_messages: list,
     team_id: int,
-    cohort_id: int,
     current_offset: int,
     heartbeater,
     logger,
@@ -66,11 +65,11 @@ async def flush_kafka_batch(
 
     batch_size = len(pending_messages)
     batch_type = "final " if is_final else ""
-    heartbeater.details = (f"Flushing {batch_type}{batch_size} messages (cohort {cohort_id}, offset {current_offset})",)
+
+    heartbeater.details = (f"Flushing {batch_type}{batch_size} messages (offset {current_offset})",)
     logger.info(
         f"Flushing {batch_type}batch of {batch_size} messages",
         team_id=team_id,
-        cohort_id=cohort_id,
         offset=current_offset,
         batch_size=batch_size,
     )
@@ -86,7 +85,6 @@ async def flush_kafka_batch(
             logger.warning(
                 f"Kafka send result failure: {e}",
                 team_id=team_id,
-                cohort_id=cohort_id,
                 offset=current_offset,
                 error=str(e),
                 exception_type=type(e).__name__,
@@ -97,7 +95,6 @@ async def flush_kafka_batch(
         logger.error(
             f"Failed to send {failed_count}/{batch_size} Kafka messages",
             team_id=team_id,
-            cohort_id=cohort_id,
             offset=current_offset,
             failed_count=failed_count,
             batch_size=batch_size,
@@ -166,10 +163,12 @@ async def backfill_precalculated_person_properties_activity(
     inputs: BackfillPrecalculatedPersonPropertiesInputs,
 ) -> None:
     """
-    Backfill precalculated person properties for a batch of persons.
+    Backfill precalculated person properties for a batch of persons across multiple cohorts.
 
     Queries the current state of persons from the persons table and evaluates them
-    against the provided filters, writing results to the precalculated_person_properties table.
+    against all provided filters from multiple cohorts, writing results to the
+    precalculated_person_properties table. Each person is evaluated against all filters
+    from all cohorts in a single pass for efficiency.
     """
     bind_contextvars()
     cohort_ids = [cf.cohort_id for cf in inputs.cohort_filters]
@@ -319,7 +318,6 @@ async def backfill_precalculated_person_properties_activity(
                                                 kafka_producer,
                                                 pending_kafka_messages,
                                                 inputs.team_id,
-                                                cohort_id,  # Use current cohort_id from the loop
                                                 current_offset,
                                                 heartbeater,
                                                 logger,
@@ -356,13 +354,11 @@ async def backfill_precalculated_person_properties_activity(
 
         # Flush any remaining messages
         if pending_kafka_messages:
-            # For final flush, use the last cohort_id or 0 if no cohorts processed
-            final_cohort_id = inputs.cohort_filters[-1].cohort_id if inputs.cohort_filters else 0
+            # Final flush - batch may contain messages from multiple cohorts
             flushed = await flush_kafka_batch(
                 kafka_producer,
                 pending_kafka_messages,
                 inputs.team_id,
-                final_cohort_id,
                 current_offset,
                 heartbeater,
                 logger,

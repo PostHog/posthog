@@ -102,7 +102,14 @@ async def get_person_count_activity(
 
 @temporalio.workflow.defn(name="backfill-precalculated-person-properties-coordinator")
 class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
-    """Coordinator workflow that spawns multiple child workflows for parallel person processing."""
+    """Coordinator workflow that spawns multiple child workflows for parallel person processing.
+
+    Key behavioral change: Child workflow IDs are now based on the coordinator workflow ID
+    rather than individual cohort IDs. This allows a single set of child workflows to process
+    multiple cohorts together, improving efficiency and reducing Temporal overhead.
+
+    Child workflow ID format: {coordinator_workflow_id}-child-{worker_index}
+    """
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> BackfillPrecalculatedPersonPropertiesCoordinatorInputs:
