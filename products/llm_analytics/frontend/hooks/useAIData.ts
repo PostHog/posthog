@@ -38,7 +38,11 @@ export function useAIData(eventData: EventData | undefined): UseAIDataResult {
     }, [cached, loading, loadAIDataForEvent, eventId, input, output])
 
     if (!eventId) {
-        return { input: undefined, output: undefined, isLoading: false }
+        return {
+            input,
+            output,
+            isLoading: false,
+        }
     }
 
     return {
