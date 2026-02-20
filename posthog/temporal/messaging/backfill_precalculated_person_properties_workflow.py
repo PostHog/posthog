@@ -141,8 +141,8 @@ class BackfillPrecalculatedPersonPropertiesInputs:
     team_id: int
     cohort_filters: list[CohortFilters]  # All cohorts and their filters
     batch_size: int = 1000
-    offset: int = 0
-    limit: int | None = None  # Total persons to process (None = all)
+    start_uuid: str = ""  # Starting UUID for range filtering (empty = no lower bound)
+    end_uuid: str = ""  # Ending UUID for range filtering (empty = no upper bound)
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -153,8 +153,8 @@ class BackfillPrecalculatedPersonPropertiesInputs:
             "cohort_ids": [cf.cohort_id for cf in self.cohort_filters],
             "filter_count": total_filters,
             "batch_size": self.batch_size,
-            "offset": self.offset,
-            "limit": self.limit,
+            "start_uuid": self.start_uuid,
+            "end_uuid": self.end_uuid,
         }
 
 
@@ -175,18 +175,20 @@ async def backfill_precalculated_person_properties_activity(
     total_filters = sum(len(cf.filters) for cf in inputs.cohort_filters)
     logger = LOGGER.bind(team_id=inputs.team_id, cohort_count=len(cohort_ids), cohort_ids=cohort_ids)
 
+    uuid_range_desc = (
+        f"UUID range {inputs.start_uuid} to {inputs.end_uuid}" if inputs.start_uuid and inputs.end_uuid else "all UUIDs"
+    )
     logger.info(
         f"Starting person properties precalculation for {len(cohort_ids)} cohorts {cohort_ids}, "
-        f"processing {total_filters} total filters across {inputs.limit or 'all'} persons starting at offset {inputs.offset}"
+        f"processing {total_filters} total filters across {uuid_range_desc}"
     )
 
     async with Heartbeater(
-        details=(f"Processing persons (offset={inputs.offset}, batch_size={inputs.batch_size})",)
+        details=(f"Processing persons ({uuid_range_desc}, batch_size={inputs.batch_size})",)
     ) as heartbeater:
         start_time = time.time()
         kafka_producer = KafkaProducer()
 
-        current_offset = inputs.offset
         total_processed = 0
         total_events_produced = 0
         total_flushed = 0
@@ -194,18 +196,24 @@ async def backfill_precalculated_person_properties_activity(
         pending_kafka_messages = []
 
         while True:
-            # Check if we've hit the limit
-            if inputs.limit is not None and total_processed >= inputs.limit:
-                break
-
             # Calculate batch size for this iteration
-            remaining = inputs.limit - total_processed if inputs.limit is not None else inputs.batch_size
-            current_batch_size = min(inputs.batch_size, remaining)
+            current_batch_size = inputs.batch_size
 
-            heartbeater.details = (f"Fetching batch at offset {current_offset} (batch_size={current_batch_size})",)
+            heartbeater.details = (f"Fetching batch (batch_size={current_batch_size})",)
 
-            # Query person table for current batch with their distinct_ids
-            persons_query = """
+            # Query person table for current batch with their distinct_ids using UUID range filtering
+            uuid_filter_clause = ""
+            query_params = {"team_id": inputs.team_id, "limit": current_batch_size}
+
+            # Add UUID range filtering if specified
+            if inputs.start_uuid:
+                uuid_filter_clause += " AND id >= %(start_uuid)s"
+                query_params["start_uuid"] = inputs.start_uuid
+            if inputs.end_uuid:
+                uuid_filter_clause += " AND id <= %(end_uuid)s"
+                query_params["end_uuid"] = inputs.end_uuid
+
+            persons_query = f"""
                 SELECT
                     p.person_id,
                     p.properties,
@@ -215,7 +223,7 @@ async def backfill_precalculated_person_properties_activity(
                         id as person_id,
                         argMax(properties, version) as properties
                     FROM person
-                    WHERE team_id = %(team_id)s
+                    WHERE team_id = %(team_id)s{uuid_filter_clause}
                     GROUP BY id
                     HAVING argMax(is_deleted, version) = 0
                 ) p
@@ -236,15 +244,8 @@ async def backfill_precalculated_person_properties_activity(
                 ) pdi ON p.person_id = pdi.person_id
                 ORDER BY p.person_id
                 LIMIT %(limit)s
-                OFFSET %(offset)s
                 FORMAT JSONEachRow
             """
-
-            query_params = {
-                "team_id": inputs.team_id,
-                "limit": current_batch_size,
-                "offset": current_offset,
-            }
 
             batch_count = 0
 
@@ -318,7 +319,7 @@ async def backfill_precalculated_person_properties_activity(
                                                 kafka_producer,
                                                 pending_kafka_messages,
                                                 inputs.team_id,
-                                                current_offset,
+                                                total_processed,
                                                 heartbeater,
                                                 logger,
                                             )
@@ -338,10 +339,9 @@ async def backfill_precalculated_person_properties_activity(
             if batch_count == 0:
                 break
 
-            logger.info(f"Streamed {batch_count} persons at offset {current_offset}")
+            logger.info(f"Streamed {batch_count} persons in current batch")
 
             total_processed += batch_count
-            current_offset += batch_count
 
             # Update heartbeat
             heartbeater.details = (
@@ -359,7 +359,7 @@ async def backfill_precalculated_person_properties_activity(
                 kafka_producer,
                 pending_kafka_messages,
                 inputs.team_id,
-                current_offset,
+                total_processed,
                 heartbeater,
                 logger,
                 is_final=True,
