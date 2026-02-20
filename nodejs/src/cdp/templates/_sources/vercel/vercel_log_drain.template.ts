@@ -7,7 +7,7 @@ export const template: HogFunctionTemplate = {
     id: 'template-source-vercel-log-drain',
     name: 'Vercel logs',
     description: 'Capture Vercel deployment logs as PostHog events',
-    icon_url: '/static/services/vercel.png',
+    icon_url: '/static/services/webhook.svg',
     category: ['Infrastructure', 'Monitoring'],
     code_language: 'hog',
     code: `
@@ -99,16 +99,17 @@ fun truncateIfNeeded(s) {
 }
 
 // Distinct ID generation approaches:
-// ┌────────────────────┬──────────────────────────────────┬────────────────────────────┐
-// │ Approach           │ Hash Input                       │ Grouping                   │
-// ├────────────────────┼──────────────────────────────────┼────────────────────────────┤
-// │ Request-level      │ deploymentId:requestId           │ Each request is unique     │
-// │ User-level         │ projectId:clientIp:userAgent     │ Same user across requests  │
-// └────────────────────┴──────────────────────────────────┴────────────────────────────┘
+// ┌────────────────────┬───────────────────────────────────────┬────────────────────────────┐
+// │ Approach           │ Hash Input                            │ Grouping                   │
+// ├────────────────────┼───────────────────────────────────────┼────────────────────────────┤
+// │ Request-level      │ deploymentId:requestId                │ Each request is unique     │
+// │ User-level         │ projectId:host:clientIp:userAgent     │ Same user across requests  │
+// └────────────────────┴───────────────────────────────────────┴────────────────────────────┘
 // Using: User-level grouping
+let host := logs[1].proxy.host ?? logs[1].host ?? ''
 let clientIp := logs[1].proxy.clientIp ?? ''
 let userAgent := logs[1].proxy.userAgent[1] ?? ''
-let distinctId := f'vercel_{sha256Hex(f'{logs[1].projectId}:{clientIp}:{userAgent}')}'
+let distinctId := f'vercel_{sha256Hex(f'{logs[1].projectId}:{host}:{clientIp}:{userAgent}')}'
 
 // Build array of log entries
 let logEntries := []
