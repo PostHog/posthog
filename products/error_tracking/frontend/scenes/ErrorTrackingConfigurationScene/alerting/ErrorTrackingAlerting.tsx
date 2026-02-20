@@ -16,32 +16,32 @@ const HOG_FUNCTION_FILTER_LIST = SUB_TEMPLATE_IDS.map(getFiltersFromSubTemplateI
 ) as CyclotronJobFiltersType[]
 
 export function ErrorTrackingAlerting(): JSX.Element {
-    const { newView } = useValues(errorTrackingAlertWizardLogic)
-    const { setNewView, resetWizard } = useActions(errorTrackingAlertWizardLogic)
+    const { alertCreationView } = useValues(errorTrackingAlertWizardLogic)
+    const { setAlertCreationView, resetWizard } = useActions(errorTrackingAlertWizardLogic)
 
-    if (newView === 'wizard') {
+    if (alertCreationView === 'wizard') {
         return (
             <ErrorTrackingAlertWizard
                 onCancel={() => {
-                    setNewView('none')
+                    setAlertCreationView('none')
                     resetWizard()
                 }}
                 onSwitchToTraditional={() => {
-                    setNewView('traditional')
+                    setAlertCreationView('traditional')
                     resetWizard()
                 }}
             />
         )
     }
 
-    if (newView === 'traditional') {
+    if (alertCreationView === 'traditional') {
         return (
             <HogFunctionTemplateList
                 type="destination"
                 subTemplateIds={SUB_TEMPLATE_IDS}
                 getConfigurationOverrides={(id) => (id ? getFiltersFromSubTemplateId(id) : undefined)}
                 extraControls={
-                    <LemonButton type="secondary" size="small" onClick={() => setNewView('none')}>
+                    <LemonButton type="secondary" size="small" onClick={() => setAlertCreationView('none')}>
                         Cancel
                     </LemonButton>
                 }
@@ -54,7 +54,7 @@ export function ErrorTrackingAlerting(): JSX.Element {
             forceFilterGroups={HOG_FUNCTION_FILTER_LIST}
             type="internal_destination"
             extraControls={
-                <LemonButton type="primary" size="small" onClick={() => setNewView('wizard')}>
+                <LemonButton type="primary" size="small" onClick={() => setAlertCreationView('wizard')}>
                     New notification
                 </LemonButton>
             }

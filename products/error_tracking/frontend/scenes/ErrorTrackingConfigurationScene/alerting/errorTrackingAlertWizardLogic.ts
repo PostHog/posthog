@@ -107,7 +107,7 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
     path(['products', 'error_tracking', 'frontend', 'alerting', 'errorTrackingAlertWizardLogic']),
 
     actions({
-        setNewView: (view: NewView) => ({ view }),
+        setAlertCreationView: (view: AlertCreationView) => ({ view }),
         setStep: (step: WizardStep) => ({ step }),
         setDestination: (destination: WizardDestination) => ({ destination }),
         setTrigger: (trigger: WizardTrigger) => ({ trigger }),
@@ -118,11 +118,11 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
     }),
 
     reducers({
-        newView: [
-            'none' as NewView,
+        alertCreationView: [
+            'none' as AlertCreationView,
             {
-                setNewView: (_, { view }) => view,
-                createAlertSuccess: () => 'none' as NewView,
+                setAlertCreationView: (_, { view }) => view,
+                createAlertSuccess: () => 'none' as AlertCreationView,
             },
         ],
         currentStep: [
