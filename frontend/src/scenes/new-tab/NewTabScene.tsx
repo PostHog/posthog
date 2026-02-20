@@ -5,6 +5,7 @@ import { useCallback } from 'react'
 import { Search } from 'lib/components/Search/Search'
 import { SearchItem } from 'lib/components/Search/searchLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: NewTabScene,
@@ -18,6 +19,20 @@ export function NewTabScene(): JSX.Element {
         }
     }, [])
 
+    const suggestedItems: SearchItem[] =
+        searchParams.source === 'sql_editor'
+            ? [
+                  {
+                      id: 'suggested-sql-editor',
+                      name: 'SQL editor',
+                      displayName: 'SQL editor',
+                      category: 'suggested',
+                      href: urls.sqlEditor(),
+                      itemType: 'sql_editor',
+                  },
+              ]
+            : []
+
     return (
         <Search.Root
             logicKey="new-tab"
@@ -25,7 +40,7 @@ export function NewTabScene(): JSX.Element {
             onItemSelect={handleItemSelect}
             showAskAiLink
             className="size-full grow"
-            defaultSearchValue={searchParams.source === 'sql_editor' ? 'sql editor' : ''}
+            suggestedItems={suggestedItems}
         >
             <div className="sticky top-0 w-full max-w-[640px] mx-auto">
                 <Search.Input autoFocus className="pt-8" />
