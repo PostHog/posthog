@@ -22,7 +22,6 @@ import {
     FeatureFlagReleaseConditionsLogicProps,
     featureFlagReleaseConditionsLogic,
 } from './featureFlagReleaseConditionsLogic'
-import { type ModifiedField } from './FeatureFlagTemplates'
 
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
     readOnly?: boolean
