@@ -25,7 +25,6 @@ export interface VirtualizedRowData {
     onRow?: (record: Record<string, any>, index: number) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     firstColumnSticky?: boolean
     pinnedColumns?: string[]
-    pinnedColumnWidths?: number[]
     rowActions?: (record: Record<string, any>, recordIndex: number) => React.ReactNode | null
     startIndex: number
     rowCount: number
@@ -51,7 +50,6 @@ function VirtualizedRow({
     onRow,
     firstColumnSticky,
     pinnedColumns,
-    pinnedColumnWidths,
     rowActions,
     startIndex,
     rowCount,
@@ -63,12 +61,11 @@ function VirtualizedRow({
     const record = dataSource[index]
     const recordIndex = startIndex + index
 
-    const rowKeyDetermined =
-        rowKey != null
-            ? typeof rowKey === 'function'
-                ? rowKey(record, index)
-                : (record[rowKey] ?? recordIndex)
-            : recordIndex
+    const rowKeyDetermined = rowKey
+        ? typeof rowKey === 'function'
+            ? rowKey(record, index)
+            : (record[rowKey] ?? index)
+        : index
 
     const rowClassNameDetermined = typeof rowClassName === 'function' ? rowClassName(record, index) : rowClassName
     const rowRibbonColorDetermined =
@@ -130,7 +127,7 @@ function VirtualizedRow({
                             const { isSticky: isColumnSticky, leftPosition } = getStickyColumnInfo(
                                 columnKeyOrIndex.toString(),
                                 pinnedColumns,
-                                pinnedColumnWidths,
+                                undefined,
                                 columns
                             )
 
@@ -165,7 +162,7 @@ function VirtualizedRow({
                         })
                 )}
                 {rowActions && (
-                    <div className="LemonTable__virtualized-cell w-0">
+                    <div className="LemonTable__virtualized-cell LemonTable__virtualized-cell--actions">
                         {(() => {
                             const actionsOverlay = rowActions(record, recordIndex)
                             return actionsOverlay ? <More overlay={actionsOverlay} /> : null
@@ -193,7 +190,6 @@ export interface VirtualizedTableBodyProps {
     onRow?: (record: Record<string, any>, index: number) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     firstColumnSticky?: boolean
     pinnedColumns?: string[]
-    pinnedColumnWidths?: number[]
     rowActions?: (record: Record<string, any>, recordIndex: number) => React.ReactNode | null
     startIndex: number
     loading?: boolean
@@ -215,7 +211,6 @@ export function VirtualizedTableBody({
     onRow,
     firstColumnSticky,
     pinnedColumns,
-    pinnedColumnWidths,
     rowActions,
     startIndex,
     loading,
@@ -239,7 +234,6 @@ export function VirtualizedTableBody({
             onRow: onRow as VirtualizedRowData['onRow'],
             firstColumnSticky,
             pinnedColumns,
-            pinnedColumnWidths,
             rowActions: rowActions as VirtualizedRowData['rowActions'],
             startIndex,
             rowCount: dataSource.length,
@@ -256,7 +250,6 @@ export function VirtualizedTableBody({
             onRow,
             firstColumnSticky,
             pinnedColumns,
-            pinnedColumnWidths,
             rowActions,
             startIndex,
         ]
