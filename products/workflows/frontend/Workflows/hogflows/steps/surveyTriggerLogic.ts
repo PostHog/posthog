@@ -14,67 +14,28 @@ const SURVEYS_PAGE_SIZE = 20
 export const surveyTriggerLogic = kea<surveyTriggerLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'hogflows', 'steps', 'surveyTriggerLogic']),
     actions({
-        loadMoreSurveys: true,
-        loadMoreSurveysFailure: true,
-        appendSurveys: (surveys: Survey[], rawCount: number) => ({ surveys, rawCount }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
-    }),
-    reducers({
-        searchTerm: [
-            '' as string,
-            {
-                setSearchTerm: (_, { searchTerm }) => searchTerm,
-            },
-        ],
-        allSurveys: [
-            [] as Survey[],
-            {
-                loadSurveysSuccess: (_, { surveys }) => surveys,
-                appendSurveys: (state, { surveys }) => [...state, ...surveys],
-            },
-        ],
-        apiOffset: [
-            0,
-            {
-                loadSurveysSuccess: (_, { surveys }) => surveys.length,
-                appendSurveys: (state, { rawCount }) => state + rawCount,
-            },
-        ],
-        hasMoreSurveys: [
-            true,
-            {
-                loadSurveysSuccess: (_, { surveys }) => surveys.length >= SURVEYS_PAGE_SIZE,
-                appendSurveys: (_, { rawCount }) => rawCount >= SURVEYS_PAGE_SIZE,
-            },
-        ],
-        moreSurveysLoading: [
-            false,
-            {
-                loadMoreSurveys: () => true,
-                loadMoreSurveysFailure: () => false,
-                appendSurveys: () => false,
-            },
-        ],
-    }),
-    selectors({
-        filteredSurveys: [
-            (s) => [s.allSurveys, s.searchTerm],
-            (allSurveys: Survey[], searchTerm: string): Survey[] => {
-                if (!searchTerm) {
-                    return allSurveys
-                }
-                const lower = searchTerm.toLowerCase()
-                return allSurveys.filter((s) => s.name.toLowerCase().includes(lower))
-            },
-        ],
     }),
     loaders(({ values }) => ({
         surveys: [
             [] as Survey[],
             {
                 loadSurveys: async () => {
-                    const response = await api.surveys.list({ limit: SURVEYS_PAGE_SIZE })
-                    return response.results.filter((s) => !s.archived)
+                    const response = await api.surveys.list({ limit: SURVEYS_PAGE_SIZE, archived: false })
+                    return response.results
+                },
+            },
+        ],
+        moreSurveys: [
+            [] as Survey[],
+            {
+                loadMoreSurveys: async () => {
+                    const response = await api.surveys.list({
+                        limit: SURVEYS_PAGE_SIZE,
+                        offset: values.allSurveys.length,
+                        archived: false,
+                    })
+                    return response.results
                 },
             },
         ],
@@ -91,34 +52,58 @@ export const surveyTriggerLogic = kea<surveyTriggerLogicType>([
             },
         ],
     })),
+    reducers({
+        searchTerm: [
+            '' as string,
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+        allSurveys: [
+            [] as Survey[],
+            {
+                loadSurveysSuccess: (_, { surveys }) => surveys,
+                loadMoreSurveysSuccess: (state, { moreSurveys }) => [...state, ...moreSurveys],
+            },
+        ],
+        hasMoreSurveys: [
+            true,
+            {
+                loadSurveysSuccess: (_, { surveys }) => surveys.length >= SURVEYS_PAGE_SIZE,
+                loadMoreSurveysSuccess: (_, { moreSurveys }) => moreSurveys.length >= SURVEYS_PAGE_SIZE,
+            },
+        ],
+    }),
+    selectors({
+        filteredSurveys: [
+            (s) => [s.allSurveys, s.searchTerm],
+            (allSurveys: Survey[], searchTerm: string): Survey[] => {
+                if (!searchTerm) {
+                    return allSurveys
+                }
+                const lower = searchTerm.toLowerCase()
+                return allSurveys.filter((s) => s.name.toLowerCase().includes(lower))
+            },
+        ],
+    }),
     afterMount(({ actions }) => {
         actions.loadSurveys()
     }),
-    listeners(({ values, actions }) => ({
-        loadMoreSurveys: async () => {
-            try {
-                const response = await api.surveys.list({
-                    limit: SURVEYS_PAGE_SIZE,
-                    offset: values.apiOffset,
-                })
-                const filtered = response.results.filter((s) => !s.archived)
-                actions.appendSurveys(filtered, response.results.length)
-            } catch (e) {
-                lemonToast.error('Failed to load more surveys: ' + (e as Error).message)
-                actions.loadMoreSurveysFailure()
-            }
-        },
+    listeners(({ actions }) => ({
         loadSurveysSuccess: () => {
+            actions.loadResponseCounts()
+        },
+        loadMoreSurveysSuccess: () => {
             actions.loadResponseCounts()
         },
         loadSurveysFailure: ({ error }) => {
             lemonToast.error('Failed to load surveys: ' + error)
         },
+        loadMoreSurveysFailure: ({ error }) => {
+            lemonToast.error('Failed to load more surveys: ' + error)
+        },
         loadResponseCountsFailure: ({ error }) => {
             lemonToast.error('Failed to load response counts: ' + error)
-        },
-        appendSurveys: () => {
-            actions.loadResponseCounts()
         },
     })),
 ])

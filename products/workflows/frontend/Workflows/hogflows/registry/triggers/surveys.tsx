@@ -16,7 +16,7 @@ import { registerTriggerType } from 'products/workflows/frontend/Workflows/hogfl
 import { workflowLogic } from 'products/workflows/frontend/Workflows/workflowLogic'
 
 import { surveyTriggerLogic } from '../../steps/surveyTriggerLogic'
-import { getSelectedSurveyId, isSurveyTriggerConfig } from '../../steps/utils'
+import { HogFlowAction } from '../../steps/types'
 
 type EventTriggerConfig = {
     type: 'event'
@@ -26,6 +26,28 @@ type EventTriggerConfig = {
         actions?: any[]
         filter_test_accounts?: boolean
     }
+}
+
+export function isSurveyTriggerConfig(config: Extract<HogFlowAction, { type: 'trigger' }>['config']): boolean {
+    if (config.type !== 'event') {
+        return false
+    }
+    const events = config.filters?.events ?? []
+    return events.length === 1 && events[0]?.id === SurveyEventName.SENT
+}
+
+export function getSelectedSurveyId(config: HogFlowAction['config']): string | null | 'any' {
+    if (!('type' in config) || config.type !== 'event') {
+        return null
+    }
+    const surveyIdProp = config.filters?.properties?.find((p: any) => p.key === '$survey_id')
+    if (!surveyIdProp) {
+        return null
+    }
+    if (surveyIdProp.operator === 'is_set') {
+        return 'any'
+    }
+    return surveyIdProp.value ?? null
 }
 
 function getCompletedResponsesOnly(config: EventTriggerConfig): boolean {

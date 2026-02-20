@@ -99,7 +99,6 @@ describe('surveyTriggerLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['loadSurveysSuccess']).toMatchValues({
                 hasMoreSurveys: true,
-                apiOffset: 20,
             })
         })
 
@@ -112,11 +111,10 @@ describe('surveyTriggerLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['loadSurveysSuccess']).toMatchValues({
                 hasMoreSurveys: false,
-                apiOffset: 5,
             })
         })
 
-        it('appends more surveys and updates offset consistently', async () => {
+        it('appends more surveys on loadMoreSurveys', async () => {
             const firstPage = makeSurveys(20)
             const secondPage = makeSurveys(5)
             useSetupMocks({ surveys: firstPage, moreSurveys: secondPage })
@@ -126,16 +124,14 @@ describe('surveyTriggerLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['loadSurveysSuccess']).toMatchValues({
                 allSurveys: firstPage,
-                apiOffset: 20,
             })
 
             await expectLogic(logic, () => {
                 logic.actions.loadMoreSurveys()
             })
-                .toDispatchActions(['loadMoreSurveys', 'appendSurveys'])
+                .toDispatchActions(['loadMoreSurveys', 'loadMoreSurveysSuccess'])
                 .toMatchValues({
                     allSurveys: [...firstPage, ...secondPage],
-                    apiOffset: 25,
                     hasMoreSurveys: false,
                 })
         })
@@ -152,11 +148,11 @@ describe('surveyTriggerLogic', () => {
                 logic.actions.loadMoreSurveys()
             })
                 .toMatchValues({ moreSurveysLoading: true })
-                .toDispatchActions(['appendSurveys'])
+                .toDispatchActions(['loadMoreSurveysSuccess'])
                 .toMatchValues({ moreSurveysLoading: false })
         })
 
-        it('reloads response counts after appending surveys', async () => {
+        it('reloads response counts after loading more surveys', async () => {
             const firstPage = makeSurveys(20)
             const secondPage = makeSurveys(3)
             useSetupMocks({ surveys: firstPage, moreSurveys: secondPage })
@@ -167,7 +163,7 @@ describe('surveyTriggerLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.loadMoreSurveys()
-            }).toDispatchActions(['appendSurveys', 'loadResponseCounts'])
+            }).toDispatchActions(['loadMoreSurveysSuccess', 'loadResponseCounts'])
         })
     })
 

@@ -4290,6 +4290,7 @@ const api = {
                 limit?: number
                 offset?: number
                 search?: string
+                archived?: boolean
             } = {
                 limit: SURVEY_PAGE_SIZE,
             }
