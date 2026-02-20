@@ -123,7 +123,7 @@ impl TokioRuntimeMonitor {
         let mut total_busy_delta = Duration::ZERO;
 
         for i in 0..num_workers {
-            let label = [("worker".to_string(), i.to_string())];
+            let label = &state.worker_labels[i];
 
             // Busy duration
             let busy = self.metrics.worker_total_busy_duration(i);
@@ -133,7 +133,7 @@ impl TokioRuntimeMonitor {
 
             gauge(
                 TOKIO_WORKER_BUSY_DURATION_DELTA,
-                &label,
+                label,
                 busy_delta.as_secs_f64(),
             );
 
@@ -141,35 +141,35 @@ impl TokioRuntimeMonitor {
             let polls = self.metrics.worker_poll_count(i);
             let poll_delta = polls.saturating_sub(state.prev_polls[i]);
             state.prev_polls[i] = polls;
-            gauge(TOKIO_WORKER_POLL_DELTA, &label, poll_delta as f64);
+            gauge(TOKIO_WORKER_POLL_DELTA, label, poll_delta as f64);
 
             // Park count
             let parks = self.metrics.worker_park_count(i);
             let park_delta = parks.saturating_sub(state.prev_parks[i]);
             state.prev_parks[i] = parks;
-            gauge(TOKIO_WORKER_PARK_DELTA, &label, park_delta as f64);
+            gauge(TOKIO_WORKER_PARK_DELTA, label, park_delta as f64);
 
             // Steal count
             let steals = self.metrics.worker_steal_count(i);
             let steal_delta = steals.saturating_sub(state.prev_steals[i]);
             state.prev_steals[i] = steals;
-            gauge(TOKIO_WORKER_STEAL_DELTA, &label, steal_delta as f64);
+            gauge(TOKIO_WORKER_STEAL_DELTA, label, steal_delta as f64);
 
             // Overflow count
             let overflows = self.metrics.worker_overflow_count(i);
             let overflow_delta = overflows.saturating_sub(state.prev_overflows[i]);
             state.prev_overflows[i] = overflows;
-            gauge(TOKIO_WORKER_OVERFLOW_DELTA, &label, overflow_delta as f64);
+            gauge(TOKIO_WORKER_OVERFLOW_DELTA, label, overflow_delta as f64);
 
             // Instantaneous gauges (not deltas)
             gauge(
                 TOKIO_WORKER_LOCAL_QUEUE_DEPTH,
-                &label,
+                label,
                 self.metrics.worker_local_queue_depth(i) as f64,
             );
             gauge(
                 TOKIO_WORKER_MEAN_POLL_TIME_US,
-                &label,
+                label,
                 self.metrics.worker_mean_poll_time(i).as_micros() as f64,
             );
         }
@@ -187,6 +187,7 @@ impl TokioRuntimeMonitor {
 #[cfg(tokio_unstable)]
 struct PerWorkerState {
     last_sample: Instant,
+    worker_labels: Vec<[(String, String); 1]>,
     prev_busy: Vec<Duration>,
     prev_polls: Vec<u64>,
     prev_parks: Vec<u64>,
@@ -203,6 +204,10 @@ impl PerWorkerState {
         let mut prev_steals = vec![0u64; num_workers];
         let mut prev_overflows = vec![0u64; num_workers];
 
+        let worker_labels: Vec<[(String, String); 1]> = (0..num_workers)
+            .map(|i| [("worker".to_string(), i.to_string())])
+            .collect();
+
         // Snapshot current values so the first delta is accurate
         for i in 0..num_workers {
             prev_busy[i] = metrics.worker_total_busy_duration(i);
@@ -214,6 +219,7 @@ impl PerWorkerState {
 
         Self {
             last_sample: Instant::now(),
+            worker_labels,
             prev_busy,
             prev_polls,
             prev_parks,
