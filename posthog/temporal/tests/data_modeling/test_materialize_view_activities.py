@@ -120,7 +120,7 @@ class TestFailMaterializationActivity:
         assert system_props["last_run_error"] == "Query failed: timeout"
         assert "last_run_at" in system_props
 
-    async def test_sends_failure_notification_email(self, activity_environment, ateam, anode, ajob, asaved_query):
+    async def test_does_not_send_per_failure_email(self, activity_environment, ateam, anode, ajob):
         inputs = FailMaterializationInputs(
             team_id=ateam.pk,
             node_id=str(anode.id),
@@ -128,9 +128,9 @@ class TestFailMaterializationActivity:
             job_id=str(ajob.id),
             error="Test error message",
         )
-        with unittest.mock.patch("posthog.tasks.email.send_saved_query_materialization_failure") as mock_send_email:
+        with unittest.mock.patch("posthog.tasks.email.send_matview_failure_digest") as mock_digest:
             await activity_environment.run(fail_materialization_activity, inputs)
-            mock_send_email.assert_called_once_with(str(asaved_query.id))
+            mock_digest.assert_not_called()
 
 
 class TestSucceedMaterializationActivity:
