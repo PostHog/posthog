@@ -301,6 +301,7 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                     key: 'LLMAnalyticsClusters',
                     name: 'Clusters',
                     path: urls.llmAnalyticsClusters(),
+                    iconType: 'llm_clusters',
                 },
                 {
                     key: 'LLMAnalyticsClustersRun',
@@ -308,10 +309,12 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                         ? dayjs(runId.split('_')[1] || runId).format('MMM D, YYYY')
                         : 'Run',
                     path: urls.llmAnalyticsClusters(runId),
+                    iconType: 'llm_clusters',
                 },
                 {
                     key: 'LLMAnalyticsCluster',
                     name: cluster?.title || 'Cluster',
+                    iconType: 'llm_clusters',
                 },
             ],
         ],
