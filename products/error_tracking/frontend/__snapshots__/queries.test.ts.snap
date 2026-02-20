@@ -1,6 +1,6 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`queries errorTrackingQuery usage in web analytics should return a query with the correct properties 1`] = `
+exports[`queries > errorTrackingQuery > usage in web analytics > should return a query with the correct properties 1`] = `
 {
   "columns": [
     "error",

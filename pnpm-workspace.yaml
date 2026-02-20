@@ -36,6 +36,8 @@ catalog:
     # Testing
     jest: ^29.7.0
     '@types/jest': ^29.5.12
+    vitest: ^3.0.0
+    '@vitest/coverage-v8': ^3.0.0
     '@types/node': ^22.13.14
     # Storybook
     '@storybook/addon-actions': ^7.6.4

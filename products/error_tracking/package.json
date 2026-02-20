@@ -1,7 +1,8 @@
 {
     "name": "@posthog/products-error-tracking",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
+        "test": "vitest run"
     },
     "dependencies": {
         "kea": "catalog:",
@@ -10,6 +11,9 @@
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
         "posthog-js": "catalog:"
+    },
+    "devDependencies": {
+        "vitest": "catalog:"
     },
     "peerDependencies": {
         "@dnd-kit/core": "*",

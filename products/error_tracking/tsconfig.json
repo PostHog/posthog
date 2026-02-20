@@ -1,6 +1,7 @@
 {
     "extends": "../../tsconfig.json",
     "compilerOptions": {
-        "composite": true
+        "composite": true,
+        "types": ["vitest/globals"]
     }
 }
