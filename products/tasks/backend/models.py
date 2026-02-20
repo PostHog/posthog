@@ -2,7 +2,10 @@ import os
 import re
 import json
 import uuid
-from typing import Literal, Optional
+from typing import TYPE_CHECKING, Literal, Optional
+
+if TYPE_CHECKING:
+    from products.slack_app.backend.slack_thread import SlackThreadContext
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -31,6 +34,7 @@ class Task(DeletedMetaFields, models.Model):
         ERROR_TRACKING = "error_tracking", "Error Tracking"
         EVAL_CLUSTERS = "eval_clusters", "Eval Clusters"
         USER_CREATED = "user_created", "User Created"
+        SLACK = "slack", "Slack"
         SUPPORT_QUEUE = "support_queue", "Support Queue"
         SESSION_SUMMARIES = "session_summaries", "Session Summaries"
 
@@ -142,6 +146,7 @@ class Task(DeletedMetaFields, models.Model):
         repository: str,  # Format: "organization/repository", e.g. "posthog/posthog-js"
         create_pr: bool = True,
         mode: str = "background",
+        slack_thread_context: Optional["SlackThreadContext"] = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -173,6 +178,7 @@ class Task(DeletedMetaFields, models.Model):
             team_id=task.team.id,
             user_id=user_id,
             create_pr=create_pr,
+            slack_thread_context=slack_thread_context,
         )
 
         return task

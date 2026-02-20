@@ -160,6 +160,21 @@ CONSTANCE_CONFIG = {
         "Used to validate incoming webhook events for the Support Slack bot.",
         str,
     ),
+    "SLACK_TWIG_CLIENT_ID": (
+        get_from_env("SLACK_TWIG_CLIENT_ID", default=""),
+        "Used to enable the 'Add to Slack' button for the Twig app",
+        str,
+    ),
+    "SLACK_TWIG_CLIENT_SECRET": (
+        get_from_env("SLACK_TWIG_CLIENT_SECRET", default=""),
+        "Used to enable the 'Add to Slack' button for the Twig app",
+        str,
+    ),
+    "SLACK_TWIG_SIGNING_SECRET": (
+        get_from_env("SLACK_TWIG_SIGNING_SECRET", default=""),
+        "Used to validate Slack events from the Twig app",
+        str,
+    ),
     "GITHUB_WEBHOOK_SECRET": (
         get_from_env("GITHUB_WEBHOOK_SECRET", default=""),
         "Used to validate GitHub webhook events (HMAC-SHA256 signature verification)",
@@ -241,6 +256,9 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SUPPORT_SLACK_APP_CLIENT_ID",
     "SUPPORT_SLACK_APP_CLIENT_SECRET",
     "SUPPORT_SLACK_SIGNING_SECRET",
+    "SLACK_TWIG_CLIENT_ID",
+    "SLACK_TWIG_CLIENT_SECRET",
+    "SLACK_TWIG_SIGNING_SECRET",
     "GITHUB_WEBHOOK_SECRET",
     "PARALLEL_DASHBOARD_ITEM_CACHE",
     "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
@@ -260,5 +278,7 @@ SECRET_SETTINGS = [
     "SLACK_APP_SIGNING_SECRET",
     "SUPPORT_SLACK_SIGNING_SECRET",
     "SUPPORT_SLACK_APP_CLIENT_SECRET",
+    "SLACK_TWIG_CLIENT_SECRET",
+    "SLACK_TWIG_SIGNING_SECRET",
     "GITHUB_WEBHOOK_SECRET",
 ]
