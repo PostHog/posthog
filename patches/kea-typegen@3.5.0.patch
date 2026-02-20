@@ -1,0 +1,278 @@
+diff --git a/dist/src/utils.js b/dist/src/utils.js
+--- a/dist/src/utils.js
++++ b/dist/src/utils.js
+@@ -25,7 +25,7 @@
+ }
+ exports.programFromSource = programFromSource;
+ function rejectImportPath(path) {
+-    if (path.includes('/node_modules/typescript/')) {
++    if (path.includes('/node_modules/typescript/') || path === 'typescript' || path.startsWith('typescript/')) {
+         return true;
+     }
+     return false;
+@@ -220,13 +220,108 @@
+         typeName = typeName || declaration.name.getText();
+     }
+     if (typeName && !isTypeNameAlreadyImported(parsedLogic, typeName)) {
+-        const importFilename = getFilenameForNode(declaration, checker);
++        const importFilenameFromNode = getFilenameForNode(declaration, checker);
++        const sourceFileImportedPackagePath = importFilenameFromNode &&
++            findImportPathForPackageInSourceFile(parsedLogic.node.getSourceFile(), importFilenameFromNode, typeName.split('.')[0], checker);
++        const normalizedNodeModuleImportPath = importFilenameFromNode && normalizeNodeModulesFilePathToImportSpecifier(importFilenameFromNode);
++        const importFilename = sourceFileImportedPackagePath || normalizedNodeModuleImportPath || importFilenameFromNode;
+         if (importFilename && !rejectImportPath(importFilename)) {
+             addTypeImport(parsedLogic, importFilename, typeName);
+         }
+     }
+ }
+ exports.storeExtractedSymbol = storeExtractedSymbol;
++function findImportPathForPackageInSourceFile(sourceFile, importFilename, typeName, checker) {
++    const packageName = extractNpmPackageName(importFilename);
++    if (!packageName) {
++        return;
++    }
++    for (const statement of sourceFile.statements) {
++        if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) {
++            continue;
++        }
++        const importPath = statement.moduleSpecifier.text;
++        if (extractNpmPackageName(importPath) === packageName &&
++            moduleSpecifierExportsTypeName(statement.moduleSpecifier, typeName, checker)) {
++            return importPath;
++        }
++    }
++}
++function moduleSpecifierExportsTypeName(moduleSpecifier, typeName, checker) {
++    const moduleSymbol = checker.getSymbolAtLocation(moduleSpecifier);
++    if (!moduleSymbol) {
++        return false;
++    }
++    return checker.getExportsOfModule(moduleSymbol).some((moduleExport) => moduleExport.getName() === typeName);
++}
++function normalizeNodeModulesFilePathToImportSpecifier(input) {
++    const packagePath = extractNodeModulesPackagePath(input);
++    if (!packagePath) {
++        return;
++    }
++    const normalizedPath = packagePath.replace(/\\/g, '/');
++    if (normalizedPath.startsWith('typescript/')) {
++        return;
++    }
++    const importSpecifier = normalizedPath.replace(/\.(d\.ts|ts|tsx|js|jsx)$/i, '');
++    if (importSpecifier === '@types/react' || importSpecifier === '@types/react/index') {
++        return 'react';
++    }
++    if (importSpecifier === '@types/react-dom' || importSpecifier === '@types/react-dom/index') {
++        return 'react-dom';
++    }
++    return importSpecifier;
++}
++function extractNpmPackageName(input) {
++    const packagePath = extractNodeModulesPackagePath(input);
++    if (packagePath) {
++        if (packagePath === 'typescript' || packagePath.startsWith(`typescript${path.sep}`)) {
++            return;
++        }
++        if (packagePath.startsWith(`@types${path.sep}`)) {
++            return;
++        }
++        if (packagePath.startsWith('@')) {
++            const [scope, name] = packagePath.split(path.sep);
++            return scope && name ? `${scope}/${name}` : undefined;
++        }
++        return packagePath.split(path.sep)[0];
++    }
++    if (input.startsWith('@types/')) {
++        return;
++    }
++    if (input.startsWith('@')) {
++        const [scope, name] = input.split('/');
++        if (!scope || scope.length <= 1 || !name) {
++            return;
++        }
++        return `${scope}/${name}`;
++    }
++    if (!input.startsWith('.') && !input.startsWith('/') && !input.startsWith('~') && !input.includes('/')) {
++        return input;
++    }
++}
++function extractNodeModulesPackagePath(input) {
++    const nodeModulesMarker = `${path.sep}node_modules${path.sep}`;
++    if (!input.includes(nodeModulesMarker)) {
++        return;
++    }
++    let packagePath = input.split(nodeModulesMarker).pop();
++    if (!packagePath) {
++        return;
++    }
++    if (packagePath.startsWith('.pnpm' + path.sep)) {
++        const pnpmNodeModulesMarker = `${path.sep}node_modules${path.sep}`;
++        if (!packagePath.includes(pnpmNodeModulesMarker)) {
++            return;
++        }
++        packagePath = packagePath.split(pnpmNodeModulesMarker).pop();
++        if (!packagePath) {
++            return;
++        }
++    }
++    return packagePath;
++}
+ function getFilenameForImportDeclaration(checker, importNode) {
+     const moduleSymbol = checker.getSymbolAtLocation(importNode.moduleSpecifier);
+     const otherSourceFile = moduleSymbol === null || moduleSymbol === void 0 ? void 0 : moduleSymbol.getDeclarations()[0].getSourceFile();
+@@ -395,4 +490,4 @@
+     return cloned;
+ }
+ exports.cloneNodeSorted = cloneNodeSorted;
+-//# sourceMappingURL=utils.js.map
+\ No newline at end of file
++//# sourceMappingURL=utils.js.map
+diff --git a/src/utils.ts b/src/utils.ts
+--- a/src/utils.ts
++++ b/src/utils.ts
+@@ -24,7 +24,7 @@
+ }
+ 
+ function rejectImportPath(path: string): boolean {
+-    if (path.includes('/node_modules/typescript/')) {
++    if (path.includes('/node_modules/typescript/') || path === 'typescript' || path.startsWith('typescript/')) {
+         return true
+     }
+     return false
+@@ -274,13 +274,135 @@
+     // Also checking isTypeNameAlreadyImported to prevent multiple imports of the same type,
+     // which we were seeing when importing from `export * from ...` files
+     if (typeName && !isTypeNameAlreadyImported(parsedLogic, typeName)) {
+-        const importFilename = getFilenameForNode(declaration, checker)
++        const importFilenameFromNode = getFilenameForNode(declaration, checker)
++        const sourceFileImportedPackagePath =
++            importFilenameFromNode &&
++            findImportPathForPackageInSourceFile(
++                parsedLogic.node.getSourceFile(),
++                importFilenameFromNode,
++                typeName.split('.')[0],
++                checker,
++            )
++        const normalizedNodeModuleImportPath =
++            importFilenameFromNode && normalizeNodeModulesFilePathToImportSpecifier(importFilenameFromNode)
++        const importFilename = sourceFileImportedPackagePath || normalizedNodeModuleImportPath || importFilenameFromNode
+         if (importFilename && !rejectImportPath(importFilename)) {
+             addTypeImport(parsedLogic, importFilename, typeName)
++        }
++    }
++}
++
++function findImportPathForPackageInSourceFile(
++    sourceFile: ts.SourceFile,
++    importFilename: string,
++    typeName: string,
++    checker: ts.TypeChecker,
++): string | undefined {
++    const packageName = extractNpmPackageName(importFilename)
++    if (!packageName) {
++        return
++    }
++    for (const statement of sourceFile.statements) {
++        if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) {
++            continue
++        }
++        const importPath = statement.moduleSpecifier.text
++        if (
++            extractNpmPackageName(importPath) === packageName &&
++            moduleSpecifierExportsTypeName(statement.moduleSpecifier, typeName, checker)
++        ) {
++            return importPath
++        }
++    }
++}
++
++function moduleSpecifierExportsTypeName(
++    moduleSpecifier: ts.Expression,
++    typeName: string,
++    checker: ts.TypeChecker,
++): boolean {
++    const moduleSymbol = checker.getSymbolAtLocation(moduleSpecifier)
++    if (!moduleSymbol) {
++        return false
++    }
++
++    return checker.getExportsOfModule(moduleSymbol).some((moduleExport) => moduleExport.getName() === typeName)
++}
++
++function normalizeNodeModulesFilePathToImportSpecifier(input: string): string | undefined {
++    const packagePath = extractNodeModulesPackagePath(input)
++    if (!packagePath) {
++        return
++    }
++
++    const normalizedPath = packagePath.replace(/\\/g, '/')
++    if (normalizedPath.startsWith('typescript/')) {
++        return
++    }
++    const importSpecifier = normalizedPath.replace(/\.(d\.ts|ts|tsx|js|jsx)$/i, '')
++    if (importSpecifier === '@types/react' || importSpecifier === '@types/react/index') {
++        return 'react'
++    }
++    if (importSpecifier === '@types/react-dom' || importSpecifier === '@types/react-dom/index') {
++        return 'react-dom'
++    }
++    return importSpecifier
++}
++
++function extractNpmPackageName(input: string): string | undefined {
++    const packagePath = extractNodeModulesPackagePath(input)
++    if (packagePath) {
++        if (packagePath === 'typescript' || packagePath.startsWith(`typescript${path.sep}`)) {
++            return
+         }
++        if (packagePath.startsWith(`@types${path.sep}`)) {
++            return
++        }
++        if (packagePath.startsWith('@')) {
++            const [scope, name] = packagePath.split(path.sep)
++            return scope && name ? `${scope}/${name}` : undefined
++        }
++        return packagePath.split(path.sep)[0]
+     }
++
++    if (input.startsWith('@types/')) {
++        return
++    }
++    if (input.startsWith('@')) {
++        const [scope, name] = input.split('/')
++        if (!scope || scope.length <= 1 || !name) {
++            return
++        }
++        return `${scope}/${name}`
++    }
++    if (!input.startsWith('.') && !input.startsWith('/') && !input.startsWith('~') && !input.includes('/')) {
++        return input
++    }
+ }
+ 
++function extractNodeModulesPackagePath(input: string): string | undefined {
++    const nodeModulesMarker = `${path.sep}node_modules${path.sep}`
++    if (!input.includes(nodeModulesMarker)) {
++        return
++    }
++
++    let packagePath = input.split(nodeModulesMarker).pop()
++    if (!packagePath) {
++        return
++    }
++    if (packagePath.startsWith('.pnpm' + path.sep)) {
++        const pnpmNodeModulesMarker = `${path.sep}node_modules${path.sep}`
++        if (!packagePath.includes(pnpmNodeModulesMarker)) {
++            return
++        }
++        packagePath = packagePath.split(pnpmNodeModulesMarker).pop()
++        if (!packagePath) {
++            return
++        }
++    }
++    return packagePath
++}
++
+ export function getFilenameForImportDeclaration(checker: ts.TypeChecker, importNode: ts.ImportDeclaration): string {
+     const moduleSymbol = checker.getSymbolAtLocation(importNode.moduleSpecifier)
+     const otherSourceFile = moduleSymbol?.getDeclarations()[0].getSourceFile()

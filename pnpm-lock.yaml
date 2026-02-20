@@ -111,6 +111,9 @@ patchedDependencies:
   heatmap.js@2.0.5:
     hash: d95e6638894935a75bd93b60b5243cb825892a1eedcc4c9a125a3e7dce8b64f0
     path: patches/heatmap.js@2.0.5.patch
+  kea-typegen@3.5.0:
+    hash: 9c228ada4d0a8e016ca514f58eda4c368f2c8524f8076b5c7f0f34718719078b
+    path: patches/kea-typegen@3.5.0.patch
 
 importers:
 
@@ -1260,7 +1263,7 @@ importers:
         version: 6.4.0(jest@29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.4.5)))
       kea-typegen:
         specifier: 3.5.0
-        version: 3.5.0(typescript@5.4.5)
+        version: 3.5.0(patch_hash=9c228ada4d0a8e016ca514f58eda4c368f2c8524f8076b5c7f0f34718719078b)(typescript@5.4.5)
       less:
         specifier: ^3.12.2
         version: 3.13.1
@@ -38402,7 +38405,7 @@ snapshots:
       kea: 4.0.0-pre.3(react@18.3.1)
       kea-waitfor: 0.2.1(kea@4.0.0-pre.3(react@18.3.1))
 
-  kea-typegen@3.5.0(typescript@5.4.5):
+  kea-typegen@3.5.0(patch_hash=9c228ada4d0a8e016ca514f58eda4c368f2c8524f8076b5c7f0f34718719078b)(typescript@5.4.5):
     dependencies:
       '@babel/core': 7.28.0
       '@babel/preset-env': 7.23.5(@babel/core@7.28.0)

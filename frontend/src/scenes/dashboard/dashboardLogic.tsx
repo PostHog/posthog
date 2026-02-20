@@ -16,7 +16,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import uniqBy from 'lodash.uniqby'
-import { LayoutItem, ResponsiveLayouts } from 'react-grid-layout'
+import { Layout, LayoutItem, ResponsiveLayouts } from 'react-grid-layout'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
@@ -1228,7 +1228,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         layouts: [(s) => [s.tiles], (tiles) => calculateLayouts(tiles)],
-        layout: [(s) => [s.layouts, s.sizeKey], (layouts, sizeKey) => (sizeKey ? layouts[sizeKey] : undefined)],
+        layout: [
+            (s) => [s.layouts, s.sizeKey],
+            (layouts: Partial<Record<DashboardLayoutSize, Layout>>, sizeKey: DashboardLayoutSize) =>
+                sizeKey ? layouts[sizeKey] : undefined,
+        ],
         layoutForItem: [
             (s) => [s.layout],
             (layout) => {
