@@ -85,10 +85,12 @@ def is_signal_emission_registered(source_type: str, schema_name: str) -> bool:
 
 def _register_all_emitters() -> None:
     from posthog.temporal.data_imports.signals.github_issues import GITHUB_ISSUES_CONFIG
+    from posthog.temporal.data_imports.signals.linear_issues import LINEAR_ISSUES_CONFIG
     from posthog.temporal.data_imports.signals.zendesk_tickets import ZENDESK_TICKETS_CONFIG
 
     register_signal_source_table(ExternalDataSourceType.ZENDESK, "tickets", ZENDESK_TICKETS_CONFIG)
     register_signal_source_table(ExternalDataSourceType.GITHUB, "issues", GITHUB_ISSUES_CONFIG)
+    register_signal_source_table(ExternalDataSourceType.LINEAR, "issues", LINEAR_ISSUES_CONFIG)
 
 
 _register_all_emitters()
