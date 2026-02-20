@@ -208,18 +208,28 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
     }),
 
     selectors({
-        destinationOptions: [
+        usedDestinations: [
             (s) => [s.existingAlerts],
-            (existingAlerts): DestinationOption[] => {
-                const counts: Record<string, number> = {}
+            (existingAlerts): Set<WizardDestination> => {
+                const used = new Set<WizardDestination>()
                 for (const alert of existingAlerts) {
                     const dest = extractDestinationFromAlert(alert)
                     if (dest) {
-                        counts[dest] = (counts[dest] || 0) + 1
+                        used.add(dest)
                     }
                 }
+                return used
+            },
+        ],
 
-                const sorted = [...DEFAULT_PRIORITY].sort((a, b) => (counts[b] || 0) - (counts[a] || 0))
+        destinationOptions: [
+            (s) => [s.usedDestinations],
+            (usedDestinations): DestinationOption[] => {
+                const sorted = [...DEFAULT_PRIORITY].sort((a, b) => {
+                    const aUsed = usedDestinations.has(a) ? 1 : 0
+                    const bUsed = usedDestinations.has(b) ? 1 : 0
+                    return bUsed - aUsed
+                })
                 const top3 = sorted.slice(0, 3)
                 return top3.map((key) => ALL_DESTINATIONS.find((d) => d.key === key)!)
             },
