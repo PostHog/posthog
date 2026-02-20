@@ -437,8 +437,6 @@ export function InsightMeta({
                             {moreButtons}
                         </>
                     )}
-
-                    {/* Details toggle */}
                     {showDetailsControls && setAreDetailsShown && (
                         <>
                             <LemonDivider />
