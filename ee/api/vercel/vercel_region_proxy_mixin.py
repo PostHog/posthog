@@ -78,7 +78,12 @@ class VercelRegionProxyMixin:
             auth_result = VercelAuthentication().authenticate(drf_request)
             return auth_result[0].claims.installation_id if auth_result else None
 
-        except (exceptions.AuthenticationFailed, exceptions.ValidationError):
+        except (exceptions.AuthenticationFailed, exceptions.ValidationError) as e:
+            logger.warning(
+                "Failed to extract installation_id from Vercel request",
+                error=str(e),
+                integration="vercel",
+            )
             return None
 
     def _extract_data_region_from_metadata(self, request: HttpRequest) -> Optional[str]:

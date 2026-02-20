@@ -812,9 +812,9 @@ class VercelIntegration:
     @staticmethod
     def _validate_client_credentials() -> tuple[str, str]:
         if not getattr(settings, "VERCEL_CLIENT_INTEGRATION_ID", None):
-            raise exceptions.NotFound("Vercel integration not configured: missing VERCEL_CLIENT_INTEGRATION_ID")
+            raise RuntimeError("Vercel integration not configured: missing VERCEL_CLIENT_INTEGRATION_ID")
         if not getattr(settings, "VERCEL_CLIENT_INTEGRATION_SECRET", None):
-            raise exceptions.NotFound("Vercel integration not configured: missing VERCEL_CLIENT_INTEGRATION_SECRET")
+            raise RuntimeError("Vercel integration not configured: missing VERCEL_CLIENT_INTEGRATION_SECRET")
         return settings.VERCEL_CLIENT_INTEGRATION_ID, settings.VERCEL_CLIENT_INTEGRATION_SECRET
 
     @staticmethod
