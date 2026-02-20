@@ -187,11 +187,50 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-# NOTE: v1.32 is running bullseye, v1.33 is running bookworm
-FROM unit:1.33.0-python3.12
+# NOTE: v1.32 is running bullseye, v1.33+ is running bookworm
+FROM unit:1.34.2-python3.12
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
+ARG UNIT_GIT_TAG=1.35.0
+ARG UNIT_GIT_REF=28404105810f53c570523c3e70006ad0ca210e58
+
+# Build Unit from the upstream 1.35.0 release ref to ensure the Django 5 ASGI fix is present even when Docker tags lag.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "build-essential" \
+    "git" \
+    "libpcre2-dev" \
+    "zlib1g-dev" \
+    && \
+    git clone --depth 1 --branch "$UNIT_GIT_TAG" https://github.com/nginx/unit.git /tmp/unit && \
+    cd /tmp/unit && \
+    test "$(git rev-parse HEAD)" = "$UNIT_GIT_REF" && \
+    NCPU="$(getconf _NPROCESSORS_ONLN)" && \
+    DEB_HOST_MULTIARCH="$(gcc -print-multiarch)" && \
+    CONFIGURE_ARGS="--prefix=/usr \
+        --statedir=/var/lib/unit \
+        --control=unix:/var/run/control.unit.sock \
+        --runstatedir=/var/run \
+        --pid=/var/run/unit.pid \
+        --logdir=/var/log \
+        --log=/var/log/unit.log \
+        --tmpdir=/var/tmp \
+        --user=unit \
+        --group=unit \
+        --openssl \
+        --libdir=/usr/lib/$DEB_HOST_MULTIARCH \
+        --modulesdir=/usr/lib/unit/modules" && \
+    ./configure $CONFIGURE_ARGS && \
+    make -j "$NCPU" unitd && \
+    install -pm755 build/sbin/unitd /usr/sbin/unitd && \
+    make clean && \
+    ./configure $CONFIGURE_ARGS && \
+    ./configure python --config=/usr/local/bin/python3-config && \
+    make -j "$NCPU" python3-install && \
+    rm -rf /tmp/unit && \
+    apt-get purge -y --auto-remove "build-essential" "git" "libpcre2-dev" "zlib1g-dev" && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install OS runtime dependencies.
 # Note: please add in this stage runtime dependences only!
