@@ -1,3 +1,5 @@
+import { Fragment } from 'react'
+
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     ActivityChange,
@@ -102,19 +104,19 @@ const featureFlagActionsMapping: Record<
                             const newButtons =
                                 nonEmptyProperties.map((property, idx) => {
                                     return (
-                                        <>
+                                        <Fragment key={property.key ?? idx}>
                                             {' '}
                                             {idx === 0 && (
                                                 <span>
                                                     <strong>{rollout_percentage ?? 100}%</strong> of{' '}
                                                 </span>
                                             )}
-                                            <PropertyFilterButton key={property.key} item={property} />
-                                        </>
+                                            <PropertyFilterButton item={property} />
+                                        </Fragment>
                                     )
                                 }) || []
                             newButtons[0] = (
-                                <>
+                                <Fragment key={nonEmptyProperties[0].key ?? 0}>
                                     <span>
                                         <strong>{rollout_percentage ?? 100}%</strong> of{' '}
                                     </span>
@@ -122,7 +124,7 @@ const featureFlagActionsMapping: Record<
                                         key={nonEmptyProperties[0].key}
                                         item={nonEmptyProperties[0]}
                                     />
-                                </>
+                                </Fragment>
                             )
                             groupAdditions.push(...newButtons)
                         } else {
@@ -244,15 +246,6 @@ const featureFlagActionsMapping: Record<
             suffix: <>{nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
         }
     },
-    rollout_percentage: function onRolloutPercentage(change) {
-        return {
-            description: [
-                <>
-                    changed rollout percentage to <div className="highlighted-activity">{change?.after as string}%</div>
-                </>,
-            ],
-        }
-    },
     key: function onKey(change, logItem) {
         const changeBefore = change?.before as string
         const changeAfter = change?.after as string
@@ -287,11 +280,11 @@ const featureFlagActionsMapping: Record<
         const getBucketingLabel = (identifier: string): string => {
             switch (identifier) {
                 case 'distinct_id':
-                    return 'User ID'
+                    return 'User'
                 case 'device_id':
-                    return 'Device ID'
+                    return 'Device'
                 default:
-                    return identifier || 'User ID'
+                    return identifier || 'User'
             }
         }
 
@@ -361,7 +354,6 @@ const featureFlagActionsMapping: Record<
     created_at: () => null,
     created_by: () => null,
     updated_at: () => null,
-    is_simple_flag: () => null,
     experiment_set: () => null,
     features: () => null,
     usage_dashboard: () => null,
@@ -375,6 +367,7 @@ const featureFlagActionsMapping: Record<
     version: () => null,
     last_modified_by: () => null,
     last_called_at: () => null,
+    is_used_in_replay_settings: () => null,
     _create_in_folder: () => null,
     _should_create_usage_dashboard: () => null,
 }

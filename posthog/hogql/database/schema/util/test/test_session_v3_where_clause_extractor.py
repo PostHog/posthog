@@ -7,7 +7,10 @@ from posthog.schema import SessionTableVersion
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV3
+from posthog.hogql.database.schema.util.where_clause_extractor import (
+    SessionMinTimestampWhereClauseExtractorV3,
+    is_session_id_string_expr,
+)
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
@@ -30,6 +33,36 @@ def parse(
 ) -> ast.SelectQuery | ast.SelectSetQuery:
     parsed = parse_select(s, placeholders=placeholders)
     return parsed
+
+
+class TestIsSessionIdStringExpr(ClickhouseTestMixin, APIBaseTest):
+    def test_handles_select_query_alias_type_without_crashing(self):
+        # Regression test: is_session_id_string_expr should not crash when
+        # the field's table_type is a SelectQueryAliasType (which doesn't have
+        # a .table attribute)
+        team = self.team
+        modifiers = create_default_modifiers_for_team(team)
+        context = HogQLContext(
+            team_id=team.pk,
+            team=team,
+            enable_select_queries=True,
+            modifiers=modifiers,
+        )
+
+        # Create a field with FieldType where table_type is SelectQueryAliasType
+        select_query_type = ast.SelectQueryType(
+            columns={"session_id": ast.StringType()},
+        )
+        select_query_alias_type = ast.SelectQueryAliasType(
+            alias="subquery",
+            select_query_type=select_query_type,
+        )
+        field_type = ast.FieldType(name="session_id", table_type=select_query_alias_type)
+        field = ast.Field(chain=["subquery", "session_id"], type=field_type)
+
+        # This should return False without raising AttributeError
+        result = is_session_id_string_expr(field, context)
+        assert result is False
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -326,6 +359,32 @@ SELECT
         )
         assert expected == actual
 
+    def test_uuidv7_to_datetime_filter(self):
+        actual = f(
+            self.inliner.get_inner_where(
+                parse(
+                    "SELECT * FROM sessions WHERE $start_timestamp >= UUIDv7ToDateTime(toUUID('0199a58b-fdf2-785c-b6e3-6ba32b2380cf'))"
+                )
+            )
+        )
+        expected = f(
+            "raw_sessions_v3.session_timestamp >= (UUIDv7ToDateTime(toUUID('0199a58b-fdf2-785c-b6e3-6ba32b2380cf')) - toIntervalDay(3))"
+        )
+        assert expected == actual
+
+    def test_uuidv7_to_datetime_filter_with_interval(self):
+        actual = f(
+            self.inliner.get_inner_where(
+                parse(
+                    "SELECT * FROM sessions WHERE $start_timestamp <= UUIDv7ToDateTime(toUUID('0199a58b-fdf2-785c-b6e3-6ba32b2380cf')) + toIntervalHour(1)"
+                )
+            )
+        )
+        expected = f(
+            "raw_sessions_v3.session_timestamp <= ((UUIDv7ToDateTime(toUUID('0199a58b-fdf2-785c-b6e3-6ba32b2380cf')) + toIntervalHour(1)) + toIntervalDay(3))"
+        )
+        assert expected == actual
+
 
 class TestSessionsV3QueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
     def print_query(self, query: str) -> str:
@@ -453,5 +512,53 @@ where `$start_timestamp` >= now() - toIntervalDay(7)
     from sessions
     where session_id == '01995624-6a63-7cc4-800c-f5a45d99fa9b'
     """
+        )
+        assert self.generalize_sql(actual) == self.snapshot
+
+    def test_select_query_alias_type_does_not_crash(self):
+        # Regression test: queries with aliased subqueries should not crash when
+        # the where clause extractor encounters a SelectQueryAliasType (which
+        # doesn't have a .table attribute)
+        actual = self.print_query(
+            """
+SELECT
+    subquery.session_id
+FROM (
+    SELECT
+        session_id,
+        $start_timestamp
+    FROM sessions
+    WHERE $start_timestamp >= '2024-01-01'
+) AS subquery
+WHERE subquery.session_id = '0199a58b-fdf2-785c-b6e3-6ba32b2380cf'
+"""
+        )
+        assert self.generalize_sql(actual) == self.snapshot
+
+    def test_single_session_lookup_with_uuidv7_timestamp(self):
+        actual = self.print_query(
+            """
+SELECT
+    session_id,
+    $start_timestamp,
+    $end_timestamp
+FROM sessions
+WHERE $start_timestamp >= UUIDv7ToDateTime(toUUID('0199a58b-fdf2-785c-b6e3-6ba32b2380cf'))
+    AND $start_timestamp <= UUIDv7ToDateTime(toUUID('0199a58b-fdf2-785c-b6e3-6ba32b2380cf')) + INTERVAL 1 HOUR
+    AND session_id = '0199a58b-fdf2-785c-b6e3-6ba32b2380cf'
+LIMIT 1
+"""
+        )
+        assert self.generalize_sql(actual) == self.snapshot
+
+    def test_single_session_lookup_with_uuidv7_timestamp_simple(self):
+        actual = self.print_query(
+            """
+SELECT session_id
+FROM sessions
+WHERE $start_timestamp >= UUIDv7ToDateTime(toUUID('0199a58b-fdf2-785c-b6e3-6ba32b2380cf'))
+    AND $start_timestamp <= UUIDv7ToDateTime(toUUID('0199a58b-fdf2-785c-b6e3-6ba32b2380cf')) + INTERVAL 2 DAY
+    AND session_id = '0199a58b-fdf2-785c-b6e3-6ba32b2380cf'
+"""
         )
         assert self.generalize_sql(actual) == self.snapshot

@@ -97,7 +97,8 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'isLifecycle',
                 'isStickiness',
                 'isNonTimeSeriesDisplay',
-                'isSingleSeries',
+                'isSingleSeriesOutput',
+                'isSingleSeriesDefinition',
                 'hasLegend',
                 'showLegend',
                 'vizSpecificOptions',
@@ -117,7 +118,6 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         toggleResultHidden: (dataset: IndexedTrendResult) => ({ dataset }),
         toggleAllResultsHidden: (datasets: IndexedTrendResult[], hidden: boolean) => ({ datasets, hidden }),
         setHoveredDatasetIndex: (index: number | null) => ({ index }),
-        setIsShiftPressed: (isPressed: boolean) => ({ isPressed }),
     }),
 
     reducers({
@@ -131,12 +131,6 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             null as number | null,
             {
                 setHoveredDatasetIndex: (_, { index }) => index,
-            },
-        ],
-        isShiftPressed: [
-            false,
-            {
-                setIsShiftPressed: (_, { isPressed }) => isPressed,
             },
         ],
     }),
@@ -232,22 +226,21 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     )
                 }
 
-                /** Unique series in the results, determined by `item.label` and `item.action.order`. */
-                const uniqSeries = Array.from(
-                    new Set(
-                        indexedResults
-                            .slice()
-                            .sort((a, b) => (a.action?.order ?? 0) - (b.action?.order ?? 0))
-                            .map((item) => `${item.label}_${item.action?.order}_${item?.breakdown_value}`)
-                    )
-                )
+                const colorIndexMap = new Map<string, number>()
+                indexedResults
+                    .slice()
+                    .sort((a, b) => (a.action?.order ?? 0) - (b.action?.order ?? 0))
+                    .forEach((item) => {
+                        const key = `${item.label}_${item.action?.order}_${item?.breakdown_value}`
+                        if (!colorIndexMap.has(key)) {
+                            colorIndexMap.set(key, colorIndexMap.size)
+                        }
+                    })
 
-                // Give current and previous versions of the same dataset the same colorIndex
                 return indexedResults.map((item, index) => {
-                    const colorIndex = uniqSeries.findIndex(
-                        (identifier) => identifier === `${item.label}_${item.action?.order}_${item?.breakdown_value}`
-                    )
-                    return { ...item, colorIndex: colorIndex, id: index }
+                    const key = `${item.label}_${item.action?.order}_${item?.breakdown_value}`
+                    const colorIndex = colorIndexMap.get(key) ?? 0
+                    return { ...item, colorIndex, id: index }
                 })
             },
         ],
@@ -346,7 +339,11 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 const isLineGraph =
                     isTrends &&
                     !hasDataWarehouseSeries &&
-                    [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(display)
+                    [
+                        ChartDisplayType.ActionsLineGraph,
+                        ChartDisplayType.ActionsLineGraphCumulative,
+                        ChartDisplayType.ActionsAreaGraph,
+                    ].includes(display)
 
                 return (trendsFilter?.showMovingAverage && isLineGraph && isLinearScale) || false
             },

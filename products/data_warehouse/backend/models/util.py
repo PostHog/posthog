@@ -1,5 +1,8 @@
 import re
+import socket
+from ipaddress import IPv6Address, ip_address
 from typing import TYPE_CHECKING, Union
+from urllib.parse import urlparse
 
 from django.db.models import Q
 
@@ -169,3 +172,53 @@ STR_TO_HOGQL_MAPPING = {
     "StringJSONDatabaseField": StringJSONDatabaseField,
     "UnknownDatabaseField": UnknownDatabaseField,
 }
+
+
+def _is_safe_public_ip(host: str) -> bool:
+    ip = ip_address(host)
+
+    # IPv6 can carry embedded IPv4 addresses that need the same SSRF checks.
+    if isinstance(ip, IPv6Address):
+        if ip.ipv4_mapped:
+            return _is_safe_public_ip(str(ip.ipv4_mapped))
+        if ip.sixtofour:
+            return _is_safe_public_ip(str(ip.sixtofour))
+
+    return not (
+        ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified
+    )
+
+
+def validate_warehouse_table_url_pattern(url_pattern: str | None) -> tuple[bool, str]:
+    if not url_pattern:
+        return True, ""
+
+    parsed = urlparse(url_pattern)
+    if parsed.scheme != "https":
+        return False, "URL pattern must use https."
+
+    if not parsed.hostname:
+        return False, "URL pattern must include a valid hostname."
+
+    normalized_hostname = parsed.hostname.lower().strip().rstrip(".")
+    if normalized_hostname in {"localhost"}:
+        return False, "URL pattern hostname is not allowed."
+
+    # Block direct internal IP literals.
+    try:
+        if not _is_safe_public_ip(parsed.hostname):
+            return False, "URL pattern hostname must not resolve to internal IP ranges."
+    except ValueError:
+        pass
+
+    # Resolve the hostname and block if any resolved IP is internal (catches DNS rebinding services).
+    try:
+        addrinfo = socket.getaddrinfo(normalized_hostname, None, proto=socket.IPPROTO_TCP)
+        for _family, _type, _proto, _canonname, sockaddr in addrinfo:
+            resolved_ip = sockaddr[0]
+            if not _is_safe_public_ip(str(resolved_ip)):
+                return False, "URL pattern hostname must not resolve to internal IP ranges."
+    except socket.gaierror:
+        return False, "URL pattern hostname could not be resolved."
+
+    return True, ""

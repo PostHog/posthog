@@ -34,6 +34,7 @@ export const manifest: ProductManifest = {
             return `/replay/${id}`
         },
         replayFilePlayback: (): string => '/replay/file-playback',
+        replayKiosk: (): string => '/replay/kiosk',
         replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
     },
     fileSystemTypes: {
@@ -55,7 +56,14 @@ export const manifest: ProductManifest = {
             iconType: 'session_replay',
             iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
             sceneKey: 'Replay',
-            sceneKeys: ['Replay', 'ReplaySingle', 'ReplaySettings', 'ReplayPlaylist', 'ReplayFilePlayback'],
+            sceneKeys: [
+                'Replay',
+                'ReplaySingle',
+                'ReplaySettings',
+                'ReplayPlaylist',
+                'ReplayFilePlayback',
+                'ReplayKiosk',
+            ],
         },
         // TODO: Move over to the `heatmaps` product folder once it exists
         {

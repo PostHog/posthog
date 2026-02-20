@@ -2,7 +2,7 @@ import bigDecimal from 'js-big-decimal'
 
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
-import { aiCostLookupCounter } from '../metrics'
+import { aiCostLookupCounter, aiCostTotalOutcomeCounter } from '../metrics'
 import {
     CostModelResult,
     CostModelSource,
@@ -11,6 +11,7 @@ import {
     requireSpecialCost,
 } from './cost-model-matching'
 import { calculateInputCost } from './input-costs'
+import { extractModalityTokens } from './modality-tokens'
 import { calculateOutputCost } from './output-costs'
 import { ResolvedModelCost } from './providers/types'
 import { calculateRequestCost } from './request-costs'
@@ -34,6 +35,18 @@ const isBigDecimalInput = (value: unknown): value is string | number => {
     return typeof value === 'string' || typeof value === 'number'
 }
 
+const trackCostOutcome = (totalCost: number): void => {
+    if (Number.isNaN(totalCost)) {
+        aiCostTotalOutcomeCounter.labels({ outcome: 'error' }).inc()
+    } else if (totalCost < 0) {
+        aiCostTotalOutcomeCounter.labels({ outcome: 'negative' }).inc()
+    } else if (totalCost === 0) {
+        aiCostTotalOutcomeCounter.labels({ outcome: 'zero' }).inc()
+    } else {
+        aiCostTotalOutcomeCounter.labels({ outcome: 'positive' }).inc()
+    }
+}
+
 const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): void => {
     const inputCost = calculateInputCost(event, cost)
     const outputCost = calculateOutputCost(event, cost)
@@ -50,7 +63,7 @@ const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): v
         return
     }
 
-    event.properties['$ai_total_cost_usd'] = parseFloat(
+    const totalCost = parseFloat(
         bigDecimal.add(
             bigDecimal.add(
                 String(event.properties['$ai_input_cost_usd']),
@@ -62,6 +75,8 @@ const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): v
             )
         )
     )
+    event.properties['$ai_total_cost_usd'] = totalCost
+    trackCostOutcome(totalCost)
 }
 
 const isString = (property: unknown): property is string => {
@@ -73,6 +88,9 @@ const isString = (property: unknown): property is string => {
  * Calculates input, output, request, and web search costs based on model pricing.
  */
 export const processCost = (event: EventWithProperties): EventWithProperties => {
+    // First, extract modality tokens from raw usage if present
+    extractModalityTokens(event)
+
     const inputCost = event.properties['$ai_input_cost_usd']
     const outputCost = event.properties['$ai_output_cost_usd']
 
@@ -93,7 +111,9 @@ export const processCost = (event: EventWithProperties): EventWithProperties => 
                 total = bigDecimal.add(total, webSearchCost)
             }
 
-            event.properties['$ai_total_cost_usd'] = parseFloat(total)
+            const totalCost = parseFloat(total)
+            event.properties['$ai_total_cost_usd'] = totalCost
+            trackCostOutcome(totalCost)
         }
 
         return event

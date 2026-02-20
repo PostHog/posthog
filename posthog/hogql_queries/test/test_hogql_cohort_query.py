@@ -193,6 +193,239 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         # Should use EXCEPT because one property is negated
         self.assertIn("EXCEPT", query_str)
 
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_multiple_person_properties_or_optimization(self, mock_feature_enabled: MagicMock) -> None:
+        """
+        Test that multiple person property filters in an OR group are combined into a single query.
+
+        This optimization prevents generating N separate queries with N-1 UNION DISTINCT operations,
+        which causes ClickHouse to materialize IN subqueries during query planning, leading to
+        OOM and timeout issues for large person tables.
+        """
+        cohort_filters = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "key": "internal_user",
+                            "type": "person",
+                            "negation": False,
+                            "value": ["yes", "true"],
+                            "operator": "exact",
+                        },
+                        {
+                            "key": "engineering_team",
+                            "type": "person",
+                            "value": True,
+                            "negation": False,
+                            "operator": "exact",
+                        },
+                        {
+                            "key": "beta_tester",
+                            "type": "person",
+                            "value": True,
+                            "negation": False,
+                            "operator": "exact",
+                        },
+                        {
+                            "key": "alpha_tester",
+                            "type": "person",
+                            "value": True,
+                            "negation": False,
+                            "operator": "exact",
+                        },
+                    ],
+                }
+            ],
+        }
+
+        cohort = Cohort.objects.create(
+            team=self.team, name="Test OR Optimization Cohort", filters={"properties": cohort_filters}
+        )
+
+        hogql_query = HogQLCohortQuery(cohort=cohort)
+        query_str = hogql_query.query_str("clickhouse")
+
+        # If the optimization worked, there should be no UNION DISTINCT in the query
+        self.assertNotIn("UNION DISTINCT", query_str)
+        # Should have OR logic in the WHERE clause
+        self.assertIn("or(", query_str)
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_or_optimization_disabled_when_feature_flag_off(self, mock_feature_enabled: MagicMock) -> None:
+        """
+        Test that the OR optimization is disabled when the feature flag is off.
+
+        When the feature flag is disabled, multiple person properties in OR should be processed
+        separately and combined with UNION DISTINCT instead of a single query.
+        """
+        cohort_filters = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "negation": False,
+                            "value": "@gmail.com",
+                            "operator": "icontains",
+                        },
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@yahoo.com",
+                            "negation": False,
+                            "operator": "icontains",
+                        },
+                    ],
+                }
+            ],
+        }
+
+        cohort = Cohort.objects.create(
+            team=self.team, name="Test OR Feature Flag Off Cohort", filters={"properties": cohort_filters}
+        )
+
+        hogql_query = HogQLCohortQuery(cohort=cohort)
+        query_str = hogql_query.query_str("clickhouse")
+
+        # With the feature flag off, should use UNION DISTINCT
+        self.assertIn("UNION DISTINCT", query_str)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_or_optimization_skipped_for_mixed_property_types(self, mock_feature_enabled: MagicMock) -> None:
+        """
+        Test that the OR optimization is skipped when mixing person and behavioral properties.
+
+        The optimization only applies to pure person property filters. When behavioral
+        properties are mixed in, each property should be processed separately.
+        """
+        cohort_filters = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "negation": False,
+                            "value": "@gmail.com",
+                            "operator": "icontains",
+                        },
+                        {
+                            "key": "$pageview",
+                            "type": "behavioral",
+                            "value": "performed_event",
+                            "negation": False,
+                            "event_type": "events",
+                            "time_value": 30,
+                            "time_interval": "day",
+                        },
+                    ],
+                }
+            ],
+        }
+
+        cohort = Cohort.objects.create(
+            team=self.team, name="Test OR Mixed Properties Cohort", filters={"properties": cohort_filters}
+        )
+
+        hogql_query = HogQLCohortQuery(cohort=cohort)
+        query_str = hogql_query.query_str("clickhouse")
+
+        # Should use UNION DISTINCT because properties are mixed
+        self.assertIn("UNION DISTINCT", query_str)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_or_optimization_skipped_for_properties_with_negation(self, mock_feature_enabled: MagicMock) -> None:
+        """
+        Test that the OR optimization is skipped when properties have negation.
+
+        The optimization only applies when all person properties are positive (not negated).
+        If properties are negated, each property should be processed separately using UNION DISTINCT.
+        """
+        cohort_filters = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "negation": False,
+                            "value": "is_set",
+                            "operator": "is_set",
+                        },
+                    ],
+                },
+                {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "key": "name",
+                            "type": "person",
+                            "negation": True,
+                            "value": "Spam",
+                            "operator": "icontains",
+                        },
+                        {
+                            "key": "name",
+                            "type": "person",
+                            "value": "Bot",
+                            "negation": True,
+                            "operator": "icontains",
+                        },
+                    ],
+                },
+            ],
+        }
+
+        cohort = Cohort.objects.create(
+            team=self.team, name="Test OR Negation Cohort", filters={"properties": cohort_filters}
+        )
+
+        hogql_query = HogQLCohortQuery(cohort=cohort)
+        query_str = hogql_query.query_str("clickhouse")
+
+        # OR with all negated properties doesn't get optimized and uses INTERSECT DISTINCT
+        # (because all_children_negated = True)
+        self.assertIn("INTERSECT DISTINCT", query_str)
+        # Should not use the OR optimization (which would create a single query with OR logic)
+        self.assertNotIn("or(", query_str)
+
+    def test_static_cohort_condition_rejects_cross_project_cohort(self) -> None:
+        from posthog.models.organization import Organization
+
+        _, _, other_team = Organization.objects.bootstrap(self.user, name="other org")
+        other_static_cohort = Cohort.objects.create(
+            team=other_team, name="Other Static Cohort", is_static=True, is_calculating=False
+        )
+
+        cohort_filters = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {"key": "id", "type": "static-cohort", "value": other_static_cohort.id, "negation": False}
+                    ],
+                }
+            ],
+        }
+        cohort = Cohort.objects.create(
+            team=self.team, name="References Cross-Project Cohort", filters={"properties": cohort_filters}
+        )
+
+        hogql_query = HogQLCohortQuery(cohort=cohort)
+        with self.assertRaises(Cohort.DoesNotExist):
+            hogql_query.query_str("clickhouse")
+
 
 class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
     """Tests for HogQLRealtimeCohortQuery which uses precalculated_events for behavioral filters."""

@@ -24,6 +24,7 @@ import {
     VisualizationArtifactContent,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
@@ -65,6 +66,8 @@ function InsightSuggestionButton({ tabId }: { tabId: string }): JSX.Element {
         </>
     )
 }
+
+const QUERY_CONTEXT_POSTHOG_AI: QueryContext = { limitContext: 'posthog_ai' } as const
 
 export const VisualizationArtifactAnswer = React.memo(function VisualizationArtifactAnswer({
     message,
@@ -115,23 +118,29 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
         <MessageTemplate type="ai" className="w-full" wrapperClassName="w-full" boxClassName="flex flex-col w-full">
             {!isCollapsed && (
                 <div className={clsx('flex flex-col overflow-auto', isFunnelsQuery(rawQuery) ? 'h-[580px]' : 'h-96')}>
-                    <Query query={query} readOnly embedded />
+                    <Query query={query} readOnly embedded context={QUERY_CONTEXT_POSTHOG_AI} />
                 </div>
             )}
             <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
-                <div className="flex items-center gap-1.5">
-                    <LemonButton
-                        sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
-                        onClick={() => setIsSummaryShown(!isSummaryShown)}
-                        size="xsmall"
-                        className="-m-1 shrink"
-                        tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}
-                    >
-                        <h5 className="m-0 leading-none">
-                            <TopHeading query={query} />
-                        </h5>
-                    </LemonButton>
-                </div>
+                {isInsightVizNode(query) ? (
+                    <div className="flex items-center gap-1.5">
+                        <LemonButton
+                            sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
+                            onClick={() => setIsSummaryShown(!isSummaryShown)}
+                            size="xsmall"
+                            className="-m-1 shrink"
+                            tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}
+                        >
+                            <h5 className="m-0 leading-none">
+                                <TopHeading query={query} />
+                            </h5>
+                        </LemonButton>
+                    </div>
+                ) : (
+                    <h5 className="m-0 leading-none">
+                        <TopHeading query={query} />
+                    </h5>
+                )}
                 <div className="flex items-center gap-1.5">
                     {isEditingInsight && activeTabId && activeSceneId === Scene.Insight && (
                         <InsightSuggestionButton tabId={activeTabId} />

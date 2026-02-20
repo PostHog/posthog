@@ -14,7 +14,7 @@ from posthog.approvals.exceptions import (
     ReasonRequiredError,
 )
 from posthog.approvals.models import Approval, ApprovalDecision, ChangeRequest, ChangeRequestState
-from posthog.approvals.notifications import send_approval_decision_notification
+from posthog.approvals.notifications import send_approval_applied_notification, send_approval_decision_notification
 from posthog.event_usage import report_user_action
 from posthog.models import User
 
@@ -114,6 +114,8 @@ def apply_change_request(change_request: ChangeRequest) -> Any:
                     "change_request_id": str(change_request.id),
                 },
             )
+
+        send_approval_applied_notification(change_request)
 
         return result
 
@@ -318,11 +320,11 @@ class ChangeRequestService:
         )
 
     def cancel(self, reason: str = "Canceled by requester") -> CancelResult:
-        if self.change_request.state != ChangeRequestState.PENDING:
-            raise InvalidStateError("Only pending change requests can be canceled")
-
         with transaction.atomic():
             change_request = ChangeRequest.objects.select_for_update().get(pk=self.change_request.pk)
+
+            if not change_request.can_be_canceled_by(self.user.id):
+                raise InvalidStateError("Cannot cancel this change request")
 
             # Create a rejection record with the cancellation reason
             Approval.objects.create(

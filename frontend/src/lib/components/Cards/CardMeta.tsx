@@ -11,6 +11,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
 import { InsightColor } from '~/types'
 
@@ -59,8 +60,23 @@ export function CardMeta({
 }: CardMetaProps): JSX.Element {
     const { ref: primaryRef, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
+    const { ref: topRef, width: topWidth } = useResizeObserver()
+    const { ref: headingRef, width: headingWidth } = useResizeObserver()
 
-    const showDetailsButtonLabel = !!primaryWidth && primaryWidth > 480
+    // Calculate available space for controls (doesn't depend on label state, so no cyclic dependency)
+    const controlsAvailableSpace = (topWidth ?? 0) - (headingWidth ?? 0)
+
+    // Estimate space needed for controls with labels
+    // These are approximate widths based on current button styles
+    const buttonsWithLabels = (showDetailsControls ? 1 : 0) + (extraControls ? 1 : 0)
+    const neededWidth = buttonsWithLabels * 140 // 140px per button
+
+    // Show labels if card is wide enough AND there's room for labeled buttons
+    // But also when in storybook to make it neater
+    const showControlsLabels =
+        inStorybook() ||
+        inStorybookTestRunner() ||
+        (!!primaryWidth && primaryWidth > 480 && controlsAvailableSpace >= neededWidth)
 
     return (
         <div className={clsx('CardMeta', className, areDetailsShown && 'CardMeta--details-shown')}>
@@ -71,8 +87,8 @@ export function CardMeta({
                         <div className={clsx('CardMeta__ribbon', ribbonColor)} />
                     )}
                 <div className="CardMeta__main">
-                    <div className="CardMeta__top">
-                        <h5>
+                    <div className="CardMeta__top" ref={topRef}>
+                        <h5 ref={headingRef}>
                             {topHeading}
                             {samplingFactor && samplingFactor < 1 && (
                                 <Tooltip
@@ -88,7 +104,10 @@ export function CardMeta({
                         </h5>
                         <div className="CardMeta__controls">
                             {extraControls &&
-                                React.cloneElement(extraControls, { ...extraControls.props, _cardWidth: primaryWidth })}
+                                React.cloneElement(extraControls, {
+                                    ...extraControls.props,
+                                    showLabel: showControlsLabels,
+                                })}
                             {showDetailsControls && setAreDetailsShown && (
                                 <Tooltip title={detailsTooltip}>
                                     <LemonButton
@@ -97,7 +116,7 @@ export function CardMeta({
                                         size="small"
                                         active={areDetailsShown}
                                     >
-                                        {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
+                                        {showControlsLabels && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
                                     </LemonButton>
                                 </Tooltip>
                             )}

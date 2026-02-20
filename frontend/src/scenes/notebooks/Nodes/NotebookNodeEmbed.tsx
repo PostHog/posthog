@@ -65,10 +65,12 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEmbedAttributes
                     <iframe
                         className="w-full h-full"
                         src={validUrl.toString()}
+                        title="Embedded content"
                         allowFullScreen
                         onLoad={() => {
                             setLoaded(true)
                         }}
+                        sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
                     />
                     {!loaded ? <SpinnerOverlay /> : null}
                 </>

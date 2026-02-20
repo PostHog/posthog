@@ -13,11 +13,11 @@ from posthog.api.test.test_event_definition import EventData, capture_event
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.models import ActivityLog, Tag, Team, User
+from posthog.models import ActivityLog, ObjectMediaPreview, Tag, Team, UploadedMedia, User
 from posthog.models.event_definition import EventDefinition
 
 from ee.models.event_definition import EnterpriseEventDefinition
-from ee.models.license import AvailableFeature, License, LicenseManager
+from ee.models.license import License, LicenseManager
 
 
 @freeze_time("2020-01-02")
@@ -216,33 +216,6 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             },
         ]
 
-    def test_update_event_without_license(self):
-        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event")
-        response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{str(event.id)}",
-            data={"description": "test"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn(
-            "Self-hosted licenses are no longer available for purchase.",
-            response.json()["detail"],
-        )
-
-    def test_with_expired_license(self):
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=datetime(2010, 1, 19, 3, 14, 7)
-        )
-        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="description test")
-        response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{str(event.id)}",
-            data={"description": "test"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn(
-            "Self-hosted licenses are no longer available for purchase.",
-            response.json()["detail"],
-        )
-
     def test_can_get_event_verification_data(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
@@ -377,9 +350,6 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
-        # Clear features initially to test without INGESTION_TAXONOMY
-        self.demo_team.organization.available_product_features = []
-        self.demo_team.organization.save()
         # Create some events with hidden flag
         EnterpriseEventDefinition.objects.create(
             team=self.demo_team, project=self.demo_team.project, name="visible_event"
@@ -390,20 +360,6 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         EnterpriseEventDefinition.objects.create(
             team=self.demo_team, project=self.demo_team.project, name="hidden_event2", hidden=True
         )
-
-        # Test without enterprise taxonomy - hidden events should still be shown even with exclude_hidden=true
-        response = self.client.get(f"/api/projects/{self.demo_team.pk}/event_definitions/?exclude_hidden=true")
-        assert response.status_code == status.HTTP_200_OK
-        event_names = {p["name"] for p in response.json()["results"]}
-        assert "visible_event" in event_names
-        assert "hidden_event1" in event_names
-        assert "hidden_event2" in event_names
-
-        # Test with enterprise taxonomy enabled - hidden events should be excluded when exclude_hidden=true
-        self.demo_team.organization.available_product_features = [
-            {"key": AvailableFeature.INGESTION_TAXONOMY, "name": "ingestion-taxonomy"}
-        ]
-        self.demo_team.organization.save()
 
         response = self.client.get(f"/api/projects/{self.demo_team.pk}/event_definitions/?exclude_hidden=true")
         assert response.status_code == status.HTTP_200_OK
@@ -526,3 +482,97 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_by_name_returns_enterprise_event_definition(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        EnterpriseEventDefinition.objects.create(
+            team=self.demo_team, name="by_name_event", owner=self.user, description="test desc"
+        )
+
+        response = self.client.get("/api/projects/@current/event_definitions/by_name/?name=by_name_event")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "by_name_event"
+        assert response.json()["description"] == "test desc"
+        assert response.json()["owner"]["id"] == self.user.id
+
+    def test_by_name_not_found(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        response = self.client.get("/api/projects/@current/event_definitions/by_name/?name=nonexistent")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_list_media_preview_urls_no_n_plus_one(self):
+        """List endpoint batch-fetches media preview URLs instead of querying per event."""
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        # Create 5 events with media previews
+        for i in range(5):
+            event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name=f"media_event_{i}")
+            media = UploadedMedia.objects.create(
+                team=self.demo_team, file_name=f"screenshot_{i}.png", content_type="image/png"
+            )
+            ObjectMediaPreview.objects.create(team=self.demo_team, event_definition=event, uploaded_media=media)
+
+        with CaptureQueriesContext(connection) as ctx_baseline:
+            response = self.client.get("/api/projects/@current/event_definitions/")
+            assert response.status_code == status.HTTP_200_OK
+
+        baseline_queries = len(ctx_baseline)
+
+        # Add 10 more events with media previews
+        for i in range(10):
+            event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name=f"extra_media_event_{i}")
+            media = UploadedMedia.objects.create(
+                team=self.demo_team, file_name=f"extra_{i}.png", content_type="image/png"
+            )
+            ObjectMediaPreview.objects.create(team=self.demo_team, event_definition=event, uploaded_media=media)
+
+        with CaptureQueriesContext(connection) as ctx_more:
+            response = self.client.get("/api/projects/@current/event_definitions/")
+            assert response.status_code == status.HTTP_200_OK
+
+        more_queries = len(ctx_more)
+
+        # If N+1 exists, adding 10 events would add ~10 queries.
+        # With batch fetching, query count should stay roughly constant.
+        assert more_queries <= baseline_queries + 3, (
+            f"Possible N+1: {baseline_queries} queries with 5 media events, {more_queries} queries with 15 media events"
+        )
+
+    def test_list_includes_media_preview_urls(self):
+        """List endpoint returns media_preview_urls for each event definition."""
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="event_with_media")
+        media = UploadedMedia.objects.create(team=self.demo_team, file_name="screenshot.png", content_type="image/png")
+        ObjectMediaPreview.objects.create(team=self.demo_team, event_definition=event, uploaded_media=media)
+
+        response = self.client.get("/api/projects/@current/event_definitions/")
+        assert response.status_code == status.HTTP_200_OK
+
+        event_data = next(r for r in response.json()["results"] if r["name"] == "event_with_media")
+        assert len(event_data["media_preview_urls"]) == 1
+        assert "uploaded_media" in event_data["media_preview_urls"][0]
+
+    def test_list_media_preview_urls_empty_when_no_media(self):
+        """Events without media previews return empty media_preview_urls."""
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        response = self.client.get("/api/projects/@current/event_definitions/")
+        assert response.status_code == status.HTTP_200_OK
+
+        for result in response.json()["results"]:
+            assert result["media_preview_urls"] == []

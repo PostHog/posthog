@@ -12,7 +12,10 @@ import {
 } from './types'
 
 export function stacktraceHasInAppFrames(stacktrace: ErrorTrackingException['stacktrace']): boolean {
-    return stacktrace?.frames?.some(({ in_app }) => in_app) ?? false
+    if (!stacktrace?.frames || !Array.isArray(stacktrace.frames)) {
+        return false
+    }
+    return stacktrace.frames.some(({ in_app }) => in_app)
 }
 
 export function getRuntimeFromLib(lib?: string | null): ErrorTrackingRuntime {
@@ -243,7 +246,8 @@ export function formatResolvedName(
 }
 
 export function formatType(exception: Pick<ErrorTrackingException, 'module' | 'type' | 'stacktrace'>): string {
-    const hasJavaFrames = exception.stacktrace?.frames?.some((frame) => frame.lang === 'java')
+    const frames = exception.stacktrace?.frames
+    const hasJavaFrames = Array.isArray(frames) && frames.some((frame) => frame.lang === 'java')
     return exception.module && hasJavaFrames ? `${exception.module}.${exception.type}` : exception.type
 }
 

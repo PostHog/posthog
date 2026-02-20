@@ -1,4 +1,4 @@
-FROM ghcr.io/astral-sh/uv:0.9.9 AS uv
+FROM ghcr.io/astral-sh/uv:0.10.2 AS uv
 
 FROM python:3.12-slim-bookworm AS builder
 
@@ -38,7 +38,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
 
 CMD ["gunicorn", "llm_gateway.main:app", \
      "--bind", "0.0.0.0:8080", \
-     "--workers", "2", \
+     "--workers", "1", \
      "--worker-class", "uvicorn.workers.UvicornWorker", \
      "--access-logfile", "-", \
      "--error-logfile", "-"]

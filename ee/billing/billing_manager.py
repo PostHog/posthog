@@ -1,6 +1,8 @@
+import json
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, Optional, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.db.models import F
@@ -85,12 +87,12 @@ def build_billing_token(
         if authorizer_actor != user:
             # We've done a privilege escalation
             report_user_action(
-                user,
+                authorizer_actor,
                 "$billing_privilege_escalation",
                 properties={
-                    "authorizer_actor_id": authorizer_actor.id,
-                    # NOTE(Marce): Hardcoded for now since it's the only place where it can happen
-                    # I have another PR with a better implementation of this.
+                    "target_user_id": user.id,
+                    "target_distinct_id": str(user.distinct_id),
+                    "target_email": user.email,
                     "action": "update_billing",
                 },
             )
@@ -261,10 +263,22 @@ class BillingManager:
         except Exception as e:
             capture_exception(e, {"organization_id": organization.id})
 
-    def deactivate_products(self, organization: Organization, products: str) -> None:
-        res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/billing/deactivate?products={products}",
+    def activate_subscription(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/activate",
             headers=self.get_auth_headers(organization),
+            json=data,
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
+
+    def deactivate_products(self, organization: Organization, products: str) -> None:
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/billing/deactivate",
+            headers=self.get_auth_headers(organization),
+            json={"products": products},
         )
 
         handle_billing_service_error(res)
@@ -392,6 +406,7 @@ class BillingManager:
                 ai_credits=usage_summary.get("ai_credits", {}),
                 workflow_emails=usage_summary.get("workflow_emails", {}),
                 workflow_destinations_dispatched=usage_summary.get("workflow_destinations_dispatched", {}),
+                logs_mb_ingested=usage_summary.get("logs_mb_ingested", {}),
                 period=[
                     data["billing_period"]["current_period_start"],
                     data["billing_period"]["current_period_end"],
@@ -553,6 +568,31 @@ class BillingManager:
 
         return res.json()
 
+    def deauthorize(self, organization: Organization, billing_provider: BillingProvider) -> dict[str, Any]:
+        """
+        Deauthorize billing for an organization when a marketplace provider uninstalls.
+
+        This cancels the Stripe subscription and resets the billing provider to default,
+        effectively ending the customer's paid access through the marketplace.
+
+        Args:
+            organization: The organization to deauthorize billing for
+            billing_provider: The marketplace provider being uninstalled (e.g., "vercel")
+
+        Returns:
+            Response from billing service with success status
+        """
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/activate/authorize/uninstall",
+            headers=self.get_auth_headers(organization),
+            json={"billing_provider": billing_provider.value},
+            timeout=30,
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
+
     def switch_plan(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
         res = requests.post(
             f"{BILLING_SERVICE_URL}/api/subscription/switch-plan/",
@@ -595,32 +635,77 @@ class BillingManager:
         return res.json()
 
     def get_usage_data(self, organization: Organization, params: dict[str, Any]) -> dict[str, Any]:
-        """
-        Get usage data from the billing service.
-        """
-        res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/v2/usage/",
-            headers=self.get_auth_headers(organization),
-            params=params,
-        )
-
-        handle_billing_service_error(res)
-
-        return res.json()
+        return self._request_with_post_fallback(organization, "/api/v2/usage/", params)
 
     def get_spend_data(self, organization: Organization, params: dict[str, Any]) -> dict[str, Any]:
+        return self._request_with_post_fallback(organization, "/api/v2/spend/", params)
+
+    def _request_with_post_fallback(
+        self, organization: Organization, path: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
         """
-        Get spend data from the billing service.
+        GET with automatic POST fallback for large payloads.
+
+        Tries GET first with query params. If the server responds with 414
+        (URI Too Long) or 431 (Request Header Fields Too Large), retries as
+        POST with a JSON body. This handles orgs with many teams whose
+        teams_map serialization exceeds URL/header limits.
         """
-        res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/v2/spend/",
-            headers=self.get_auth_headers(organization),
-            params=params,
-        )
+        url = f"{BILLING_SERVICE_URL}{path}"
+        headers = self.get_auth_headers(organization)
+
+        res = requests.get(url, headers=headers, params=self._to_query_params(params))
+
+        if res.status_code in (414, 431):
+            logger.info(
+                "billing_get_to_post_fallback",
+                path=path,
+                status_code=res.status_code,
+                organization_id=str(organization.id),
+            )
+            res = requests.post(url, headers=headers, json=self._to_post_body(params))
 
         handle_billing_service_error(res)
-
         return res.json()
+
+    @staticmethod
+    def _to_query_params(params: dict[str, Any]) -> dict[str, Any]:
+        """Serialize complex types to JSON strings for GET query params."""
+        result = {}
+        for k, v in params.items():
+            if isinstance(v, (dict, list)):
+                result[k] = json.dumps(v)
+            elif isinstance(v, UUID):
+                result[k] = str(v)
+            else:
+                result[k] = v
+        return result
+
+    @staticmethod
+    def _to_post_body(params: dict[str, Any]) -> dict[str, Any]:
+        """Convert params to a JSON-safe POST body.
+
+        Handles two conversions: UUIDs are stringified, and string values
+        that contain JSON arrays or objects (from frontend query-param
+        encoding) are parsed back into native types so the billing service
+        receives structured data rather than escaped strings.
+        """
+        result: dict[str, Any] = {}
+        for k, v in params.items():
+            if isinstance(v, UUID):
+                result[k] = str(v)
+            elif isinstance(v, str):
+                try:
+                    parsed = json.loads(v)
+                    if isinstance(parsed, (list, dict)):
+                        result[k] = parsed
+                    else:
+                        result[k] = v
+                except (json.JSONDecodeError, ValueError):
+                    result[k] = v
+            else:
+                result[k] = v
+        return result
 
     def handle_billing_provider_webhook(
         self,

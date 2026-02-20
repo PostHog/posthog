@@ -17,8 +17,8 @@ export type BatchPersonGetArgs = {
 const toKey = (args: PersonGetArgs): string => `${args.teamId}:${args.distinctId}`
 
 const fromKey = (key: string): PersonGetArgs => {
-    const [teamId, distinctId] = key.split(':')
-    return { teamId: parseInt(teamId), distinctId }
+    const [teamId, ...distinctIdParts] = key.split(':')
+    return { teamId: parseInt(teamId), distinctId: distinctIdParts.join(':') }
 }
 
 export type PersonManagerPerson = {
@@ -35,6 +35,7 @@ export class PersonsManagerService {
         this.lazyLoader = new LazyLoader({
             name: 'person_manager',
             loader: async (ids) => await this.fetchPersons(ids),
+            refreshAgeMs: 1000 * 60, // 1 minute, so that we don't hold stale person data for too long
         })
     }
 
@@ -59,11 +60,11 @@ export class PersonsManagerService {
     public async streamMany({
         filters,
         options,
-        onPerson,
+        onPersonBatch,
     }: {
         filters: BatchPersonGetArgs
         options?: { limit?: number }
-        onPerson: ({ personId, distinctId }: { personId: string; distinctId: string }) => void
+        onPersonBatch: (personsBatch: { personId: string; distinctId: string }[]) => Promise<void>
     }): Promise<void> {
         const limit = options?.limit || 500
         let cursor: string | undefined = undefined
@@ -73,12 +74,12 @@ export class PersonsManagerService {
             options: { limit, cursor },
         })
         while (personBatch.length > 0) {
-            for (const personRow of personBatch) {
-                onPerson?.({
+            await onPersonBatch(
+                personBatch.map((personRow) => ({
                     personId: personRow.uuid,
                     distinctId: personRow.distinct_id,
-                })
-            }
+                }))
+            )
 
             // Skip another query if our page wasn't full
             if (personBatch.length < limit) {

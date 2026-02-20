@@ -6,6 +6,89 @@ import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { isFunnelsQuery, isPathsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, DashboardLayoutSize, DashboardTile, QueryBasedInsightModel } from '~/types'
 
+export interface TileLayout {
+    x: number
+    y: number
+    w: number
+    h: number
+}
+
+export interface DuplicateLayoutResult {
+    duplicateLayouts: { sm?: TileLayout }
+    tilesToUpdate: Array<{ id: number; layouts: { sm?: TileLayout } }>
+}
+
+export function calculateDuplicateLayout(
+    currentLayouts: Partial<Record<DashboardLayoutSize, Layout[]>> | null,
+    tileId: number
+): DuplicateLayoutResult {
+    const result: DuplicateLayoutResult = { duplicateLayouts: {}, tilesToUpdate: [] }
+
+    const originalSmLayout = currentLayouts?.sm?.find((l) => String(l.i) === String(tileId))
+
+    if (!originalSmLayout) {
+        return result
+    }
+
+    const { x, y, w, h } = originalSmLayout
+    const columnCount = BREAKPOINT_COLUMN_COUNTS.sm
+
+    // place the tile on the right if there's space
+    if (canPlaceToRight(currentLayouts?.sm || [], tileId, x, y, w, h, columnCount)) {
+        result.duplicateLayouts = {
+            sm: { x: x + w, y, w, h },
+        }
+        return result
+    }
+
+    // otherwise, place it below
+    const insertY = y + h
+    result.duplicateLayouts = {
+        sm: { x, y: insertY, w, h },
+    }
+
+    // shift down any tiles that would overlap with the new placement
+    for (const smLayout of currentLayouts?.sm || []) {
+        // ignore the duplicated tile and tiles above the insertion point
+        if (String(smLayout.i) === String(tileId) || smLayout.y < insertY) {
+            continue
+        }
+
+        result.tilesToUpdate.push({
+            id: parseInt(smLayout.i),
+            layouts: {
+                sm: { x: smLayout.x, y: smLayout.y + h, w: smLayout.w, h: smLayout.h },
+            },
+        })
+    }
+
+    return result
+}
+
+function canPlaceToRight(
+    layouts: Layout[],
+    excludeTileId: number,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    columnCount: number
+): boolean {
+    const rightX = x + w
+    if (rightX + w > columnCount) {
+        return false
+    }
+
+    return !layouts.some((l) => {
+        if (String(l.i) === String(excludeTileId)) {
+            return false
+        }
+        const overlapsX = l.x < rightX + w && l.x + l.w > rightX
+        const overlapsY = l.y < y + h && l.y + l.h > y
+        return overlapsX && overlapsY
+    })
+}
+
 export const sortTilesByLayout = (
     tiles: Array<DashboardTile<QueryBasedInsightModel>>,
     col: DashboardLayoutSize
@@ -29,6 +112,7 @@ export const calculateLayouts = (
 ): Partial<Record<DashboardLayoutSize, Layout[]>> => {
     const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout[]>> = {}
 
+    // Always calculate sm layout first to establish reference order
     let referenceOrder: number[] | undefined = undefined
 
     for (const breakpoint of Object.keys(BREAKPOINT_COLUMN_COUNTS) as (keyof typeof BREAKPOINT_COLUMN_COUNTS)[]) {
@@ -36,9 +120,11 @@ export const calculateLayouts = (
 
         let sortedDashboardTiles: DashboardTile<QueryBasedInsightModel>[] | undefined
         if (referenceOrder === undefined) {
-            sortedDashboardTiles = sortTilesByLayout(tiles, breakpoint)
+            // First pass: calculate sm layout and establish order
+            sortedDashboardTiles = sortTilesByLayout(tiles, 'sm')
             referenceOrder = sortedDashboardTiles.map((tile) => tile.id)
         } else {
+            // Subsequent passes: follow the reference order from sm layout
             sortedDashboardTiles = tiles.sort((a, b) => {
                 return (referenceOrder?.indexOf(a.id) || 0) - (referenceOrder?.indexOf(b.id) || 0)
             })
@@ -71,7 +157,9 @@ export const calculateLayouts = (
                 defaultW = 1
             }
 
-            const layout = tile.layouts && tile.layouts[breakpoint]
+            // For xs layout, ignore stored layout and derive from sm order
+            // For sm layout, use stored layout if available
+            const layout = breakpoint === 'xs' ? undefined : tile.layouts?.[breakpoint]
             const { x, y, w, h } = layout || {}
 
             const realW = Math.min(w || defaultW, columnCount)

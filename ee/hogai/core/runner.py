@@ -13,9 +13,9 @@ import posthoganalytics
 from asgiref.sync import async_to_sync
 from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.runnables.config import RunnableConfig
-from langgraph.errors import GraphRecursionError
+from langgraph.errors import GraphInterrupt, GraphRecursionError
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.types import StreamMode
+from langgraph.types import Command, StreamMode
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 
 from posthog.schema import (
@@ -27,6 +27,7 @@ from posthog.schema import (
     FailureMessage,
     HumanMessage,
     MaxBillingContext,
+    MultiQuestionForm,
     SubagentUpdateEvent,
 )
 
@@ -40,11 +41,20 @@ from posthog.utils import get_instance_region
 
 from ee.hogai.core.base import BaseAssistantGraph
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
-from ee.hogai.utils.exceptions import LLM_API_EXCEPTIONS, LLM_PROVIDER_ERROR_COUNTER, GenerationCanceled
+from ee.hogai.tool import ApprovalRequest
+from ee.hogai.utils.exceptions import (
+    LLM_API_EXCEPTIONS,
+    LLM_CLIENT_ERROR_COUNTER,
+    LLM_CLIENT_EXCEPTIONS,
+    LLM_PROVIDER_ERROR_COUNTER,
+    LLM_TRANSIENT_EXCEPTIONS,
+    GenerationCanceled,
+)
 from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
-from ee.hogai.utils.helpers import extract_stream_update, find_last_message_of_type
+from ee.hogai.utils.helpers import extract_stream_update
 from ee.hogai.utils.state import validate_state_update
 from ee.hogai.utils.types.base import (
+    ApprovalPayload,
     AssistantDispatcherEvent,
     AssistantOutput,
     AssistantResultUnion,
@@ -101,6 +111,7 @@ class BaseAgentRunner(ABC):
     _parent_span_id: Optional[str | UUID]
     _slack_thread_context: Optional["SlackThreadContext"]
     _is_agent_billable: bool
+    _resume_payload: Optional[dict[str, Any]]
 
     def __init__(
         self,
@@ -124,6 +135,8 @@ class BaseAgentRunner(ABC):
         stream_processor: AssistantStreamProcessorProtocol,
         slack_thread_context: Optional["SlackThreadContext"] = None,
         is_agent_billable: bool = True,
+        is_impersonated: bool = False,
+        resume_payload: Optional[dict[str, Any]] = None,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
@@ -153,7 +166,9 @@ class BaseAgentRunner(ABC):
                     "$session_id": self._session_id,
                     "is_subagent": not self._use_checkpointer,
                     "$groups": event_usage.groups(team=team),
-                    "ai_support_impersonated": not is_agent_billable,
+                    "ai_support_impersonated": is_impersonated,
+                    "ai_product": "mcp" if self._conversation.type == Conversation.Type.TOOL_CALL else "posthog_ai",
+                    "conversation_type": self._conversation.type,
                 }
                 # Use SubagentCallbackHandler when parent_span_id is provided to nest all events under the parent
                 if parent_span_id:
@@ -191,6 +206,7 @@ class BaseAgentRunner(ABC):
         # Initialize the stream processor with node configuration
         self._stream_processor = stream_processor
         self._slack_thread_context = slack_thread_context
+        self._resume_payload = resume_payload
 
     @abstractmethod
     def get_initial_state(self) -> AssistantMaxGraphState:
@@ -260,35 +276,11 @@ class BaseAgentRunner(ABC):
                                 yield AssistantEventType.STATUS, message
                             elif isinstance(message, AssistantUpdateEvent | SubagentUpdateEvent):
                                 yield AssistantEventType.UPDATE, message
-
-                if not self._use_checkpointer:
-                    # Subagents don't use the checkpointer, and we don't need to do interrupt handling.
-                    return
-
-                # Check if the assistant has requested help.
-                state = await self._graph.aget_state(config)
-                if state.next:
-                    interrupt_messages = []
-                    for task in state.tasks:
-                        for interrupt in task.interrupts:
-                            if interrupt.value is None:
-                                continue  # Skip None interrupts (used by create_form)
-                            interrupt_message = (
-                                AssistantMessage(content=interrupt.value, id=str(uuid4()))
-                                if isinstance(interrupt.value, str)
-                                else interrupt.value
-                            )
-                            interrupt_messages.append(interrupt_message)
-                            yield AssistantEventType.MESSAGE, interrupt_message
-
-                    await self._graph.aupdate_state(
-                        config,
-                        self._partial_state_type(
-                            messages=interrupt_messages,
-                            # LangGraph by some reason doesn't store the interrupt exceptions in checkpoints.
-                            graph_status="interrupted",
-                        ),
-                    )
+            except GraphInterrupt:
+                # GraphInterrupt is raised when interrupt() is called in a tool.
+                # TRICKY: don't reset state. The interrupt handling code
+                # below will process the interrupt via aget_state().
+                pass
             except GraphRecursionError:
                 recursion_limit_message = AssistantMessage(
                     content="I've reached the maximum number of steps. Would you like me to continue?",
@@ -301,11 +293,35 @@ class BaseAgentRunner(ABC):
                         config,
                         self._partial_state_type(messages=[recursion_limit_message]),
                     )
-            except LLM_API_EXCEPTIONS as e:
-                # Reset the state for LLM provider errors
+                return  # Don't run interrupt handling after recursion error
+            except LLM_CLIENT_EXCEPTIONS as e:
+                # Client/validation errors (400, 422) - these won't resolve on retry
                 if self._use_checkpointer:
                     await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
-                # This is safe since partition always returns a tuple of three elements no matter the matching
+                provider = type(e).__module__.partition(".")[0] or "unknown_provider"
+                LLM_CLIENT_ERROR_COUNTER.labels(provider=provider).inc()
+                logger.exception("llm_client_error", error=str(e), provider=provider)
+                posthoganalytics.capture_exception(
+                    e,
+                    distinct_id=self._user.distinct_id if self._user else None,
+                    properties={
+                        "error_type": "llm_client_error",
+                        "provider": provider,
+                        "tag": "max_ai",
+                    },
+                )
+                yield (
+                    AssistantEventType.MESSAGE,
+                    FailureMessage(
+                        content="I'm unable to process this request. The conversation may be too long. Please start a new conversation.",
+                        id=str(uuid4()),
+                    ),
+                )
+                return  # Don't run interrupt handling after client errors
+            except LLM_TRANSIENT_EXCEPTIONS as e:
+                # Transient errors (5xx, rate limits, timeouts) - may resolve on retry
+                if self._use_checkpointer:
+                    await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
                 provider = type(e).__module__.partition(".")[0] or "unknown_provider"
                 LLM_PROVIDER_ERROR_COUNTER.labels(provider=provider).inc()
                 logger.exception("llm_provider_error", error=str(e), provider=provider)
@@ -325,6 +341,31 @@ class BaseAgentRunner(ABC):
                         id=str(uuid4()),
                     ),
                 )
+                return  # Don't run interrupt handling after LLM errors
+            except LLM_API_EXCEPTIONS as e:
+                # Catch-all for other API errors (auth errors, etc.)
+                if self._use_checkpointer:
+                    await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
+                provider = type(e).__module__.partition(".")[0] or "unknown_provider"
+                LLM_PROVIDER_ERROR_COUNTER.labels(provider=provider).inc()
+                logger.exception("llm_api_error", error=str(e), provider=provider)
+                posthoganalytics.capture_exception(
+                    e,
+                    distinct_id=self._user.distinct_id if self._user else None,
+                    properties={
+                        "error_type": "llm_api_error",
+                        "provider": provider,
+                        "tag": "max_ai",
+                    },
+                )
+                yield (
+                    AssistantEventType.MESSAGE,
+                    FailureMessage(
+                        content="I'm unable to respond right now. Please try again later.",
+                        id=str(uuid4()),
+                    ),
+                )
+                return  # Don't run interrupt handling after LLM errors
             except Exception as e:
                 if self._use_checkpointer:
                     # Reset the state, so that the next generation starts from the beginning.
@@ -341,6 +382,75 @@ class BaseAgentRunner(ABC):
                         # Some nodes might have already sent a failure message, so we don't want to send another one.
                         if not state_snapshot.messages or not isinstance(state_snapshot.messages[-1], FailureMessage):
                             yield AssistantEventType.MESSAGE, FailureMessage()
+                return  # Don't run interrupt handling after errors
+
+            # Interrupt handling - runs after normal completion or GraphInterrupt
+            if not self._use_checkpointer:
+                # Subagents don't use the checkpointer, and we don't need to do interrupt handling.
+                return
+
+            # Check if the assistant has requested help.
+            state = await self._graph.aget_state(config)
+
+            # If graph completed successfully (no pending nodes) and we were previously interrupted,
+            # reset graph_status so the next message can start fresh instead of trying to resume.
+            if not state.next:
+                current_state = validate_state_update(state.values, self._state_type)
+                if current_state.graph_status == "interrupted":
+                    await self._graph.aupdate_state(
+                        config,
+                        self._partial_state_type(graph_status=""),
+                    )
+
+            if state.next:
+                interrupt_messages: list[Any] = []
+                should_not_update_state = False
+                for task in state.tasks:
+                    for interrupt in task.interrupts:
+                        if interrupt.value is None:
+                            continue  # Skip None interrupts
+                        # Reconstruct interrupt message based on its type
+                        interrupt_message: Any
+                        if isinstance(interrupt.value, str):
+                            interrupt_message = AssistantMessage(content=interrupt.value, id=str(uuid4()))
+                            interrupt_messages.append(interrupt_message)
+                            yield AssistantEventType.MESSAGE, interrupt_message
+                        elif isinstance(interrupt.value, MultiQuestionForm):
+                            # No need to yield a message here - the form will be displayed to the user through the tool call args
+                            # and the answers comes through the tool call result ui_payload
+                            should_not_update_state = True
+                        elif isinstance(interrupt.value, ApprovalRequest):
+                            # Check if this is an ApprovalRequest from interrupt() in a tool
+                            should_not_update_state = True
+                            # Stream approval event directly
+                            message_id = str(uuid4())
+                            approval_payload = ApprovalPayload(
+                                proposal_id=interrupt.value.proposal_id,
+                                decision_status="pending",
+                                tool_name=interrupt.value.tool_name,
+                                preview=interrupt.value.preview,
+                                payload=interrupt.value.payload,
+                                original_tool_call_id=interrupt.value.original_tool_call_id,
+                                message_id=message_id,
+                            )
+                            yield AssistantEventType.APPROVAL, approval_payload
+                            # Store approval card metadata for persistence (page reload)
+                            await self._store_approval_card_data(approval_payload)
+                        else:
+                            interrupt_message = interrupt.value
+                            interrupt_messages.append(interrupt_message)
+                            yield AssistantEventType.MESSAGE, interrupt_message
+
+                # TRICKY: For approval interrupts, we intentionally do NOT call aupdate_state().
+                if should_not_update_state:
+                    return
+
+                # For other interrupts (NodeInterrupt), update state
+                state_update = self._partial_state_type(
+                    messages=interrupt_messages,
+                    graph_status="interrupted",
+                )
+                await self._graph.aupdate_state(config, state_update)
 
     def _get_config(self) -> RunnableConfig:
         config: RunnableConfig = {
@@ -375,24 +485,47 @@ class BaseAgentRunner(ABC):
             saved_state = validate_state_update(snapshot.values, self._state_type)
             last_recorded_dt = saved_state.start_dt
 
-            # When resuming after a create_form interrupt, create the tool call response message
-            if form_response_message := self._get_form_response_message(saved_state):
-                self._latest_message = form_response_message
-
             # Add existing ids to streamed messages, so we don't send the messages again.
             for message in saved_state.messages:
                 if message.id is not None:
                     self._stream_processor.mark_id_as_streamed(message.id)
 
-            # If the graph previously hasn't reset the state, it is an interrupt. We resume from the point of interruption.
-            if snapshot.next and self._latest_message and saved_state.graph_status == "interrupted":
+            # If there are pending nodes (snapshot.next is non-empty), we need to resume.
+            # This happens when:
+            # 1. A tool called interrupt() for approval - snapshot.next will have pending nodes
+            # 2. A NodeInterrupt was raised - graph_status will be "interrupted"
+            if snapshot.next:
                 self._state = saved_state
-                await self._graph.aupdate_state(
-                    config,
-                    self.get_resumed_state(),
-                )
-                # Return None to indicate that we want to continue the execution from the interrupted point.
-                return None
+                if self._resume_payload:
+                    # Resume with the payload using LangGraph's Command
+                    # The interrupt() call will return this payload value
+
+                    # Update approval_decisions status if this is an approval/rejection response
+                    await self._update_approval_decision_status(self._resume_payload)
+
+                    # If there's a new message alongside the resume (user sent message while approval pending),
+                    # include it in the state update so the agent sees it as a proper HumanMessage
+                    if self._latest_message:
+                        return Command(resume=self._resume_payload, update={"messages": [self._latest_message]})
+                    return Command(resume=self._resume_payload)
+                elif saved_state.graph_status == "interrupted":
+                    # NodeInterrupt without approval flow - add the new message and resume
+                    if self._latest_message:
+                        await self._graph.aupdate_state(
+                            config,
+                            self.get_resumed_state(),
+                        )
+                    return None
+                elif self._latest_message:
+                    # Pending nodes but user sent a new message without resume_payload.
+                    # This could be cancelled execution or user abandoning an approval interrupt.
+                    # Start fresh with the new message.
+                    pass  # Fall through to return initial state
+                else:
+                    # Pending nodes but no resume_payload, not interrupted, and no new message.
+                    # This means an approval interrupt is waiting for user input.
+                    # Return None to resume from checkpoint
+                    return None
 
         # Add the latest message id to streamed messages, so we don't send it multiple times.
         if self._latest_message and self._latest_message.id is not None:
@@ -484,40 +617,52 @@ class BaseAgentRunner(ABC):
             },
         )
 
-    def _get_form_response_message(self, saved_state: AssistantMaxGraphState) -> AssistantToolCallMessage | None:
+    async def _store_approval_card_data(self, approval: ApprovalPayload) -> None:
         """
-        When resuming after a create_form tool call (which raises NodeInterrupt(None)),
-        create an AssistantToolCallMessage with the user's response content and parsed answers in ui_payload.
+        Store approval card metadata in conversation.approval_decisions.
+
+        TRICKY: when we call aupdate_state(), LangGraph creates a NEW checkpoint. This new checkpoint
+        does NOT preserve the pending nodes from snapshot.next, which breaks the resume flow:
+        - On resume, we check if snapshot.next has pending nodes
+        - If empty (because aupdate_state cleared it), we start a new graph execution
+        - This causes the tool to call interrupt() again with a new proposal_id
+        Solution: Store approval card metadata in a side-channel (conversation.approval_decisions)
+        and have the ConversationSerializer reconstruct the data when loading the conversation.
+
+        NOTE: We intentionally do NOT store 'payload' here. The payload is stored in the LangGraph
+        checkpoint's interrupt value (single source of truth). The serializer fetches it from there.
         """
-        if not saved_state.messages or not self._latest_message:
-            return None
+        # Only store if not already in approval_decisions (don't overwrite resolved status)
+        if approval.proposal_id in self._conversation.approval_decisions:
+            return
 
-        # Form responses must come from a HumanMessage
-        if not isinstance(self._latest_message, HumanMessage):
-            return None
+        # Store with "pending" decision_status - updated to approved/rejected when user responds
+        # Payload is NOT stored here - it lives in the checkpoint interrupt (single source of truth)
+        self._conversation.approval_decisions[approval.proposal_id] = {
+            "decision_status": "pending",
+            "tool_name": approval.tool_name,
+            "preview": approval.preview,
+            "message_id": approval.message_id,
+            "original_tool_call_id": approval.original_tool_call_id,
+        }
+        await self._conversation.asave(update_fields=["approval_decisions"])
 
-        # Check if we have form answers in the ui_context
-        if not self._latest_message.ui_context or not self._latest_message.ui_context.form_answers:
-            return None
+    async def _update_approval_decision_status(self, resume_payload: dict[str, Any]) -> None:
+        """
+        Update the approval_decisions status when user approves or rejects.
+        """
+        action = resume_payload.get("action")
+        proposal_id = resume_payload.get("proposal_id")
 
-        # Find the last assistant message with tool calls
-        last_assistant_message = find_last_message_of_type(saved_state.messages, AssistantMessage)
-        if not last_assistant_message or not last_assistant_message.tool_calls:
-            return None
+        if not action or not proposal_id:
+            return
 
-        # Find the create_form tool call
-        create_form_tool_call = next(
-            (tc for tc in last_assistant_message.tool_calls if tc.name == "create_form"),
-            None,
-        )
-        if not create_form_tool_call:
-            return None
+        if proposal_id not in self._conversation.approval_decisions:
+            return
 
-        answers = self._latest_message.ui_context.form_answers
+        status = "approved" if action == "approve" else "rejected" if action == "reject" else None
+        if not status:
+            return
 
-        return AssistantToolCallMessage(
-            content=self._latest_message.content or "",
-            id=str(uuid4()),
-            tool_call_id=create_form_tool_call.id,
-            ui_payload={"create_form": {"answers": answers}},
-        )
+        self._conversation.approval_decisions[proposal_id]["decision_status"] = status
+        await self._conversation.asave(update_fields=["approval_decisions"])

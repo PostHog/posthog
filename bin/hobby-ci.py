@@ -108,6 +108,53 @@ class HobbyTester:
             "fi"
         )
 
+    def _get_node_image_fallback_script(self):
+        """Return bash script to check if posthog-node image exists on DockerHub.
+
+        If the node image doesn't exist for this commit (it's only built when
+        node files change), rewrite the compose file to use :latest for the
+        plugins service so that docker compose pull doesn't fail.
+        """
+        return (
+            "if curl -sf "
+            "https://hub.docker.com/v2/repositories/posthog/posthog-node/tags/$CURRENT_COMMIT "
+            "> /dev/null 2>&1; then "
+            "echo posthog-node image found on DockerHub; "
+            "else "
+            "echo posthog-node image not found, using latest for plugins service; "
+            "sed -i "
+            "'s|${REGISTRY_URL}-node:${POSTHOG_APP_TAG}|posthog/posthog-node:latest|g' "
+            "posthog/docker-compose.hobby.yml; "
+            "fi"
+        )
+
+    def _get_installer_commands(self):
+        """Return cloud-init commands to obtain the hobby-installer binary.
+
+        If INSTALLER_CHANGED is set (Go code was modified in this PR), build
+        from the checked-out source so the e2e test validates the new code.
+        Otherwise download the latest release to keep provisioning fast.
+        """
+        installer_changed = os.environ.get("INSTALLER_CHANGED", "false").lower() == "true"
+
+        if installer_changed:
+            return [
+                'echo "$LOG_PREFIX Building hobby installer from source (installer code changed)..."',
+                "curl -fsSL https://go.dev/dl/go1.24.0.linux-$(dpkg --print-architecture).tar.gz | tar -C /usr/local -xzf -",
+                "export PATH=$PATH:/usr/local/go/bin",
+                "export GOPATH=/tmp/go",
+                "export GOCACHE=/tmp/go-cache",
+                "cd posthog/bin/hobby-installer && go build -o /tmp/hobby-installer . && cd ../../..",
+                "cp /tmp/hobby-installer hobby-installer",
+                "chmod +x hobby-installer",
+            ]
+
+        return [
+            'echo "$LOG_PREFIX Downloading hobby installer from GitHub releases..."',
+            "curl -L https://github.com/PostHog/posthog/releases/download/hobby-latest/hobby-installer -o hobby-installer",
+            "chmod +x hobby-installer",
+        ]
+
     def _build_user_data(self):
         """Build cloud-init user_data script with SSH pubkey in cloud-config"""
         cloud_config = """#cloud-config
@@ -138,9 +185,10 @@ runcmd:
             "cd ..",
             'echo "$LOG_PREFIX Waiting for docker image to be available on DockerHub..."',
             self._get_wait_for_image_script(),
-            "chmod +x posthog/bin/hobby-installer",
+            self._get_node_image_fallback_script(),
+            *self._get_installer_commands(),
             'echo "$LOG_PREFIX Starting hobby installer (CI mode)"',
-            f"./posthog/bin/hobby-installer --ci --domain {safe_hostname} --version $CURRENT_COMMIT",
+            f"./hobby-installer --ci --domain {safe_hostname} --version $CURRENT_COMMIT",
             "DEPLOY_EXIT=$?",
             'echo "$LOG_PREFIX Hobby installer exited with code: $DEPLOY_EXIT"',
             "exit $DEPLOY_EXIT",
@@ -327,6 +375,33 @@ runcmd:
             raise RuntimeError(f"Failed to update .env: {result['stderr']}")
         print(f"✅ Updated POSTHOG_APP_TAG to {new_sha}")
 
+        # Resolve node image tag: use commit-specific tag if available, otherwise 'latest'
+        print("🔍 Checking if node image exists for this commit...")
+        check_node_cmd = (
+            f'curl -sf "https://hub.docker.com/v2/repositories/posthog/posthog-node/tags/{new_sha}" > /dev/null 2>&1'
+        )
+        result = self.run_ssh_command(check_node_cmd, timeout=30)
+        if result["exit_code"] == 0:
+            node_tag = new_sha
+            print(f"✅ Node image found for commit, using tag: {new_sha}")
+        else:
+            node_tag = "latest"
+            print(f"ℹ️ Node image not found for commit, falling back to tag: latest")
+
+        # Update or add POSTHOG_NODE_TAG in .env
+        update_node_tag_cmd = (
+            f"cd /hobby && "
+            f"if grep -q '^POSTHOG_NODE_TAG=' .env; then "
+            f"  sed -i 's/^POSTHOG_NODE_TAG=.*/POSTHOG_NODE_TAG={node_tag}/' .env; "
+            f"else "
+            f"  echo 'POSTHOG_NODE_TAG={node_tag}' >> .env; "
+            f"fi && grep POSTHOG_NODE_TAG .env"
+        )
+        result = self.run_ssh_command(update_node_tag_cmd, timeout=30)
+        if result["exit_code"] != 0:
+            raise RuntimeError(f"Failed to update POSTHOG_NODE_TAG: {result['stderr']}")
+        print(f"✅ Updated POSTHOG_NODE_TAG to {node_tag}")
+
         # Pull new images with retry logic
         print("🐋 Pulling new Docker images...")
         pull_cmd = 'cd /hobby && for attempt in 1 2 3; do echo "Pull attempt $attempt/3"; docker-compose pull && break || { echo "Pull failed, waiting 30s..."; sleep 30; }; done'
@@ -452,7 +527,7 @@ runcmd:
         http_502_count = 0
         connection_error_count = 0
 
-        last_log_fetch = 0
+        last_log_fetch = -30  # Start at -30 so first check happens after 30s, not 60s
         containers_healthy_since = None  # Track when containers first became healthy
         cloud_init_finished = False
 
@@ -621,7 +696,7 @@ runcmd:
         last_error = None
         http_502_count = 0
         connection_error_count = 0
-        last_log_fetch = 0
+        last_log_fetch = -30  # Start at -30 so first check happens after 30s, not 60s
         containers_healthy_since = None
         cloud_init_finished = False
         failure_details: dict = {}
@@ -649,6 +724,7 @@ runcmd:
                 connection_error_count += 1
                 print(f"Connection failed: {type(e).__name__}", flush=True)
 
+            # Periodic checks (every 60 seconds)
             if int(elapsed) - last_log_fetch > 60:
                 if not cloud_init_finished:
                     finished, success, status = self.check_cloud_init_status()
@@ -1299,15 +1375,21 @@ def main():
         name = os.environ.get("HOBBY_NAME")
         record_id = os.environ.get("HOBBY_DNS_RECORD_ID")
         droplet_id = os.environ.get("HOBBY_DROPLET_ID")
+        ssh_key = os.environ.get("DIGITALOCEAN_SSH_PRIVATE_KEY")
 
         print("Waiting for deployment to become healthy", flush=True)
         print(f"Record ID: {record_id}", flush=True)
         print(f"Droplet ID: {droplet_id}", flush=True)
+        print(f"SSH key available: {bool(ssh_key)}", flush=True)
+
+        if not ssh_key:
+            print("⚠️  WARNING: No SSH key - cannot detect cloud-init failures early!", flush=True)
 
         ht = HobbyTester(
             name=name,
             record_id=record_id,
             droplet_id=droplet_id,
+            ssh_private_key=ssh_key,
         )
         health_success, failure_details = ht.test_deployment_with_details()
 

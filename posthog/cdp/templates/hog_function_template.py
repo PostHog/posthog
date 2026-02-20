@@ -12,8 +12,10 @@ else:
 
 SubTemplateId = Literal[
     "activity-log",
+    "discussion-mention",
     "error-tracking-issue-created",
     "error-tracking-issue-reopened",
+    "error-tracking-issue-spiking",
     "insight-alert-firing",
 ]
 
@@ -24,6 +26,7 @@ HogFunctionTemplateType = Literal[
     "site_destination",
     "internal_destination",
     "source_webhook",
+    "warehouse_source_webhook",
     "site_app",
     "transformation",
 ]

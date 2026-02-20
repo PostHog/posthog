@@ -19,11 +19,17 @@ class ProductTourAdmin(admin.ModelAdmin):
     list_filter = ("archived",)
     search_fields = ("id", "name", "team__name", "team__organization__name")
     autocomplete_fields = ("team", "created_by")
-    readonly_fields = ("id", "internal_targeting_flag", "created_at", "updated_at")
+    readonly_fields = ("id", "internal_targeting_flag", "linked_flag", "created_at", "updated_at")
     ordering = ("-created_at",)
 
     def get_queryset(self, request):
         return ProductTour.all_objects.all()
+
+    def get_exclude(self, request, obj=None):
+        exclude = list(super().get_exclude(request, obj) or [])
+        if obj:
+            exclude.extend(["linked_surveys"])
+        return exclude
 
     def get_form(self, request, obj=None, change=False, **kwargs):
         form = super().get_form(request, obj, **kwargs)

@@ -13,10 +13,10 @@ from posthog.hogql.hogql import HogQLContext
 
 from posthog.exceptions import (
     ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
-    EstimatedQueryExecutionTimeTooLong,
-    QuerySizeExceeded,
 )
 from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.util import (
@@ -47,7 +47,7 @@ class TestCohortUtils(BaseTest):
         _create_person(
             team_id=self.team.pk,
             distinct_ids=["p1"],
-            properties={"name": "test", "name": "test"},
+            properties={"name": "test"},
         )
         cohort = _create_cohort(team=self.team, name="cohort1", groups=[], is_static=True)
         flush_persons_and_events()
@@ -74,7 +74,7 @@ class TestCohortUtils(BaseTest):
         _create_person(
             team_id=self.team.pk,
             distinct_ids=["p1"],
-            properties={"name": "test", "name": "test"},
+            properties={"name": "test"},
         )
         cohort = _create_cohort(team=self.team, name="cohort1", groups=[], is_static=True)
         flush_persons_and_events()
@@ -901,7 +901,7 @@ class TestParseErrorCode(BaseTest):
             "SocketTimeoutError": SocketTimeoutError,
             "ClickHouseQueryTimeOut": ClickHouseQueryTimeOut,
             "ClickHouseQueryMemoryLimitExceeded": ClickHouseQueryMemoryLimitExceeded,
-            "QuerySizeExceeded": QuerySizeExceeded,
+            "QuerySizeExceeded": ClickHouseQuerySizeExceeded,
             "DRFValidationError": DRFValidationError,
             "ValueError": ValueError,
             "Exception": Exception,
@@ -911,7 +911,7 @@ class TestParseErrorCode(BaseTest):
             return simple_exceptions[exception_type]("test")
 
         if exception_type == "EstimatedQueryExecutionTimeTooLong":
-            return EstimatedQueryExecutionTimeTooLong()
+            return ClickHouseEstimatedQueryExecutionTimeTooLong()
 
         if exception_type == "PydanticValidationError":
             try:

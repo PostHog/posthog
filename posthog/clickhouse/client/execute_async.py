@@ -33,7 +33,7 @@ QUERY_WAIT_TIME = Histogram(
     "query_wait_time_seconds",
     "Time from query creation to pick-up",
     labelnames=["team", "mode"],
-    buckets=Histogram.DEFAULT_BUCKETS[2:-1] + (20, 30, 60, 120, 300, 600, float("inf")),
+    buckets=(*Histogram.DEFAULT_BUCKETS[2:-1], 20, 30, 60, 120, 300, 600, float("inf")),
 )
 
 QUERY_PROCESS_TIME = Histogram(
@@ -52,6 +52,8 @@ class QueryRetrievalError(Exception):
 class QueryStatusManager:
     STATUS_TTL_SECONDS = 60 * 20  # 20 minutes
     DEDUP_TTL_SECONDS = 60 * 20  # 20 minutes
+    POLL_INTERVAL_SECONDS = 20
+    HEARTBEAT_TTL_SECONDS = POLL_INTERVAL_SECONDS * 3
     KEY_PREFIX_ASYNC_RESULTS = "query_async"
     KEY_PREFIX_RUNNING_QUERIES = "running_queries"
 
@@ -67,6 +69,10 @@ class QueryStatusManager:
     @property
     def clickhouse_query_status_key(self) -> str:
         return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.team_id}:{self.query_id}:status"
+
+    @property
+    def heartbeat_key(self) -> str:
+        return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.team_id}:{self.query_id}:heartbeat"
 
     @property
     def running_queries_key(self) -> str:
@@ -108,6 +114,7 @@ class QueryStatusManager:
         for clickhouse_query_progress in clickhouse_query_progresses:
             clickhouse_query_progress_dict[clickhouse_query_progress["query_id"]] = clickhouse_query_progress
         self._store_clickhouse_query_progress_dict(clickhouse_query_progress_dict)
+        self.redis_client.set(self.heartbeat_key, "1", ex=self.HEARTBEAT_TTL_SECONDS)
 
     def has_results(self) -> bool:
         return self.redis_client.exists(self.results_key) == 1
@@ -270,6 +277,7 @@ def enqueue_process_query_task(
     force: bool = False,
     _test_only_bypass_celery: bool = False,
     is_query_service: bool = False,
+    is_posthog_ai: bool = False,
 ) -> QueryStatus:
     if not query_id:
         query_id = uuid.uuid4().hex
@@ -318,8 +326,9 @@ def enqueue_process_query_task(
         except Exception as e:
             capture_exception(e, {"cache_key": cache_key})
 
+    limit_context = LimitContext.POSTHOG_AI if is_posthog_ai else LimitContext.QUERY_ASYNC
     task_signature = process_query_task.si(
-        team.id, user_id, query_id, query_json, query_tags, is_query_service, LimitContext.QUERY_ASYNC
+        team.id, user_id, query_id, query_json, query_tags, is_query_service, limit_context
     )
 
     if _test_only_bypass_celery:

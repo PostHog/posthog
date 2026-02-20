@@ -6,14 +6,36 @@
 
     .Settings__sections {
         position: sticky;
+        top: calc(var(--scene-title-section-height, 50px));
+        display: flex;
+        flex-direction: column;
         flex-shrink: 0;
         width: 20%;
         min-width: 14rem;
         max-width: 20rem;
+        max-height: calc(
+            100vh - var(--scene-padding, 1rem) - var(--scene-padding-bottom, 4rem) - var(
+                    --scene-title-section-height,
+                    50px
+                )
+        );
 
         .SidePanel3000 & {
             top: 0;
+            max-height: 100vh;
         }
+    }
+
+    .Settings__sections__search {
+        flex-shrink: 0;
+        padding-bottom: 0.5rem;
+    }
+
+    .Settings__sections__list {
+        flex: 1;
+        padding-right: 1rem;
+        overflow-y: auto;
+        overscroll-behavior: contain;
     }
 
     &--compact {

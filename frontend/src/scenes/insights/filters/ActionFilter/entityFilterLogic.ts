@@ -1,4 +1,5 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import isEqual from 'lodash.isequal'
 
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -6,7 +7,6 @@ import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
 import { uuid } from 'lib/utils'
 import { GraphSeriesAddedSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 import {
     ActionFilter,
@@ -193,7 +193,25 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             toLocalFilters(props.filters ?? {}),
             {
                 setFilters: (_, { filters }) => filters,
-                setLocalFilters: (_, { filters }) => toLocalFilters(filters),
+                setLocalFilters: (currentFilters, { filters }) => {
+                    if (isEqual(toFilters(currentFilters), filters)) {
+                        return currentFilters
+                    }
+                    const newFilters = toLocalFilters(filters)
+                    const usedUuids = new Set<string>()
+                    return newFilters.map((newFilter) => {
+                        const isSameFilter = (f: LocalFilter): boolean =>
+                            f.id === newFilter.id && f.type === newFilter.type && !usedUuids.has(f.uuid)
+                        const existing =
+                            currentFilters.find((f) => isSameFilter(f) && f.order === newFilter.order) ??
+                            currentFilters.find(isSameFilter)
+                        if (existing) {
+                            usedUuids.add(existing.uuid)
+                            return { ...newFilter, uuid: existing.uuid }
+                        }
+                        return newFilter
+                    })
+                },
             },
         ],
         entityFilterVisible: [
@@ -234,13 +252,6 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                 index: number
             })
             actions.hideModal()
-
-            await breakpoint(100)
-
-            const dataLogic = insightDataLogic.findMounted({
-                dashboardItemId: props.typeKey,
-            })
-            dataLogic?.actions?.loadData('force_async')
         },
         hideModal: () => {
             actions.selectFilter(null)

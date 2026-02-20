@@ -30,7 +30,7 @@ pub async fn handle_batch(
     _offsets: &[Offset], // TODO - tie errors to offsets
     context: Arc<AppContext>,
 ) -> Result<Vec<EmbeddingResponse>> {
-    let mut handle_buckets = vec![];
+    let mut handles = vec![];
 
     for request in requests.into_iter() {
         let team_id = request.team_id;
@@ -43,37 +43,28 @@ pub async fn handle_batch(
             .increment(1);
             continue;
         };
-        let mut handles = vec![];
-        for model in &request.models {
-            handles.push(handle_single(context.clone(), *model, request.clone()));
-        }
-        handle_buckets.push((request, handles));
-    }
 
-    let mut responses = vec![];
-    for (request, handles) in handle_buckets {
-        let results: Result<Vec<_>> = futures::future::join_all(handles)
-            .await
-            .into_iter()
-            .collect();
-
-        // Right now, any failed embedding stalls the pipeline, because we don't have
-        // any really good visibility or dead letter handling.
-        let results = results?;
-
-        responses.push(EmbeddingResponse {
-            request,
-            results: results
-                .into_iter()
-                .map(|(model, embedding)| ModelResult {
+        let ctx = context.clone();
+        handles.push(async move {
+            let mut results = vec![];
+            for model in &request.models {
+                let (model, embedding) =
+                    handle_single(ctx.clone(), *model, request.clone()).await?;
+                results.push(ModelResult {
                     model,
                     outcome: EmbeddingResult::Success { embedding },
-                })
-                .collect(),
+                });
+            }
+            Ok::<_, anyhow::Error>(EmbeddingResponse { request, results })
         });
     }
 
-    Ok(responses)
+    let results: Result<Vec<_>> = futures::future::join_all(handles)
+        .await
+        .into_iter()
+        .collect();
+
+    results
 }
 
 pub async fn handle_single(
@@ -159,13 +150,23 @@ pub fn generate_embedding_text(
     let (text, count) = match model {
         EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
             let encoder = tiktoken_rs::cl100k_base()?;
-            let tokens: Vec<_> = encoder
+            let mut tokens: Vec<_> = encoder
                 .encode_with_special_tokens(content)
                 .into_iter()
                 .take(model.model_input_window())
                 .collect();
+            // Truncation can split a multi-byte character's token sequence,
+            // producing bytes that aren't valid UTF-8 on decode. Drop trailing
+            // tokens until we land on a clean boundary.
+            let text = loop {
+                match encoder.decode(tokens.clone()) {
+                    Ok(text) => break text,
+                    Err(_) => {
+                        tokens.pop();
+                    }
+                }
+            };
             let token_count = tokens.len();
-            let text = encoder.decode(tokens)?;
             (text, token_count)
         }
     };
@@ -199,4 +200,23 @@ pub fn construct_request(
     // This expect is fine, because we have total control over everything in the
     // request, except the string of input content, which will serialize correctly.
     req.build().expect("we manage to build the request")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_embedding_text_truncation_at_multibyte_boundary() {
+        // Emojis like 🔥 encode to 3 tokens in cl100k_base. When content exceeds
+        // the 8192 token window, truncation can split an emoji's token sequence,
+        // producing bytes that aren't valid UTF-8 on decode.
+        let padding = "word ".repeat(8180);
+        let content = format!("{padding}{}", "🔥".repeat(100));
+        let model = EmbeddingModel::default();
+
+        let (text, _count) =
+            generate_embedding_text(&content, &model, &RequestLabels::default()).unwrap();
+        assert!(content.starts_with(&text));
+    }
 }

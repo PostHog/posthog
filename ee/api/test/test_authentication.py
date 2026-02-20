@@ -63,7 +63,7 @@ class TestEELoginPrecheckAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             response.json(),
-            {"sso_enforcement": "google-oauth2", "saml_available": False},
+            {"sso_enforcement": "google-oauth2", "saml_available": False, "webauthn_credentials": []},
         )
 
     def test_login_precheck_with_unverified_domain(self):
@@ -79,7 +79,9 @@ class TestEELoginPrecheckAPI(APILicensedTest):
                 "/api/login/precheck", {"email": "i_do_not_exist@witw.app"}
             )  # Note we didn't create a user that matches, only domain is matched
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": False})
+        self.assertEqual(
+            response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
+        )
 
     def test_login_precheck_with_inexistent_account(self):
         OrganizationDomain.objects.create(
@@ -93,7 +95,9 @@ class TestEELoginPrecheckAPI(APILicensedTest):
         with self.settings(**GITHUB_MOCK_SETTINGS):
             response = self.client.post("/api/login/precheck", {"email": "i_do_not_exist@anotherdomain.com"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": "github", "saml_available": False})
+        self.assertEqual(
+            response.json(), {"sso_enforcement": "github", "saml_available": False, "webauthn_credentials": []}
+        )
 
     def test_login_precheck_with_enforced_sso_but_improperly_configured_sso(self):
         OrganizationDomain.objects.create(
@@ -108,7 +112,9 @@ class TestEELoginPrecheckAPI(APILicensedTest):
             "/api/login/precheck", {"email": "spain@witw.app"}
         )  # Note Google OAuth is not configured
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": False})
+        self.assertEqual(
+            response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
+        )
 
 
 class TestEEAuthenticationAPI(APILicensedTest):
@@ -351,7 +357,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             "/api/login/precheck", {"email": "helloworld@posthog.com"}
         )  # Note Google OAuth is not configured
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": True})
+        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": True, "webauthn_credentials": []})
 
     # Initiate SAML flow
 
@@ -755,7 +761,9 @@ YotAcSbU3p5bzd11wpyebYHB"""
         # Login precheck returns SAML info
         response = self.client.post("/api/login/precheck", {"email": "engineering@posthog.com"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": "saml", "saml_available": True})
+        self.assertEqual(
+            response.json(), {"sso_enforcement": "saml", "saml_available": True, "webauthn_credentials": []}
+        )
 
     def test_cannot_use_saml_without_enterprise_license(self):
         self.organization.available_product_features = [
@@ -768,7 +776,9 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.organization_domain.save()
         response = self.client.post("/api/login/precheck", {"email": self.CONFIG_EMAIL})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": False})
+        self.assertEqual(
+            response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
+        )
 
         # Cannot start SAML flow
         with self.assertRaises(AuthFailed) as e:
@@ -805,14 +815,63 @@ YotAcSbU3p5bzd11wpyebYHB"""
             "Authentication failed: Your organization does not have the required license to use SAML.",
         )
 
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_saml_login_rejects_email_domain_not_matching_organization_domain(self):
+        from posthog.models import Organization
+
+        User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
+
+        other_org = Organization.objects.create(name="Other Org")
+        other_org.available_product_features = [{"key": AvailableFeature.SAML, "name": AvailableFeature.SAML}]
+        other_org.save()
+
+        other_domain = OrganizationDomain.objects.create(
+            domain="other.com",
+            verified_at=timezone.now(),
+            organization=other_org,
+            jit_provisioning_enabled=True,
+            saml_entity_id=self.organization_domain.saml_entity_id,
+            saml_acs_url=self.organization_domain.saml_acs_url,
+            saml_x509_cert=self.organization_domain.saml_x509_cert,
+        )
+
+        response = self.client.get("/login/saml/?email=engineering@posthog.com")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        _session = self.client.session
+        _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
+        _session.save()
+
+        with open(
+            os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"),
+            encoding="utf_8",
+        ) as f:
+            saml_response = f.read()
+
+        with self.assertRaises(AuthFailed) as e:
+            self.client.post(
+                "/complete/saml/",
+                {
+                    "SAMLResponse": saml_response,
+                    "RelayState": str(other_domain.id),
+                },
+                follow=True,
+                format="multipart",
+            )
+
+        self.assertIn("does not match the configured domain", str(e.exception))
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
     # Remove after we figure out saml / xmlsec issues
     # Test login with SAML on dev prod before removing
     def test_xmlsec_and_lxml(self):
         import lxml
         import xmlsec
 
-        assert "1.3.14" == xmlsec.__version__
-        assert "5.2.1" == lxml.__version__
+        assert "1.3.17" == xmlsec.__version__
+        assert "6.0.2" == lxml.__version__
 
 
 class TestCustomGoogleOAuth2(APILicensedTest):
@@ -993,18 +1052,11 @@ class TestSSOEnforcement(APILicensedTest):
     def test_saml_auth_flow_blocked_when_google_oauth2_enforced(self):
         """Integration test: Verify SAML auth flow is blocked when Google OAuth2 is enforced"""
 
-        OrganizationDomain.objects.create(
+        org_domain_saml = OrganizationDomain.objects.create(
             domain="posthog.com",
             organization=self.organization,
             verified_at=timezone.now(),
             sso_enforcement="google-oauth2",
-        )
-
-        # Create SAML configuration for the same organization (needed for RelayState)
-        org_domain_saml = OrganizationDomain.objects.create(
-            domain="saml-posthog.com",  # Different domain for SAML config
-            organization=self.organization,
-            verified_at=timezone.now(),
             saml_entity_id="http://www.okta.com/exk1ijlhixJxpyEBZ5d7",
             saml_acs_url="https://my.posthog.app/complete/saml/",
             saml_x509_cert="""MIIDqDCCApCgAwIBAgIGAXtoc3o9MA0GCSqGSIb3DQEBCwUAMIGUMQswCQYDVQQGEwJVUzETMBEG

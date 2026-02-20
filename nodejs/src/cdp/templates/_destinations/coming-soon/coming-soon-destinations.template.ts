@@ -875,12 +875,6 @@ const destinationDefinitions: DestinationConfig[] = [
         category: ['Marketing'],
     },
     {
-        name: 'OneSignal',
-        id: 'coming-soon-onesignal',
-        icon_url: '/static/coming-soon-destinations/OneSignal.svg',
-        category: ['Marketing'],
-    },
-    {
         name: 'Ortto (Autopilot)',
         id: 'coming-soon-ortto-autopilot',
         icon_url: '/static/coming-soon-destinations/Ortto_Autopilot_.svg',

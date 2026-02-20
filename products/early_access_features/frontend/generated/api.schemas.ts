@@ -14,23 +14,20 @@
  */
 export type EvaluationRuntimeEnumApi = (typeof EvaluationRuntimeEnumApi)[keyof typeof EvaluationRuntimeEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const EvaluationRuntimeEnumApi = {
-    server: 'server',
-    client: 'client',
-    all: 'all',
+    Server: 'server',
+    Client: 'client',
+    All: 'all',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BlankEnumApi = {
     '': '',
 } as const
 
 export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NullEnumApi = {} as const
 
 /**
@@ -39,10 +36,9 @@ export const NullEnumApi = {} as const
  */
 export type BucketingIdentifierEnumApi = (typeof BucketingIdentifierEnumApi)[keyof typeof BucketingIdentifierEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BucketingIdentifierEnumApi = {
-    distinct_id: 'distinct_id',
-    device_id: 'device_id',
+    DistinctId: 'distinct_id',
+    DeviceId: 'device_id',
 } as const
 
 export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
@@ -71,12 +67,12 @@ export interface MinimalFeatureFlagApi {
 * `server` - Server
 * `client` - Client
 * `all` - All */
-    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi | null
     /** Identifier used for bucketing users into rollout and variants
 
 * `distinct_id` - User ID (default)
 * `device_id` - Device ID */
-    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
     readonly evaluation_tags: readonly string[]
 }
 
@@ -90,14 +86,13 @@ export interface MinimalFeatureFlagApi {
  */
 export type StageEnumApi = (typeof StageEnumApi)[keyof typeof StageEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const StageEnumApi = {
-    draft: 'draft',
-    concept: 'concept',
-    alpha: 'alpha',
-    beta: 'beta',
-    'general-availability': 'general-availability',
-    archived: 'archived',
+    Draft: 'draft',
+    Concept: 'concept',
+    Alpha: 'alpha',
+    Beta: 'beta',
+    GeneralAvailability: 'general-availability',
+    Archived: 'archived',
 } as const
 
 export interface EarlyAccessFeatureApi {

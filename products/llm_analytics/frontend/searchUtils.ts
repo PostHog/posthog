@@ -16,7 +16,7 @@ export interface SearchOccurrence {
  * Find all occurrences of a search query in a text string (case-insensitive)
  */
 export function findSearchMatches(text: string, searchQuery: string): SearchMatch[] {
-    if (!searchQuery.trim()) {
+    if (!text || !searchQuery.trim()) {
         return []
     }
 
@@ -46,11 +46,29 @@ export function findSearchMatches(text: string, searchQuery: string): SearchMatc
  * Check if a text contains a search query (case-insensitive)
  */
 export function containsSearchQuery(text: string, searchQuery: string): boolean {
-    if (!searchQuery.trim()) {
+    if (!text || !searchQuery.trim()) {
         return false
     }
 
     return text.toLowerCase().includes(searchQuery.toLowerCase().trim())
+}
+
+/**
+ * Extract content from a message that may be a string, an object with .content, or other types.
+ * Handles null/undefined safely.
+ */
+export function extractMessageContent(msg: unknown): string {
+    if (typeof msg === 'string') {
+        return msg
+    }
+    if (!msg || typeof msg !== 'object') {
+        return JSON.stringify(msg)
+    }
+    const msgObj = msg as Record<string, unknown>
+    if (typeof msgObj.content === 'string') {
+        return msgObj.content
+    }
+    return JSON.stringify(msgObj.content ?? msg)
 }
 
 /**
@@ -289,11 +307,11 @@ export function findMessageOccurrences(
                 }
             })
         } else {
-            // Fallback for non-generation events
+            // Fallback for non-generation events (e.g., embedding events where $ai_input is an array of strings)
             const inputMessages = event.properties.$ai_input
             if (Array.isArray(inputMessages)) {
                 inputMessages.forEach((msg, msgIndex) => {
-                    const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+                    const content = extractMessageContent(msg)
                     occurrences.push(
                         ...findSearchOccurrences(content, query, 'content', {
                             type: 'message',
@@ -342,7 +360,7 @@ export function findMessageOccurrences(
             const outputMessages = event.properties.$ai_output_choices || event.properties.$ai_output
             if (Array.isArray(outputMessages)) {
                 outputMessages.forEach((msg, msgIndex) => {
-                    const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+                    const content = extractMessageContent(msg)
                     occurrences.push(
                         ...findSearchOccurrences(content, query, 'content', {
                             type: 'message',
@@ -352,17 +370,20 @@ export function findMessageOccurrences(
                         })
                     )
 
-                    const { role: _roleMsg, content: _contentMsg, ...additionalKwargs } = msg
-                    if (Object.keys(additionalKwargs).length > 0) {
-                        const additionalStr = JSON.stringify(additionalKwargs)
-                        occurrences.push(
-                            ...findSearchOccurrences(additionalStr, query, 'additionalKwargs', {
-                                type: 'message',
-                                eventId: event.id,
-                                messageIndex: msgIndex,
-                                messageType: 'output',
-                            })
-                        )
+                    // Only extract additional kwargs for object messages
+                    if (typeof msg === 'object' && msg !== null) {
+                        const { role: _roleMsg, content: _contentMsg, ...additionalKwargs } = msg
+                        if (Object.keys(additionalKwargs).length > 0) {
+                            const additionalStr = JSON.stringify(additionalKwargs)
+                            occurrences.push(
+                                ...findSearchOccurrences(additionalStr, query, 'additionalKwargs', {
+                                    type: 'message',
+                                    eventId: event.id,
+                                    messageIndex: msgIndex,
+                                    messageType: 'output',
+                                })
+                            )
+                        }
                     }
                 })
             }

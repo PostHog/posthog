@@ -143,15 +143,15 @@ export const lemonToast = {
                     icon: <Spinner />,
                 },
                 success: {
-                    render({ data }: ToastifyRenderProps<string>) {
+                    render: (({ data }: ToastifyRenderProps<string>) => {
                         return <ToastContent type="success" message={data || messages.success} button={button} />
-                    },
+                    }) as (props: ToastifyRenderProps<unknown>) => React.ReactNode,
                     icon: isChristmas() ? <IconGift className="text-green-600" /> : <IconCheckCircle />,
                 },
                 error: {
-                    render({ data }: ToastifyRenderProps<Error>) {
+                    render: (({ data }: ToastifyRenderProps<Error>) => {
                         return <ToastContent type="error" message={data?.message || messages.error} button={button} />
-                    },
+                    }) as (props: ToastifyRenderProps<unknown>) => React.ReactNode,
                     icon: <IconErrorOutline />,
                 },
             },

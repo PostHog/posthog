@@ -9,16 +9,30 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
+    BatchCheckRequestApi,
+    BatchCheckResponseApi,
+    ClusteringRunRequestApi,
     DatasetApi,
     DatasetItemApi,
     DatasetItemsListParams,
     DatasetsListParams,
-    EnvironmentsDatasetItemsListParams,
-    EnvironmentsDatasetsListParams,
+    EvaluationApi,
+    EvaluationSummaryRequestApi,
+    EvaluationSummaryResponseApi,
+    EvaluationsListParams,
+    LLMProviderKeyApi,
+    LlmAnalyticsProviderKeysListParams,
     PaginatedDatasetItemListApi,
     PaginatedDatasetListApi,
+    PaginatedEvaluationListApi,
+    PaginatedLLMProviderKeyListApi,
     PatchedDatasetApi,
     PatchedDatasetItemApi,
+    PatchedLLMProviderKeyApi,
+    SummarizeRequestApi,
+    SummarizeResponseApi,
+    TextReprRequestApi,
+    TextReprResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -38,17 +52,24 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export type environmentsDatasetItemsListResponse200 = {
-    data: PaginatedDatasetItemListApi
-    status: 200
+/**
+ * Create a new evaluation run.
+
+This endpoint validates the request and enqueues a Temporal workflow
+to asynchronously execute the evaluation.
+ */
+export const getEvaluationRunsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/evaluation_runs/`
 }
 
-export type environmentsDatasetItemsListResponseSuccess = environmentsDatasetItemsListResponse200 & {
-    headers: Headers
+export const evaluationRunsCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getEvaluationRunsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
 }
-export type environmentsDatasetItemsListResponse = environmentsDatasetItemsListResponseSuccess
 
-export const getEnvironmentsDatasetItemsListUrl = (projectId: string, params?: EnvironmentsDatasetItemsListParams) => {
+export const getEvaluationsListUrl = (projectId: string, params?: EvaluationsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -60,171 +81,188 @@ export const getEnvironmentsDatasetItemsListUrl = (projectId: string, params?: E
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/dataset_items/?${stringifiedParams}`
-        : `/api/environments/${projectId}/dataset_items/`
+        ? `/api/environments/${projectId}/evaluations/?${stringifiedParams}`
+        : `/api/environments/${projectId}/evaluations/`
 }
 
-export const environmentsDatasetItemsList = async (
+export const evaluationsList = async (
     projectId: string,
-    params?: EnvironmentsDatasetItemsListParams,
+    params?: EvaluationsListParams,
     options?: RequestInit
-): Promise<environmentsDatasetItemsListResponse> => {
-    return apiMutator<environmentsDatasetItemsListResponse>(getEnvironmentsDatasetItemsListUrl(projectId, params), {
+): Promise<PaginatedEvaluationListApi> => {
+    return apiMutator<PaginatedEvaluationListApi>(getEvaluationsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export type environmentsDatasetItemsCreateResponse201 = {
-    data: DatasetItemApi
-    status: 201
+export const getEvaluationsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/evaluations/`
 }
 
-export type environmentsDatasetItemsCreateResponseSuccess = environmentsDatasetItemsCreateResponse201 & {
-    headers: Headers
-}
-export type environmentsDatasetItemsCreateResponse = environmentsDatasetItemsCreateResponseSuccess
-
-export const getEnvironmentsDatasetItemsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/dataset_items/`
-}
-
-export const environmentsDatasetItemsCreate = async (
+export const evaluationsCreate = async (
     projectId: string,
-    datasetItemApi: NonReadonly<DatasetItemApi>,
+    evaluationApi: NonReadonly<EvaluationApi>,
     options?: RequestInit
-): Promise<environmentsDatasetItemsCreateResponse> => {
-    return apiMutator<environmentsDatasetItemsCreateResponse>(getEnvironmentsDatasetItemsCreateUrl(projectId), {
+): Promise<EvaluationApi> => {
+    return apiMutator<EvaluationApi>(getEvaluationsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(datasetItemApi),
+        body: JSON.stringify(evaluationApi),
     })
 }
 
-export type environmentsDatasetItemsRetrieveResponse200 = {
-    data: DatasetItemApi
-    status: 200
+/**
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
+export const getLlmAnalyticsClusteringConfigRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/clustering_config/`
 }
 
-export type environmentsDatasetItemsRetrieveResponseSuccess = environmentsDatasetItemsRetrieveResponse200 & {
-    headers: Headers
-}
-export type environmentsDatasetItemsRetrieveResponse = environmentsDatasetItemsRetrieveResponseSuccess
-
-export const getEnvironmentsDatasetItemsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/dataset_items/${id}/`
-}
-
-export const environmentsDatasetItemsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<environmentsDatasetItemsRetrieveResponse> => {
-    return apiMutator<environmentsDatasetItemsRetrieveResponse>(getEnvironmentsDatasetItemsRetrieveUrl(projectId, id), {
+export const llmAnalyticsClusteringConfigRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLlmAnalyticsClusteringConfigRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
 }
 
-export type environmentsDatasetItemsUpdateResponse200 = {
-    data: DatasetItemApi
-    status: 200
+/**
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
+export const getLlmAnalyticsClusteringConfigSetEventFiltersCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/clustering_config/set_event_filters/`
 }
 
-export type environmentsDatasetItemsUpdateResponseSuccess = environmentsDatasetItemsUpdateResponse200 & {
-    headers: Headers
-}
-export type environmentsDatasetItemsUpdateResponse = environmentsDatasetItemsUpdateResponseSuccess
-
-export const getEnvironmentsDatasetItemsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/dataset_items/${id}/`
-}
-
-export const environmentsDatasetItemsUpdate = async (
+export const llmAnalyticsClusteringConfigSetEventFiltersCreate = async (
     projectId: string,
-    id: string,
-    datasetItemApi: NonReadonly<DatasetItemApi>,
     options?: RequestInit
-): Promise<environmentsDatasetItemsUpdateResponse> => {
-    return apiMutator<environmentsDatasetItemsUpdateResponse>(getEnvironmentsDatasetItemsUpdateUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getLlmAnalyticsClusteringConfigSetEventFiltersCreateUrl(projectId), {
         ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(datasetItemApi),
+        method: 'POST',
     })
-}
-
-export type environmentsDatasetItemsPartialUpdateResponse200 = {
-    data: DatasetItemApi
-    status: 200
-}
-
-export type environmentsDatasetItemsPartialUpdateResponseSuccess = environmentsDatasetItemsPartialUpdateResponse200 & {
-    headers: Headers
-}
-export type environmentsDatasetItemsPartialUpdateResponse = environmentsDatasetItemsPartialUpdateResponseSuccess
-
-export const getEnvironmentsDatasetItemsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/dataset_items/${id}/`
-}
-
-export const environmentsDatasetItemsPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedDatasetItemApi: NonReadonly<PatchedDatasetItemApi>,
-    options?: RequestInit
-): Promise<environmentsDatasetItemsPartialUpdateResponse> => {
-    return apiMutator<environmentsDatasetItemsPartialUpdateResponse>(
-        getEnvironmentsDatasetItemsPartialUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedDatasetItemApi),
-        }
-    )
 }
 
 /**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ * Trigger a new clustering workflow run.
+
+This endpoint validates the request parameters and starts a Temporal workflow
+to perform trace clustering with the specified configuration.
  */
-export type environmentsDatasetItemsDestroyResponse405 = {
-    data: void
-    status: 405
-}
-export type environmentsDatasetItemsDestroyResponseError = environmentsDatasetItemsDestroyResponse405 & {
-    headers: Headers
+export const getLlmAnalyticsClusteringRunsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/clustering_runs/`
 }
 
-export type environmentsDatasetItemsDestroyResponse = environmentsDatasetItemsDestroyResponseError
-
-export const getEnvironmentsDatasetItemsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/dataset_items/${id}/`
-}
-
-export const environmentsDatasetItemsDestroy = async (
+export const llmAnalyticsClusteringRunsCreate = async (
     projectId: string,
-    id: string,
+    clusteringRunRequestApi: ClusteringRunRequestApi,
     options?: RequestInit
-): Promise<environmentsDatasetItemsDestroyResponse> => {
-    return apiMutator<environmentsDatasetItemsDestroyResponse>(getEnvironmentsDatasetItemsDestroyUrl(projectId, id), {
+): Promise<ClusteringRunRequestApi> => {
+    return apiMutator<ClusteringRunRequestApi>(getLlmAnalyticsClusteringRunsCreateUrl(projectId), {
         ...options,
-        method: 'DELETE',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(clusteringRunRequestApi),
     })
 }
 
-export type environmentsDatasetsListResponse200 = {
-    data: PaginatedDatasetListApi
-    status: 200
+/**
+ * Get the evaluation config for this team
+ */
+export const getLlmAnalyticsEvaluationConfigRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/evaluation_config/`
 }
 
-export type environmentsDatasetsListResponseSuccess = environmentsDatasetsListResponse200 & {
-    headers: Headers
+export const llmAnalyticsEvaluationConfigRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLlmAnalyticsEvaluationConfigRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }
-export type environmentsDatasetsListResponse = environmentsDatasetsListResponseSuccess
 
-export const getEnvironmentsDatasetsListUrl = (projectId: string, params?: EnvironmentsDatasetsListParams) => {
+/**
+ * Set the active provider key for evaluations
+ */
+export const getLlmAnalyticsEvaluationConfigSetActiveKeyCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/evaluation_config/set_active_key/`
+}
+
+export const llmAnalyticsEvaluationConfigSetActiveKeyCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getLlmAnalyticsEvaluationConfigSetActiveKeyCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+/**
+ * 
+Generate an AI-powered summary of evaluation results.
+
+This endpoint analyzes evaluation runs and identifies patterns in passing
+and failing evaluations, providing actionable recommendations.
+
+Data is fetched server-side by evaluation ID to ensure data integrity.
+
+**Use Cases:**
+- Understand why evaluations are passing or failing
+- Identify systematic issues in LLM responses
+- Get recommendations for improving response quality
+- Review patterns across many evaluation runs at once
+        
+ */
+export const getLlmAnalyticsEvaluationSummaryCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/evaluation_summary/`
+}
+
+export const llmAnalyticsEvaluationSummaryCreate = async (
+    projectId: string,
+    evaluationSummaryRequestApi: EvaluationSummaryRequestApi,
+    options?: RequestInit
+): Promise<EvaluationSummaryResponseApi> => {
+    return apiMutator<EvaluationSummaryResponseApi>(getLlmAnalyticsEvaluationSummaryCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evaluationSummaryRequestApi),
+    })
+}
+
+/**
+ * List available models for a provider.
+ */
+export const getLlmAnalyticsModelsRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/models/`
+}
+
+export const llmAnalyticsModelsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLlmAnalyticsModelsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Validate LLM provider API keys without persisting them
+ */
+export const getLlmAnalyticsProviderKeyValidationsCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/provider_key_validations/`
+}
+
+export const llmAnalyticsProviderKeyValidationsCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getLlmAnalyticsProviderKeyValidationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getLlmAnalyticsProviderKeysListUrl = (projectId: string, params?: LlmAnalyticsProviderKeysListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -236,169 +274,275 @@ export const getEnvironmentsDatasetsListUrl = (projectId: string, params?: Envir
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/datasets/?${stringifiedParams}`
-        : `/api/environments/${projectId}/datasets/`
+        ? `/api/environments/${projectId}/llm_analytics/provider_keys/?${stringifiedParams}`
+        : `/api/environments/${projectId}/llm_analytics/provider_keys/`
 }
 
-export const environmentsDatasetsList = async (
+export const llmAnalyticsProviderKeysList = async (
     projectId: string,
-    params?: EnvironmentsDatasetsListParams,
+    params?: LlmAnalyticsProviderKeysListParams,
     options?: RequestInit
-): Promise<environmentsDatasetsListResponse> => {
-    return apiMutator<environmentsDatasetsListResponse>(getEnvironmentsDatasetsListUrl(projectId, params), {
+): Promise<PaginatedLLMProviderKeyListApi> => {
+    return apiMutator<PaginatedLLMProviderKeyListApi>(getLlmAnalyticsProviderKeysListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export type environmentsDatasetsCreateResponse201 = {
-    data: DatasetApi
-    status: 201
+export const getLlmAnalyticsProviderKeysCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/provider_keys/`
 }
 
-export type environmentsDatasetsCreateResponseSuccess = environmentsDatasetsCreateResponse201 & {
-    headers: Headers
-}
-export type environmentsDatasetsCreateResponse = environmentsDatasetsCreateResponseSuccess
-
-export const getEnvironmentsDatasetsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/datasets/`
-}
-
-export const environmentsDatasetsCreate = async (
+export const llmAnalyticsProviderKeysCreate = async (
     projectId: string,
-    datasetApi: NonReadonly<DatasetApi>,
+    lLMProviderKeyApi: NonReadonly<LLMProviderKeyApi>,
     options?: RequestInit
-): Promise<environmentsDatasetsCreateResponse> => {
-    return apiMutator<environmentsDatasetsCreateResponse>(getEnvironmentsDatasetsCreateUrl(projectId), {
+): Promise<LLMProviderKeyApi> => {
+    return apiMutator<LLMProviderKeyApi>(getLlmAnalyticsProviderKeysCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(datasetApi),
+        body: JSON.stringify(lLMProviderKeyApi),
     })
 }
 
-export type environmentsDatasetsRetrieveResponse200 = {
-    data: DatasetApi
-    status: 200
+export const getLlmAnalyticsProviderKeysRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/provider_keys/${id}/`
 }
 
-export type environmentsDatasetsRetrieveResponseSuccess = environmentsDatasetsRetrieveResponse200 & {
-    headers: Headers
-}
-export type environmentsDatasetsRetrieveResponse = environmentsDatasetsRetrieveResponseSuccess
-
-export const getEnvironmentsDatasetsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/datasets/${id}/`
-}
-
-export const environmentsDatasetsRetrieve = async (
+export const llmAnalyticsProviderKeysRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<environmentsDatasetsRetrieveResponse> => {
-    return apiMutator<environmentsDatasetsRetrieveResponse>(getEnvironmentsDatasetsRetrieveUrl(projectId, id), {
+): Promise<LLMProviderKeyApi> => {
+    return apiMutator<LLMProviderKeyApi>(getLlmAnalyticsProviderKeysRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export type environmentsDatasetsUpdateResponse200 = {
-    data: DatasetApi
-    status: 200
+export const getLlmAnalyticsProviderKeysUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/provider_keys/${id}/`
 }
 
-export type environmentsDatasetsUpdateResponseSuccess = environmentsDatasetsUpdateResponse200 & {
-    headers: Headers
-}
-export type environmentsDatasetsUpdateResponse = environmentsDatasetsUpdateResponseSuccess
-
-export const getEnvironmentsDatasetsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/datasets/${id}/`
-}
-
-export const environmentsDatasetsUpdate = async (
+export const llmAnalyticsProviderKeysUpdate = async (
     projectId: string,
     id: string,
-    datasetApi: NonReadonly<DatasetApi>,
+    lLMProviderKeyApi: NonReadonly<LLMProviderKeyApi>,
     options?: RequestInit
-): Promise<environmentsDatasetsUpdateResponse> => {
-    return apiMutator<environmentsDatasetsUpdateResponse>(getEnvironmentsDatasetsUpdateUrl(projectId, id), {
+): Promise<LLMProviderKeyApi> => {
+    return apiMutator<LLMProviderKeyApi>(getLlmAnalyticsProviderKeysUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(datasetApi),
+        body: JSON.stringify(lLMProviderKeyApi),
     })
 }
 
-export type environmentsDatasetsPartialUpdateResponse200 = {
-    data: DatasetApi
-    status: 200
+export const getLlmAnalyticsProviderKeysPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/provider_keys/${id}/`
 }
 
-export type environmentsDatasetsPartialUpdateResponseSuccess = environmentsDatasetsPartialUpdateResponse200 & {
-    headers: Headers
-}
-export type environmentsDatasetsPartialUpdateResponse = environmentsDatasetsPartialUpdateResponseSuccess
-
-export const getEnvironmentsDatasetsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/datasets/${id}/`
-}
-
-export const environmentsDatasetsPartialUpdate = async (
+export const llmAnalyticsProviderKeysPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedDatasetApi: NonReadonly<PatchedDatasetApi>,
+    patchedLLMProviderKeyApi: NonReadonly<PatchedLLMProviderKeyApi>,
     options?: RequestInit
-): Promise<environmentsDatasetsPartialUpdateResponse> => {
-    return apiMutator<environmentsDatasetsPartialUpdateResponse>(
-        getEnvironmentsDatasetsPartialUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedDatasetApi),
-        }
-    )
+): Promise<LLMProviderKeyApi> => {
+    return apiMutator<LLMProviderKeyApi>(getLlmAnalyticsProviderKeysPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedLLMProviderKeyApi),
+    })
 }
 
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
-export type environmentsDatasetsDestroyResponse405 = {
-    data: void
-    status: 405
-}
-export type environmentsDatasetsDestroyResponseError = environmentsDatasetsDestroyResponse405 & {
-    headers: Headers
+export const getLlmAnalyticsProviderKeysDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/provider_keys/${id}/`
 }
 
-export type environmentsDatasetsDestroyResponse = environmentsDatasetsDestroyResponseError
-
-export const getEnvironmentsDatasetsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/datasets/${id}/`
-}
-
-export const environmentsDatasetsDestroy = async (
+export const llmAnalyticsProviderKeysDestroy = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<environmentsDatasetsDestroyResponse> => {
-    return apiMutator<environmentsDatasetsDestroyResponse>(getEnvironmentsDatasetsDestroyUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getLlmAnalyticsProviderKeysDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
 }
 
-export type datasetItemsListResponse200 = {
-    data: PaginatedDatasetItemListApi
-    status: 200
+/**
+ * Get evaluations using this key and alternative keys for replacement.
+ */
+export const getLlmAnalyticsProviderKeysDependentConfigsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/provider_keys/${id}/dependent_configs/`
 }
 
-export type datasetItemsListResponseSuccess = datasetItemsListResponse200 & {
-    headers: Headers
+export const llmAnalyticsProviderKeysDependentConfigsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LLMProviderKeyApi> => {
+    return apiMutator<LLMProviderKeyApi>(getLlmAnalyticsProviderKeysDependentConfigsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
-export type datasetItemsListResponse = datasetItemsListResponseSuccess
+
+export const getLlmAnalyticsProviderKeysValidateCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/llm_analytics/provider_keys/${id}/validate/`
+}
+
+export const llmAnalyticsProviderKeysValidateCreate = async (
+    projectId: string,
+    id: string,
+    lLMProviderKeyApi: NonReadonly<LLMProviderKeyApi>,
+    options?: RequestInit
+): Promise<LLMProviderKeyApi> => {
+    return apiMutator<LLMProviderKeyApi>(getLlmAnalyticsProviderKeysValidateCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(lLMProviderKeyApi),
+    })
+}
+
+/**
+ * 
+Generate an AI-powered summary of an LLM trace or event.
+
+This endpoint analyzes the provided trace/event, generates a line-numbered text
+representation, and uses an LLM to create a concise summary with line references.
+
+**Summary Format:**
+- 5-10 bullet points covering main flow and key decisions
+- "Interesting Notes" section for failures, successes, or unusual patterns
+- Line references in [L45] or [L45-52] format pointing to relevant sections
+
+**Use Cases:**
+- Quick understanding of complex traces
+- Identifying key events and patterns
+- Debugging with AI-assisted analysis
+- Documentation and reporting
+
+The response includes the summary text and optional metadata.
+        
+ */
+export const getLlmAnalyticsSummarizationCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/summarization/`
+}
+
+export const llmAnalyticsSummarizationCreate = async (
+    projectId: string,
+    summarizeRequestApi: SummarizeRequestApi,
+    options?: RequestInit
+): Promise<SummarizeResponseApi> => {
+    return apiMutator<SummarizeResponseApi>(getLlmAnalyticsSummarizationCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(summarizeRequestApi),
+    })
+}
+
+/**
+ * 
+Check which traces have cached summaries available.
+
+This endpoint allows batch checking of multiple trace IDs to see which ones
+have cached summaries. Returns only the traces that have cached summaries
+with their titles.
+
+**Use Cases:**
+- Load cached summaries on session view load
+- Avoid unnecessary LLM calls for already-summarized traces
+- Display summary previews without generating new summaries
+        
+ */
+export const getLlmAnalyticsSummarizationBatchCheckCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/summarization/batch_check/`
+}
+
+export const llmAnalyticsSummarizationBatchCheckCreate = async (
+    projectId: string,
+    batchCheckRequestApi: BatchCheckRequestApi,
+    options?: RequestInit
+): Promise<BatchCheckResponseApi> => {
+    return apiMutator<BatchCheckResponseApi>(getLlmAnalyticsSummarizationBatchCheckCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(batchCheckRequestApi),
+    })
+}
+
+/**
+ * 
+Generate a human-readable text representation of an LLM trace event.
+
+This endpoint converts LLM analytics events ($ai_generation, $ai_span, $ai_embedding, or $ai_trace)
+into formatted text representations suitable for display, logging, or analysis.
+
+**Supported Event Types:**
+- `$ai_generation`: Individual LLM API calls with input/output messages
+- `$ai_span`: Logical spans with state transitions
+- `$ai_embedding`: Embedding generation events (text input → vector)
+- `$ai_trace`: Full traces with hierarchical structure
+
+**Options:**
+- `max_length`: Maximum character count (default: 2000000)
+- `truncated`: Enable middle-content truncation within events (default: true)
+- `truncate_buffer`: Characters at start/end when truncating (default: 1000)
+- `include_markers`: Use interactive markers vs plain text indicators (default: true)
+  - Frontend: set true for `<<<TRUNCATED|base64|...>>>` markers
+  - Backend/LLM: set false for `... (X chars truncated) ...` text
+- `collapsed`: Show summary vs full trace tree (default: false)
+- `include_hierarchy`: Include tree structure for traces (default: true)
+- `max_depth`: Maximum depth for hierarchical rendering (default: unlimited)
+- `tools_collapse_threshold`: Number of tools before auto-collapsing list (default: 5)
+  - Tool lists >5 items show `<<<TOOLS_EXPANDABLE|...>>>` marker for frontend
+  - Or `[+] AVAILABLE TOOLS: N` for backend when `include_markers: false`
+- `include_line_numbers`: Prefix each line with line number like L001:, L010: (default: false)
+
+**Use Cases:**
+- Frontend display: `truncated: true, include_markers: true, include_line_numbers: true`
+- Backend LLM context (summary): `truncated: true, include_markers: false, collapsed: true`
+- Backend LLM context (full): `truncated: false`
+
+The response includes the formatted text and metadata about the rendering.
+        
+ */
+export const getLlmAnalyticsTextReprCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/text_repr/`
+}
+
+export const llmAnalyticsTextReprCreate = async (
+    projectId: string,
+    textReprRequestApi: TextReprRequestApi,
+    options?: RequestInit
+): Promise<TextReprResponseApi> => {
+    return apiMutator<TextReprResponseApi>(getLlmAnalyticsTextReprCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(textReprRequestApi),
+    })
+}
+
+/**
+ * Translate text to target language.
+ */
+export const getLlmAnalyticsTranslateCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/translate/`
+}
+
+export const llmAnalyticsTranslateCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLlmAnalyticsTranslateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
 
 export const getDatasetItemsListUrl = (projectId: string, params?: DatasetItemsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -420,22 +564,12 @@ export const datasetItemsList = async (
     projectId: string,
     params?: DatasetItemsListParams,
     options?: RequestInit
-): Promise<datasetItemsListResponse> => {
-    return apiMutator<datasetItemsListResponse>(getDatasetItemsListUrl(projectId, params), {
+): Promise<PaginatedDatasetItemListApi> => {
+    return apiMutator<PaginatedDatasetItemListApi>(getDatasetItemsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
-
-export type datasetItemsCreateResponse201 = {
-    data: DatasetItemApi
-    status: 201
-}
-
-export type datasetItemsCreateResponseSuccess = datasetItemsCreateResponse201 & {
-    headers: Headers
-}
-export type datasetItemsCreateResponse = datasetItemsCreateResponseSuccess
 
 export const getDatasetItemsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/dataset_items/`
@@ -445,24 +579,14 @@ export const datasetItemsCreate = async (
     projectId: string,
     datasetItemApi: NonReadonly<DatasetItemApi>,
     options?: RequestInit
-): Promise<datasetItemsCreateResponse> => {
-    return apiMutator<datasetItemsCreateResponse>(getDatasetItemsCreateUrl(projectId), {
+): Promise<DatasetItemApi> => {
+    return apiMutator<DatasetItemApi>(getDatasetItemsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(datasetItemApi),
     })
 }
-
-export type datasetItemsRetrieveResponse200 = {
-    data: DatasetItemApi
-    status: 200
-}
-
-export type datasetItemsRetrieveResponseSuccess = datasetItemsRetrieveResponse200 & {
-    headers: Headers
-}
-export type datasetItemsRetrieveResponse = datasetItemsRetrieveResponseSuccess
 
 export const getDatasetItemsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/dataset_items/${id}/`
@@ -472,22 +596,12 @@ export const datasetItemsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<datasetItemsRetrieveResponse> => {
-    return apiMutator<datasetItemsRetrieveResponse>(getDatasetItemsRetrieveUrl(projectId, id), {
+): Promise<DatasetItemApi> => {
+    return apiMutator<DatasetItemApi>(getDatasetItemsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
-
-export type datasetItemsUpdateResponse200 = {
-    data: DatasetItemApi
-    status: 200
-}
-
-export type datasetItemsUpdateResponseSuccess = datasetItemsUpdateResponse200 & {
-    headers: Headers
-}
-export type datasetItemsUpdateResponse = datasetItemsUpdateResponseSuccess
 
 export const getDatasetItemsUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/dataset_items/${id}/`
@@ -498,24 +612,14 @@ export const datasetItemsUpdate = async (
     id: string,
     datasetItemApi: NonReadonly<DatasetItemApi>,
     options?: RequestInit
-): Promise<datasetItemsUpdateResponse> => {
-    return apiMutator<datasetItemsUpdateResponse>(getDatasetItemsUpdateUrl(projectId, id), {
+): Promise<DatasetItemApi> => {
+    return apiMutator<DatasetItemApi>(getDatasetItemsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(datasetItemApi),
     })
 }
-
-export type datasetItemsPartialUpdateResponse200 = {
-    data: DatasetItemApi
-    status: 200
-}
-
-export type datasetItemsPartialUpdateResponseSuccess = datasetItemsPartialUpdateResponse200 & {
-    headers: Headers
-}
-export type datasetItemsPartialUpdateResponse = datasetItemsPartialUpdateResponseSuccess
 
 export const getDatasetItemsPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/dataset_items/${id}/`
@@ -526,8 +630,8 @@ export const datasetItemsPartialUpdate = async (
     id: string,
     patchedDatasetItemApi: NonReadonly<PatchedDatasetItemApi>,
     options?: RequestInit
-): Promise<datasetItemsPartialUpdateResponse> => {
-    return apiMutator<datasetItemsPartialUpdateResponse>(getDatasetItemsPartialUpdateUrl(projectId, id), {
+): Promise<DatasetItemApi> => {
+    return apiMutator<DatasetItemApi>(getDatasetItemsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -538,40 +642,16 @@ export const datasetItemsPartialUpdate = async (
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export type datasetItemsDestroyResponse405 = {
-    data: void
-    status: 405
-}
-export type datasetItemsDestroyResponseError = datasetItemsDestroyResponse405 & {
-    headers: Headers
-}
-
-export type datasetItemsDestroyResponse = datasetItemsDestroyResponseError
-
 export const getDatasetItemsDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/dataset_items/${id}/`
 }
 
-export const datasetItemsDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<datasetItemsDestroyResponse> => {
-    return apiMutator<datasetItemsDestroyResponse>(getDatasetItemsDestroyUrl(projectId, id), {
+export const datasetItemsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<unknown> => {
+    return apiMutator<unknown>(getDatasetItemsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })
 }
-
-export type datasetsListResponse200 = {
-    data: PaginatedDatasetListApi
-    status: 200
-}
-
-export type datasetsListResponseSuccess = datasetsListResponse200 & {
-    headers: Headers
-}
-export type datasetsListResponse = datasetsListResponseSuccess
 
 export const getDatasetsListUrl = (projectId: string, params?: DatasetsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -593,22 +673,12 @@ export const datasetsList = async (
     projectId: string,
     params?: DatasetsListParams,
     options?: RequestInit
-): Promise<datasetsListResponse> => {
-    return apiMutator<datasetsListResponse>(getDatasetsListUrl(projectId, params), {
+): Promise<PaginatedDatasetListApi> => {
+    return apiMutator<PaginatedDatasetListApi>(getDatasetsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
-
-export type datasetsCreateResponse201 = {
-    data: DatasetApi
-    status: 201
-}
-
-export type datasetsCreateResponseSuccess = datasetsCreateResponse201 & {
-    headers: Headers
-}
-export type datasetsCreateResponse = datasetsCreateResponseSuccess
 
 export const getDatasetsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/datasets/`
@@ -618,8 +688,8 @@ export const datasetsCreate = async (
     projectId: string,
     datasetApi: NonReadonly<DatasetApi>,
     options?: RequestInit
-): Promise<datasetsCreateResponse> => {
-    return apiMutator<datasetsCreateResponse>(getDatasetsCreateUrl(projectId), {
+): Promise<DatasetApi> => {
+    return apiMutator<DatasetApi>(getDatasetsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -627,40 +697,16 @@ export const datasetsCreate = async (
     })
 }
 
-export type datasetsRetrieveResponse200 = {
-    data: DatasetApi
-    status: 200
-}
-
-export type datasetsRetrieveResponseSuccess = datasetsRetrieveResponse200 & {
-    headers: Headers
-}
-export type datasetsRetrieveResponse = datasetsRetrieveResponseSuccess
-
 export const getDatasetsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/datasets/${id}/`
 }
 
-export const datasetsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<datasetsRetrieveResponse> => {
-    return apiMutator<datasetsRetrieveResponse>(getDatasetsRetrieveUrl(projectId, id), {
+export const datasetsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<DatasetApi> => {
+    return apiMutator<DatasetApi>(getDatasetsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
-
-export type datasetsUpdateResponse200 = {
-    data: DatasetApi
-    status: 200
-}
-
-export type datasetsUpdateResponseSuccess = datasetsUpdateResponse200 & {
-    headers: Headers
-}
-export type datasetsUpdateResponse = datasetsUpdateResponseSuccess
 
 export const getDatasetsUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/datasets/${id}/`
@@ -671,24 +717,14 @@ export const datasetsUpdate = async (
     id: string,
     datasetApi: NonReadonly<DatasetApi>,
     options?: RequestInit
-): Promise<datasetsUpdateResponse> => {
-    return apiMutator<datasetsUpdateResponse>(getDatasetsUpdateUrl(projectId, id), {
+): Promise<DatasetApi> => {
+    return apiMutator<DatasetApi>(getDatasetsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(datasetApi),
     })
 }
-
-export type datasetsPartialUpdateResponse200 = {
-    data: DatasetApi
-    status: 200
-}
-
-export type datasetsPartialUpdateResponseSuccess = datasetsPartialUpdateResponse200 & {
-    headers: Headers
-}
-export type datasetsPartialUpdateResponse = datasetsPartialUpdateResponseSuccess
 
 export const getDatasetsPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/datasets/${id}/`
@@ -699,8 +735,8 @@ export const datasetsPartialUpdate = async (
     id: string,
     patchedDatasetApi: NonReadonly<PatchedDatasetApi>,
     options?: RequestInit
-): Promise<datasetsPartialUpdateResponse> => {
-    return apiMutator<datasetsPartialUpdateResponse>(getDatasetsPartialUpdateUrl(projectId, id), {
+): Promise<DatasetApi> => {
+    return apiMutator<DatasetApi>(getDatasetsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -711,26 +747,12 @@ export const datasetsPartialUpdate = async (
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export type datasetsDestroyResponse405 = {
-    data: void
-    status: 405
-}
-export type datasetsDestroyResponseError = datasetsDestroyResponse405 & {
-    headers: Headers
-}
-
-export type datasetsDestroyResponse = datasetsDestroyResponseError
-
 export const getDatasetsDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/datasets/${id}/`
 }
 
-export const datasetsDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<datasetsDestroyResponse> => {
-    return apiMutator<datasetsDestroyResponse>(getDatasetsDestroyUrl(projectId, id), {
+export const datasetsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<unknown> => {
+    return apiMutator<unknown>(getDatasetsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })

@@ -46,18 +46,19 @@ CI mode is automatically enabled when common CI environment variables are detect
 
 ### Prerequisites
 
-- Go 1.24+
+- Go 1.25+
 
 ### Build commands
 
 ```bash
 cd bin/hobby-installer
 
-# Build for Linux (production - hobby deployments run on Ubuntu)
+# Build for development (current arch) and run
 make
 
-# Build for macOS (local testing)
+# Build for specific architecture
 make build-darwin
+make build-linux
 
 # Build all (development, linux, darwin)
 make build-all
@@ -65,7 +66,7 @@ make build-all
 
 Output binaries:
 
-- `bin/hobby-installer` - Linux binary (production)
+- `bin/hobby-installer-linux` - Linux binary
 - `bin/hobby-installer-darwin` - macOS binary (gitignored, local testing only)
 - `bin/hobby-installer-development` - Development binary for current platform
 - `bin/hobby-installer-demo` - Demo binary for testing UI components

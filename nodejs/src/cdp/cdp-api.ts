@@ -5,11 +5,14 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { ModifiedRequest } from '~/api/router'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
-import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS } from '~/config/kafka-topics'
+import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS, KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
+import { KafkaProducerWrapper } from '~/kafka/producer'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
 import { UUID, UUIDT, delay } from '../utils/utils'
+import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from './async-function-registry'
+import './async-functions'
 import {
     CdpSourceWebhooksConsumer,
     CdpSourceWebhooksConsumerHub,
@@ -73,6 +76,7 @@ export class CdpApi {
     private emailTrackingService: EmailTrackingService
     private recipientPreferencesService: RecipientPreferencesService
     private recipientTokensService: RecipientTokensService
+    private cdpWarehouseKafkaProducer?: KafkaProducerWrapper
 
     constructor(private hub: CdpApiHub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
@@ -127,11 +131,15 @@ export class CdpApi {
     }
 
     async start(): Promise<void> {
+        this.cdpWarehouseKafkaProducer = await KafkaProducerWrapper.create(
+            this.hub.KAFKA_CLIENT_RACK,
+            'WAREHOUSE_PRODUCER'
+        )
         await this.cdpSourceWebhooksConsumer.start()
     }
 
     async stop(): Promise<void> {
-        await Promise.all([this.cdpSourceWebhooksConsumer.stop()])
+        await Promise.all([this.cdpWarehouseKafkaProducer?.disconnect(), this.cdpSourceWebhooksConsumer.stop()])
     }
 
     isHealthy(): HealthCheckResult {
@@ -147,10 +155,11 @@ export class CdpApi {
             (req: ModifiedRequest, res: express.Response, next: express.NextFunction): Promise<void> =>
                 fn(req, res).catch(next)
 
+        // API routes (authentication handled globally by middleware)
         router.post('/api/projects/:team_id/hog_functions/:id/invocations', asyncHandler(this.postFunctionInvocation))
         router.post('/api/projects/:team_id/hog_flows/:id/invocations', asyncHandler(this.postHogflowInvocation))
         router.post(
-            '/api/projects/:team_id/hog_flows/:id/batch_invocations/:batch_job_id',
+            '/api/projects/:team_id/hog_flows/:id/batch_invocations/:parent_run_id',
             asyncHandler(this.postHogFlowBatchInvocation)
         )
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
@@ -159,10 +168,25 @@ export class CdpApi {
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
         router.post('/api/messaging/generate_preferences_token', asyncHandler(this.generatePreferencesToken()))
         router.get('/api/messaging/validate_preferences_token/:token', asyncHandler(this.validatePreferencesToken()))
-        router.post('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
+
+        const publicBodySizeLimit = (req: ModifiedRequest, res: express.Response, next: express.NextFunction): void => {
+            if (req.rawBody && req.rawBody.length > 512_000) {
+                res.status(413).json({ error: 'Request entity too large' })
+                return
+            }
+            next()
+        }
+
+        // Public routes (excluded from authentication by middleware)
+        router.post(
+            '/public/webhooks/dwh/:webhook_id',
+            publicBodySizeLimit,
+            asyncHandler(this.handleWarehouseSourceWebhook())
+        )
+        router.post('/public/webhooks/:webhook_id', publicBodySizeLimit, asyncHandler(this.handleWebhook()))
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
         router.get('/public/m/pixel', asyncHandler(this.getEmailTrackingPixel()))
-        router.post('/public/m/ses_webhook', express.text(), asyncHandler(this.postSesWebhook()))
+        router.post('/public/m/ses_webhook', publicBodySizeLimit, express.text(), asyncHandler(this.postSesWebhook()))
         router.get('/public/m/redirect', asyncHandler(this.getEmailTrackingRedirect()))
 
         return router
@@ -497,6 +521,7 @@ export class CdpApi {
                 errors: result.error ? [result.error] : [],
                 logs: [...result.logs, ...logs],
                 variables: result.invocation.state.variables ?? {},
+                execResult: result.execResult ?? null,
             })
         } catch (e) {
             console.error(e)
@@ -506,9 +531,9 @@ export class CdpApi {
 
     private postHogFlowBatchInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
-            const { id, team_id, batch_job_id } = req.params
+            const { id, team_id, parent_run_id } = req.params
 
-            logger.info('⚡️', 'Received hogflow batch invocation', { id, team_id, batch_job_id })
+            logger.info('⚡️', 'Received hogflow batch invocation', { id, team_id, parent_run_id })
 
             const team = await this.hub.teamManager.getTeam(parseInt(team_id)).catch(() => null)
 
@@ -535,7 +560,7 @@ export class CdpApi {
             const batchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
-                batchJobId: batch_job_id,
+                parentRunId: parent_run_id,
                 filters: {
                     properties: hogFlow.trigger.filters.properties || [],
                     filter_test_accounts: req.body.filters?.filter_test_accounts || false,
@@ -555,48 +580,86 @@ export class CdpApi {
         }
     }
 
+    private async processAndRespondToWebhook(
+        webhookId: string,
+        req: ModifiedRequest,
+        res: express.Response,
+        onSuccess: (
+            result: Awaited<ReturnType<typeof this.cdpSourceWebhooksConsumer.processWebhook>>
+        ) => Promise<any> | any
+    ): Promise<any> {
+        try {
+            const result = await this.cdpSourceWebhooksConsumer.processWebhook(webhookId, req)
+
+            if (typeof result.execResult === 'object' && result.execResult && 'httpResponse' in result.execResult) {
+                const httpResponse = result.execResult.httpResponse as HogFunctionWebhookResult
+                if (typeof httpResponse.body === 'string') {
+                    return res
+                        .status(httpResponse.status)
+                        .set('Content-Type', httpResponse.contentType ?? 'text/plain')
+                        .send(httpResponse.body)
+                } else if (typeof httpResponse.body === 'object') {
+                    return res.status(httpResponse.status).json(httpResponse.body)
+                }
+                return res.status(httpResponse.status).send('')
+            }
+
+            return await onSuccess(result)
+        } catch (error) {
+            if (error instanceof SourceWebhookError) {
+                return res.status(error.status).json({ error: error.message })
+            }
+            logger.error('[CdpApi] Error handling webhook', { error })
+            return res.status(500).json({ error: 'Internal error' })
+        }
+    }
+
     private handleWebhook =
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             const { webhook_id } = req.params
-
-            try {
-                const result = await this.cdpSourceWebhooksConsumer.processWebhook(webhook_id, req)
-
-                if (typeof result.execResult === 'object' && result.execResult && 'httpResponse' in result.execResult) {
-                    // TODO: Better validation here before we directly use the result
-                    const httpResponse = result.execResult.httpResponse as HogFunctionWebhookResult
-                    if (typeof httpResponse.body === 'string') {
-                        return res
-                            .status(httpResponse.status)
-                            .set('Content-Type', httpResponse.contentType ?? 'text/plain')
-                            .send(httpResponse.body)
-                    } else if (typeof httpResponse.body === 'object') {
-                        return res.status(httpResponse.status).json(httpResponse.body)
-                    } else {
-                        return res.status(httpResponse.status).send('')
-                    }
-                }
-
+            return this.processAndRespondToWebhook(webhook_id, req, res, (result) => {
                 if (result.error) {
-                    return res.status(500).json({
-                        status: 'Unhandled error',
-                    })
+                    return res.status(500).json({ status: 'Unhandled error' })
                 }
                 if (!result.finished) {
-                    return res.status(201).json({
-                        status: 'queued',
-                    })
+                    return res.status(201).json({ status: 'queued' })
                 }
-                return res.status(200).json({
-                    status: 'ok',
+                return res.status(200).json({ status: 'ok' })
+            })
+        }
+
+    private handleWarehouseSourceWebhook =
+        () =>
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+            const { webhook_id } = req.params
+            return this.processAndRespondToWebhook(webhook_id, req, res, async (result) => {
+                if (result.error) {
+                    return res.status(500).json({ error: 'Internal error' })
+                }
+                if (!result.execResult || typeof result.execResult !== 'object') {
+                    return res.status(500).json({ error: 'Template did not return a payload' })
+                }
+
+                const hogFunction = result.invocation.hogFunction
+                const schemaId = hogFunction.inputs?.schema_id?.value
+                if (!schemaId) {
+                    return res.status(500).json({ error: 'Missing schema_id on hog function' })
+                }
+
+                const kafkaProducer = this.cdpWarehouseKafkaProducer
+                if (!kafkaProducer) {
+                    return res.status(500).json({ error: 'Kafka producer not available' })
+                }
+
+                await kafkaProducer.produce({
+                    topic: KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
+                    key: `${hogFunction.team_id}:${schemaId}`,
+                    value: Buffer.from(JSON.stringify(result.execResult)),
                 })
-            } catch (error) {
-                if (error instanceof SourceWebhookError) {
-                    return res.status(error.status).json({ error: error.message })
-                }
-                return res.status(500).json({ error: 'Internal error' })
-            }
+
+                return res.status(200).json({ status: 'ok' })
+            })
         }
 
     private postSesWebhook =
@@ -670,45 +733,19 @@ const buildHogExecutorAsyncOptions = (
     mockAsyncFunctions: boolean,
     logs: MinimalLogEntry[]
 ): HogExecutorExecuteAsyncOptions => {
+    let mockFunctions: Record<string, (...args: any[]) => any> | undefined
+
+    if (mockAsyncFunctions) {
+        mockFunctions = {}
+        for (const name of getRegisteredAsyncFunctionNames()) {
+            const handler = getAsyncFunctionHandler(name)!
+            mockFunctions[name] = (...args: any[]) => handler.mock(args, logs)
+        }
+    }
+
     return {
         maxAsyncFunctions: MAX_ASYNC_STEPS,
         asyncFunctionsNames: mockAsyncFunctions ? [] : undefined,
-        functions: mockAsyncFunctions
-            ? {
-                  fetch: (...args: any[]) => {
-                      logs.push({
-                          level: 'info',
-                          timestamp: DateTime.now(),
-                          message: `Async function 'fetch' was mocked with arguments:`,
-                      })
-                      logs.push({
-                          level: 'info',
-                          timestamp: DateTime.now(),
-                          message: `fetch('${args[0]}', ${JSON.stringify(args[1], null, 2)})`,
-                      })
-
-                      return {
-                          status: 200,
-                          body: {},
-                      }
-                  },
-                  sendEmail: (...args: any[]) => {
-                      logs.push({
-                          level: 'info',
-                          timestamp: DateTime.now(),
-                          message: `Async function 'sendEmail' was mocked with arguments:`,
-                      })
-                      logs.push({
-                          level: 'info',
-                          timestamp: DateTime.now(),
-                          message: `sendEmail(${JSON.stringify(args[0], null, 2)})`,
-                      })
-
-                      return {
-                          success: true,
-                      }
-                  },
-              }
-            : undefined,
+        functions: mockFunctions,
     }
 }

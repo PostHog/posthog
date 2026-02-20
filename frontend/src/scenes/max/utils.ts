@@ -18,7 +18,6 @@ import {
     HumanMessage,
     MultiVisualizationMessage,
     NotebookArtifactContent,
-    NotebookUpdateMessage,
     RootAssistantMessage,
     SubagentUpdateEvent,
     VisualizationArtifactContent,
@@ -47,6 +46,7 @@ import {
     MaxErrorTrackingIssueContext,
     MaxEventContext,
     MaxInsightContext,
+    MaxUIContext,
 } from './maxTypes'
 
 export function isMultiVisualizationMessage(
@@ -89,12 +89,6 @@ export function isSubagentUpdateEvent(
 
 export function isFailureMessage(message: RootAssistantMessage | undefined | null): message is FailureMessage {
     return message?.type === AssistantMessageType.Failure
-}
-
-export function isNotebookUpdateMessage(
-    message: RootAssistantMessage | undefined | null
-): message is NotebookUpdateMessage {
-    return message?.type === AssistantMessageType.Notebook
 }
 
 export function isMultiQuestionFormMessage(
@@ -181,20 +175,6 @@ export function formatSuggestion(suggestion: string): string {
     return `${suggestion.replace(/[<>]/g, '').replace(/…$/, '').trim()}${suggestion.endsWith('…') ? '…' : ''}`
 }
 
-export function isDeepResearchReportNotebook(
-    notebook: { category?: string | null; notebook_type?: string | null } | null | undefined
-): boolean {
-    return !!(notebook && notebook.category === 'deep_research' && notebook.notebook_type === 'report')
-}
-
-export function isDeepResearchReportCompletion(message: NotebookUpdateMessage): boolean {
-    return (
-        message.notebook_type === 'deep_research' &&
-        Array.isArray(message.conversation_notebooks) &&
-        message.conversation_notebooks.some((nb) => isDeepResearchReportNotebook(nb))
-    )
-}
-
 // Utility functions for transforming data to max context
 export const insightToMaxContext = (
     insight: Partial<QueryBasedInsightModel>,
@@ -255,6 +235,30 @@ export const errorTrackingIssueToMaxContextPayload = (issue: {
     }
 }
 
+/**
+ * Generic context that can be passed when opening PostHog AI.
+ */
+export interface MaxOpenContext {
+    /** Error tracking issue context */
+    errorTrackingIssue?: {
+        id: string
+        name?: string | null
+    }
+}
+
+/**
+ * Converts MaxOpenContext to MaxUIContext
+ */
+export function convertToMaxUIContext(openContext: MaxOpenContext): Partial<MaxUIContext> {
+    const uiContext: Partial<MaxUIContext> = {}
+
+    if (openContext.errorTrackingIssue) {
+        uiContext.error_tracking_issues = [errorTrackingIssueToMaxContextPayload(openContext.errorTrackingIssue)]
+    }
+
+    return uiContext
+}
+
 export const createSuggestionGroup = (label: string, icon: JSX.Element, suggestions: string[]): SuggestionGroup => {
     return {
         label,
@@ -296,7 +300,7 @@ export function getAgentModeForScene(sceneId: Scene | null): AgentMode | null {
         return null
     }
     for (const [mode, def] of Object.entries(MODE_DEFINITIONS)) {
-        if (def.scenes.has(sceneId)) {
+        if (def.scenes?.has(sceneId)) {
             return mode as AgentMode
         }
     }

@@ -122,6 +122,10 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     def __str__(self):
         return self.name or self.derived_name or self.short_id
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._original_query = self.query
+
     def save(self, *args, **kwargs) -> None:
         # generate query metadata if needed
         if self._state.adding or self.query != self._original_query or self.query_metadata is None:
@@ -140,10 +144,6 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
                 )
                 capture_exception(e)
         super().save(*args, **kwargs)
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._original_query = self.query
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Insight"]:
@@ -304,6 +304,20 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
             return bool(self.filters.get("show_legend", False) if self.filters else False)
         except (AttributeError, TypeError, KeyError):
             return False
+
+    @property
+    def are_alerts_supported(self) -> bool:
+        from posthog.schema_migrations.upgrade_manager import upgrade_query
+
+        with upgrade_query(self):
+            query = self.query
+            if query is None:
+                return False
+            while query.get("source"):
+                query = query["source"]
+            if query.get("kind") != "TrendsQuery":
+                return False
+        return True
 
     def generate_query_metadata(self):
         from posthog.hogql_queries.query_metadata import extract_query_metadata

@@ -2,6 +2,12 @@ from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
+from ee.hogai.chat_agent.executables import (
+    ChatAgentExecutable,
+    ChatAgentPlanExecutable,
+    ChatAgentPlanToolsExecutable,
+    ChatAgentToolsExecutable,
+)
 from ee.hogai.tools import ExecuteSQLTool
 from ee.hogai.tools.todo_write import TodoWriteExample
 
@@ -69,6 +75,8 @@ The assistant used the todo list because:
 3. This approach allows for tracking progress across the entire request
 """.strip()
 
+MODE_DESCRIPTION = "Specialized mode capable of generating and executing SQL queries. This mode allows you to query the ClickHouse database, which contains both data collected by PostHog (events, groups, persons, sessions) and data warehouse sources connected by the user, such as SQL tables, CRMs, and external systems. This mode can also be used to search for specific data that can be used in other modes."
+
 
 class SQLAgentToolkit(AgentToolkit):
     POSITIVE_TODO_EXAMPLES = [
@@ -94,6 +102,17 @@ class SQLAgentToolkit(AgentToolkit):
 
 sql_agent = AgentModeDefinition(
     mode=AgentMode.SQL,
-    mode_description="Specialized mode capable of generating and executing SQL queries. This mode allows you to query the ClickHouse database, which contains both data collected by PostHog (events, groups, persons, sessions) and data warehouse sources connected by the user, such as SQL tables, CRMs, and external systems. This mode can also be used to search for specific data that can be used in other modes.",
+    mode_description=MODE_DESCRIPTION,
     toolkit_class=SQLAgentToolkit,
+    node_class=ChatAgentExecutable,
+    tools_node_class=ChatAgentToolsExecutable,
+)
+
+
+chat_agent_plan_sql_agent = AgentModeDefinition(
+    mode=AgentMode.SQL,
+    mode_description=MODE_DESCRIPTION,
+    toolkit_class=SQLAgentToolkit,
+    node_class=ChatAgentPlanExecutable,
+    tools_node_class=ChatAgentPlanToolsExecutable,
 )

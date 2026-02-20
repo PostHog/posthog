@@ -6,13 +6,14 @@ from django.http import JsonResponse, StreamingHttpResponse
 from drf_spectacular.utils import OpenApiResponse
 from pydantic import BaseModel
 from rest_framework import status, viewsets
-from rest_framework.exceptions import NotAuthenticated, Throttled, ValidationError
+from rest_framework.exceptions import APIException, NotAuthenticated, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import (
     HogQLQuery,
     HogQLQueryModifiers,
+    LimitContext as SchemaLimitContext,
     QueryRequest,
     QueryResponseAlternative,
     QueryStatusResponse,
@@ -35,7 +36,7 @@ from posthog.clickhouse.client.execute_async import cancel_query, get_query_stat
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -141,6 +142,18 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             self._tag_client_query_id(client_query_id)
             query_dict = query.model_dump()
 
+            if data.limit_context == SchemaLimitContext.POSTHOG_AI:
+                limit_context: LimitContext | None = LimitContext.POSTHOG_AI
+            elif (
+                is_insight_query(query_dict)
+                or is_insight_actors_query(query_dict)
+                or is_insight_actors_options_query(query_dict)
+            ) and get_query_tag_value("access_method") != "personal_api_key":
+                # QUERY_ASYNC provides extended max execution time for insight queries
+                limit_context = LimitContext.QUERY_ASYNC
+            else:
+                limit_context = None
+
             result = process_query_model(
                 self.team,
                 query,
@@ -148,17 +161,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 query_id=client_query_id,
                 user=request.user,  # type: ignore[arg-type]
                 is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
-                limit_context=(
-                    # QUERY_ASYNC provides extended max execution time for insight queries
-                    LimitContext.QUERY_ASYNC
-                    if (
-                        is_insight_query(query_dict)
-                        or is_insight_actors_query(query_dict)
-                        or is_insight_actors_options_query(query_dict)
-                    )
-                    and get_query_tag_value("access_method") != "personal_api_key"
-                    else None
-                ),
+                limit_context=limit_context,
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)
@@ -170,6 +173,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
+        except InternalCHQueryError as e:
+            self.handle_column_ch_error(e)
+            capture_exception(e)
+            raise APIException("ClickHouse error while executing query.")
         except UserAccessControlError as e:
             raise ValidationError(str(e))
         except ResolutionError as e:
@@ -177,7 +184,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except ConcurrencyLimitExceeded as c:
             raise Throttled(detail=str(c))
         except Exception as e:
-            self.handle_column_ch_error(e)
             capture_exception(e)
             raise
 

@@ -26,13 +26,12 @@ import { surveyLogic } from './surveyLogic'
 
 export const scene: SceneExport = {
     component: SurveyTemplates,
-    settingSectionId: 'environment-surveys',
 }
 
 interface TemplateCardProps {
     template: SurveyTemplate
     idx: number
-    setSurveyTemplateValues: (values: Partial<NewSurvey>) => void
+    setSurveyTemplateValues?: (values: Partial<NewSurvey>) => void
     reportSurveyTemplateClicked: (templateType: SurveyTemplateType) => void
     surveyAppearance: SurveyAppearance
     handleTemplateClick: (template: SurveyTemplate) => void

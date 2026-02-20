@@ -8,6 +8,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 
 import { LogsOrderBy } from 'products/logs/frontend/types'
 
+import { LogsExportMenu } from './LogsExportMenu'
 import { TimezoneSelect } from './TimezoneSelect'
 import { logsViewerLogic } from './logsViewerLogic'
 
@@ -22,7 +23,7 @@ export const LogsViewerToolbar = ({
     orderBy,
     onChangeOrderBy,
 }: LogsViewerToolbarProps): JSX.Element => {
-    const { wrapBody, prettifyJson, logsCount, timezone } = useValues(logsViewerLogic)
+    const { wrapBody, prettifyJson, timezone } = useValues(logsViewerLogic)
     const { setWrapBody, setPrettifyJson, setTimezone } = useActions(logsViewerLogic)
 
     return (
@@ -52,12 +53,11 @@ export const LogsViewerToolbar = ({
                     size="small"
                 />
                 <TimezoneSelect value={timezone} onChange={setTimezone} size="small" />
+                <LogsExportMenu totalLogsCount={totalLogsCount} />
             </div>
             <div className="flex items-center gap-4 flex-wrap">
                 {totalLogsCount !== undefined && totalLogsCount > 0 && (
-                    <span className="text-muted text-xs">
-                        {humanFriendlyNumber(logsCount)} of {humanFriendlyNumber(totalLogsCount)} logs
-                    </span>
+                    <span className="text-muted text-xs">{humanFriendlyNumber(totalLogsCount)} logs</span>
                 )}
                 <span className="text-muted text-xs flex items-center gap-1">
                     <KeyboardShortcut arrowup />

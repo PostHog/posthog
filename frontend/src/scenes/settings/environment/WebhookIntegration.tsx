@@ -44,8 +44,8 @@ export function WebhookIntegration(): JSX.Element {
             <>
                 <p>
                     The Webhook integration has been replaced with our new{' '}
-                    <Link to={urls.dataPipelines('destinations')}>Pipeline Destinations</Link> allowing you to create
-                    multiple, highly customizable webhook triggers based off of Actions or Events.
+                    <Link to={urls.destinations()}>Pipeline Destinations</Link> allowing you to create multiple, highly
+                    customizable webhook triggers based off of Actions or Events.
                 </p>
             </>
         )
@@ -53,15 +53,6 @@ export function WebhookIntegration(): JSX.Element {
 
     return (
         <div>
-            <p>
-                Send notifications when selected actions are performed by users.
-                <br />
-                Guidance on integrating with webhooks available in our docs,{' '}
-                <Link to="https://posthog.com/docs/webhooks/slack">for Slack</Link> and{' '}
-                <Link to="https://posthog.com/docs/webhooks/microsoft-teams">for Microsoft Teams</Link>. Discord is also
-                supported.
-            </p>
-
             <div className="deprecated-space-y-4 max-w-160">
                 <LemonInput
                     value={webhook}

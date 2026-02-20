@@ -1,15 +1,12 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import { IconPlus } from '@posthog/icons'
-import { Link, ProfilePicture, Spinner } from '@posthog/lemon-ui'
+import { Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
-import { LemonTreeSelectMode, TreeDataItem, TreeMode, TreeTableViewKeys } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { urls } from 'scenes/urls'
+import { LemonTreeSelectMode, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
@@ -106,6 +103,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'deleteItem',
                 'moveItem',
                 'linkItem',
+                'pruneClosedFolders',
             ],
         ],
     })),
@@ -146,7 +144,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         setOnlyFolders: (onlyFolders: boolean) => ({ onlyFolders }),
         setSelectMode: (selectMode: LemonTreeSelectMode) => ({ selectMode }),
         setTreeTableColumnSizes: (sizes: number[]) => ({ sizes }),
-        setProjectTreeMode: (mode: TreeMode) => ({ mode }),
     }),
     loaders(({ actions, values }) => ({
         searchResults: [
@@ -238,6 +235,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         searchResults: [
             { searchTerm: '', results: [], hasMore: false, lastCount: 0 } as SearchResults,
             {
+                clearSearch: () => ({ searchTerm: '', results: [], hasMore: false, lastCount: 0 }),
                 movedItem: (state, { newPath, item }) => {
                     if (state.searchTerm && state.results.length > 0) {
                         const newResults = state.results.map((result) => {
@@ -287,6 +285,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         recentResults: [
             { results: [], hasMore: false, startTime: null, endTime: null } as RecentResults,
             {
+                clearSearch: () => ({ results: [], hasMore: false, startTime: null, endTime: null }),
                 movedItem: (state, { newPath, item }) => {
                     if (state.results.length > 0) {
                         const newResults = state.results.map((result) => {
@@ -437,12 +436,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             { persist: true },
             {
                 setTreeTableColumnSizes: (_, { sizes }) => sizes,
-            },
-        ],
-        projectTreeMode: [
-            'tree' as TreeMode,
-            {
-                setProjectTreeMode: (_, { mode }) => mode,
             },
         ],
     })),
@@ -717,80 +710,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (s) => [s.treeTableColumnSizes],
             (sizes): number[] => sizes.map((_, index) => sizes.slice(0, index).reduce((acc, s) => acc + s, 0)),
         ],
-        // TODO: use treeData + some other logic to determine the keys
-        treeTableKeys: [
-            (s) => [s.treeTableColumnSizes, s.treeTableColumnOffsets, s.sortMethod, s.users, s.projectTreeMode],
-            (sizes, offsets, sortMethod, users, projectTreeMode): TreeTableViewKeys => ({
-                headers: [
-                    {
-                        key: 'name',
-                        title: 'Name',
-                        tooltip: (value: string) => value,
-                        width: sizes[0],
-                        offset: offsets[0],
-                    },
-                    {
-                        key: 'record.meta.created_at',
-                        title: 'Created at',
-                        formatComponent: (created_at) =>
-                            created_at ? (
-                                <span className="text-muted text-xs">{dayjs(created_at).fromNow()}</span>
-                            ) : (
-                                '-'
-                            ),
-                        formatString: (created_at) => (created_at ? dayjs(created_at).fromNow() : '-'),
-                        tooltip: (created_at) => (created_at ? dayjs(created_at).format('MMM D, YYYY HH:mm:ss') : ''),
-                        width: sizes[1],
-                        offset: offsets[1],
-                    },
-                    {
-                        key: 'record.meta.created_by',
-                        title: 'Created by',
-                        formatComponent: (created_by) =>
-                            created_by && users[created_by] ? (
-                                <Link
-                                    to={urls.personByDistinctId(users[created_by].distinct_id)}
-                                    onClick={(e) => {
-                                        e.preventDefault()
-                                        e.stopPropagation()
-                                        router.actions.push(urls.personByDistinctId(users[created_by].distinct_id))
-                                        if (projectTreeMode === 'table') {
-                                            projectTreeLogic.actions.setProjectTreeMode('tree')
-                                        }
-                                    }}
-                                >
-                                    <ProfilePicture user={users[created_by]} size="sm" className="mr-1" />
-                                    <span>
-                                        {users[created_by].first_name} {users[created_by].last_name}
-                                    </span>
-                                </Link>
-                            ) : (
-                                '-'
-                            ),
-                        formatString: (created_by) =>
-                            created_by && users[created_by]
-                                ? `${users[created_by].first_name} ${users[created_by].last_name}`
-                                : '-',
-                        width: sizes[2],
-                        offset: offsets[2],
-                    },
-                    ...(sortMethod === 'recent'
-                        ? [
-                              {
-                                  key: 'record.path',
-                                  title: 'Folder',
-                                  formatString: (value: string) =>
-                                      value ? joinPath(splitPath(value).slice(0, -1)) : '',
-                                  tooltip: (value: string) => (value ? joinPath(splitPath(value).slice(0, -1)) : ''),
-                                  width: sizes[3] || 200,
-                                  offset: offsets[3],
-                              },
-                          ]
-                        : []),
-                ],
-            }),
-        ],
-        treeTableTotalWidth: [(s) => [s.treeTableColumnSizes], (sizes): number => sizes.reduce((acc, s) => acc + s, 0)],
         checkedItemCountNumeric: [
             (s) => [s.checkedItems],
             (checkedItems): number => Object.values(checkedItems).filter((v) => !!v).length,
@@ -824,18 +743,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     }),
     listeners(({ actions, values, key }) => ({
         setActivePanelIdentifier: () => {
-            // clear search term when changing panel
             if (values.searchTerm !== '') {
                 actions.clearSearch()
             }
-            if (values.projectTreeMode !== 'tree') {
-                actions.setProjectTreeMode('tree')
-            }
         },
-        resetPanelLayout: () => {
-            if (values.projectTreeMode !== 'tree') {
-                actions.setProjectTreeMode('tree')
-            }
+        clearSearch: () => {
+            actions.pruneClosedFolders(values.expandedFolders)
         },
         loadFolderSuccess: ({ folder }) => {
             if (folder === '') {
@@ -1093,7 +1006,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
             } else {
                 if (values.expandedFolders.find((f) => f === folderId)) {
-                    actions.setExpandedFolders(values.expandedFolders.filter((f) => f !== folderId))
+                    const childPrefix = folderId.endsWith('://') ? folderId : folderId + '/'
+                    const newExpandedFolders = values.expandedFolders.filter(
+                        (f) => f !== folderId && !f.startsWith(childPrefix)
+                    )
+                    actions.setExpandedFolders(newExpandedFolders)
+                    actions.pruneClosedFolders(newExpandedFolders)
                 } else {
                     actions.setExpandedFolders([...values.expandedFolders, folderId])
                     actions.loadFolderIfNotLoaded(folderId)

@@ -5,6 +5,7 @@ import {
     cohortOperatorMap,
     isOperatorCohort,
     isOperatorFlag,
+    isOperatorMulti,
 } from 'lib/utils'
 
 import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
@@ -223,6 +224,11 @@ export function isEventPersonOrSessionPropertyFilter(
         filter?.type === PropertyFilterType.Person ||
         filter?.type === PropertyFilterType.Session
     )
+}
+export function isWebAnalyticsPropertyFilter(
+    filter?: AnyFilterLike | null
+): filter is EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter {
+    return isEventPersonOrSessionPropertyFilter(filter) || isCohortPropertyFilter(filter)
 }
 export function isElementPropertyFilter(filter?: AnyFilterLike | null): filter is ElementPropertyFilter {
     return filter?.type === PropertyFilterType.Element
@@ -547,4 +553,25 @@ export function createDefaultPropertyFilter(
         group_type_index: taxonomicGroup.groupTypeIndex,
     }
     return property
+}
+
+/**
+ * Normalizes property filter values to ensure multi-select operators (Exact, IsNot)
+ * always have array values.
+ */
+export function normalizePropertyFilterValue(
+    value: PropertyFilterValue | undefined,
+    operator: PropertyOperator | null | undefined
+): PropertyFilterValue | undefined {
+    if (value === null || value === undefined) {
+        return value
+    }
+
+    // Multi-select operators (Exact, IsNot) should have array values
+    // Only normalize string/number/boolean values
+    if (operator && isOperatorMulti(operator) && !Array.isArray(value)) {
+        return [value]
+    }
+
+    return value
 }

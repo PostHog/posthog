@@ -1,0 +1,272 @@
+import { useActions, useValues } from 'kea'
+
+import { IconChevronDown, IconChevronRight, IconFilter, IconGear } from '@posthog/icons'
+import { LemonButton, LemonSegmentedButton, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
+
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { ClusterCard } from './ClusterCard'
+import { ClusterDistributionBar } from './ClusterDistributionBar'
+import { ClusterScatterPlot } from './ClusterScatterPlot'
+import { ClusteringAdminModal } from './ClusteringAdminModal'
+import { ClusteringSettingsPanel } from './ClusteringSettingsPanel'
+import { clusteringConfigLogic, isValidFilter } from './clusteringConfigLogic'
+import { clustersAdminLogic } from './clustersAdminLogic'
+import { clustersLogic } from './clustersLogic'
+import { NOISE_CLUSTER_ID } from './constants'
+import { Cluster, ClusteringLevel } from './types'
+
+export function ClustersView(): JSX.Element {
+    const {
+        clusteringLevel,
+        clusteringRuns,
+        clusteringRunsLoading,
+        currentRun,
+        currentRunLoading,
+        sortedClusters,
+        effectiveRunId,
+        expandedClusterIds,
+        traceSummaries,
+        traceSummariesLoading,
+        isScatterPlotExpanded,
+        clusterMetrics,
+        clusterMetricsLoading,
+    } = useValues(clustersLogic)
+    const { setClusteringLevel, setSelectedRunId, toggleClusterExpanded, toggleScatterPlotExpanded } =
+        useActions(clustersLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { openModal } = useActions(clustersAdminLogic)
+    const { config } = useValues(clusteringConfigLogic)
+    const { openSettingsPanel } = useActions(clusteringConfigLogic)
+
+    const showAdminPanel = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERING_ADMIN]
+    const activeFilterCount = config.event_filters.filter(isValidFilter).length
+
+    if (clusteringRunsLoading) {
+        return (
+            <div className="flex items-center justify-center p-8">
+                <Spinner className="text-2xl" />
+            </div>
+        )
+    }
+
+    // Show empty state only after checking both trace and generation levels
+    // Always show the level toggle so users can switch between levels
+    const showEmptyState = clusteringRuns.length === 0
+
+    if (showEmptyState) {
+        return (
+            <div className="space-y-4">
+                {/* Level toggle is always visible so users can switch */}
+                <div className="flex items-center gap-3">
+                    <Tooltip
+                        title="Traces cluster entire conversations, while generations cluster individual LLM calls"
+                        placement="bottom"
+                    >
+                        <span>
+                            <LemonSegmentedButton
+                                value={clusteringLevel}
+                                onChange={(value) => setClusteringLevel(value as ClusteringLevel)}
+                                options={[
+                                    { value: 'trace', label: 'Traces' },
+                                    { value: 'generation', label: 'Generations' },
+                                ]}
+                                size="small"
+                                data-attr="clusters-level-toggle"
+                            />
+                        </span>
+                    </Tooltip>
+                </div>
+
+                <div className="flex flex-col items-center justify-center p-8 text-center">
+                    <h3 className="text-lg font-semibold mb-2">
+                        No {clusteringLevel === 'generation' ? 'generation' : 'trace'} clustering runs found
+                    </h3>
+                    <p className="text-muted max-w-md">
+                        {clusteringLevel === 'trace'
+                            ? 'Try switching to "Generations" to see generation-level clusters, or check back later once more data has been collected.'
+                            : 'Try switching to "Traces" to see trace-level clusters, or check back later once more data has been collected.'}
+                    </p>
+                </div>
+            </div>
+        )
+    }
+
+    return (
+        <div className="space-y-4">
+            {/* Run Selector Header */}
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                    <Tooltip
+                        title="Traces cluster entire conversations, while generations cluster individual LLM calls"
+                        placement="bottom"
+                    >
+                        <span>
+                            <LemonSegmentedButton
+                                value={clusteringLevel}
+                                onChange={(value) => setClusteringLevel(value as ClusteringLevel)}
+                                options={[
+                                    { value: 'trace', label: 'Traces' },
+                                    { value: 'generation', label: 'Generations' },
+                                ]}
+                                size="small"
+                                data-attr="clusters-level-toggle"
+                            />
+                        </span>
+                    </Tooltip>
+                    <span className="text-muted">|</span>
+                    <Tooltip title="Clustering run">
+                        <span>
+                            <LemonSelect
+                                value={effectiveRunId || undefined}
+                                onChange={(value) => setSelectedRunId(value || null)}
+                                options={clusteringRuns.map((run: { runId: string; label: string }) => ({
+                                    value: run.runId,
+                                    label: run.label,
+                                }))}
+                                placeholder="Select a run"
+                                data-attr="clusters-run-select"
+                            />
+                        </span>
+                    </Tooltip>
+                </div>
+
+                <div className="flex items-center gap-4">
+                    {currentRun && (
+                        <div className="flex items-center gap-2 text-muted text-sm whitespace-nowrap">
+                            <span>
+                                {currentRun.totalItemsAnalyzed}{' '}
+                                {clusteringLevel === 'generation' ? 'generations' : 'traces'} analyzed
+                            </span>
+                            <span>|</span>
+                            <span>
+                                {(() => {
+                                    const outlierCluster = sortedClusters.find(
+                                        (c: Cluster) => c.cluster_id === NOISE_CLUSTER_ID
+                                    )
+                                    const regularClusterCount = sortedClusters.filter(
+                                        (c: Cluster) => c.cluster_id !== NOISE_CLUSTER_ID
+                                    ).length
+                                    const outlierCount = outlierCluster?.size || 0
+
+                                    if (outlierCount > 0) {
+                                        return `${regularClusterCount} clusters, ${outlierCount} outliers`
+                                    }
+                                    return `${regularClusterCount} clusters`
+                                })()}
+                            </span>
+                            <span>|</span>
+                            <span>
+                                {dayjs(currentRun.windowStart).format('MMM D')} -{' '}
+                                {dayjs(currentRun.windowEnd).format('MMM D, YYYY')}
+                            </span>
+                        </div>
+                    )}
+
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconFilter />}
+                        onClick={openSettingsPanel}
+                        tooltip="Configure event filters applied to the next automated clustering run"
+                        data-attr="clusters-settings-button"
+                        status={activeFilterCount > 0 ? 'danger' : 'default'}
+                    >
+                        {activeFilterCount > 0 ? `Filters (${activeFilterCount})` : 'Filters'}
+                    </LemonButton>
+
+                    {showAdminPanel && (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconGear />}
+                                onClick={openModal}
+                                tooltip="Run clustering with custom parameters"
+                                data-attr="clusters-run-clustering-button"
+                            >
+                                Run clustering
+                            </LemonButton>
+                        </AccessControlAction>
+                    )}
+                </div>
+            </div>
+
+            {/* Loading State */}
+            {currentRunLoading && (
+                <div className="flex items-center justify-center p-8">
+                    <Spinner className="text-2xl" />
+                </div>
+            )}
+
+            {/* Scatter Plot Visualization */}
+            {!currentRunLoading && !traceSummariesLoading && sortedClusters.length > 0 && (
+                <div className="border rounded-lg bg-surface-primary overflow-hidden transition-all">
+                    <div
+                        className="p-4 cursor-pointer hover:bg-surface-secondary transition-colors"
+                        onClick={toggleScatterPlotExpanded}
+                        data-attr="clusters-scatter-plot-toggle"
+                    >
+                        <div className="flex items-center gap-4">
+                            <ClusterDistributionBar clusters={sortedClusters} runId={effectiveRunId || ''} />
+                            <LemonButton
+                                size="small"
+                                noPadding
+                                icon={isScatterPlotExpanded ? <IconChevronDown /> : <IconChevronRight />}
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    toggleScatterPlotExpanded()
+                                }}
+                            />
+                        </div>
+                    </div>
+                    {isScatterPlotExpanded && (
+                        <div className="border-t p-4">
+                            <ClusterScatterPlot traceSummaries={traceSummaries} />
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Cluster Cards */}
+            {!currentRunLoading && sortedClusters.length > 0 && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {sortedClusters.map((cluster: Cluster) => (
+                        <ClusterCard
+                            key={cluster.cluster_id}
+                            cluster={cluster}
+                            totalTraces={currentRun?.totalItemsAnalyzed || 0}
+                            isExpanded={expandedClusterIds.has(cluster.cluster_id)}
+                            onToggleExpand={() => toggleClusterExpanded(cluster.cluster_id)}
+                            traceSummaries={traceSummaries}
+                            loadingTraces={traceSummariesLoading}
+                            runId={effectiveRunId || ''}
+                            clusteringLevel={clusteringLevel}
+                            metrics={clusterMetrics[cluster.cluster_id]}
+                            metricsLoading={clusterMetricsLoading}
+                        />
+                    ))}
+                </div>
+            )}
+
+            {/* Empty State */}
+            {!currentRunLoading && sortedClusters.length === 0 && currentRun && (
+                <div className="text-center p-8 text-muted">No clusters found in this run.</div>
+            )}
+
+            {/* Settings Panel */}
+            <ClusteringSettingsPanel />
+
+            {/* Admin Modal */}
+            {showAdminPanel && <ClusteringAdminModal />}
+        </div>
+    )
+}

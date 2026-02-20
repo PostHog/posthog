@@ -85,6 +85,8 @@ class MaxRetriesError extends Error {
 export interface BatchWritingPersonsStoreOptions {
     maxConcurrentUpdates: number
     dbWriteMode: PersonBatchWritingDbWriteMode
+    /** When true, use batch SQL queries for person updates. When false, use individual queries. */
+    useBatchUpdates: boolean
     maxOptimisticUpdateRetries: number
     optimisticUpdateRetryInterval: number
     /** When true, all property changes trigger person updates (disables batch-level filtering) */
@@ -93,6 +95,7 @@ export interface BatchWritingPersonsStoreOptions {
 
 const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
     dbWriteMode: 'NO_ASSERT',
+    useBatchUpdates: true,
     maxConcurrentUpdates: 10,
     maxOptimisticUpdateRetries: 5,
     optimisticUpdateRetryInterval: 50,
@@ -156,9 +159,13 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
      * Also tracks metrics for ignored properties at the batch level.
      */
     private getPersonUpdateOutcome(update: PersonUpdate): 'changed' | 'ignored' | 'no_change' {
+        const lastSeenAtChanged =
+            (update.last_seen_at?.toMillis() ?? null) !== (update.original_last_seen_at?.toMillis() ?? null)
+
         const hasNonPropertyChanges =
             update.is_identified !== update.original_is_identified ||
-            !update.created_at.equals(update.original_created_at)
+            !update.created_at.equals(update.original_created_at) ||
+            lastSeenAtChanged
 
         if (hasNonPropertyChanges) {
             return 'changed'
@@ -270,8 +277,13 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
             switch (this.options.dbWriteMode) {
                 case 'NO_ASSERT': {
-                    // Use batch update for NO_ASSERT mode - single query for all updates
-                    allKafkaMessages = await this.flushBatchNoAssert(updateEntries)
+                    if (this.options.useBatchUpdates) {
+                        // Use batch update for NO_ASSERT mode - single query for all updates
+                        allKafkaMessages = await this.flushBatchNoAssert(updateEntries)
+                    } else {
+                        // Use individual updates for NO_ASSERT mode
+                        allKafkaMessages = await this.flushIndividualNoAssert(updateEntries)
+                    }
                     break
                 }
                 case 'ASSERT_VERSION': {
@@ -409,6 +421,68 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         }
 
         return allKafkaMessages
+    }
+
+    /**
+     * Flush all person updates using individual queries without version assertion (NO_ASSERT mode).
+     * Each person is updated individually with retry logic for merge scenarios.
+     */
+    private async flushIndividualNoAssert(updateEntries: [string, PersonUpdate][]): Promise<FlushResult[]> {
+        const limit = pLimit(this.options.maxConcurrentUpdates)
+
+        const results = await Promise.all(
+            updateEntries.map(([cacheKey, update]) =>
+                limit(async (): Promise<FlushResult[]> => {
+                    try {
+                        personWriteMethodAttemptCounter.inc({
+                            db_write_mode: this.options.dbWriteMode,
+                            method: this.options.dbWriteMode,
+                            outcome: 'attempt',
+                        })
+
+                        const result = await this.withMergeRetry(
+                            update,
+                            this.updatePersonNoAssert.bind(this),
+                            'updatePersonNoAssert',
+                            this.options.maxOptimisticUpdateRetries,
+                            this.options.optimisticUpdateRetryInterval
+                        )
+
+                        personWriteMethodAttemptCounter.inc({
+                            db_write_mode: this.options.dbWriteMode,
+                            method: this.options.dbWriteMode,
+                            outcome: 'success',
+                        })
+
+                        return result.messages.map((message) => ({
+                            topicMessage: message,
+                            teamId: update.team_id,
+                            uuid: update.uuid,
+                            distinctId: update.distinct_id,
+                        }))
+                    } catch (error) {
+                        logger.error('Failed to update person after max retries', {
+                            error,
+                            cacheKey,
+                            teamId: update.team_id,
+                            personId: update.id,
+                            distinctId: update.distinct_id,
+                            errorMessage: error instanceof Error ? error.message : String(error),
+                            errorStack: error instanceof Error ? error.stack : undefined,
+                        })
+
+                        personWriteMethodAttemptCounter.inc({
+                            db_write_mode: this.options.dbWriteMode,
+                            method: this.options.dbWriteMode,
+                            outcome: 'error',
+                        })
+                        return this.handleIndividualUpdateError(error, update)
+                    }
+                })
+            )
+        )
+
+        return results.flat()
     }
 
     /**
@@ -1116,6 +1190,13 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             // Handle force_update with || operator - once true, stays true
             mergedPersonUpdate.force_update = existingPersonUpdate.force_update || person.force_update
 
+            // Handle last_seen_at - take the newer timestamp (max)
+            if (person.last_seen_at) {
+                if (!mergedPersonUpdate.last_seen_at || person.last_seen_at > mergedPersonUpdate.last_seen_at) {
+                    mergedPersonUpdate.last_seen_at = person.last_seen_at
+                }
+            }
+
             this.personUpdateCache.set(this.getPersonIdCacheKey(teamId, person.id), mergedPersonUpdate)
         } else {
             // First time we're caching this person id
@@ -1303,6 +1384,13 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             personUpdate.is_identified = personUpdate.is_identified || otherUpdates.is_identified
         }
 
+        // Handle last_seen_at - take the newer timestamp
+        if (otherUpdates.last_seen_at) {
+            if (!personUpdate.last_seen_at || otherUpdates.last_seen_at > personUpdate.last_seen_at) {
+                personUpdate.last_seen_at = otherUpdates.last_seen_at
+            }
+        }
+
         personUpdate.needs_write = true
 
         // Set force_update flag with || operator - once set to true by a $identify/$set event, it stays true
@@ -1327,6 +1415,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             properties_last_operation: person.properties_last_operation,
             is_identified: person.is_identified,
             created_at: person.created_at,
+            last_seen_at: person.last_seen_at,
         }
 
         this.incrementCount('updatePersonNoAssert', personUpdate.distinct_id)
@@ -1548,11 +1637,13 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             version: currentPerson.version,
             is_identified: currentPerson.is_identified || personUpdate.is_identified,
             is_user_id: personUpdate.is_user_id,
+            last_seen_at: personUpdate.last_seen_at,
             needs_write: personUpdate.needs_write,
             properties_to_set: personUpdate.properties_to_set,
             properties_to_unset: personUpdate.properties_to_unset,
             original_is_identified: personUpdate.original_is_identified,
             original_created_at: personUpdate.original_created_at,
+            original_last_seen_at: personUpdate.original_last_seen_at,
         }
 
         return updatedPersonUpdate

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use super::{CheckpointFile, CheckpointInfo, CheckpointMetadata};
+use super::{hash_prefix_for_partition, CheckpointFile, CheckpointInfo, CheckpointMetadata};
 use crate::kafka::types::Partition;
 use crate::metrics_const::CHECKPOINT_PLAN_FILE_TRACKED_COUNTER;
 
@@ -39,7 +39,8 @@ pub fn plan_checkpoint(
         consumer_offset,
         producer_offset,
     );
-    let mut info = CheckpointInfo::new(metadata, remote_bucket_namespace);
+    let hash = hash_prefix_for_partition(partition.topic(), partition.partition_number());
+    let mut info = CheckpointInfo::new(metadata, remote_bucket_namespace, Some(hash));
     let mut files_to_upload: Vec<LocalCheckpointFile> = Vec::new();
 
     // Collect all files in local checkpoint directory
@@ -82,17 +83,7 @@ pub fn plan_checkpoint(
         prev_meta.id
     );
 
-    // For each local file, check if it exists in previous metadata fileset
-    // IMPORTANT: each type must be handled differently to maintain
-    // a useable backup:
-    // - .sst files: upload all new files, and skip uploading old ones (retain original paths)
-    // - .log (WAL) files: upload only new files. drop old if missing from new checkpoint.
-    //                     if same-named, keep newer or disambiguate w/checksum
-    // - MANIFEST-* files: upload new files. drop old if missing from new checkpoint.
-    //                     if same-named, keep newer or disambiguate w/checksum
-    // - CURRENT    file:  upload the new file, drop the old one
-    // - OPTIONS-*  files: upload new files. drop old if missing from new checkpoint.
-    //                     if same-named, keep newer or disambiguate w/checksum
+    // Per-file rules: .sst retain old path; .log/MANIFEST/OPTIONS replace if checksum changed; CURRENT always upload new.
     for candidate in local_files {
         let filename = &candidate.filename;
         if let Some(prev_file) = prev_file_map.get(filename) {
@@ -306,10 +297,11 @@ mod tests {
         assert_eq!(got_sst1, &expected_sst1);
         assert_eq!(got_sst2, &expected_sst2);
 
-        // With no previous metadata, all files should be tracked in metadata
+        // With no previous metadata, all files should be tracked in metadata with hashed paths
         assert_eq!(plan.info.metadata.files.len(), 2);
+        let hash = hash_prefix_for_partition(topic, partition_number);
         let expected_remote_path =
-            format!("{remote_bucket_namespace}/{topic}/{partition_number}/{checkpoint_id}");
+            format!("{hash}/{remote_bucket_namespace}/{topic}/{partition_number}/{checkpoint_id}");
         assert!(plan
             .info
             .metadata
@@ -328,6 +320,13 @@ mod tests {
             .files
             .iter()
             .any(|f| f.remote_filepath.ends_with("file2.sst")));
+        // metadata key (for metadata.json) must not contain hash
+        let meta_key = plan.info.get_metadata_key();
+        assert!(!meta_key.contains(&hash));
+        assert_eq!(
+            meta_key,
+            format!("{remote_bucket_namespace}/{topic}/{partition_number}/{checkpoint_id}/metadata.json")
+        );
     }
 
     #[test]
@@ -443,9 +442,10 @@ mod tests {
         assert_eq!(&sst1_file_meta.checksum, &expected_prev_sst1.checksum);
         assert_eq!(&sst2_file_meta.checksum, &expected_prev_sst2.checksum);
 
-        // Check that file3 is in metadata as a reference
+        // Check that file3 is in metadata as a reference (new files use hashed path)
+        let hash = hash_prefix_for_partition(topic, partition_number);
         let current_attempt_remote_path =
-            format!("{remote_bucket_namespace}/{topic}/{partition_number}/{checkpoint_id}");
+            format!("{hash}/{remote_bucket_namespace}/{topic}/{partition_number}/{checkpoint_id}");
 
         let sst1_remote_path = format!("{prev_remote_path}/00001.sst");
         let sst2_remote_path = format!("{prev_remote_path}/00002.sst");
@@ -753,8 +753,10 @@ mod tests {
         assert_eq!(plan.info.metadata.files.len(), 7);
 
         // validate the right checkpoint metadata was retained from previous vs. current checkpoint attempts
+        // new files (sst3, CURRENT, log) use hashed path; retained use prev (unhashed)
+        let hash = hash_prefix_for_partition(topic, partition_number);
         let current_attempt_remote_path =
-            format!("{remote_bucket_namespace}/{topic}/{partition_number}/{checkpoint_id}");
+            format!("{hash}/{remote_bucket_namespace}/{topic}/{partition_number}/{checkpoint_id}");
         let sst1_remote_path = format!("{prev_remote_path}/00001.sst");
         let sst2_remote_path = format!("{prev_remote_path}/00002.sst");
         let sst3_remote_path = format!("{current_attempt_remote_path}/00003.sst");

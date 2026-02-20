@@ -9,6 +9,7 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, DataVisualizationNode } from '~/queries/schema/schema-general'
+import { LLMTrace } from '~/queries/schema/schema-general'
 import { QueryContextColumn } from '~/queries/types'
 import { hogql, isDataTableNode, isEventsQuery } from '~/queries/utils'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
@@ -16,9 +17,10 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { AIDataLoading } from './components/AIDataLoading'
 import { EventData, useAIData } from './hooks/useAIData'
-import { llmAnalyticsLogic } from './llmAnalyticsLogic'
+import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { CompatMessage } from './types'
-import { normalizeMessages } from './utils'
+import { normalizeMessages, parseJSONPreview } from './utils'
 
 const truncateValue = (value: string): string => {
     if (value.length > 8) {
@@ -91,8 +93,8 @@ export function getTracesUrlWithPersonFilter(
 }
 
 function PersonColumnCell({ person }: { person: PersonData | null | undefined }): JSX.Element {
-    const { setPropertyFilters } = useActions(llmAnalyticsLogic)
-    const { propertyFilters } = useValues(llmAnalyticsLogic)
+    const { setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
+    const { propertyFilters } = useValues(llmAnalyticsSharedLogic)
 
     const filterIdentifier = getFilterIdentifier(person)
 
@@ -136,7 +138,7 @@ function PersonColumnCell({ person }: { person: PersonData | null | undefined })
 
 function PersonColumnCellWithRedirect({ person }: { person: PersonData | null | undefined }): JSX.Element {
     const { push } = useActions(router)
-    const { dateFilter } = useValues(llmAnalyticsLogic)
+    const { dateFilter } = useValues(llmAnalyticsSharedLogic)
     const filterIdentifier = getFilterIdentifier(person)
 
     const handleFilterAndRedirect = (e: React.MouseEvent): void => {
@@ -163,6 +165,28 @@ function PersonColumnCellWithRedirect({ person }: { person: PersonData | null | 
     )
 }
 
+function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JSX.Element {
+    const { personsCache, isDistinctIdLoading } = useValues(llmPersonsLazyLoaderLogic)
+    const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
+
+    const cached = personsCache[distinctId]
+    const loading = isDistinctIdLoading(distinctId)
+
+    if (cached === undefined && !loading) {
+        ensurePersonLoaded(distinctId)
+    }
+
+    if (loading || cached === undefined) {
+        return <AIDataLoading variant="inline" />
+    }
+
+    const personData: PersonData = cached
+        ? { distinct_id: cached.distinct_id, properties: cached.properties }
+        : { distinct_id: distinctId }
+
+    return <PersonColumnCell person={personData} />
+}
+
 function AIInputCell({ eventData }: { eventData: EventData }): JSX.Element {
     const { input, isLoading } = useAIData(eventData)
 
@@ -172,7 +196,7 @@ function AIInputCell({ eventData }: { eventData: EventData }): JSX.Element {
 
     let inputNormalized: CompatMessage[] | undefined
     try {
-        const parsed = typeof input === 'string' ? JSON.parse(input) : input
+        const parsed = parseJSONPreview(input)
         inputNormalized = normalizeMessages(parsed, 'user')
     } catch (e) {
         console.warn('Error normalizing properties.$ai_input', e)
@@ -194,7 +218,7 @@ function AIOutputCell({ eventData }: { eventData: EventData }): JSX.Element {
 
     let outputNormalized: CompatMessage[] | undefined
     try {
-        const parsed = typeof output === 'string' ? JSON.parse(output) : output
+        const parsed = parseJSONPreview(output)
         outputNormalized = normalizeMessages(parsed, 'assistant')
     } catch (e) {
         console.warn('Error normalizing properties.$ai_output_choices', e)
@@ -302,7 +326,15 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
     person: {
         title: 'Person',
         render: ({ value, record, query }) => {
-            // Handle object format (TracesQuery results - LLMTracePerson)
+            // Handle TracesQuery results with lazy loading: person is null, distinctId is available
+            if (!value && record && typeof record === 'object' && !Array.isArray(record)) {
+                const traceRecord = record as LLMTrace
+                if (traceRecord.distinctId) {
+                    return <LazyPersonColumnCell distinctId={traceRecord.distinctId} />
+                }
+            }
+
+            // Handle object format (TracesQuery results - LLMTracePerson, for backwards compat)
             if (value && typeof value === 'object' && !Array.isArray(value) && 'distinct_id' in value) {
                 return <PersonColumnCell person={value as PersonData} />
             }
@@ -334,8 +366,9 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
             return <PersonColumnCell person={null} />
         },
     },
-    // User column for Users tab - clicking filter redirects to traces page
-    user: {
+    // LLM person column for Users tab - clicking filter redirects to traces page
+    // Uses __llm_person to avoid collision with user-defined 'user' columns in SQL queries
+    __llm_person: {
         title: 'Person',
         render: ({ value }) => {
             // User data from HogQL query comes as a tuple [distinct_id, created_at, properties_json]

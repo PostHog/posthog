@@ -38,7 +38,6 @@ export const scene: SceneExport<SessionRecordingsPlaylistLogicProps> = {
     component: SessionRecordingsPlaylistScene,
     logic: sessionRecordingsPlaylistSceneLogic,
     paramsToProps: ({ params: { id } }) => ({ shortId: id }),
-    settingSectionId: 'environment-replay',
 }
 
 function PlaylistSceneLoadingSkeleton(): JSX.Element {
@@ -143,7 +142,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                 )}
             </ScenePanel>
 
-            <SceneContent className="SessionRecordingPlaylistHeightWrapper">
+            <SceneContent className="SessionRecordingPlaylistHeightWrapper grow">
                 <SceneTitleSection
                     name={playlist.name || ''}
                     description={playlist.description || ''}
@@ -188,7 +187,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     onPinnedChange={onPinnedChange}
                     pinnedRecordings={pinnedRecordings ?? []}
                     updateSearchParams={true}
-                    type="collection"
+                    type={playlist.type === 'filters' ? 'filters' : 'collection'}
                     isSynthetic={playlist.is_synthetic}
                     description={playlist.description}
                 />

@@ -28,6 +28,11 @@ const MOCK_EXPERIMENT = {
     start_date: '2023-01-01',
 }
 
+const MOCK_DEPENDENT_FLAGS = [
+    { id: 10, key: 'dependent-flag-1', name: 'Dependent Flag 1' },
+    { id: 11, key: 'dependent-flag-2', name: 'Dependent Flag 2' },
+]
+
 describe('featureFlagLogic', () => {
     let logic: ReturnType<typeof featureFlagLogic.build>
 
@@ -54,18 +59,19 @@ describe('featureFlagLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+        jest.useRealTimers()
     })
 
     describe('setMultivariateEnabled functionality', () => {
-        it('adds an empty variant when enabling multivariate', async () => {
+        it('adds default variants when enabling multivariate', async () => {
             await expectLogic(logic).toMatchValues({
                 featureFlag: partial({
                     filters: partial({
                         groups: [
-                            {
+                            partial({
                                 properties: [],
                                 variant: null,
-                            },
+                            }),
                         ],
                     }),
                 }),
@@ -78,9 +84,14 @@ describe('featureFlagLogic', () => {
                 .toMatchValues({
                     variants: [
                         {
-                            key: '',
+                            key: 'control',
                             name: '',
-                            rollout_percentage: 100,
+                            rollout_percentage: 50,
+                        },
+                        {
+                            key: 'test',
+                            name: '',
+                            rollout_percentage: 50,
                         },
                     ],
                 })
@@ -273,6 +284,127 @@ describe('featureFlagLogic', () => {
                 })
 
             noExperimentLogic.unmount()
+        })
+    })
+
+    describe('dependent flags confirmation', () => {
+        it('uses pre-loaded dependent flags when data is available', async () => {
+            const flag = { ...MOCK_FEATURE_FLAG, id: 6, active: true }
+
+            const testLogic = featureFlagLogic({ id: 6 })
+            testLogic.mount()
+
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/`]: () => [200, flag],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/status`]: () => [
+                        200,
+                        MOCK_FEATURE_FLAG_STATUS,
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/dependent_flags/`]: () => [
+                        200,
+                        MOCK_DEPENDENT_FLAGS,
+                    ],
+                },
+            })
+
+            await expectLogic(testLogic, () => {
+                testLogic.actions.loadFeatureFlag()
+            }).toDispatchActions(['loadFeatureFlagSuccess', 'loadDependentFlagsSuccess'])
+
+            expect(testLogic.values.dependentFlags).toEqual(MOCK_DEPENDENT_FLAGS)
+            expect(testLogic.values.dependentFlagsLoading).toBe(false)
+
+            testLogic.unmount()
+        })
+    })
+
+    describe('dependent flags loading', () => {
+        it('loads dependent flags when feature flag loads successfully', async () => {
+            const flag = { ...MOCK_FEATURE_FLAG, id: 4 }
+
+            const testLogic = featureFlagLogic({ id: 4 })
+            testLogic.mount()
+
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/`]: () => [200, flag],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/status`]: () => [
+                        200,
+                        MOCK_FEATURE_FLAG_STATUS,
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/dependent_flags/`]: () => [
+                        200,
+                        MOCK_DEPENDENT_FLAGS,
+                    ],
+                },
+            })
+
+            await expectLogic(testLogic, () => {
+                testLogic.actions.loadFeatureFlag()
+            })
+                .toDispatchActions(['loadFeatureFlagSuccess', 'loadDependentFlags', 'loadDependentFlagsSuccess'])
+                .toMatchValues({ dependentFlags: MOCK_DEPENDENT_FLAGS })
+
+            testLogic.unmount()
+        })
+
+        it('returns empty array when no dependent flags exist', async () => {
+            const flag = { ...MOCK_FEATURE_FLAG, id: 5 }
+
+            const testLogic = featureFlagLogic({ id: 5 })
+            testLogic.mount()
+
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/`]: () => [200, flag],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/status`]: () => [
+                        200,
+                        MOCK_FEATURE_FLAG_STATUS,
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/dependent_flags/`]: () => [
+                        200,
+                        [],
+                    ],
+                },
+            })
+
+            await expectLogic(testLogic, () => {
+                testLogic.actions.loadFeatureFlag()
+            })
+                .toDispatchActions(['loadFeatureFlagSuccess', 'loadDependentFlags', 'loadDependentFlagsSuccess'])
+                .toMatchValues({ dependentFlags: [] })
+
+            testLogic.unmount()
+        })
+
+        it('handles API failure gracefully and returns empty array', async () => {
+            const flag = { ...MOCK_FEATURE_FLAG, id: 14 }
+
+            const testLogic = featureFlagLogic({ id: 14 })
+            testLogic.mount()
+
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/`]: () => [200, flag],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/status`]: () => [
+                        200,
+                        MOCK_FEATURE_FLAG_STATUS,
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/dependent_flags/`]: () => [
+                        500,
+                        { error: 'Internal server error' },
+                    ],
+                },
+            })
+
+            await expectLogic(testLogic, () => {
+                testLogic.actions.loadFeatureFlag()
+            })
+                .toDispatchActions(['loadFeatureFlagSuccess', 'loadDependentFlags', 'loadDependentFlagsFailure'])
+                .toMatchValues({ dependentFlags: [], dependentFlagsLoading: false })
+
+            testLogic.unmount()
         })
     })
 })

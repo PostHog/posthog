@@ -207,9 +207,9 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                 raise ValidationError("Only the first step can be used for breakdown attribution in unordered funnels")
 
         step_results = ",".join(
-            [f"countIf(bitAnd(steps_bitfield, {1 << i}) != 0) AS step_{i+1}" for i in range(self.context.max_steps)]
+            [f"countIf(bitAnd(steps_bitfield, {1 << i}) != 0) AS step_{i + 1}" for i in range(self.context.max_steps)]
         )
-        step_results2 = ",".join([f"sum(step_{i+1}) AS step_{i+1}" for i in range(self.context.max_steps)])
+        step_results2 = ",".join([f"sum(step_{i + 1}) AS step_{i + 1}" for i in range(self.context.max_steps)])
 
         conversion_time_arrays = ",".join(
             [
@@ -442,7 +442,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                 serialized_result.update(
                     {
                         "breakdown": (
-                            get_breakdown_cohort_name(breakdown_value)
+                            get_breakdown_cohort_name(breakdown_value, self.context.team)
                             if self.context.breakdownFilter.breakdown_type == "cohort"
                             else breakdown_value
                         ),

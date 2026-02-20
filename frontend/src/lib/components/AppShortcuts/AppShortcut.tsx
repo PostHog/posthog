@@ -1,9 +1,9 @@
-import { ReactElement, cloneElement, isValidElement } from 'react'
+import { useMergeRefs } from '@floating-ui/react'
+import { ReactElement, cloneElement, forwardRef, isValidElement } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-
+import { RenderKeybind } from './AppShortcutMenu'
 import { AppShortcutType } from './appShortcutLogic'
 import { convertPlatformKeybind, useAppShortcut } from './useAppShortcut'
 
@@ -23,16 +23,10 @@ interface AppShortcutProps extends Omit<AppShortcutType, 'ref' | 'keybind' | 'in
     disabled?: boolean
 }
 
-export function AppShortcut({
-    children,
-    name,
-    keybind,
-    intent,
-    interaction,
-    scope = 'global',
-    disabled = false,
-    priority = 0,
-}: AppShortcutProps): ReactElement {
+export const AppShortcut = forwardRef<HTMLElement, AppShortcutProps>(function AppShortcut(
+    { children, name, keybind, intent, interaction, scope = 'global', disabled = false, priority = 0 },
+    forwardedRef
+): ReactElement {
     const { callbackRef } = useAppShortcut({
         name,
         keybind,
@@ -42,6 +36,8 @@ export function AppShortcut({
         disabled,
         priority,
     })
+
+    const mergedRef = useMergeRefs([callbackRef, forwardedRef])
 
     if (!isValidElement(children)) {
         throw new Error('AppShortcut requires a single React element child')
@@ -59,10 +55,7 @@ export function AppShortcut({
                 {keybind.map((kb, index) => (
                     <span key={index}>
                         {index > 0 && <span className="text-xs opacity-75"> or </span>}
-                        <KeyboardShortcut
-                            {...keybindToKeyboardShortcutProps(kb)}
-                            className="relative text-xs -top-px"
-                        />
+                        <RenderKeybind keybind={[kb]} className="relative text-xs -top-px" />
                     </span>
                 ))}
             </>
@@ -70,7 +63,7 @@ export function AppShortcut({
     }
 
     return cloneElement(children, {
-        ref: callbackRef,
+        ref: mergedRef,
         'data-shortcut-name': name,
         'data-shortcut-keybind': keybindStrings,
         'data-shortcut-intent': intent,
@@ -78,4 +71,4 @@ export function AppShortcut({
         tooltip: finalTooltip,
         className: cn(childProps.className as string | undefined),
     } as Record<string, unknown>)
-}
+})

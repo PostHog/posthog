@@ -393,7 +393,7 @@ class HogQLCohortQuery:
         return query_runner.to_query()
 
     def get_static_cohort_condition(self, prop: Property) -> ast.SelectQuery:
-        cohort = Cohort.objects.get(pk=cast(int, prop.value))
+        cohort = Cohort.objects.get(pk=cast(int, prop.value), team__project_id=self.team.project_id)
         return cast(
             ast.SelectQuery,
             parse_select(
@@ -442,7 +442,7 @@ class HogQLCohortQuery:
         else:
             raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
 
-    def _should_combine_person_properties(self) -> bool:
+    def _should_combine_person_properties_and(self) -> bool:
         return posthoganalytics.feature_enabled(
             "hogql-cohort-combine-person-properties",
             str(self.team.uuid),
@@ -462,9 +462,30 @@ class HogQLCohortQuery:
             send_feature_flag_events=False,
         )
 
+    def _should_combine_person_properties_or(self) -> bool:
+        return posthoganalytics.feature_enabled(
+            "hogql-cohort-combine-person-properties-or",
+            str(self.team.uuid),
+            groups={
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.id),
+            },
+            group_properties={
+                "organization": {
+                    "id": str(self.team.organization_id),
+                },
+                "project": {
+                    "id": str(self.team.id),
+                },
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
     def _get_conditions(self) -> ast.SelectQuery | ast.SelectSetQuery:
         Condition = namedtuple("Condition", ["query", "negation"])
-        should_combine_person_properties = self._should_combine_person_properties()
+        should_combine_person_properties_and = self._should_combine_person_properties_and()
+        should_combine_person_properties_or = self._should_combine_person_properties_or()
 
         def unwrap_property(prop: Union[PropertyGroup, Property]) -> Optional[Property]:
             """Unwrap a PropertyGroup to get the underlying Property if it contains exactly one."""
@@ -481,28 +502,33 @@ class HogQLCohortQuery:
             unwrapped = [unwrap_property(prop) for prop in properties]
             return all(p is not None and p.type == "person" and not p.negation for p in unwrapped)
 
-        def combine_person_properties(properties: Union[list[Property], list[PropertyGroup]]) -> ast.SelectQuery:
+        def combine_person_properties(
+            properties: Union[list[Property], list[PropertyGroup]], combine_type: PropertyOperatorType
+        ) -> ast.SelectQuery:
             """
             Combine multiple person property filters into a single ActorsQuery.
 
-            This optimization replaces N separate queries with N-1 INTERSECT operations
-            with a single query that includes all conditions. For cohorts with many person
-            properties, this reduces query time by ~19x and memory usage by ~15x.
-
-            Example:
-                Before: Query1 INTERSECT DISTINCT Query2 INTERSECT DISTINCT Query3
-                After:  Single query with AND(condition1, condition2, condition3)
+            For AND: Replaces N queries with N-1 INTERSECT operations with a single query.
+            For OR: Replaces N queries with N-1 UNION DISTINCT operations with a single query.
             """
             person_filters = []
             for prop_or_group in properties:
-                # Unwrap PropertyGroup to get the underlying Property
                 prop = unwrap_property(prop_or_group)
                 if prop is None:
                     continue
                 person_filters.append(convert_property(prop))
 
+            # AND: pass list directly (default behavior)
+            # OR: wrap in PropertyGroupFilterValue
+            query_properties: Union[list[PersonPropertyFilter], PropertyGroupFilterValue] = person_filters
+            if combine_type == PropertyOperatorType.OR:
+                query_properties = PropertyGroupFilterValue(
+                    type=PropertyOperatorType.OR,
+                    values=person_filters,
+                )
+
             actors_query = ActorsQuery(
-                properties=person_filters,
+                properties=query_properties,
                 select=["id"],
             )
             query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
@@ -517,9 +543,11 @@ class HogQLCohortQuery:
             if isinstance(prop, Property):
                 return Condition(self._get_condition_for_property(prop), prop.negation or False)
 
-            if should_combine_person_properties:
-                if prop.type == PropertyOperatorType.AND and can_combine_person_properties(prop.values):
-                    return Condition(combine_person_properties(prop.values), False)
+            if can_combine_person_properties(prop.values):
+                if should_combine_person_properties_and and prop.type == PropertyOperatorType.AND:
+                    return Condition(combine_person_properties(prop.values, PropertyOperatorType.AND), False)
+                if should_combine_person_properties_or and prop.type == PropertyOperatorType.OR:
+                    return Condition(combine_person_properties(prop.values, PropertyOperatorType.OR), False)
 
             children = [build_conditions(property) for property in prop.values]
 
@@ -600,6 +628,14 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         self.cohort = cohort
         # Preprocess to merge properties with same key and operator
         self.property_groups = self._preprocess_property_groups(self.property_groups)  # type: ignore[assignment]
+
+    def _should_combine_person_properties_and(self) -> bool:
+        """Realtime cohorts should not use AND combining optimization."""
+        return False
+
+    def _should_combine_person_properties_or(self) -> bool:
+        """Realtime cohorts should not use OR combining optimization."""
+        return False
 
     def _is_mergeable_property(self, prop: Property) -> bool:
         """Check if a property can be merged with others."""

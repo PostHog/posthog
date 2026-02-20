@@ -4,7 +4,7 @@ use crate::{
     config::{Config, DEFAULT_TEST_CONFIG},
     flags::flag_models::{FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup},
     properties::property_models::{OperatorType, PropertyFilter, PropertyType},
-    team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
+    team::team_models::Team,
 };
 use anyhow::Error;
 use axum::async_trait;
@@ -28,6 +28,27 @@ pub fn random_string(prefix: &str, length: usize) -> String {
     format!("{prefix}{suffix}")
 }
 
+/// Generate the HyperCache key for team metadata.
+/// Format: posthog:1:cache/team_tokens/{api_token}/team_metadata/full_metadata.json
+pub fn team_token_hypercache_key(api_token: &str) -> String {
+    format!("posthog:1:cache/team_tokens/{api_token}/team_metadata/full_metadata.json")
+}
+
+/// Update team data in HyperCache with proper pickle encoding.
+/// Use this when modifying team settings in tests and need to update the cache.
+/// Format: Pickle(JSON string) to match Django's cache format.
+pub async fn update_team_in_hypercache(
+    client: Arc<dyn RedisClientTrait + Send + Sync>,
+    team: &Team,
+) -> Result<(), Error> {
+    let json_string = serde_json::to_string(team)?;
+    let pickled_bytes =
+        serde_pickle::to_vec(&json_string, Default::default()).expect("Failed to pickle team");
+    let cache_key = team_token_hypercache_key(&team.api_token);
+    client.set_bytes(cache_key, pickled_bytes, None).await?;
+    Ok(())
+}
+
 pub async fn insert_new_team_in_redis(
     client: Arc<dyn RedisClientTrait + Send + Sync>,
 ) -> Result<Team, Error> {
@@ -42,13 +63,12 @@ pub async fn insert_new_team_in_redis(
         ..Default::default()
     };
 
-    let serialized_team = serde_json::to_string(&team)?;
-    client
-        .set(
-            format!("{}{}", TEAM_TOKEN_CACHE_PREFIX, team.api_token.clone()),
-            serialized_team,
-        )
-        .await?;
+    // Serialize team to JSON string, then pickle to match Django's cache format: Pickle(JSON)
+    let json_string = serde_json::to_string(&team)?;
+    let pickled_bytes =
+        serde_pickle::to_vec(&json_string, Default::default()).expect("Failed to pickle team");
+    let cache_key = team_token_hypercache_key(&team.api_token);
+    client.set_bytes(cache_key, pickled_bytes, None).await?;
 
     Ok(team)
 }
@@ -176,6 +196,68 @@ pub fn setup_hypercache_reader_with_mock_redis(
     ))
 }
 
+/// Create a HyperCacheReader for team_metadata using the provided Redis client.
+/// Uses token_based=true for token-based lookups.
+/// Returns Arc<HyperCacheReader> to match the production pattern.
+pub async fn setup_team_hypercache_reader(
+    redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+) -> Arc<HyperCacheReader> {
+    let mut config = HyperCacheConfig::new(
+        "team_metadata".to_string(),
+        "full_metadata.json".to_string(),
+        "us-east-1".to_string(),
+        "posthog".to_string(),
+    );
+    config.token_based = true;
+    Arc::new(
+        HyperCacheReader::new(redis_client, config)
+            .await
+            .expect("Failed to create team HyperCacheReader"),
+    )
+}
+
+/// Create a HyperCacheReader for remote config (array/config.json).
+/// Uses token_based=true for token-based lookups (api_token).
+/// Returns Arc<HyperCacheReader> to match the production pattern.
+pub async fn setup_config_hypercache_reader(
+    redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+) -> Arc<HyperCacheReader> {
+    let mut config = HyperCacheConfig::new(
+        "array".to_string(),
+        "config.json".to_string(),
+        "us-east-1".to_string(),
+        "posthog".to_string(),
+    );
+    config.token_based = true;
+    Arc::new(
+        HyperCacheReader::new(redis_client, config)
+            .await
+            .expect("Failed to create config HyperCacheReader"),
+    )
+}
+
+/// Generate the HyperCache key for remote config.
+/// Format: posthog:1:cache/team_tokens/{api_token}/array/config.json
+pub fn config_hypercache_key(api_token: &str) -> String {
+    format!("posthog:1:cache/team_tokens/{api_token}/array/config.json")
+}
+
+/// Insert remote config data in HyperCache for testing.
+/// Use this when testing the config cache reader.
+/// Format: Pickle(JSON string) to match Django's cache format.
+pub async fn insert_config_in_hypercache(
+    client: Arc<dyn RedisClientTrait + Send + Sync>,
+    api_token: &str,
+    config_json: serde_json::Value,
+) -> Result<(), Error> {
+    let json_string = serde_json::to_string(&config_json)?;
+    let pickled_bytes =
+        serde_pickle::to_vec(&json_string, Default::default()).expect("Failed to pickle config");
+    let cache_key = config_hypercache_key(api_token);
+    client.set_bytes(cache_key, pickled_bytes, None).await?;
+    Ok(())
+}
+
 pub fn create_flag_from_json(json_value: Option<String>) -> Vec<FeatureFlag> {
     let payload = match json_value {
         Some(value) => value,
@@ -209,27 +291,25 @@ pub fn create_flag_from_json(json_value: Option<String>) -> Vec<FeatureFlag> {
     flags
 }
 
-pub async fn setup_pg_reader_client(config: Option<&Config>) -> Arc<dyn Client + Send + Sync> {
+pub fn setup_pg_reader_client(config: Option<&Config>) -> Arc<dyn Client + Send + Sync> {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
     Arc::new(
         get_pool(&config.read_database_url, config.max_pg_connections)
-            .await
             .expect("Failed to create Postgres client"),
     )
 }
 
-pub async fn setup_pg_writer_client(config: Option<&Config>) -> Arc<dyn Client + Send + Sync> {
+pub fn setup_pg_writer_client(config: Option<&Config>) -> Arc<dyn Client + Send + Sync> {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
     Arc::new(
         get_pool(&config.write_database_url, config.max_pg_connections)
-            .await
             .expect("Failed to create Postgres client"),
     )
 }
 
 /// Setup dual database clients for tests that need to work with both persons and non-persons databases.
 /// If persons DB routing is not enabled, returns the same client twice.
-pub async fn setup_dual_pg_readers(
+pub fn setup_dual_pg_readers(
     config: Option<&Config>,
 ) -> (Arc<dyn Client + Send + Sync>, Arc<dyn Client + Send + Sync>) {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
@@ -241,12 +321,10 @@ pub async fn setup_dual_pg_readers(
                 &config.get_persons_read_database_url(),
                 config.max_pg_connections,
             )
-            .await
             .expect("Failed to create Postgres persons reader client"),
         );
         let non_persons_reader = Arc::new(
             get_pool(&config.read_database_url, config.max_pg_connections)
-                .await
                 .expect("Failed to create Postgres client"),
         );
         (persons_reader, non_persons_reader)
@@ -254,7 +332,6 @@ pub async fn setup_dual_pg_readers(
         // Same database for both
         let client = Arc::new(
             get_pool(&config.read_database_url, config.max_pg_connections)
-                .await
                 .expect("Failed to create Postgres client"),
         );
         (client.clone(), client)
@@ -263,7 +340,7 @@ pub async fn setup_dual_pg_readers(
 
 /// Setup dual database writers for tests that need to write to both persons and non-persons databases.
 /// If persons DB routing is not enabled, returns the same client twice.
-pub async fn setup_dual_pg_writers(
+pub fn setup_dual_pg_writers(
     config: Option<&Config>,
 ) -> (Arc<dyn Client + Send + Sync>, Arc<dyn Client + Send + Sync>) {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
@@ -275,12 +352,10 @@ pub async fn setup_dual_pg_writers(
                 &config.get_persons_write_database_url(),
                 config.max_pg_connections,
             )
-            .await
             .expect("Failed to create Postgres persons writer client"),
         );
         let non_persons_writer = Arc::new(
             get_pool(&config.write_database_url, config.max_pg_connections)
-                .await
                 .expect("Failed to create Postgres client"),
         );
         (persons_writer, non_persons_writer)
@@ -288,7 +363,6 @@ pub async fn setup_dual_pg_writers(
         // Same database for both
         let client = Arc::new(
             get_pool(&config.write_database_url, config.max_pg_connections)
-                .await
                 .expect("Failed to create Postgres client"),
         );
         (client.clone(), client)
@@ -860,8 +934,8 @@ impl TestContext {
     pub async fn new(config: Option<&Config>) -> Self {
         let config = config.unwrap_or(&DEFAULT_TEST_CONFIG).clone();
 
-        let (persons_reader, non_persons_reader) = setup_dual_pg_readers(Some(&config)).await;
-        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(Some(&config)).await;
+        let (persons_reader, non_persons_reader) = setup_dual_pg_readers(Some(&config));
+        let (persons_writer, non_persons_writer) = setup_dual_pg_writers(Some(&config));
 
         Self {
             persons_reader,

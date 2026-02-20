@@ -1,0 +1,10 @@
+# Custom API base URL for self-hosted PostHog instances.
+# WARNING: In PostHog Production, do NOT set this - the code automatically handles US/EU routing.
+# See getAuthorizationServerUrl() in src/lib/constants.ts for details.
+POSTHOG_API_BASE_URL=http://localhost:8010
+
+# PostHog base URL for MCP Apps analytics (CSP and event ingestion)
+POSTHOG_MCP_APPS_ANALYTICS_BASE_URL=http://localhost:8010
+POSTHOG_UI_APPS_TOKEN=your_posthog_ui_apps_token_here
+
+INKEEP_API_KEY=your_inkeep_api_key_here

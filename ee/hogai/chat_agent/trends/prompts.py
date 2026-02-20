@@ -35,49 +35,49 @@ Actions are user-defined event filters. If the plan includes an action series, y
 ### How many users do I have?
 
 ```
-{"dateRange":{"date_from":"-30d"},"interval":"month","kind":"TrendsQuery","series":[{"event":"user signed up","kind":"EventsNode","math":"total"}],"trendsFilter":{"display":"BoldNumber"}}
+{"query":{"dateRange":{"date_from":"-30d"},"interval":"month","kind":"TrendsQuery","series":[{"event":"user signed up","kind":"EventsNode","math":"total"}],"trendsFilter":{"display":"BoldNumber"}}}
 ```
 
 ### Show a bar chart of the organic search traffic for the last month grouped by week.
 
 ```
-{"dateRange":{"date_from":"-30d","date_to":null,"explicitDate":false},"interval":"week","kind":"TrendsQuery","series":[{"event":"$pageview","kind":"EventsNode","math":"dau","properties":[{"key":"$referring_domain","operator":"icontains","type":"event","value":"google"},{"key":"utm_source","operator":"is_not_set","type":"event","value":"is_not_set"}]}],"trendsFilter":{"display":"ActionsBar"}}
+{"query":{"dateRange":{"date_from":"-30d","date_to":null,"explicitDate":false},"interval":"week","kind":"TrendsQuery","series":[{"event":"$pageview","kind":"EventsNode","math":"dau","properties":[{"key":"$referring_domain","operator":"icontains","type":"event","value":"google"},{"key":"utm_source","operator":"is_not_set","type":"event","value":"is_not_set"}]}],"trendsFilter":{"display":"ActionsBar"}}}
 ```
 
 ### insight created unique users & first-time users for the last 12m)
 
 ```
-{"dateRange":{"date_from":"-12m","date_to":""},"filterTestAccounts":true,"interval":"month","kind":"TrendsQuery","series":[{"event":"insight created","kind":"EventsNode","math":"dau","custom_name":"insight created"},{"event":"insight created","kind":"EventsNode","math":"first_time_for_user","custom_name":"insight created"}],"trendsFilter":{"display":"ActionsLineGraph"}}
+{"query":{"dateRange":{"date_from":"-12m","date_to":""},"filterTestAccounts":true,"interval":"month","kind":"TrendsQuery","series":[{"event":"insight created","kind":"EventsNode","math":"dau","custom_name":"insight created"},{"event":"insight created","kind":"EventsNode","math":"first_time_for_user","custom_name":"insight created"}],"trendsFilter":{"display":"ActionsLineGraph"}}}
 ```
 
 ### What are the top 10 referring domains for the last month?
 
 ```
-{"breakdownFilter":{"breakdown_type":"event","breakdowns":[{"group_type_index":null,"histogram_bin_count":null,"normalize_url":null,"property":"$referring_domain","type":"event"}]},"dateRange":{"date_from":"-30d"},"interval":"day","kind":"TrendsQuery","series":[{"event":"$pageview","kind":"EventsNode","math":"total","custom_name":"$pageview"}]}
+{"query":{"breakdownFilter":{"breakdown_type":"event","breakdowns":[{"group_type_index":null,"histogram_bin_count":null,"normalize_url":null,"property":"$referring_domain","type":"event"}]},"dateRange":{"date_from":"-30d"},"interval":"day","kind":"TrendsQuery","series":[{"event":"$pageview","kind":"EventsNode","math":"total","custom_name":"$pageview"}]}}
 ```
 
 ### What is the DAU to MAU ratio of users from the US and Australia that viewed a page in the last 7 days? Compare it to the previous period.
 
 ```
-{"compareFilter":{"compare":true,"compare_to":null},"dateRange":{"date_from":"-7d"},"interval":"day","kind":"TrendsQuery","properties":{"type":"AND","values":[{"type":"AND","values":[{"key":"$geoip_country_name","operator":"exact","type":"event","value":["United States","Australia"]}]}]},"series":[{"event":"$pageview","kind":"EventsNode","math":"dau","custom_name":"$pageview"},{"event":"$pageview","kind":"EventsNode","math":"monthly_active","custom_name":"$pageview"}],"trendsFilter":{"aggregationAxisFormat":"percentage_scaled","display":"ActionsLineGraph","formula":"A/B"}}
+{"query":{"compareFilter":{"compare":true,"compare_to":null},"dateRange":{"date_from":"-7d"},"interval":"day","kind":"TrendsQuery","properties":{"type":"AND","values":[{"type":"AND","values":[{"key":"$geoip_country_name","operator":"exact","type":"event","value":["United States","Australia"]}]}]},"series":[{"event":"$pageview","kind":"EventsNode","math":"dau","custom_name":"$pageview"},{"event":"$pageview","kind":"EventsNode","math":"monthly_active","custom_name":"$pageview"}],"trendsFilter":{"aggregationAxisFormat":"percentage_scaled","display":"ActionsLineGraph","formula":"A/B"}}}
 ```
 
 ### I want to understand how old are dashboard results when viewed from the beginning of this year grouped by a month. Display the results for percentiles of 99, 95, 90, average, and median by the property "refreshAge".
 
 ```
-{"dateRange":{"date_from":"yStart","date_to":null,"explicitDate":false},"filterTestAccounts":true,"interval":"month","kind":"TrendsQuery","series":[{"event":"viewed dashboard","kind":"EventsNode","math":"p99","math_property":"refreshAge","custom_name":"viewed dashboard"},{"event":"viewed dashboard","kind":"EventsNode","math":"p95","math_property":"refreshAge","custom_name":"viewed dashboard"},{"event":"viewed dashboard","kind":"EventsNode","math":"p90","math_property":"refreshAge","custom_name":"viewed dashboard"},{"event":"viewed dashboard","kind":"EventsNode","math":"avg","math_property":"refreshAge","custom_name":"viewed dashboard"},{"event":"viewed dashboard","kind":"EventsNode","math":"median","math_property":"refreshAge","custom_name":"viewed dashboard"}],"trendsFilter":{"aggregationAxisFormat":"duration","display":"ActionsLineGraph"}}
+{"query":{"dateRange":{"date_from":"yStart","date_to":null,"explicitDate":false},"filterTestAccounts":true,"interval":"month","kind":"TrendsQuery","series":[{"event":"viewed dashboard","kind":"EventsNode","math":"p99","math_property":"refreshAge","custom_name":"viewed dashboard"},{"event":"viewed dashboard","kind":"EventsNode","math":"p95","math_property":"refreshAge","custom_name":"viewed dashboard"},{"event":"viewed dashboard","kind":"EventsNode","math":"p90","math_property":"refreshAge","custom_name":"viewed dashboard"},{"event":"viewed dashboard","kind":"EventsNode","math":"avg","math_property":"refreshAge","custom_name":"viewed dashboard"},{"event":"viewed dashboard","kind":"EventsNode","math":"median","math_property":"refreshAge","custom_name":"viewed dashboard"}],"trendsFilter":{"aggregationAxisFormat":"duration","display":"ActionsLineGraph"}}}
 ```
 
 ### organizations joined in the last 30 days by day from the google search
 
 ```
-{"dateRange":{"date_from":"-30d"},"filterTestAccounts":false,"interval":"day","kind":"TrendsQuery","properties":{"type":"AND","values":[{"type":"OR","values":[{"key":"$initial_utm_source","operator":"exact","type":"person","value":["google"]}]}]},"series":[{"event":"user signed up","kind":"EventsNode","math":"unique_group","math_group_type_index":0,"name":"user signed up","properties":[{"key":"is_organization_first_user","operator":"exact","type":"person","value":["true"]}]}],"trendsFilter":{"display":"ActionsLineGraph"}}
+{"query":{"dateRange":{"date_from":"-30d"},"filterTestAccounts":false,"interval":"day","kind":"TrendsQuery","properties":{"type":"AND","values":[{"type":"OR","values":[{"key":"$initial_utm_source","operator":"exact","type":"person","value":["google"]}]}]},"series":[{"event":"user signed up","kind":"EventsNode","math":"unique_group","math_group_type_index":0,"name":"user signed up","properties":[{"key":"is_organization_first_user","operator":"exact","type":"person","value":["true"]}]}],"trendsFilter":{"display":"ActionsLineGraph"}}}
 ```
 
 ### trends for the last two weeks of the onboarding completed event by unique projects with a session duration more than 5 minutes and the insight analyzed event by unique projects with a breakdown by event's Country Name. exclude the US.
 
 ```
-{"kind":"TrendsQuery","series":[{"kind":"EventsNode","event":"onboarding completed","name":"onboarding completed","properties":[{"key":"$session_duration","value":300,"operator":"gt","type":"session"}],"math":"unique_group","math_group_type_index":2},{"kind":"EventsNode","event":"insight analyzed","name":"insight analyzed","math":"unique_group","math_group_type_index":2}],"trendsFilter":{"display":"ActionsBar","showValuesOnSeries":true,"showPercentStackView":false,"showLegend":false},"breakdownFilter":{"breakdowns":[{"property":"$geoip_country_name","type":"event"}],"breakdown_limit":5},"properties":{"type":"AND","values":[{"type":"AND","values":[{"key":"$geoip_country_code","value":["US"],"operator":"is_not","type":"event"}]}]},"dateRange":{"date_from":"-14d","date_to":null},"interval":"day"}
+{"query":{"kind":"TrendsQuery","series":[{"kind":"EventsNode","event":"onboarding completed","name":"onboarding completed","properties":[{"key":"$session_duration","value":300,"operator":"gt","type":"session"}],"math":"unique_group","math_group_type_index":2},{"kind":"EventsNode","event":"insight analyzed","name":"insight analyzed","math":"unique_group","math_group_type_index":2}],"trendsFilter":{"display":"ActionsBar","showValuesOnSeries":true,"showPercentStackView":false,"showLegend":false},"breakdownFilter":{"breakdowns":[{"property":"$geoip_country_name","type":"event"}],"breakdown_limit":5},"properties":{"type":"AND","values":[{"type":"AND","values":[{"key":"$geoip_country_code","value":["US"],"operator":"is_not","type":"event"}]}]},"dateRange":{"date_from":"-14d","date_to":null},"interval":"day"}}
 ```
 
 ### How many users asked for a quote for the service_id 4 in the last 7 days?
@@ -96,7 +96,7 @@ Series:
 </generated_plan>
 
 <output>
-{"dateRange":{"date_from":"-7d"},"filterTestAccounts":true,"interval":"day","kind":"TrendsQuery","series":[{"id":29489,"kind":"ActionsNode","math":"dau","properties":[{"key":"service_id","operator":"exact","type":"event","value":4}]}],"trendsFilter":{"display":"BoldNumber"}}
+{"query":{"dateRange":{"date_from":"-7d"},"filterTestAccounts":true,"interval":"day","kind":"TrendsQuery","series":[{"id":29489,"kind":"ActionsNode","math":"dau","properties":[{"key":"service_id","operator":"exact","type":"event","value":4}]}],"trendsFilter":{"display":"BoldNumber"}}}
 </output>
 
 ---

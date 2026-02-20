@@ -41,12 +41,12 @@ export const manifest: ProductManifest = {
         } = {}): string => {
             // Redirect HogQL queries to SQL editor
             if (isHogQLQuery(query)) {
-                return urls.sqlEditor(query.query)
+                return urls.sqlEditor({ query: query.query })
             }
 
             // Redirect DataNode and DataViz queries with HogQL source to SQL editor
             if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
-                return urls.sqlEditor(query.source.query)
+                return urls.sqlEditor({ query: query.source.query })
             }
 
             return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
@@ -62,7 +62,8 @@ export const manifest: ProductManifest = {
                     source: { kind: 'HogQLQuery', query, filters },
                 } as any,
             }),
-        insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
+        insightEdit: (id: InsightShortId, dashboardId?: number): string =>
+            `/insights/${id}/edit${dashboardId ? `?dashboard=${dashboardId}` : ''}`,
         insightView: (
             id: InsightShortId,
             dashboardId?: number,
@@ -91,6 +92,7 @@ export const manifest: ProductManifest = {
             `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
         alert: (alertId: string): string => `/insights?tab=alerts&alert_id=${alertId}`,
         alerts: (): string => `/insights?tab=alerts`,
+        insightOptions: (): string => '/insights/options',
     },
     fileSystemTypes: {
         insight: {
@@ -171,6 +173,7 @@ export const manifest: ProductManifest = {
         },
         {
             path: 'Notebooks',
+            intents: [ProductKey.NOTEBOOKS],
             category: 'Tools',
             type: 'notebook',
             iconType: 'notebook',
@@ -202,6 +205,12 @@ export const manifest: ProductManifest = {
             iconType: 'event_definition',
             href: urls.schemaManagement(),
             flag: FEATURE_FLAGS.SCHEMA_MANAGEMENT,
+        },
+        {
+            path: 'SQL variables',
+            category: 'Schema',
+            href: urls.variables(),
+            sceneKeys: ['SqlVariableEdit'],
         },
         {
             path: 'Annotations',

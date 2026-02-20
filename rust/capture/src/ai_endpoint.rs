@@ -25,6 +25,8 @@ const AI_BLOB_TOTAL_BYTES_PER_EVENT: &str = "capture_ai_blob_total_bytes_per_eve
 const AI_BLOB_EVENTS_TOTAL: &str = "capture_ai_blob_events_total";
 
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
+use crate::config::CaptureMode;
+use crate::event_restrictions::{AppliedRestrictions, EventContext as RestrictionEventContext};
 use crate::extractors::extract_body_with_timeout;
 use crate::prometheus::report_dropped_events;
 use crate::router::State as AppState;
@@ -77,6 +79,16 @@ struct EventMetadata {
     distinct_id: String,
     event_json: Value,
     event_part_info: PartInfo,
+}
+
+impl EventMetadata {
+    fn event_uuid(&self) -> Option<String> {
+        self.event_json
+            .as_object()
+            .and_then(|obj| obj.get("uuid"))
+            .and_then(|v| v.as_str())
+            .map(String::from)
+    }
 }
 
 impl HasEventName for EventMetadata {
@@ -196,7 +208,33 @@ pub async fn ai_handler(
     // Step 1: Retrieve event metadata (parses only the first 'event' part)
     let event_metadata = retrieve_event_metadata(&mut multipart).await?;
 
-    // Step 2: Check token dropper early - before parsing remaining parts
+    // Step 2: Check event restrictions early - before parsing remaining parts
+    let applied_restrictions = if let Some(ref service) = state.event_restriction_service {
+        let uuid_str = event_metadata.event_uuid();
+        let event_ctx = RestrictionEventContext {
+            distinct_id: Some(&event_metadata.distinct_id),
+            session_id: None,
+            event_name: Some(&event_metadata.event_name),
+            event_uuid: uuid_str.as_deref(),
+            now_ts: state.timesource.current_time().timestamp(),
+        };
+
+        let restrictions = service.get_restrictions(token, &event_ctx).await;
+        let applied = AppliedRestrictions::from_restrictions(restrictions, CaptureMode::Ai);
+
+        if applied.should_drop {
+            report_dropped_events("event_restriction_drop", 1);
+            return Ok(Json(AIEndpointResponse {
+                accepted_parts: vec![],
+            }));
+        }
+
+        applied
+    } else {
+        AppliedRestrictions::default()
+    };
+
+    // Step 3: Check token dropper - before parsing remaining parts
     // Token dropper silently drops events (returns 200) to avoid alerting clients
     if state
         .token_dropper
@@ -209,7 +247,7 @@ pub async fn ai_handler(
         }));
     }
 
-    // Step 3: Check quota limiter - drop if over quota
+    // Step 4: Check quota limiter - drop if over quota
     // We pass a single-element vec and check if it's filtered out
     let filtered = state
         .quota_limiter
@@ -222,7 +260,7 @@ pub async fn ai_handler(
         .next()
         .ok_or(CaptureError::BillingLimit)?;
 
-    // Step 4: Retrieve and validate remaining multipart parts (continues parsing from multipart)
+    // Step 5: Retrieve and validate remaining multipart parts (continues parsing from multipart)
     let parts = retrieve_multipart_parts(
         &mut multipart,
         state.ai_max_sum_of_parts_bytes,
@@ -230,10 +268,10 @@ pub async fn ai_handler(
     )
     .await?;
 
-    // Step 5: Parse the parts
+    // Step 6: Parse the parts
     let mut parsed = parse_multipart_data(parts)?;
 
-    // Step 6: Record blob metrics and upload to S3
+    // Step 7: Record blob metrics and upload to S3
     let blob_count = parsed.blob_parts.len();
     if blob_count > 0 {
         // Record blob metrics
@@ -307,14 +345,22 @@ pub async fn ai_handler(
         }
     }
 
-    // Step 7: Build Kafka event
+    // Step 8: Build Kafka event
     // Extract IP address, defaulting to 127.0.0.1 if not available (e.g., in tests)
     let client_ip = ip
         .map(|InsecureClientIp(addr)| addr.to_string())
         .unwrap_or_else(|| "127.0.0.1".to_string());
-    let (accepted_parts, processed_event) = build_kafka_event(parsed, token, &client_ip, &state)?;
+    let (accepted_parts, processed_event) = build_kafka_event(
+        parsed,
+        token,
+        &client_ip,
+        &state,
+        applied_restrictions.force_overflow,
+        applied_restrictions.skip_person_processing,
+        applied_restrictions.redirect_to_dlq,
+    )?;
 
-    // Step 7: Send event to Kafka
+    // Step 9: Send event to Kafka
     state.sink.send(processed_event).await.map_err(|e| {
         warn!("Failed to send AI event to Kafka: {:?}", e);
         e
@@ -448,6 +494,9 @@ fn build_kafka_event(
     token: &str,
     client_ip: &str,
     state: &AppState,
+    force_overflow: bool,
+    skip_person_processing: bool,
+    redirect_to_dlq: bool,
 ) -> Result<(Vec<PartInfo>, ProcessedEvent), CaptureError> {
     // Get current time
     let now = state.timesource.current_time();
@@ -519,6 +568,9 @@ fn build_kafka_event(
         session_id: None,
         computed_timestamp: Some(computed_timestamp),
         event_name: parsed.event_name,
+        force_overflow,
+        skip_person_processing,
+        redirect_to_dlq,
     };
 
     // Create ProcessedEvent

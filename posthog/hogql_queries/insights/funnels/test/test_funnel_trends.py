@@ -130,7 +130,6 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         filters = {
             "insight": INSIGHT_FUNNELS,
             "funnel_viz_type": "trends",
-            "funnel_viz_type": "trends",
             "display": TRENDS_LINEAR,
             "interval": "day",
             "date_from": "2021-06-07 00:00:00",

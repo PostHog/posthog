@@ -2,7 +2,7 @@ import time
 import asyncio
 import datetime as dt
 import dataclasses
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import temporalio.activity
 import temporalio.workflow
@@ -22,6 +22,9 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
+
+if TYPE_CHECKING:
+    from posthog.kafka_client.client import _KafkaProducer
 
 LOGGER = get_logger(__name__)
 
@@ -56,19 +59,86 @@ def get_membership_changed_metric(status: str):
 class RealtimeCohortCalculationWorkflowInputs:
     """Inputs for the realtime cohort calculation workflow."""
 
-    limit: Optional[int] = None
-    offset: int = 0
-    team_id: Optional[int] = None
+    # Array-based approach: coordinator provides specific cohort IDs to process
+    cohort_ids: Optional[list[int]] = None
+
+    # Keep cohort_id for backward compatibility with single cohort processing
     cohort_id: Optional[int] = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
-        return {
-            "limit": self.limit,
-            "offset": self.offset,
-            "team_id": self.team_id,
-            "cohort_id": self.cohort_id,
-        }
+        if self.cohort_id is not None:
+            return {
+                "cohort_id": self.cohort_id,
+                "num_cohorts": 1,
+            }
+        elif self.cohort_ids is not None:
+            return {
+                "cohort_ids": self.cohort_ids[:10]
+                if len(self.cohort_ids) > 10
+                else self.cohort_ids,  # Log first 10 for brevity
+                "num_cohorts": len(self.cohort_ids),
+            }
+        else:
+            return {
+                "num_cohorts": 0,
+            }
+
+
+async def flush_kafka_batch(
+    kafka_producer: "_KafkaProducer",
+    pending_messages: list,
+    cohort_id: int,
+    idx: int,
+    total_cohorts: int,
+    heartbeater,
+    logger,
+    is_final: bool = False,
+) -> int:
+    """Flush a batch of Kafka messages and check for failures.
+
+    Returns the number of messages flushed.
+    """
+    if not pending_messages:
+        return 0
+
+    batch_size = len(pending_messages)
+    batch_type = "final " if is_final else ""
+    heartbeater.details = (
+        f"Flushing {batch_type}{batch_size} messages for cohort {idx}/{total_cohorts} (cohort_id={cohort_id})",
+    )
+    logger.info(
+        f"Flushing {batch_type}batch of {batch_size} messages for cohort {cohort_id}",
+        cohort_id=cohort_id,
+        batch_size=batch_size,
+    )
+
+    await asyncio.to_thread(kafka_producer.flush)
+
+    # Check for failures in this batch
+    failed_count = 0
+    for send_result in pending_messages:
+        try:
+            send_result.get(timeout=0)  # Non-blocking check
+        except Exception as e:
+            logger.warning(
+                f"Kafka send result failure for cohort {cohort_id}: {e}",
+                cohort_id=cohort_id,
+                error=str(e),
+                exception_type=type(e).__name__,
+            )
+            failed_count += 1
+
+    if failed_count > 0:
+        logger.error(
+            f"Failed to send {failed_count}/{batch_size} Kafka messages for cohort {cohort_id}",
+            cohort_id=cohort_id,
+            failed_count=failed_count,
+            batch_size=batch_size,
+        )
+        raise Exception(f"Failed to send {failed_count}/{batch_size} Kafka messages")
+
+    return batch_size
 
 
 @temporalio.activity.defn
@@ -77,32 +147,43 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
     bind_contextvars()
     logger = LOGGER.bind()
 
-    logger.info(f"Starting realtime cohort calculation workflow for range offset={inputs.offset}, limit={inputs.limit}")
+    if inputs.cohort_id is not None:
+        num_cohorts_desc = "1 cohort"
+    elif inputs.cohort_ids is not None:
+        num_cohorts_desc = f"{len(inputs.cohort_ids)} cohorts"
+    else:
+        num_cohorts_desc = "0 cohorts"
 
-    async with Heartbeater(details=(f"Starting to process cohorts (offset={inputs.offset})",)) as heartbeater:
+    logger.info(f"Starting realtime cohort calculation workflow for {num_cohorts_desc}")
+
+    async with Heartbeater(details=(f"Starting to process {num_cohorts_desc}",)) as heartbeater:
         start_time = time.time()
 
         @database_sync_to_async
         def get_cohorts():
-            # Only get cohorts that are not deleted and have cohort_type='realtime'
-            queryset = Cohort.objects.filter(deleted=False, cohort_type=CohortType.REALTIME).select_related("team")
-
-            # Apply team_id filter if provided
-            if inputs.team_id is not None:
-                queryset = queryset.filter(team_id=inputs.team_id)
-
-            # Apply cohort_id filter if provided - skip pagination when filtering by specific cohort
+            # Handle backward compatibility: single cohort_id
             if inputs.cohort_id is not None:
-                queryset = queryset.filter(id=inputs.cohort_id)
-            else:
-                # Only apply pagination when not filtering by specific cohort
-                queryset = (
-                    queryset.order_by("id")[inputs.offset : inputs.offset + inputs.limit]
-                    if inputs.limit
-                    else queryset[inputs.offset :]
-                )
+                queryset = Cohort.objects.filter(
+                    deleted=False, cohort_type=CohortType.REALTIME, id=inputs.cohort_id
+                ).select_related("team")
+                return list(queryset)
 
-            return list(queryset)
+            # Handle new approach: specific cohort IDs provided by coordinator
+            if inputs.cohort_ids is not None:
+                # Filter by the specific cohort IDs, maintaining order for consistent processing
+                queryset = (
+                    Cohort.objects.filter(
+                        deleted=False,
+                        cohort_type=CohortType.REALTIME,
+                        id__in=inputs.cohort_ids,
+                    )
+                    .select_related("team")
+                    .order_by("id")  # Critical: ordered by ID for consistent processing
+                )
+                return list(queryset)
+
+            # No cohorts specified
+            return []
 
         cohorts: list[Cohort] = await get_cohorts()
 
@@ -164,12 +245,18 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
 
                 with tags_context(
                     team_id=cohort.team_id,
+                    cohort_id=cohort.id,
                     feature=Feature.BEHAVIORAL_COHORTS,
                     product=Product.MESSAGING,
                     query_type="realtime_cohort_calculation",
                 ):
                     status_counts = {"entered": 0, "left": 0}
                     pending_kafka_messages = []
+                    FLUSH_BATCH_SIZE = 10_000  # Flush every 10k messages to allow heartbeats
+                    # Count of messages successfully produced to Kafka (pending flush), excluding failed produce attempts
+                    total_messages = 0
+                    total_flushed = 0
+
                     logger.info(f"Executing query for cohort {cohort.id}", cohort_id=cohort.id)
 
                     async with get_client(team_id=cohort.team_id) as client:
@@ -196,6 +283,22 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                                     data=payload,
                                 )
                                 pending_kafka_messages.append(send_result)
+                                total_messages += 1
+
+                                # Flush in batches to allow heartbeats
+                                if len(pending_kafka_messages) >= FLUSH_BATCH_SIZE:
+                                    flushed = await flush_kafka_batch(
+                                        kafka_producer,
+                                        pending_kafka_messages,
+                                        cohort.id,
+                                        idx,
+                                        len(cohorts),
+                                        heartbeater,
+                                        logger,
+                                    )
+                                    total_flushed += flushed
+                                    pending_kafka_messages.clear()
+
                             except Exception as e:
                                 logger.warning(
                                     f"Failed to produce Kafka message for person {payload['person_id']} in cohort {cohort.id}: {e}",
@@ -205,40 +308,26 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                                 )
                                 # Continue processing even if Kafka produce fails
 
-                    # Flush all pending Kafka messages after processing
-                    logger.info(
-                        f"Query completed for cohort {cohort.id}. Total messages to flush: {len(pending_kafka_messages)}",
-                        cohort_id=cohort.id,
-                        message_count=len(pending_kafka_messages),
-                    )
-
-                    heartbeater.details = (
-                        f"Flushing {len(pending_kafka_messages)} messages for cohort {idx}/{len(cohorts)} (cohort_id={cohort.id})",
-                    )
-                    await asyncio.to_thread(kafka_producer.flush)
-
-                    # Check for any Kafka produce failures
-                    failed_count = 0
-                    for send_result in pending_kafka_messages:
-                        try:
-                            send_result.get(timeout=0)  # Non-blocking check
-                        except Exception as e:
-                            logger.warning(
-                                f"Kafka send result failure for cohort {cohort.id}: {e}",
-                                cohort_id=cohort.id,
-                                error=str(e),
-                                exception_type=type(e).__name__,
-                            )
-                            failed_count += 1
-
-                    if failed_count > 0:
-                        logger.error(
-                            f"Failed to send {failed_count}/{len(pending_kafka_messages)} Kafka messages for cohort {cohort.id}",
-                            cohort_id=cohort.id,
-                            failed_count=failed_count,
-                            total_count=len(pending_kafka_messages),
+                    # Flush any remaining messages
+                    if pending_kafka_messages:
+                        flushed = await flush_kafka_batch(
+                            kafka_producer,
+                            pending_kafka_messages,
+                            cohort.id,
+                            idx,
+                            len(cohorts),
+                            heartbeater,
+                            logger,
+                            is_final=True,
                         )
-                        raise Exception(f"Failed to send {failed_count}/{len(pending_kafka_messages)} Kafka messages")
+                        total_flushed += flushed
+
+                    logger.info(
+                        f"Successfully flushed {total_flushed} total messages for cohort {cohort.id}",
+                        cohort_id=cohort.id,
+                        total_messages=total_messages,
+                        total_flushed=total_flushed,
+                    )
 
                     if status_counts["entered"] > 0:
                         get_membership_changed_metric("entered").add(status_counts["entered"])
@@ -267,8 +356,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
             cohorts_processed=cohorts_count,
             duration_seconds=duration_seconds,
             duration_minutes=duration_minutes,
-            offset=inputs.offset,
-            limit=inputs.limit,
+            range_info=num_cohorts_desc,
         )
 
 
@@ -285,9 +373,16 @@ class RealtimeCohortCalculationWorkflow(PostHogWorkflow):
     async def run(self, inputs: RealtimeCohortCalculationWorkflowInputs) -> None:
         """Run the workflow to process realtime cohort calculations."""
         workflow_logger = temporalio.workflow.logger
-        workflow_logger.info(
-            f"Starting realtime cohort calculation child workflow for range starting at offset={inputs.offset}"
-        )
+        if inputs.cohort_id is not None:
+            workflow_logger.info(
+                f"Starting realtime cohort calculation child workflow for cohort_id={inputs.cohort_id}"
+            )
+        elif inputs.cohort_ids is not None:
+            workflow_logger.info(
+                f"Starting realtime cohort calculation child workflow for {len(inputs.cohort_ids)} cohorts: {inputs.cohort_ids[:10]}{'...' if len(inputs.cohort_ids) > 10 else ''}"
+            )
+        else:
+            workflow_logger.info("Starting realtime cohort calculation child workflow for empty batch")
 
         # Process the batch of actions
         await temporalio.workflow.execute_activity(

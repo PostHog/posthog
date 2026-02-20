@@ -106,6 +106,64 @@ describe('PersonsManager', () => {
         ])
     })
 
+    it('returns the persons requested when distinct IDs contain colons', async () => {
+        const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
+        const result1 = await personRepository.createPerson(
+            TIMESTAMP,
+            { foo: '1' },
+            {},
+            {},
+            team.id,
+            null,
+            true,
+            new UUIDT().toString(),
+            { distinctId: 'foo:distinct_id_A_1' }
+        )
+        if (!result1.success) {
+            throw new Error('Failed to create person')
+        }
+        const person1 = result1.person
+        const result2 = await personRepository.createPerson(
+            TIMESTAMP,
+            { foo: '2' },
+            {},
+            {},
+            team.id,
+            null,
+            true,
+            new UUIDT().toString(),
+            { distinctId: 'foo:bar:distinct_id_B_1' }
+        )
+        if (!result2.success) {
+            throw new Error('Failed to create person')
+        }
+        const person2 = result2.person
+
+        const res = await Promise.all([
+            manager.get({ teamId: team.id, distinctId: 'foo:distinct_id_A_1' }),
+            manager.get({ teamId: team.id, distinctId: 'foo:bar:distinct_id_B_1' }),
+        ])
+
+        expect(res).toEqual([
+            {
+                distinct_id: 'foo:distinct_id_A_1',
+                id: person1.uuid,
+                properties: {
+                    foo: '1',
+                },
+                team_id: team.id,
+            },
+            {
+                distinct_id: 'foo:bar:distinct_id_B_1',
+                id: person2.uuid,
+                properties: {
+                    foo: '2',
+                },
+                team_id: team.id,
+            },
+        ])
+    })
+
     it('returns the different persons for different teams', async () => {
         const res = await Promise.all([
             manager.get({ teamId: team.id, distinctId: 'distinct_id_A_1' }),
@@ -174,6 +232,7 @@ describe('PersonsManager', () => {
                     properties_last_operation: {},
                     created_at: TIMESTAMP,
                     version: 0,
+                    last_seen_at: null,
                 },
                 {
                     id: '2',
@@ -187,6 +246,7 @@ describe('PersonsManager', () => {
                     properties_last_operation: {},
                     created_at: TIMESTAMP,
                     version: 0,
+                    last_seen_at: null,
                 },
                 {
                     id: '3',
@@ -200,12 +260,13 @@ describe('PersonsManager', () => {
                     properties_last_operation: {},
                     created_at: TIMESTAMP,
                     version: 0,
+                    last_seen_at: null,
                 },
             ]
 
             jest.spyOn(hub.personRepository, 'fetchPersonsByProperties').mockResolvedValueOnce(mockPersons)
 
-            const onPerson = jest.fn()
+            const onPersonBatch = jest.fn()
             await manager.streamMany({
                 filters: {
                     teamId: team.id,
@@ -218,13 +279,15 @@ describe('PersonsManager', () => {
                         },
                     ],
                 },
-                onPerson,
+                onPersonBatch,
             })
 
-            expect(onPerson).toHaveBeenCalledTimes(3)
-            expect(onPerson).toHaveBeenNthCalledWith(1, { personId: 'person-1', distinctId: 'distinct-1' })
-            expect(onPerson).toHaveBeenNthCalledWith(2, { personId: 'person-2', distinctId: 'distinct-2' })
-            expect(onPerson).toHaveBeenNthCalledWith(3, { personId: 'person-3', distinctId: 'distinct-3' })
+            expect(onPersonBatch).toHaveBeenCalledTimes(1)
+            expect(onPersonBatch).toHaveBeenCalledWith([
+                { personId: 'person-1', distinctId: 'distinct-1' },
+                { personId: 'person-2', distinctId: 'distinct-2' },
+                { personId: 'person-3', distinctId: 'distinct-3' },
+            ])
         })
 
         it('handles pagination correctly with multiple batches', async () => {
@@ -242,6 +305,7 @@ describe('PersonsManager', () => {
                 properties_last_operation: {},
                 created_at: TIMESTAMP,
                 version: 0,
+                last_seen_at: null,
             }))
             const batch2 = Array.from({ length: 300 }, (_, i) => ({
                 id: `${i + 500}`,
@@ -255,6 +319,7 @@ describe('PersonsManager', () => {
                 properties_last_operation: {},
                 created_at: TIMESTAMP,
                 version: 0,
+                last_seen_at: null,
             }))
 
             let callCount = 0
@@ -266,10 +331,10 @@ describe('PersonsManager', () => {
                     return callCount === 1 ? batch1 : batch2
                 })
 
-            const onPerson = jest.fn()
+            const onPersonBatch = jest.fn()
             await manager.streamMany({
                 filters: { teamId: team.id, properties: [] },
-                onPerson,
+                onPersonBatch,
             })
 
             expect(fetchSpy).toHaveBeenCalledTimes(2)
@@ -283,7 +348,7 @@ describe('PersonsManager', () => {
                 properties: [],
                 options: { limit: 500, cursor: '499' },
             })
-            expect(onPerson).toHaveBeenCalledTimes(800)
+            expect(onPersonBatch).toHaveBeenCalledTimes(2)
         })
 
         it('stops paginating when batch is not full', async () => {
@@ -300,30 +365,31 @@ describe('PersonsManager', () => {
                 properties_last_operation: {},
                 created_at: TIMESTAMP,
                 version: 0,
+                last_seen_at: null,
             }))
 
             const fetchSpy = jest.spyOn(hub.personRepository, 'fetchPersonsByProperties').mockResolvedValueOnce(batch)
 
-            const onPerson = jest.fn()
+            const onPersonBatch = jest.fn()
             await manager.streamMany({
                 filters: { teamId: team.id, properties: [] },
-                onPerson,
+                onPersonBatch,
             })
 
             expect(fetchSpy).toHaveBeenCalledTimes(1)
-            expect(onPerson).toHaveBeenCalledTimes(200)
+            expect(onPersonBatch).toHaveBeenCalledTimes(1)
         })
 
         it('handles empty results', async () => {
             jest.spyOn(hub.personRepository, 'fetchPersonsByProperties').mockResolvedValueOnce([])
 
-            const onPerson = jest.fn()
+            const onPersonBatch = jest.fn()
             await manager.streamMany({
                 filters: { teamId: team.id, properties: [] },
-                onPerson,
+                onPersonBatch,
             })
 
-            expect(onPerson).not.toHaveBeenCalled()
+            expect(onPersonBatch).not.toHaveBeenCalled()
         })
 
         it('respects custom limit option', async () => {
@@ -340,6 +406,7 @@ describe('PersonsManager', () => {
                 properties_last_operation: {},
                 created_at: TIMESTAMP,
                 version: 0,
+                last_seen_at: null,
             }))
             const batch2 = Array.from({ length: 50 }, (_, i) => ({
                 id: `${i + 100}`,
@@ -353,6 +420,7 @@ describe('PersonsManager', () => {
                 properties_last_operation: {},
                 created_at: TIMESTAMP,
                 version: 0,
+                last_seen_at: null,
             }))
 
             let callCount = 0
@@ -364,11 +432,11 @@ describe('PersonsManager', () => {
                     return callCount === 1 ? batch1 : batch2
                 })
 
-            const onPerson = jest.fn()
+            const onPersonBatch = jest.fn()
             await manager.streamMany({
                 filters: { teamId: team.id, properties: [] },
                 options: { limit: 100 },
-                onPerson,
+                onPersonBatch,
             })
 
             expect(fetchSpy.mock.calls[0][0]).toEqual({
@@ -381,7 +449,7 @@ describe('PersonsManager', () => {
                 properties: [],
                 options: { limit: 100, cursor: '99' },
             })
-            expect(onPerson).toHaveBeenCalledTimes(150)
+            expect(onPersonBatch).toHaveBeenCalledTimes(2)
         })
     })
 })

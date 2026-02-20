@@ -1,19 +1,60 @@
 UPSERT_DASHBOARD_TOOL_PROMPT = """
 Use this tool to create or update a dashboard with provided insights.
 
+# How to use this tool
+
+## Create vs update
+Proactively use search and list_data tools to check if the dashboard already exists.
+The user might provide you the dashboard–read its data and understand the structure of the dashboard.
+You should ask for clarification if the request is ambiguous whether you need to create a new dashboard or update an existing one.
+
+## Insights selection
+Proactively use list_data and search tools to find existing insights.
+If there are matching insights, read their insight schemas to understand whether they match the user's intent and have data.
+Next, read the data schema and data warehouse schema and create new insights or SQL queries.
+
+## Finalize
+Call this tool when you have enough information to create or update the dashboard.
+
+# Understanding dashboard update with insight_ids
+
+When `insight_ids` is provided, it replaces all dashboard insights with the provided insights.
+Layouts are preserved positionally: the first insight takes the first tile's position, etc.
+You can use insight_ids to add, replace, or remove insights.
+
+Example: Dashboard has [A, B, C] (in layout order). Use `insight_ids=[A', C']`.
+Result: A' takes A's layout, C' takes B's layout, B is removed.
+
 # When to use this tool
 - The user asks to create or update a dashboard.
 - The user asks for multiple metrics or dimensions, so it might be better to visualize them in a dashboard.
-- The user wants to add an insight to an existing dashboard.
+- The user wants to modify insights on an existing dashboard (add, remove, or replace).
+
+<example>
+User: create a dashboard for file activity metrics
+Assistant: I'll create a new dashboard for file activity metrics.
+<reasoning>The user clearly wants to create a new dashboard.</reasoning>
+</example>
+
+<example>
+User: I want a dashboard of how my business is doing
+Assistant: I'll search for existing dashboards. I found a relevant dashboard. Do you want me to summarize it or update it?
+User: I want you to add MRR to that dashboard.
+<reasoning>The user's request was ambiguous. The assistant needed to ask for more details. The user wanted to modify it with specific insights. To add MRR, include all existing insights plus the new MRR insight in insight_ids.</reasoning>
+</example>
+
+<example>
+User: get my financial metrics together
+Assistant: I'll search for existing dashboards. I didn't find any relevant dashboards. Let me search for related insights. I found some insights, but I should list the existing insights to make sure I haven't missed due to different naming. Perfect! I found more relevant insights.
+<reasoning>The assistant has to list the existing insights to make sure it hasn't missed any relevant insights due to specifics of the search tool using full-text search.</reasoning>
+</example>
 
 # When NOT to use this tool
 - The user wants to save a single insight.
 
-# Understanding replace_insights
-- `replace_insights=False` (default): Appends provided insights to existing ones
-- `replace_insights=True`: Dashboard will contain exactly the insights you specify in `insight_ids`
-
-Example: Dashboard has [A, B, C]. To replace B with D, use `replace_insights=True` with `insight_ids=[A, D, C]`. Using just `insight_ids=[D]` would remove A and C.
+# Guidelines
+- Use a minimal set of insights to reflect the changes the user requested.
+- When updating dashboard or insight names or descriptions, use the original insight names or descriptions as a reference.
 """.strip()
 
 
@@ -43,4 +84,30 @@ Cannot update dashboard: no valid insights found and no metadata changes provide
 
 MISSING_INSIGHTS_NOTE_PROMPT = """
 Note: The following insight IDs could not be added (not found or not saved): {missing_ids}
+""".strip()
+
+PERMISSION_REQUEST_PROMPT = """
+Updating dashboard: {{{dashboard_name}}}
+{{#new_dashboard_name}}
+
+Renaming to: {{{new_dashboard_name}}}
+{{/new_dashboard_name}}
+{{#new_dashboard_description}}
+
+Updating description to: {{{new_dashboard_description}}}
+{{/new_dashboard_description}}
+{{#deleted_insights}}
+
+**Removing {{{deleted_count}}} from this dashboard:**
+{{{deleted_insights}}}
+{{/deleted_insights}}
+{{#new_insights}}
+
+**Adding {{{added_count}}} to this dashboard:**
+{{{new_insights}}}
+{{/new_insights}}
+""".strip()
+
+MISSING_INSIGHT_IDS_PROMPT = """
+Some insights were not found in the conversation artifacts: {{{missing_ids}}}. You should check if the provided insight_ids are correct.
 """.strip()

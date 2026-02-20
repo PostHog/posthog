@@ -7,7 +7,12 @@ import posthoganalytics
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.tasks.usage_report import AI_BILLING_EXCLUDED_TOOLS, AI_COST_MARKUP_PERCENT, CLOUD_REGION_TO_TEAM_ID
+from posthog.tasks.usage_report import (
+    AI_BILLING_EXCLUDED_TOOLS,
+    AI_COST_MARKUP_PERCENT,
+    CLOUD_REGION_TO_TEAM_ID,
+    CLOUD_REGION_TO_URL,
+)
 from posthog.utils import get_instance_region
 
 from ee.models.assistant import Conversation
@@ -105,6 +110,7 @@ def get_ga_launch_date() -> datetime:
 def get_conversation_start_time(conversation_id: UUID) -> Optional[datetime]:
     """Get the start time of a conversation."""
     try:
+        # nosemgrep: idor-lookup-without-team (internal AI pipeline, IDs from team-scoped context)
         conversation = Conversation.objects.get(id=conversation_id)
         return conversation.created_at
     except Conversation.DoesNotExist:
@@ -128,7 +134,7 @@ def get_ai_credits(
 
     # Only filter by region in production (EU/US) - local dev events don't have region set
     is_production = region in ["EU", "US"]
-    region_filter = "AND JSONExtractString(properties, 'region') = %(region)s" if is_production else ""
+    region_filter = "AND JSONExtractString(properties, '$group_1') = %(region_url)s" if is_production else ""
 
     # Session filter expression for PREWHERE (must NOT use alias)
     session_filter_prewhere = (
@@ -243,7 +249,7 @@ def get_ai_credits(
         }
 
         if is_production:
-            params["region"] = region_value
+            params["region_url"] = CLOUD_REGION_TO_URL[region_value]
 
         if conversation_id:
             params["session_id"] = str(conversation_id)

@@ -10,7 +10,7 @@ impl FlagFilters {
             || self
                 .super_groups
                 .as_ref()
-                .is_some_and(|groups| !groups.is_empty())
+                .is_some_and(|groups| groups.iter().any(|g| g.requires_db_properties(overrides)))
             || self
                 .groups
                 .iter()
@@ -162,7 +162,7 @@ mod tests {
     }
 
     #[test]
-    fn test_requires_db_properties_when_super_groups_set_and_not_empty() {
+    fn test_super_groups_require_db_properties_when_overrides_insufficient() {
         let mut filters = create_simple_flag_filters(vec![]);
         filters.super_groups = Some(vec![create_simple_flag_property_group(
             vec![create_simple_property_filter(
@@ -172,13 +172,20 @@ mod tests {
             )],
             100.0,
         )]);
-        let overrides = HashMap::from([(
-            "$feature_enrollment/feature-flags-flag-dependency".to_string(),
-            Value::String("value".to_string()),
-        )]);
 
-        // Super groups always require DB properties. We don't let people override them.
-        assert!(filters.requires_db_properties(&overrides));
+        {
+            // Without overrides, DB lookup is required
+            assert!(filters.requires_db_properties(&HashMap::new()));
+        }
+
+        {
+            // With sufficient overrides, DB lookup is not required
+            let overrides = HashMap::from([(
+                "$feature_enrollment/feature-flags-flag-dependency".to_string(),
+                Value::String("value".to_string()),
+            )]);
+            assert!(!filters.requires_db_properties(&overrides));
+        }
     }
 
     #[test]
@@ -186,7 +193,7 @@ mod tests {
         let mut filters = create_simple_flag_filters(vec![]);
         filters.super_groups = Some(vec![]);
 
-        // Super groups always require DB properties. We don't let people override them.
+        // Empty super_groups don't require DB properties
         assert!(!filters.requires_db_properties(&HashMap::new()));
     }
 

@@ -7,10 +7,9 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
-import { AvailableFeature, Experiment } from '~/types'
+import { Experiment } from '~/types'
 
 import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
@@ -49,7 +48,6 @@ export function SharedMetricModal({
     onSave: (metrics: SharedMetric[], context: MetricContext) => void
     onDelete: (metric: SharedMetric, context: MetricContext) => void
 }): JSX.Element | null {
-    const { hasAvailableFeature } = useValues(userLogic)
     const { isModalOpen, context, compatibleSharedMetrics, sharedMetricId, isCreateMode, isEditMode } =
         useValues(sharedMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
@@ -148,27 +146,47 @@ export function SharedMetricModal({
                                     } already in use with this experiment.`}
                                 </LemonBanner>
                             )}
-                            {hasAvailableFeature(AvailableFeature.TAGGING) && availableTags.length > 0 && (
-                                <div className="flex flex-wrap gap-2">
-                                    <LemonLabel>Quick select:</LemonLabel>
-                                    {availableTags.map((tag: string, index: number) => (
-                                        <LemonButton
-                                            key={index}
-                                            size="xsmall"
-                                            type="secondary"
-                                            onClick={() => {
-                                                setSelectedMetricIds(
-                                                    availableSharedMetrics
-                                                        .filter((metric: SharedMetric) => metric.tags?.includes(tag))
-                                                        .map((metric: SharedMetric) => metric.id)
-                                                )
-                                            }}
-                                        >
-                                            {tag}
-                                        </LemonButton>
-                                    ))}
-                                </div>
-                            )}
+                            <div className="flex flex-wrap gap-2">
+                                <LemonLabel>Quick select:</LemonLabel>
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    onClick={() => {
+                                        setSelectedMetricIds(
+                                            availableSharedMetrics.map((metric: SharedMetric) => metric.id)
+                                        )
+                                    }}
+                                >
+                                    All
+                                </LemonButton>
+                                {selectedMetricIds.length > 0 && (
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="secondary"
+                                        onClick={() => {
+                                            setSelectedMetricIds([])
+                                        }}
+                                    >
+                                        Clear
+                                    </LemonButton>
+                                )}
+                                {availableTags.map((tag: string, index: number) => (
+                                    <LemonButton
+                                        key={index}
+                                        size="xsmall"
+                                        type="secondary"
+                                        onClick={() => {
+                                            setSelectedMetricIds(
+                                                availableSharedMetrics
+                                                    .filter((metric: SharedMetric) => metric.tags?.includes(tag))
+                                                    .map((metric: SharedMetric) => metric.id)
+                                            )
+                                        }}
+                                    >
+                                        {tag}
+                                    </LemonButton>
+                                ))}
+                            </div>
                             <LemonTable
                                 dataSource={availableSharedMetrics}
                                 columns={[
@@ -201,18 +219,14 @@ export function SharedMetricModal({
                                         dataIndex: 'description',
                                         key: 'description',
                                     },
-                                    ...(hasAvailableFeature(AvailableFeature.TAGGING)
-                                        ? [
-                                              {
-                                                  title: 'Tags',
-                                                  dataIndex: 'tags' as keyof SharedMetric,
-                                                  key: 'tags',
-                                                  render: (_: any, metric: SharedMetric) => (
-                                                      <ObjectTags tags={metric.tags || []} staticOnly />
-                                                  ),
-                                              },
-                                          ]
-                                        : []),
+                                    {
+                                        title: 'Tags',
+                                        dataIndex: 'tags' as keyof SharedMetric,
+                                        key: 'tags',
+                                        render: (_: any, metric: SharedMetric) => (
+                                            <ObjectTags tags={metric.tags || []} staticOnly />
+                                        ),
+                                    },
                                     {
                                         title: 'Type',
                                         key: 'type',

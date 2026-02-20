@@ -411,7 +411,9 @@ export function SharingModalContent({
                                                         <iframe
                                                             className="block"
                                                             {...iframeProperties}
+                                                            title="Shared insight preview"
                                                             onLoad={() => setIframeLoaded(true)}
+                                                            sandbox="allow-scripts allow-same-origin allow-popups"
                                                         />
                                                     </div>
                                                 )}
@@ -483,7 +485,7 @@ function createRenderQuerySnippet({
     const escapedResults = escapeScriptJson(serializedResults)
     const escapedQuery = escapeScriptJson(serializedQuery)
 
-    return `<iframe id="${iframeId}" src="${renderQueryUrl}" style="width: 100%; height: 600px; border: 0;" loading="lazy"></iframe>
+    return `<iframe id="${iframeId}" title="PostHog embedded query" src="${renderQueryUrl}" style="width: 100%; height: 600px; border: 0;" loading="lazy"></iframe>
 <script>
   (function () {
     const iframe = document.getElementById('${iframeId}')

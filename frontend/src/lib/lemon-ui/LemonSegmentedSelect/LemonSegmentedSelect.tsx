@@ -1,16 +1,14 @@
-import React from 'react'
-
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 
 import { LemonSegmentedButton, LemonSegmentedButtonProps } from '../LemonSegmentedButton'
 import { LemonSelect, LemonSelectProps } from '../LemonSelect'
 
-export type LemonSegmentedSelectProps<T extends React.Key> = LemonSegmentedButtonProps<T> &
+export type LemonSegmentedSelectProps<T extends string | number> = LemonSegmentedButtonProps<T> &
     LemonSelectProps<T> & {
         shrinkOn?: number
     }
 
-export function LemonSegmentedSelect<T extends React.Key>({
+export function LemonSegmentedSelect<T extends string | number>({
     shrinkOn,
     ...props
 }: LemonSegmentedSelectProps<T>): JSX.Element {

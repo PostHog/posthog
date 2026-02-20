@@ -5,15 +5,16 @@ import datetime as dt
 import dataclasses
 
 from django.conf import settings
-from django.db import close_old_connections
 
 import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.workflow import ParentClosePolicy, start_child_workflow
 
 # TODO: remove dependency
 from posthog.exceptions_capture import capture_exception
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import get_logger
@@ -34,6 +35,10 @@ from posthog.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
     create_external_data_job_model_activity,
 )
+from posthog.temporal.data_imports.workflow_activities.emit_signals import (
+    EmitDataImportSignalsWorkflow,
+    EmitSignalsActivityInputs,
+)
 from posthog.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
     import_data_activity_sync,
@@ -46,7 +51,7 @@ from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
     DataImportsDuckLakeCopyInputs,
     DuckLakeCopyDataImportsWorkflow,
 )
-from posthog.temporal.utils import ExternalDataWorkflowInputs
+from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.data_load.source_templates import create_warehouse_templates_for_source
@@ -87,26 +92,24 @@ class UpdateExternalDataJobStatusInputs:
 
 
 @activity.defn
-def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) -> None:
+async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) -> None:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
-    close_old_connections()
-
-    rows_tracked = get_rows(inputs.team_id, inputs.schema_id)
+    rows_tracked = await get_rows(inputs.team_id, inputs.schema_id)
     if rows_tracked > 0 and inputs.status == ExternalDataJob.Status.COMPLETED:
         msg = f"Rows tracked is greater than 0 on a COMPLETED job. rows_tracked={rows_tracked}"
         logger.debug(msg)
         capture_exception(Exception(msg))
 
-    finish_row_tracking(inputs.team_id, inputs.schema_id)
+    await finish_row_tracking(inputs.team_id, inputs.schema_id)
 
     if inputs.job_id is None:
-        job: ExternalDataJob | None = (
-            ExternalDataJob.objects.filter(schema_id=inputs.schema_id, status=ExternalDataJob.Status.RUNNING)
+        job: ExternalDataJob | None = await database_sync_to_async_pool(
+            lambda: ExternalDataJob.objects.filter(schema_id=inputs.schema_id, status=ExternalDataJob.Status.RUNNING)
             .order_by("-created_at")
             .first()
-        )
+        )()
         if job is None:
             logger.info("No job to update status on")
             return
@@ -122,7 +125,9 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
 
         internal_error_normalized = re.sub("[\n\r\t]", " ", inputs.internal_error)
 
-        source: ExternalDataSource = ExternalDataSource.objects.get(pk=inputs.source_id)
+        source: ExternalDataSource = await database_sync_to_async_pool(ExternalDataSource.objects.get)(
+            pk=inputs.source_id
+        )
         source_cls = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
         non_retryable_errors = source_cls.get_non_retryable_errors()
 
@@ -145,7 +150,9 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
                     "error": inputs.internal_error,
                 },
             )
-            update_should_sync(schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False)
+            await database_sync_to_async_pool(update_should_sync)(
+                schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False
+            )
 
             friendly_errors = [
                 friendly_error
@@ -157,7 +164,7 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
                 logger.exception(friendly_errors[0])
                 inputs.latest_error = friendly_errors[0]
 
-    job = update_external_job_status(
+    job = await database_sync_to_async_pool(update_external_job_status)(
         job_id=job_id,
         status=ExternalDataJob.Status(inputs.status),
         latest_error=inputs.latest_error,
@@ -165,7 +172,7 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
     )
 
     job.finished_at = dt.datetime.now(dt.UTC)
-    job.save()
+    await database_sync_to_async_pool(job.save)()
 
     logger.info(
         f"Updated external data job with for external data source {job_id} to status {inputs.status}",
@@ -233,7 +240,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 billable=inputs.billable,
             )
 
-            job_id, incremental_or_append, source_type = await workflow.execute_activity(
+            create_job_result = await workflow.execute_activity(
                 create_external_data_job_model_activity,
                 create_external_data_job_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=1),
@@ -242,7 +249,17 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     non_retryable_error_types=["NotNullViolation", "IntegrityError"],
                 ),
             )
-
+            # Safety net, to avoid errors if old workers didn't pick up the dataclass yet and still return tuples
+            if isinstance(create_job_result, tuple):
+                job_id, incremental_or_append, source_type = create_job_result
+                schema_name, last_synced_at, emit_signals_enabled = None, None, False
+            else:
+                job_id = create_job_result.job_id
+                incremental_or_append = create_job_result.incremental_or_append
+                source_type = create_job_result.source_type
+                schema_name = create_job_result.schema_name
+                last_synced_at = create_job_result.last_synced_at
+                emit_signals_enabled = create_job_result.emit_signals_enabled
             update_inputs.job_id = job_id
 
             # Check billing limits
@@ -302,12 +319,52 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 }
             )
 
-            await workflow.execute_activity(
+            pipeline_result = await workflow.execute_activity(
                 import_data_activity_sync,
                 job_inputs,
                 heartbeat_timeout=dt.timedelta(minutes=2),
                 **timeout_params,
             )  # type: ignore
+
+            if pipeline_result.get("should_trigger_cdp_producer", False):
+                await start_child_workflow(
+                    workflow="dwh-cdp-producer-job",
+                    arg=dataclasses.asdict(
+                        CDPProducerWorkflowInputs(
+                            team_id=inputs.team_id, schema_id=str(inputs.external_data_schema_id), job_id=job_id
+                        )
+                    ),
+                    id=f"dwh-cdp-producer-job-{job_id}",
+                    task_queue=str(settings.DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE),
+                    parent_close_policy=ParentClosePolicy.ABANDON,
+                    retry_policy=RetryPolicy(
+                        maximum_attempts=3,
+                        non_retryable_error_types=["NondeterminismError"],
+                    ),
+                )
+
+            # Emit signals for new records (if registered for this source type + schema), if FF enabled.
+            # Fire-and-forget: runs on its own task queue so it doesn't block the import pipeline.
+            if source_type is not None and schema_name is not None and emit_signals_enabled:
+                await workflow.start_child_workflow(
+                    EmitDataImportSignalsWorkflow.run,
+                    EmitSignalsActivityInputs(
+                        team_id=inputs.team_id,
+                        schema_id=inputs.external_data_schema_id,
+                        source_id=inputs.external_data_source_id,
+                        job_id=job_id,
+                        source_type=source_type,
+                        schema_name=schema_name,
+                        last_synced_at=last_synced_at,
+                    ),
+                    id=f"emit-data-import-signals-{job_id}",
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    # TBD: Signals are currently using video export queue as the main one, comment to clarify
+                    task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                    # Let the child workflow finish even if the parent completes or fails
+                    parent_close_policy=ParentClosePolicy.ABANDON,
+                    execution_timeout=dt.timedelta(hours=2),
+                )
 
             # Create source templates
             await workflow.execute_activity(

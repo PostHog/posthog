@@ -6,6 +6,7 @@ import { useActions, useValues } from 'kea'
 import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
 
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -42,17 +43,15 @@ function Header({
     onEdit: _onEdit,
     onView: _onView,
 }: HeaderProps): JSX.Element {
-    const { state, type, viewFullDetailUrl, hasTaxonomyFeatures, hideView, hideEdit, isViewable, openDetailInNewTab } =
+    const { state, type, viewFullDetailUrl, hideView, hideEdit, isViewable, openDetailInNewTab } =
         useValues(definitionPopoverLogic)
     const { setPopoverState } = useActions(definitionPopoverLogic)
     const { reportDataManagementDefinitionClickView, reportDataManagementDefinitionClickEdit } =
         useActions(eventUsageLogic)
     const onEdit = (): void => {
-        if (hasTaxonomyFeatures) {
-            setPopoverState(DefinitionPopoverState.Edit)
-            _onEdit?.()
-            reportDataManagementDefinitionClickEdit(type)
-        }
+        setPopoverState(DefinitionPopoverState.Edit)
+        _onEdit?.()
+        reportDataManagementDefinitionClickEdit(type)
     }
     const onView = (): void => {
         setPopoverState(DefinitionPopoverState.View)
@@ -68,7 +67,7 @@ function Header({
                 </div>
                 {state === DefinitionPopoverState.View && (
                     <div className="definition-popover-header-row-buttons click-outside-block">
-                        {!hideEdit && isViewable && hasTaxonomyFeatures && <Link onClick={onEdit}>Edit</Link>}
+                        {!hideEdit && isViewable && <Link onClick={onEdit}>Edit</Link>}
                         {!hideView && isViewable && (
                             <Link
                                 target={openDetailInNewTab ? '_blank' : undefined}
@@ -105,7 +104,8 @@ function DescriptionEmpty(): JSX.Element {
 }
 
 function Example({ value }: { value?: string }): JSX.Element {
-    const { type } = useValues(definitionPopoverLogic)
+    const { type, mediaPreviews } = useValues(definitionPopoverLogic)
+
     let data: CoreFilterDefinition | null = null
 
     if (
@@ -123,10 +123,19 @@ function Example({ value }: { value?: string }): JSX.Element {
         data = getCoreFilterDefinition(value, type)
     }
 
-    return data?.examples?.[0] ? (
+    const textExample = data?.examples?.[0] ? (
         <div className="definition-popover-examples">Example: {data?.examples?.join(', ')}</div>
     ) : (
         <></>
+    )
+
+    const hasContent = data?.examples?.[0] || mediaPreviews.length > 0
+
+    return (
+        <div className={clsx('flex flex-col gap-2', hasContent && 'mb-4')}>
+            {textExample}
+            <ImageCarousel imageUrls={mediaPreviews} />
+        </div>
     )
 }
 
@@ -144,7 +153,7 @@ function TimeMeta({
     // If updatedAt doesn't exist, fallback on showing creator
     if (updatedAt) {
         return (
-            <span className="definition-popover-timemeta">
+            <div className="definition-popover-timemeta">
                 <span className="definition-popover-timemeta-time">
                     Last modified {dayjs().to(dayjs.utc(updatedAt))}{' '}
                 </span>
@@ -154,7 +163,7 @@ function TimeMeta({
                         <Owner user={updatedBy} />
                     </span>
                 )}
-            </span>
+            </div>
         )
     }
     if (createdAt) {
@@ -178,7 +187,7 @@ function Owner({ user }: { user?: UserBasicType | null }): JSX.Element {
             {user?.uuid ? (
                 <div className="flex items-center flex-row">
                     <ProfilePicture user={user} size="sm" />
-                    <span className="pl-2 inline-flex font-semibold pl-1 whitespace-nowrap">{user.first_name}</span>
+                    <span className="pl-2 inline-flex font-semibold whitespace-nowrap">{user.first_name}</span>
                 </div>
             ) : (
                 <span className="text-secondary italic inline-flex font-semibold pl-1 whitespace-nowrap">No owner</span>

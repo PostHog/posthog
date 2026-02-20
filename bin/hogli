@@ -1,15 +1,18 @@
 #!/bin/bash
-# Wrapper that ensures venv is active before running hogli
-# Needed for git hooks / lint-staged which may run outside activated shell
+# Wrapper that ensures venv is active before running hogli.
+# Needed for git hooks / lint-staged which may run outside an activated shell.
 
-if [ -z "$VIRTUAL_ENV" ]; then
-    if [ -d ".flox/cache/venv" ]; then
-        source .flox/cache/venv/bin/activate
-    elif [ -d ".venv" ]; then
-        source .venv/bin/activate
-    elif [ -d "env" ]; then
-        source env/bin/activate
-    fi
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [ -z "${VIRTUAL_ENV:-}" ]; then
+    for venv in "$REPO_ROOT/.flox/cache/venv" "$REPO_ROOT/.venv" "$REPO_ROOT/env"; do
+        if [ -d "$venv" ]; then
+            source "$venv/bin/activate"
+            break
+        fi
+    done
 fi
 
 exec hogli "$@"

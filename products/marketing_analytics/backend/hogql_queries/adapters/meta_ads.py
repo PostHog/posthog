@@ -4,11 +4,17 @@ from posthog.schema import NativeMarketingSource
 
 from posthog.hogql import ast
 
-from ..constants import INTEGRATION_DEFAULT_SOURCES, INTEGRATION_FIELD_NAMES, INTEGRATION_PRIMARY_SOURCE
+from ..constants import (
+    INTEGRATION_DEFAULT_SOURCES,
+    INTEGRATION_FIELD_NAMES,
+    INTEGRATION_PRIMARY_SOURCE,
+    META_CONVERSION_ACTION_TYPES,
+)
 from .base import MarketingSourceAdapter, MetaAdsConfig, ValidationResult
 
-# Purchase action types to extract from Meta's actions/action_values arrays
-META_PURCHASE_ACTION_TYPES = ["omni_purchase", "purchase"]
+# Use centralized conversion action types from constants
+META_OMNI_ACTION_TYPES = META_CONVERSION_ACTION_TYPES["omni"]
+META_FALLBACK_ACTION_TYPES = META_CONVERSION_ACTION_TYPES["fallback"]
 
 
 class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
@@ -90,7 +96,6 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
 
     def _get_cost_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        base_currency = self.context.base_currency
 
         # Get cost - use ifNull(toFloat(...), 0) to handle both numeric types and NULLs
         spend_field = ast.Field(chain=[stats_table_name, "spend"])
@@ -99,30 +104,16 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
             args=[ast.Call(name="toFloat", args=[spend_field]), ast.Constant(value=0)],
         )
 
-        # Check if currency column exists in stats table
-        try:
-            columns = getattr(self.config.stats_table, "columns", None)
-            if columns and hasattr(columns, "__contains__") and "account_currency" in columns:
-                # Convert each row's spend, then sum
-                # Use coalesce to handle NULL currency values - fallback to base_currency
-                currency_field = ast.Field(chain=[stats_table_name, "account_currency"])
-                currency_with_fallback = ast.Call(
-                    name="coalesce", args=[currency_field, ast.Constant(value=base_currency)]
-                )
-                convert_currency = ast.Call(
-                    name="convertCurrency",
-                    args=[currency_with_fallback, ast.Constant(value=base_currency), spend_float],
-                )
-                convert_to_float = ast.Call(name="toFloat", args=[convert_currency])
-                return ast.Call(name="SUM", args=[convert_to_float])
-        except (TypeError, AttributeError, KeyError):
-            pass
+        converted = self._apply_currency_conversion(
+            self.config.stats_table, stats_table_name, "account_currency", spend_float
+        )
+        if converted:
+            return ast.Call(name="SUM", args=[converted])
 
-        # Currency column doesn't exist, return cost without conversion
         return ast.Call(name="SUM", args=[spend_float])
 
-    def _build_action_type_filter(self) -> ast.Expr:
-        """Build filter condition for purchase action types"""
+    def _build_action_type_filter(self, action_types: list[str]) -> ast.Expr:
+        """Build filter condition for specified action types"""
         return ast.Or(
             exprs=[
                 ast.CompareOperation(
@@ -132,90 +123,79 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
                     op=ast.CompareOperationOp.Eq,
                     right=ast.Constant(value=action_type),
                 )
-                for action_type in META_PURCHASE_ACTION_TYPES
+                for action_type in action_types
             ]
         )
 
-    def _get_reported_conversion_field(self) -> ast.Expr:
+    def _build_array_sum_for_action_types(self, json_array_expr: ast.Expr, action_types: list[str]) -> ast.Expr:
+        """Build arraySum expression for specified action types"""
+        return ast.Call(
+            name="arraySum",
+            args=[
+                ast.Lambda(
+                    args=["x"],
+                    expr=ast.Call(
+                        name="JSONExtractFloat",
+                        args=[ast.Field(chain=["x"]), ast.Constant(value="value")],
+                    ),
+                ),
+                ast.Call(
+                    name="arrayFilter",
+                    args=[
+                        ast.Lambda(args=["x"], expr=self._build_action_type_filter(action_types)),
+                        ast.Call(name="JSONExtractArrayRaw", args=[json_array_expr]),
+                    ],
+                ),
+            ],
+        )
+
+    def _build_actions_conversion_sum(self, column_name: str, apply_currency: bool = False) -> ast.Expr:
+        """Build a SUM over omni/fallback action types from a JSON array column.
+
+        Used for both conversion counts (actions) and conversion values (action_values).
+        Returns 0 if the column doesn't exist in the table.
+        """
         stats_table_name = self.config.stats_table.name
 
-        # Check if conversions column exists in the table schema. The field exists in Meta Ads but
-        # if it's not used, it won't be in the response, therefore, won't be saved in the table and the column
-        # won't be created in the table.
         try:
-            # Try to check if conversions column exists
             columns = getattr(self.config.stats_table, "columns", None)
-            if columns and hasattr(columns, "__contains__") and "actions" in columns:
-                actions_field = ast.Field(chain=[stats_table_name, "actions"])
-                # Use coalesce to convert Nullable(String) to String, defaulting to empty array '[]'
-                # This prevents "Nested type Array(String) cannot be inside Nullable type" error
-                actions_non_null = ast.Call(name="coalesce", args=[actions_field, ast.Constant(value="[]")])
+            if columns and hasattr(columns, "__contains__") and column_name in columns:
+                field = ast.Field(chain=[stats_table_name, column_name])
+                field_non_null = ast.Call(name="coalesce", args=[field, ast.Constant(value="[]")])
+
+                omni_sum = self._build_array_sum_for_action_types(field_non_null, META_OMNI_ACTION_TYPES)
+                fallback_sum = self._build_array_sum_for_action_types(field_non_null, META_FALLBACK_ACTION_TYPES)
 
                 array_sum = ast.Call(
-                    name="arraySum",
+                    name="if",
                     args=[
-                        ast.Lambda(
-                            args=["x"],
-                            expr=ast.Call(
-                                name="JSONExtractFloat",
-                                args=[ast.Field(chain=["x"]), ast.Constant(value="value")],
-                            ),
+                        ast.CompareOperation(
+                            left=omni_sum,
+                            op=ast.CompareOperationOp.Gt,
+                            right=ast.Constant(value=0),
                         ),
-                        ast.Call(
-                            name="arrayFilter",
-                            args=[
-                                ast.Lambda(args=["x"], expr=self._build_action_type_filter()),
-                                ast.Call(name="JSONExtractArrayRaw", args=[actions_non_null]),
-                            ],
-                        ),
+                        omni_sum,
+                        fallback_sum,
                     ],
                 )
-                sum_result = ast.Call(name="SUM", args=[array_sum])
-                return ast.Call(name="toFloat", args=[sum_result])
+
+                if apply_currency:
+                    converted = self._apply_currency_conversion(
+                        self.config.stats_table, stats_table_name, "account_currency", array_sum
+                    )
+                    if converted:
+                        return ast.Call(name="SUM", args=[converted])
+
+                return ast.Call(name="toFloat", args=[ast.Call(name="SUM", args=[array_sum])])
         except (TypeError, AttributeError, KeyError):
-            # If columns is not iterable, doesn't exist, or has unexpected structure, fall back to 0
             pass
-        # Column doesn't exist or can't be checked, return 0
         return ast.Constant(value=0)
+
+    def _get_reported_conversion_field(self) -> ast.Expr:
+        return self._build_actions_conversion_sum("actions")
 
     def _get_reported_conversion_value_field(self) -> ast.Expr:
-        stats_table_name = self.config.stats_table.name
-
-        # Check if conversion_values column exists in the table schema. Similar to conversions,
-        # this field may not exist if no conversion values were tracked.
-        try:
-            columns = getattr(self.config.stats_table, "columns", None)
-            if columns and hasattr(columns, "__contains__") and "action_values" in columns:
-                action_values_field = ast.Field(chain=[stats_table_name, "action_values"])
-                # Use coalesce to convert Nullable(String) to String, defaulting to empty array '[]'
-                # This prevents "Nested type Array(String) cannot be inside Nullable type" error
-                action_values_non_null = ast.Call(name="coalesce", args=[action_values_field, ast.Constant(value="[]")])
-
-                array_sum = ast.Call(
-                    name="arraySum",
-                    args=[
-                        ast.Lambda(
-                            args=["x"],
-                            expr=ast.Call(
-                                name="JSONExtractFloat",
-                                args=[ast.Field(chain=["x"]), ast.Constant(value="value")],
-                            ),
-                        ),
-                        ast.Call(
-                            name="arrayFilter",
-                            args=[
-                                ast.Lambda(args=["x"], expr=self._build_action_type_filter()),
-                                ast.Call(name="JSONExtractArrayRaw", args=[action_values_non_null]),
-                            ],
-                        ),
-                    ],
-                )
-                sum_result = ast.Call(name="SUM", args=[array_sum])
-                return ast.Call(name="toFloat", args=[sum_result])
-        except (TypeError, AttributeError, KeyError):
-            pass
-        # Column doesn't exist or can't be checked, return 0
-        return ast.Constant(value=0)
+        return self._build_actions_conversion_sum("action_values", apply_currency=True)
 
     def _get_from(self) -> ast.JoinExpr:
         """Build FROM and JOIN clauses"""

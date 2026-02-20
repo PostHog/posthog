@@ -1,5 +1,6 @@
+import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCornerDownRight } from '@posthog/icons'
 
@@ -8,34 +9,49 @@ import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
-import { VariableUsage } from './notebookNodeContent'
+import { NotebookDataframeTable } from './components/NotebookDataframeTable'
+import type { NotebookDependencyUsage } from './notebookNodeContent'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { PythonExecutionMedia, PythonExecutionResult } from './pythonExecution'
+import { buildMediaSource, renderAnsiText } from './utils'
 
 export type NotebookNodePythonAttributes = {
     code: string
     globalsUsed?: string[]
     globalsExportedWithTypes?: { name: string; type: string }[]
     globalsAnalysisHash?: string | null
+    pythonExecution?: PythonExecutionResult | null
+    pythonExecutionCodeHash?: number | null
+    pythonExecutionSandboxId?: string | null
+    showSettings?: boolean
+    autoHeight?: boolean
 }
 
 const VariableUsageOverlay = ({
     name,
     type,
+    hogqlQuery,
     usages,
     onNavigateToNode,
 }: {
     name: string
     type: string
-    usages: VariableUsage[]
+    hogqlQuery?: string
+    usages: NotebookDependencyUsage[]
     onNavigateToNode?: (nodeId: string) => void
 }): JSX.Element => {
-    const groupedUsageEntries = usages.reduce<Record<string, VariableUsage>>((acc, usage) => {
+    const groupedUsageEntries = usages.reduce<Record<string, NotebookDependencyUsage>>((acc, usage) => {
         if (!acc[usage.nodeId]) {
             acc[usage.nodeId] = usage
         }
         return acc
     }, {})
-    const sortedUsageEntries = Object.values(groupedUsageEntries).sort((a, b) => a.pythonIndex - b.pythonIndex)
+    const sortedUsageEntries = Object.values(groupedUsageEntries).sort((a, b) => a.nodeIndex - b.nodeIndex)
+
+    const usageLabel = (usage: NotebookDependencyUsage): string => {
+        const trimmedTitle = usage.title.trim()
+        return trimmedTitle ? trimmedTitle : `Python cell ${usage.nodeIndex}`
+    }
 
     return (
         <div className="p-2 text-xs max-w-[320px]">
@@ -43,22 +59,30 @@ const VariableUsageOverlay = ({
                 <span className="font-semibold text-default font-mono">{name}</span>
                 <span className="text-muted">Type: {type || 'unknown'}</span>
             </div>
+            {hogqlQuery ? (
+                <div className="mt-2">
+                    <div className="text-muted text-[10px] uppercase tracking-wide">HogQL query</div>
+                    <pre className="mt-1 text-xs font-mono text-default whitespace-pre-wrap break-words max-h-24 overflow-y-auto">
+                        {hogqlQuery}
+                    </pre>
+                </div>
+            ) : null}
             {sortedUsageEntries.length > 0 ? (
                 <div className="mt-2">
                     <div className="text-muted text-[10px] uppercase tracking-wide">Used in</div>
                     <div className="mt-1 space-y-1 max-h-48 overflow-y-auto">
                         {sortedUsageEntries.map((usage) => (
-                            <div key={`usage-${usage.pythonIndex}`}>
+                            <div key={`usage-${usage.nodeIndex}`}>
                                 {onNavigateToNode ? (
                                     <button
                                         type="button"
                                         className="text-muted hover:text-default underline underline-offset-2"
                                         onClick={() => onNavigateToNode(usage.nodeId)}
                                     >
-                                        Python cell {usage.pythonIndex}
+                                        {usageLabel(usage)}
                                     </button>
                                 ) : (
-                                    <div className="text-muted">Python cell {usage.pythonIndex}</div>
+                                    <div className="text-muted">{usageLabel(usage)}</div>
                                 )}
                             </div>
                         ))}
@@ -74,12 +98,14 @@ const VariableUsageOverlay = ({
 const VariableDependencyBadge = ({
     name,
     type,
+    hogqlQuery,
     usages,
     onNavigateToNode,
 }: {
     name: string
     type: string
-    usages: VariableUsage[]
+    hogqlQuery?: string
+    usages: NotebookDependencyUsage[]
     onNavigateToNode?: (nodeId: string) => void
 }): JSX.Element => {
     const [popoverVisible, setPopoverVisible] = useState(false)
@@ -94,6 +120,7 @@ const VariableDependencyBadge = ({
                 <VariableUsageOverlay
                     name={name}
                     type={type}
+                    hogqlQuery={hogqlQuery}
                     usages={usages}
                     onNavigateToNode={(nodeId) => {
                         onNavigateToNode?.(nodeId)
@@ -114,33 +141,183 @@ const VariableDependencyBadge = ({
     )
 }
 
-const Component = ({ attributes }: NotebookNodeProps<NotebookNodePythonAttributes>): JSX.Element | null => {
-    const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { expanded, exportedGlobals, usageByVariable } = useValues(nodeLogic)
-    const { navigateToNode } = useActions(nodeLogic)
+const OutputBlock = ({
+    title,
+    toneClassName,
+    value,
+}: {
+    title: string
+    toneClassName: string
+    value: string
+}): JSX.Element => {
+    const content = useMemo(() => renderAnsiText(value), [value])
 
-    if (!expanded) {
+    return (
+        <div>
+            <div className="text-[10px] uppercase tracking-wide text-muted">{title}</div>
+            <pre
+                className={clsx('text-xs font-mono whitespace-pre-wrap mt-1 select-text cursor-text', toneClassName)}
+                contentEditable={false}
+            >
+                {content}
+            </pre>
+        </div>
+    )
+}
+
+const MediaBlock = ({ media }: { media: PythonExecutionMedia }): JSX.Element | null => {
+    const source = buildMediaSource(media)
+    if (!source) {
         return null
     }
 
     return (
+        <div>
+            <div className="text-[10px] uppercase tracking-wide text-muted">Image</div>
+            <img
+                src={source}
+                alt="Python output"
+                className="mt-2 max-w-full border border-border rounded bg-bg-light"
+            />
+        </div>
+    )
+}
+
+const DEFAULT_PYTHON_NODE_HEIGHT = 100
+const MAX_PYTHON_NODE_HEIGHT = 500
+
+const Component = ({
+    attributes,
+    updateAttributes,
+}: NotebookNodeProps<NotebookNodePythonAttributes>): JSX.Element | null => {
+    const nodeLogic = useMountedLogic(notebookNodeLogic)
+    const {
+        dataframePage,
+        dataframePageSize,
+        dataframeLoading,
+        dataframeResult,
+        dataframeVariableName,
+        displayedGlobals,
+        expanded,
+        exportedGlobals,
+        pythonExecution,
+        usageByVariable,
+    } = useValues(nodeLogic)
+    const { navigateToNode, setDataframePage, setDataframePageSize } = useActions(nodeLogic)
+    const outputRef = useRef<HTMLDivElement | null>(null)
+    const footerRef = useRef<HTMLDivElement | null>(null)
+
+    const hasResult = pythonExecution?.result !== undefined && pythonExecution?.result !== null
+    const hasExecution =
+        pythonExecution &&
+        (pythonExecution.stdout ||
+            pythonExecution.stderr ||
+            hasResult ||
+            pythonExecution.media?.length ||
+            pythonExecution.traceback?.length ||
+            pythonExecution.variables?.length)
+
+    useLayoutEffect(() => {
+        if (!hasExecution || attributes.autoHeight === false) {
+            return
+        }
+        const output = outputRef.current
+        if (!output) {
+            return
+        }
+        const footerHeight = footerRef.current?.offsetHeight ?? 0
+        const desiredHeight = Math.min(MAX_PYTHON_NODE_HEIGHT, output.scrollHeight + footerHeight)
+        const currentHeight = typeof attributes.height === 'number' ? attributes.height : DEFAULT_PYTHON_NODE_HEIGHT
+
+        if (desiredHeight !== currentHeight) {
+            updateAttributes({ height: desiredHeight })
+        }
+    }, [
+        attributes.height,
+        hasExecution,
+        pythonExecution?.media?.length,
+        pythonExecution?.result,
+        pythonExecution?.stderr,
+        pythonExecution?.stdout,
+        pythonExecution?.traceback?.length,
+        pythonExecution?.variables?.length,
+        updateAttributes,
+    ]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    if (!expanded) {
+        return null
+    }
+    const showDataframeTable = !!dataframeVariableName
+
+    return (
         <div data-attr="notebook-node-python" className="flex h-full flex-col gap-2">
-            <div className="p-3 overflow-y-auto h-full">
-                <pre className="text-xs font-mono whitespace-pre-wrap">
-                    We should show the execution results for the code here: {attributes.code}
-                </pre>
+            <div
+                ref={outputRef}
+                className="p-2 overflow-y-auto h-full space-y-3"
+                onMouseDown={(event) => event.stopPropagation()}
+                onDragStart={(event) => event.stopPropagation()}
+            >
+                {hasExecution ? (
+                    <>
+                        {pythonExecution?.stdout ? (
+                            <OutputBlock
+                                title="Output"
+                                toneClassName="text-default"
+                                value={pythonExecution.stdout ?? ''}
+                            />
+                        ) : null}
+                        {pythonExecution?.stderr ? (
+                            <OutputBlock
+                                title="stderr"
+                                toneClassName="text-danger"
+                                value={pythonExecution.stderr ?? ''}
+                            />
+                        ) : null}
+                        {hasResult && !showDataframeTable ? (
+                            <OutputBlock
+                                title="Result"
+                                toneClassName="text-default"
+                                value={pythonExecution.result ?? ''}
+                            />
+                        ) : null}
+                        {showDataframeTable ? (
+                            <NotebookDataframeTable
+                                result={dataframeResult}
+                                loading={dataframeLoading}
+                                page={dataframePage}
+                                pageSize={dataframePageSize}
+                                onNextPage={() => setDataframePage(dataframePage + 1)}
+                                onPreviousPage={() => setDataframePage(Math.max(1, dataframePage - 1))}
+                                onPageSizeChange={setDataframePageSize}
+                            />
+                        ) : null}
+                        {pythonExecution?.media?.map((media, index) => (
+                            <MediaBlock key={`python-media-${index}`} media={media} />
+                        ))}
+                        {pythonExecution?.status === 'error' && pythonExecution.traceback?.length ? (
+                            <OutputBlock
+                                title="Error"
+                                toneClassName="text-danger"
+                                value={pythonExecution.traceback.join('\n')}
+                            />
+                        ) : null}
+                    </>
+                ) : (
+                    <div className="text-xs text-muted font-mono">Run the cell to see execution results.</div>
+                )}
             </div>
             {exportedGlobals.length > 0 ? (
-                <div className="flex items-start flex-wrap gap-2 text-xs text-muted border-t p-2">
+                <div ref={footerRef} className="flex items-start flex-wrap gap-2 text-xs text-muted border-t p-2">
                     <span className="font-mono mt-1">
                         <IconCornerDownRight />
                     </span>
                     <div className="flex flex-wrap gap-1">
-                        {exportedGlobals.map(({ name, type }) => (
+                        {displayedGlobals.map(({ name, type, hogqlQuery }) => (
                             <VariableDependencyBadge
                                 key={name}
                                 name={name}
                                 type={type}
+                                hogqlQuery={hogqlQuery}
                                 usages={usageByVariable[name] ?? []}
                                 onNavigateToNode={navigateToNode}
                             />
@@ -156,11 +333,17 @@ const Settings = ({
     attributes,
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodePythonAttributes>): JSX.Element => {
+    const nodeLogic = useMountedLogic(notebookNodeLogic)
+    const { runPythonNodeWithMode } = useActions(nodeLogic)
+
     return (
         <CodeEditorResizeable
             language="python"
-            value={attributes.code}
+            value={typeof attributes.code === 'string' ? attributes.code : ''}
             onChange={(value) => updateAttributes({ code: value ?? '' })}
+            onPressCmdEnter={() => {
+                void runPythonNodeWithMode({ mode: 'auto' })
+            }}
             allowManualResize={false}
             minHeight={160}
             embedded
@@ -188,6 +371,21 @@ export const NotebookNodePython = createPostHogWidgetNode<NotebookNodePythonAttr
         },
         globalsAnalysisHash: {
             default: null,
+        },
+        pythonExecution: {
+            default: null,
+        },
+        pythonExecutionCodeHash: {
+            default: null,
+        },
+        pythonExecutionSandboxId: {
+            default: null,
+        },
+        showSettings: {
+            default: false,
+        },
+        autoHeight: {
+            default: true,
         },
     },
     Settings,

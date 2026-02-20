@@ -2,6 +2,8 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers, s
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -21,27 +23,10 @@ import type { Experiment, FeatureFlagFilters, MultivariateFlagVariant } from '~/
 import { NEW_EXPERIMENT } from '../constants'
 import { FORM_MODES, experimentLogic } from '../experimentLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
-import { generateFeatureFlagKey } from './VariantsPanelCreateFeatureFlag'
 import type { createExperimentLogicType } from './createExperimentLogicType'
+import { validateExperimentSubmission } from './experimentSubmissionValidation'
 import { variantsPanelLogic } from './variantsPanelLogic'
 import { validateVariants } from './variantsPanelValidation'
-
-const validateExperiment = (
-    experiment: Experiment,
-    featureFlagKeyValidation: { valid: boolean; error: string | null } | null,
-    mode?: 'create' | 'link'
-): boolean => {
-    const validExperimentName = experiment.name !== null && experiment.name.trim().length > 0
-
-    const variantsValidation = validateVariants({
-        flagKey: experiment.feature_flag_key,
-        variants: experiment.parameters?.feature_flag_variants ?? [],
-        featureFlagKeyValidation,
-        mode,
-    })
-
-    return validExperimentName && !variantsValidation.hasErrors
-}
 
 /**
  * Fields that can be updated on an existing experiment.
@@ -157,10 +142,10 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
 
         return {
             values: [
+                variantsPanelLogicInstance,
+                ['featureFlagKeyValidation', 'featureFlagKeyValidationLoading'],
                 featureFlagLogic,
                 ['featureFlags'],
-                variantsPanelLogicInstance,
-                ['featureFlagKeyDirty', 'featureFlagKeyValidation', 'featureFlagKeyValidationLoading'],
             ],
             actions: [
                 eventUsageLogic,
@@ -169,8 +154,6 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 ['updateFlag'],
                 teamLogic,
                 ['addProductIntent'],
-                variantsPanelLogicInstance,
-                ['validateFeatureFlagKey'],
             ],
         }
     }),
@@ -280,12 +263,38 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
     })),
     selectors(() => ({
         canSubmitExperiment: [
-            (s) => [s.experiment, s.featureFlagKeyValidation, s.mode],
+            (s) => [s.experiment, s.featureFlagKeyValidation, s.mode, s.experimentErrors],
             (
                 experiment: Experiment,
                 featureFlagKeyValidation: { valid: boolean; error: string | null } | null,
-                mode: 'create' | 'link'
-            ) => validateExperiment(experiment, featureFlagKeyValidation, mode),
+                mode: 'create' | 'link',
+                experimentErrors: Record<string, string>
+            ) => {
+                const validation = validateExperimentSubmission({
+                    experiment,
+                    featureFlagKeyValidation,
+                    mode,
+                    experimentErrors,
+                })
+                return validation.isValid
+            },
+        ],
+        experimentValidationErrors: [
+            (s) => [s.experiment, s.featureFlagKeyValidation, s.mode, s.experimentErrors],
+            (
+                experiment: Experiment,
+                featureFlagKeyValidation: { valid: boolean; error: string | null } | null,
+                mode: 'create' | 'link',
+                experimentErrors: Record<string, string>
+            ): string | undefined => {
+                const validation = validateExperimentSubmission({
+                    experiment,
+                    featureFlagKeyValidation,
+                    mode,
+                    experimentErrors,
+                })
+                return validation.errors.length > 0 ? validation.errors.join(', ') : undefined
+            },
         ],
         isEditMode: [
             (s) => [s.experiment],
@@ -326,16 +335,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             clearDraftStorage(props.tabId)
         },
         setExperiment: () => {},
-        setExperimentValue: ({ name, value }) => {
-            // Only auto-generate flag key when creating a new flag, not when editing or linking an existing flag
-            if (name === 'name' && !values.featureFlagKeyDirty && values.isCreateMode && values.mode === 'create') {
-                const key = generateFeatureFlagKey(value)
-                actions.setFeatureFlagConfig({
-                    feature_flag_key: key,
-                })
-                actions.validateFeatureFlagKey(key)
-            }
-        },
+        setExperimentValue: () => {},
         validateField: ({ field }) => {
             if (field === 'name') {
                 const name = values.experiment.name
@@ -358,6 +358,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 actions.saveExperimentFailure()
                 return
             }
+
+            // Clear previous errors before validation is triggered
+            actions.setExperimentErrors({})
 
             // Validate using canSubmitExperiment
             if (!values.canSubmitExperiment) {
@@ -416,6 +419,8 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     ...values.experiment,
                     scheduling_config: schedulingConfig,
                     saved_metrics_ids: savedMetrics,
+                    exposure_preaggregation_enabled:
+                        !!values.featureFlags[FEATURE_FLAGS.EXPERIMENT_QUERY_PREAGGREGATION],
                 }
 
                 let response: Experiment
@@ -460,6 +465,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                             intent_context: ProductIntentContext.EXPERIMENT_CREATED,
                         })
                         actions.createExperimentSuccess()
+                        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateExperiment)
                         lemonToast.success('Experiment created successfully!')
                         // Don't reset - we just set the fresh data above
                     }

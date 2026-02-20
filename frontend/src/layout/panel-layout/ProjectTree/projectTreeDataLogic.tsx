@@ -198,6 +198,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         addShortcutItem: (item: FileSystemEntry) => ({ item }),
         deleteShortcut: (id: FileSystemEntry['id']) => ({ id }),
         loadShortcuts: true,
+
+        pruneClosedFolders: (expandedFolders: string[]) => ({ expandedFolders }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -484,7 +486,18 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         folders: [
             {} as Record<string, FileSystemEntry[]>,
             {
-                loadFolderSuccess: (state, { folder, entries }) => ({ ...state, [folder]: entries }),
+                loadFolderSuccess: (state, { folder, entries }) => {
+                    // Deduplicate entries by ID to prevent duplicate items from appearing
+                    const seenIds = new Set<string>()
+                    const uniqueEntries = entries.filter((entry) => {
+                        if (!entry.id || seenIds.has(entry.id)) {
+                            return false
+                        }
+                        seenIds.add(entry.id)
+                        return true
+                    })
+                    return { ...state, [folder]: uniqueEntries }
+                },
                 addLoadedResults: (state, { results }) => appendResultsToFolders(results, state),
                 createSavedItem: (state, { savedItem }) => {
                     const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
@@ -554,6 +567,16 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     }
                     return newState
                 },
+                pruneClosedFolders: (state, { expandedFolders }) => {
+                    const expandedPaths = new Set(expandedFolders.map((f) => f.replace(/^project:\/\//, '')))
+                    const newState: Record<string, FileSystemEntry[]> = {}
+                    for (const [key, value] of Object.entries(state)) {
+                        if (key === '' || expandedPaths.has(key)) {
+                            newState[key] = value
+                        }
+                    }
+                    return newState
+                },
             },
         ],
         folderLoadOffset: [
@@ -562,6 +585,16 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 loadFolderSuccess: (state, { folder, offsetIncrease, forceReload }) => {
                     const previousOffset = forceReload ? 0 : (state[folder] ?? 0)
                     return { ...state, [folder]: previousOffset + offsetIncrease }
+                },
+                pruneClosedFolders: (state, { expandedFolders }) => {
+                    const expandedPaths = new Set(expandedFolders.map((f) => f.replace(/^project:\/\//, '')))
+                    const newState: Record<string, number> = {}
+                    for (const [key, value] of Object.entries(state)) {
+                        if (key === '' || expandedPaths.has(key)) {
+                            newState[key] = value
+                        }
+                    }
+                    return newState
                 },
             },
         ],
@@ -574,6 +607,16 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     [folder]: hasMore ? 'has-more' : 'loaded',
                 }),
                 loadFolderFailure: (state, { folder }) => ({ ...state, [folder]: 'error' }),
+                pruneClosedFolders: (state, { expandedFolders }) => {
+                    const expandedPaths = new Set(expandedFolders.map((f) => f.replace(/^project:\/\//, '')))
+                    const newState: Record<string, FolderState> = {}
+                    for (const [key, value] of Object.entries(state)) {
+                        if (key === '' || expandedPaths.has(key)) {
+                            newState[key] = value
+                        }
+                    }
+                    return newState
+                },
             },
         ],
         users: [

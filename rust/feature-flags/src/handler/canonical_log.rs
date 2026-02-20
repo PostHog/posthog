@@ -1,4 +1,5 @@
 use crate::api::errors::FlagError;
+use crate::metrics::consts::FLAG_DB_OPERATIONS_PER_REQUEST;
 use std::cell::RefCell;
 use std::future::Future;
 use std::time::Instant;
@@ -86,10 +87,15 @@ pub struct FlagsCanonicalLogLine {
     // Populated during authentication
     pub team_id: Option<i32>,
     pub distinct_id: Option<String>,
+    pub device_id: Option<String>,
+    /// The anonymous distinct ID sent with the request for experience continuity.
+    pub anon_distinct_id: Option<String>,
 
     // Populated during flag evaluation
     pub flags_evaluated: usize,
     pub flags_experience_continuity: usize,
+    /// Number of flags that used device_id for bucketing (instead of distinct_id).
+    pub flags_device_id_bucketing: usize,
     pub flags_disabled: bool,
     pub quota_limited: bool,
     /// Source of the flags data: "Redis", "S3", or "Fallback" (PostgreSQL).
@@ -104,6 +110,12 @@ pub struct FlagsCanonicalLogLine {
     pub group_queries: usize,
     /// Number of static cohort membership queries made to the database.
     pub static_cohort_queries: usize,
+    /// Time spent on person property queries in milliseconds.
+    pub person_query_time_ms: u64,
+    /// Time spent on group property queries in milliseconds.
+    pub group_query_time_ms: u64,
+    /// Time spent on static cohort membership queries in milliseconds.
+    pub cohort_query_time_ms: u64,
     pub property_cache_hits: usize,
     pub property_cache_misses: usize,
     /// True if person properties were not found in evaluation state cache.
@@ -116,15 +128,21 @@ pub struct FlagsCanonicalLogLine {
     /// These errors (like missing dependencies or cycles) set errors_while_computing_flags=true
     /// in the response but don't increment flags_errored.
     pub dependency_graph_errors: usize,
-    pub hash_key_override_attempted: bool,
-    pub hash_key_override_succeeded: bool,
-    /// True when experience continuity lookup was skipped due to optimization.
-    /// This is set when flags have experience continuity enabled but don't need
-    /// a hash key lookup (100% rollout with no multivariate variants).
-    pub hash_key_override_skipped: bool,
+    /// Status of hash key override lookup for experience continuity.
+    /// Values:
+    /// - None: no flags require experience continuity
+    /// - "skipped": optimization applied (100% rollout, no variants needing lookup)
+    /// - "error": query failed
+    /// - "empty": query succeeded, no overrides found
+    /// - "found": query succeeded, overrides returned
+    pub hash_key_override_status: Option<&'static str>,
 
     // Rate limiting
     pub rate_limited: bool,
+
+    // Cache sources (populated during data fetching)
+    /// Where team metadata was fetched from: "redis", "s3", "fallback", or None if not fetched
+    pub team_cache_source: Option<&'static str>,
 
     // Outcome (populated at response time)
     pub http_status: u16,
@@ -144,8 +162,11 @@ impl Default for FlagsCanonicalLogLine {
             api_version: None,
             team_id: None,
             distinct_id: None,
+            device_id: None,
+            anon_distinct_id: None,
             flags_evaluated: 0,
             flags_experience_continuity: 0,
+            flags_device_id_bucketing: 0,
             flags_disabled: false,
             quota_limited: false,
             flags_cache_source: None,
@@ -153,6 +174,9 @@ impl Default for FlagsCanonicalLogLine {
             person_queries: 0,
             group_queries: 0,
             static_cohort_queries: 0,
+            person_query_time_ms: 0,
+            group_query_time_ms: 0,
+            cohort_query_time_ms: 0,
             property_cache_hits: 0,
             property_cache_misses: 0,
             person_properties_not_cached: false,
@@ -160,10 +184,9 @@ impl Default for FlagsCanonicalLogLine {
             cohorts_evaluated: 0,
             flags_errored: 0,
             dependency_graph_errors: 0,
-            hash_key_override_attempted: false,
-            hash_key_override_succeeded: false,
-            hash_key_override_skipped: false,
+            hash_key_override_status: None,
             rate_limited: false,
+            team_cache_source: None,
             http_status: 200,
             error_code: None,
         }
@@ -191,6 +214,8 @@ impl FlagsCanonicalLogLine {
             request_id = %self.request_id,
             team_id = self.team_id,
             distinct_id = self.distinct_id.as_deref(),
+            device_id = self.device_id.as_deref(),
+            anon_distinct_id = self.anon_distinct_id.as_deref(),
             ip = %self.ip,
             user_agent = user_agent,
             lib = self.lib,
@@ -200,6 +225,7 @@ impl FlagsCanonicalLogLine {
             http_status = self.http_status,
             flags_evaluated = self.flags_evaluated,
             flags_experience_continuity = self.flags_experience_continuity,
+            flags_device_id_bucketing = self.flags_device_id_bucketing,
             flags_disabled = self.flags_disabled,
             quota_limited = self.quota_limited,
             flags_cache_source = self.flags_cache_source,
@@ -207,6 +233,9 @@ impl FlagsCanonicalLogLine {
             person_queries = self.person_queries,
             group_queries = self.group_queries,
             static_cohort_queries = self.static_cohort_queries,
+            person_query_time_ms = self.person_query_time_ms,
+            group_query_time_ms = self.group_query_time_ms,
+            cohort_query_time_ms = self.cohort_query_time_ms,
             property_cache_hits = self.property_cache_hits,
             property_cache_misses = self.property_cache_misses,
             person_properties_not_cached = self.person_properties_not_cached,
@@ -214,13 +243,58 @@ impl FlagsCanonicalLogLine {
             cohorts_evaluated = self.cohorts_evaluated,
             flags_errored = self.flags_errored,
             dependency_graph_errors = self.dependency_graph_errors,
-            hash_key_override_attempted = self.hash_key_override_attempted,
-            hash_key_override_succeeded = self.hash_key_override_succeeded,
-            hash_key_override_skipped = self.hash_key_override_skipped,
+            hash_key_override_status = self.hash_key_override_status,
             rate_limited = self.rate_limited,
+            team_cache_source = self.team_cache_source,
             error_code = self.error_code,
             "canonical_log_line"
         );
+    }
+
+    /// Emit DB operations metrics for observability.
+    /// This emits a histogram for each operation type with the count of operations.
+    /// Labels: team_id, operation_type
+    pub fn emit_db_operations_metrics(&self) {
+        let team_id = self
+            .team_id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        // Emit person query count
+        if self.person_queries > 0 {
+            common_metrics::histogram(
+                FLAG_DB_OPERATIONS_PER_REQUEST,
+                &[
+                    ("team_id".to_string(), team_id.clone()),
+                    ("operation_type".to_string(), "person_query".to_string()),
+                ],
+                self.person_queries as f64,
+            );
+        }
+
+        // Emit group query count
+        if self.group_queries > 0 {
+            common_metrics::histogram(
+                FLAG_DB_OPERATIONS_PER_REQUEST,
+                &[
+                    ("team_id".to_string(), team_id.clone()),
+                    ("operation_type".to_string(), "group_query".to_string()),
+                ],
+                self.group_queries as f64,
+            );
+        }
+
+        // Emit static cohort query count
+        if self.static_cohort_queries > 0 {
+            common_metrics::histogram(
+                FLAG_DB_OPERATIONS_PER_REQUEST,
+                &[
+                    ("team_id".to_string(), team_id.clone()),
+                    ("operation_type".to_string(), "cohort_query".to_string()),
+                ],
+                self.static_cohort_queries as f64,
+            );
+        }
     }
 
     /// Populate error fields from a FlagError without emitting.
@@ -255,8 +329,11 @@ mod tests {
         assert!(log.api_version.is_none());
         assert!(log.team_id.is_none());
         assert!(log.distinct_id.is_none());
+        assert!(log.device_id.is_none());
+        assert!(log.anon_distinct_id.is_none());
         assert_eq!(log.flags_evaluated, 0);
         assert_eq!(log.flags_experience_continuity, 0);
+        assert_eq!(log.flags_device_id_bucketing, 0);
         assert!(!log.flags_disabled);
         assert!(!log.quota_limited);
         assert!(log.flags_cache_source.is_none());
@@ -271,10 +348,9 @@ mod tests {
         assert_eq!(log.cohorts_evaluated, 0);
         assert_eq!(log.flags_errored, 0);
         assert_eq!(log.dependency_graph_errors, 0);
-        assert!(!log.hash_key_override_attempted);
-        assert!(!log.hash_key_override_succeeded);
-        assert!(!log.hash_key_override_skipped);
+        assert!(log.hash_key_override_status.is_none());
         assert!(!log.rate_limited);
+        assert!(log.team_cache_source.is_none());
         assert_eq!(log.http_status, 200);
         assert!(log.error_code.is_none());
     }
@@ -294,19 +370,21 @@ mod tests {
         log.api_version = Some("3".to_string());
         log.team_id = Some(123);
         log.distinct_id = Some("user_abc".to_string());
+        log.device_id = Some("device_123".to_string());
         log.flags_evaluated = 10;
         log.flags_experience_continuity = 2;
+        log.flags_device_id_bucketing = 3;
         log.flags_disabled = false;
         log.quota_limited = true;
-        log.flags_cache_source = Some("Redis");
+        log.flags_cache_source = Some("redis");
         log.db_property_fetches = 3;
         log.property_cache_hits = 5;
         log.property_cache_misses = 2;
         log.cohorts_evaluated = 4;
         log.flags_errored = 1;
-        log.hash_key_override_attempted = true;
-        log.hash_key_override_succeeded = true;
+        log.hash_key_override_status = Some("found");
         log.rate_limited = false;
+        log.team_cache_source = Some("redis");
         log.http_status = 200;
         log.emit();
     }
@@ -353,16 +431,14 @@ mod tests {
             with_canonical_log(|l| {
                 l.db_property_fetches = 3;
                 l.cohorts_evaluated = 5;
-                l.hash_key_override_attempted = true;
-                l.hash_key_override_succeeded = true;
+                l.hash_key_override_status = Some("found");
             });
         })
         .await;
 
         assert_eq!(final_log.db_property_fetches, 3);
         assert_eq!(final_log.cohorts_evaluated, 5);
-        assert!(final_log.hash_key_override_attempted);
-        assert!(final_log.hash_key_override_succeeded);
+        assert_eq!(final_log.hash_key_override_status, Some("found"));
     }
 
     #[tokio::test]
@@ -537,9 +613,8 @@ mod tests {
         #[case(FlagError::SecretApiTokenInvalid, 401, "secret_api_token_invalid")]
         #[case(FlagError::NoAuthenticationProvided, 401, "no_authentication")]
         #[case(FlagError::RowNotFound, 500, "row_not_found")]
-        #[case(FlagError::RedisDataParsingError, 503, "redis_parsing_error")]
+        #[case(FlagError::DataParsingErrorWithContext("test".into()), 500, "flag_data_parsing_error")]
         #[case(FlagError::DeserializeFiltersError, 500, "deserialize_filters_error")]
-        #[case(FlagError::CacheUpdateError, 500, "cache_update_error")]
         #[case(FlagError::RedisUnavailable, 503, "redis_unavailable")]
         #[case(FlagError::DatabaseUnavailable, 503, "database_unavailable")]
         #[case(FlagError::TimeoutError(None), 503, "timeout")]
@@ -560,11 +635,11 @@ mod tests {
             500,
             "cohort_filters_parsing_error"
         )]
-        #[case(FlagError::PersonNotFound, 400, "person_not_found")]
-        #[case(FlagError::PropertiesNotInCache, 400, "properties_not_in_cache")]
+        #[case(FlagError::PersonNotFound, 503, "person_not_found")]
+        #[case(FlagError::PropertiesNotInCache, 503, "properties_not_in_cache")]
         #[case(
             FlagError::StaticCohortMatchesNotCached,
-            400,
+            503,
             "static_cohort_not_cached"
         )]
         #[case(FlagError::CacheMiss, 503, "cache_miss")]
@@ -610,6 +685,64 @@ mod tests {
             // Verify error fields were set (emit_for_error calls set_error internally)
             assert_eq!(log.http_status, 401);
             assert_eq!(log.error_code, Some("missing_token"));
+        }
+    }
+
+    mod hash_key_override_status_tests {
+        use super::*;
+        use rstest::rstest;
+
+        #[rstest]
+        #[case(None, "no experience continuity flags")]
+        #[case(Some("skipped"), "optimization applied - 100% rollout")]
+        #[case(Some("error"), "query failed")]
+        #[case(Some("empty"), "query succeeded, no overrides")]
+        #[case(Some("found"), "query succeeded, overrides returned")]
+        fn test_hash_key_override_status_values(
+            #[case] status: Option<&'static str>,
+            #[case] _description: &str,
+        ) {
+            let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+            log.hash_key_override_status = status;
+            // Verify the value can be set and emit doesn't panic
+            assert_eq!(log.hash_key_override_status, status);
+            log.emit();
+        }
+
+        #[tokio::test]
+        async fn test_hash_key_override_status_skipped_in_scope() {
+            let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+
+            let (_, final_log) = run_with_canonical_log(log, async {
+                with_canonical_log(|l| l.hash_key_override_status = Some("skipped"));
+            })
+            .await;
+
+            assert_eq!(final_log.hash_key_override_status, Some("skipped"));
+        }
+
+        #[tokio::test]
+        async fn test_hash_key_override_status_error_in_scope() {
+            let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+
+            let (_, final_log) = run_with_canonical_log(log, async {
+                with_canonical_log(|l| l.hash_key_override_status = Some("error"));
+            })
+            .await;
+
+            assert_eq!(final_log.hash_key_override_status, Some("error"));
+        }
+
+        #[tokio::test]
+        async fn test_hash_key_override_status_empty_in_scope() {
+            let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+
+            let (_, final_log) = run_with_canonical_log(log, async {
+                with_canonical_log(|l| l.hash_key_override_status = Some("empty"));
+            })
+            .await;
+
+            assert_eq!(final_log.hash_key_override_status, Some("empty"));
         }
     }
 

@@ -57,7 +57,11 @@ export function IntegrationView({
         <div className="rounded border bg-surface-primary">
             <div className="flex justify-between items-center p-2">
                 <div className="flex gap-4 items-center ml-2">
-                    <img src={integration.icon_url} className="w-10 h-10 rounded" />
+                    <img
+                        src={integration.icon_url}
+                        alt={`${integration.kind} integration`}
+                        className="w-10 h-10 rounded"
+                    />
                     <div>
                         <div className="flex gap-2">
                             <span>
@@ -90,12 +94,12 @@ export function IntegrationView({
                         {isGitHub && (
                             <div className="mt-1">
                                 {githubRepositoriesLoading ? (
-                                    <div className="flex items-center gap-1 text-xs text-muted">
+                                    <div className="flex items-center gap-1 text-xs text-muted mr-4">
                                         <Spinner className="text-sm" />
                                         Loading repositories...
                                     </div>
                                 ) : repositories.length > 0 ? (
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2 mr-4">
                                         <div className="text-xs text-muted">
                                             <IconBranch className="inline mr-1" />
                                             {repositories.length} repositor{repositories.length === 1 ? 'y' : 'ies'}:{' '}
@@ -118,7 +122,7 @@ export function IntegrationView({
                                         />
                                     </div>
                                 ) : (
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2 mr-4">
                                         <div className="text-xs text-muted">
                                             <IconBranch className="inline mr-1" />
                                             No repositories accessible

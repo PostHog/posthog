@@ -1,5 +1,5 @@
 import math
-from typing import Literal, Optional, cast
+from typing import Optional, cast
 
 from posthog.test.base import BaseTest, MemoryLeakTestMixin
 
@@ -27,13 +27,14 @@ from posthog.hogql.ast import (
     VariableDeclaration,
     WhileStatement,
 )
+from posthog.hogql.constants import HogQLParserBackend
 from posthog.hogql.errors import ExposedHogQLError, SyntaxError
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_program, parse_select, parse_string_template
 from posthog.hogql.visitor import clear_locations
 
 
-def parser_test_factory(backend: Literal["python", "cpp"]):
-    base_classes = (MemoryLeakTestMixin, BaseTest) if backend == "cpp" else (BaseTest,)
+def parser_test_factory(backend: HogQLParserBackend):
+    base_classes = (BaseTest,) if backend == "python" else (MemoryLeakTestMixin, BaseTest)
 
     class TestParser(*base_classes):  # type: ignore
         MEMORY_INCREASE_PER_PARSE_LIMIT_B = 10_000
@@ -364,6 +365,11 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             self.assertEqual(self._expr("'n\null'"), ast.Constant(value="n\null"))  # newline passed into string
             self.assertEqual(self._expr("'n\\null'"), ast.Constant(value="n\null"))  # slash and 'n' passed into string
             self.assertEqual(self._expr("'n\\\\ull'"), ast.Constant(value="n\\ull"))  # slash and 'n' passed into string
+
+            # String literals containing special float names should remain as strings
+            self.assertEqual(self._expr("'Infinity'"), ast.Constant(value="Infinity"))
+            self.assertEqual(self._expr("'-Infinity'"), ast.Constant(value="-Infinity"))
+            self.assertEqual(self._expr("'NaN'"), ast.Constant(value="NaN"))
 
         def test_arithmetic_operations(self):
             self.assertEqual(
@@ -1630,6 +1636,19 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
 
+        def test_ctes_preserve_declaration_order(self):
+            node = cast(
+                ast.SelectQuery,
+                self._select(
+                    "with zz_first as (select 1 from events), "
+                    "mm_middle as (select * from zz_first), "
+                    "aa_last as (select * from mm_middle) "
+                    "select * from aa_last"
+                ),
+            )
+            assert isinstance(node.ctes, dict)
+            self.assertEqual(list(node.ctes.keys()), ["zz_first", "mm_middle", "aa_last"])
+
         def test_ctes_subquery_recursion(self):
             query = "with users as (select event, timestamp as tt from events ), final as ( select tt from users ) select * from final"
             self.assertEqual(
@@ -2105,10 +2124,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         # 4. <strong><a href="…">Hello <em>{event}</em></a>{'a'}</strong>
         def test_visit_hogqlx_mixed_nested_attributes(self) -> None:
             node = self._select(
-                "select <strong>"
-                "<a href='https://google.com'>Hello <em>{event}</em></a>"
-                "{'a'}"
-                "</strong> from events"
+                "select <strong><a href='https://google.com'>Hello <em>{event}</em></a>{'a'}</strong> from events"
             )
             assert isinstance(node, ast.SelectQuery)
             outer = cast(ast.HogQLXTag, node.select[0])
@@ -2939,5 +2955,53 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             )
 
             self.assertEqual(self._select("SELECT 1 UNION ALL SELECT 2;"), self._select("SELECT 1 UNION ALL SELECT 2"))
+
+        def test_postgres_style_cast(self):
+            self.assertEqual(
+                self._expr("x::int"),
+                ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="int"),
+            )
+            self.assertEqual(self._expr("'123'::int"), ast.TypeCast(expr=ast.Constant(value="123"), type_name="int"))
+            self.assertEqual(self._expr("x::integer"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="integer"))
+            self.assertEqual(self._expr("x::text"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="text"))
+            self.assertEqual(self._expr("x::float"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="float"))
+            self.assertEqual(self._expr("x::boolean"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="boolean"))
+            self.assertEqual(self._expr("x::INT"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="int"))
+            self.assertEqual(self._expr("x::Text"), ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="text"))
+            self.assertEqual(
+                self._expr("a.b::int"),
+                ast.TypeCast(expr=ast.Field(chain=["a", "b"]), type_name="int"),
+            )
+            self.assertEqual(
+                self._expr("x::int + 1"),
+                ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Add,
+                    left=ast.TypeCast(expr=ast.Field(chain=["x"]), type_name="int"),
+                    right=ast.Constant(value=1),
+                ),
+            )
+
+        def test_with_recursive(self):
+            parsed = self._select("WITH RECURSIVE events AS (SELECT * FROM posthog_event) SELECT * FROM events;")
+
+            expected = SelectQuery(
+                ctes={
+                    "events": ast.CTE(
+                        name="events",
+                        expr=SelectQuery(
+                            select=[Field(chain=["*"], from_asterisk=False)],
+                            select_from=JoinExpr(
+                                table=Field(chain=["posthog_event"], from_asterisk=False),
+                            ),
+                        ),
+                        cte_type="subquery",
+                        recursive=True,
+                    )
+                },
+                select=[Field(chain=["*"], from_asterisk=False)],
+                select_from=JoinExpr(table=Field(chain=["events"])),
+            )
+
+            self.assertEqual(parsed, expected)
 
     return TestParser

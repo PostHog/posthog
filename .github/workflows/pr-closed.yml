@@ -9,8 +9,8 @@ jobs:
     cleanup-hobby-preview:
         name: Cleanup hobby preview deployment
         if: contains(github.event.pull_request.labels.*.name, 'hobby-preview')
-        uses: ./.github/workflows/cleanup-hobby-preview.yml
-        # these permissions are required by cleanup-hobby-preview.yml
+        uses: ./.github/workflows/pr-cleanup.yml
+        # these permissions are required by pr-cleanup.yml
         permissions:
             deployments: write
         with:
@@ -41,7 +41,7 @@ jobs:
                   pr_title_escaped=$(echo "$PR_TITLE" | jq -R .)
                   echo "pr_title_escaped=${pr_title_escaped}" >> $GITHUB_ENV
             - name: Capture PR age to PostHog
-              uses: PostHog/posthog-github-action@8c42e50f2c52e002eabb9bee3f69b152ee8fc1dd # v1.0.1
+              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-pr-stats'

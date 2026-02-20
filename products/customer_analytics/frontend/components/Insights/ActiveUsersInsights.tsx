@@ -2,13 +2,16 @@ import { useValues } from 'kea'
 
 import { LemonBanner, LemonButton, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
-import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../constants'
+import { revenueAnalyticsLogic } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
+
+import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID, CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
 import { InsightDefinition, customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import { buildDashboardItemId, isPageviewWithoutFilters } from '../../utils'
 import { CustomerAnalyticsQueryCard } from '../CustomerAnalyticsQueryCard'
@@ -50,7 +53,10 @@ export function ActiveUsersInsights(): JSX.Element {
 }
 
 function PowerUsersTable(): JSX.Element {
-    const { businessType, customerLabel, dauSeries, selectedGroupType, tabId } = useValues(customerAnalyticsSceneLogic)
+    const { businessType, customerLabel, dauSeries, selectedGroupType, tabId, filterTestAccounts } =
+        useValues(customerAnalyticsSceneLogic)
+    const { isRevenueAnalyticsEnabled, baseCurrency } = useValues(revenueAnalyticsLogic)
+    const revenueFieldsEnabled = useFeatureFlag('REVENUE_FIELDS_IN_POWER_USERS_TABLE')
     const uniqueKey = `power-users-${tabId}`
     const insightProps: InsightLogicProps<InsightVizNode> = {
         dataNodeCollectionId: CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID,
@@ -60,6 +66,7 @@ function PowerUsersTable(): JSX.Element {
     const isB2c = businessType === 'b2c'
     const buttonTo = isB2c ? urls.persons() : urls.groups(selectedGroupType)
     const tooltip = isB2c ? 'Open people list' : `Open ${customerLabel.plural} list`
+    const revenueFields = isRevenueAnalyticsEnabled && revenueFieldsEnabled ? ['$virt_mrr', '$virt_revenue'] : []
 
     const query = {
         kind: NodeKind.DataTableNode,
@@ -68,8 +75,8 @@ function PowerUsersTable(): JSX.Element {
         source: {
             kind: NodeKind.ActorsQuery,
             select: isB2c
-                ? ['person_display_name -- Person', 'event_count', 'last_seen']
-                : ['group', 'event_count', 'last_seen'],
+                ? ['person_display_name -- Person', 'event_count', ...revenueFields, 'last_seen']
+                : ['group', 'event_count', ...revenueFields, 'last_seen'],
             source: {
                 kind: NodeKind.InsightActorsQuery,
                 source: {
@@ -82,12 +89,14 @@ function PowerUsersTable(): JSX.Element {
                     trendsFilter: {
                         display: ChartDisplayType.ActionsTable,
                     },
+                    filterTestAccounts,
                     ...(isB2c ? {} : { aggregation_group_type_index: selectedGroupType }),
                 },
                 series: 0,
             },
             orderBy: ['event_count DESC'],
             limit: 10,
+            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
         },
     }
 
@@ -112,6 +121,7 @@ function PowerUsersTable(): JSX.Element {
                         group: { title: customerLabel.singular },
                     },
                     insightProps,
+                    baseCurrency,
                 }}
             />
         </>

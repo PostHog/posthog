@@ -32,6 +32,7 @@ import { Reload } from '../DataNode/Reload'
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature } from '../DataTable/queryFeatures'
 import { LineGraph } from './Components/Charts/LineGraph'
+import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatmap'
 import { Table } from './Components/Table'
 import { TableDisplay } from './Components/TableDisplay'
 import { AddVariableButton } from './Components/Variables/AddVariableButton'
@@ -94,6 +95,7 @@ export function DataTableVisualization({
         },
         cachedResults,
         variablesOverride,
+        limitContext: context?.limitContext,
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
@@ -103,6 +105,7 @@ export function DataTableVisualization({
         loadPriority: insightProps.loadPriority,
         dataNodeCollectionId,
         variablesOverride,
+        limitContext: context?.limitContext,
     }
 
     // The `as unknown as InsightLogicProps` below is smelly, but it's required because Kea logics can't be generic
@@ -237,6 +240,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 presetChartHeight={presetChartHeight}
             />
         )
+    } else if (visualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
+        component = <TwoDimensionalHeatmap />
     } else if (visualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
     }

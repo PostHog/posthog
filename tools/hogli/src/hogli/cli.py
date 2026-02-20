@@ -10,7 +10,7 @@ import os
 from collections import defaultdict
 
 import click
-from hogli.command_types import BinScriptCommand, CompositeCommand, DirectCommand
+from hogli.command_types import BinScriptCommand, CompositeCommand, DirectCommand, HogliCommand
 from hogli.manifest import REPO_ROOT, get_manifest, load_manifest
 
 
@@ -18,7 +18,7 @@ class CategorizedGroup(click.Group):
     """Custom Click group that formats help output like git help with categories."""
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
-        """Format commands grouped by category, git-style."""
+        """Format commands grouped by category, git-style with extends tree."""
         from hogli.manifest import (
             get_category_for_command as get_cat_for_cmd,
             get_manifest,
@@ -30,12 +30,19 @@ class CategorizedGroup(click.Group):
         # Build a mapping from category key to title
         category_key_to_title = {cat.get("key"): cat.get("title") for cat in categories_list}
 
+        # Set of commands that extend others (will be rendered under their parent)
+        child_commands = {child for parent in self.commands for child in manifest_obj.get_children_for_command(parent)}
+
         # Group commands by category, storing (key, title) tuple
         grouped: dict[tuple[str, str], list[tuple[str, str]]] = defaultdict(list)
         for cmd_name, cmd in self.commands.items():
             # Skip hidden commands (they're still callable, just not shown in help)
             hogli_config = getattr(cmd, "hogli_config", {})
             if hogli_config.get("hidden", False):
+                continue
+
+            # Skip child commands - they'll be rendered under their parent
+            if cmd_name in child_commands:
                 continue
 
             category_title = get_cat_for_cmd(cmd_name)
@@ -61,7 +68,13 @@ class CategorizedGroup(click.Group):
 
         # Format each category section
         for (_category_key, category_title), commands in sorted_categories:
-            rows = [(cmd_name, help_text) for cmd_name, help_text in sorted(commands, key=lambda x: x[0])]
+            rows: list[tuple[str, str]] = []
+            for cmd_name, help_text in sorted(commands, key=lambda x: x[0]):
+                rows.append((cmd_name, help_text))
+                # Render children indented under parent
+                for child in manifest_obj.get_children_for_command(cmd_name):
+                    suffix = child.removeprefix(cmd_name)  # e.g., ":minimal"
+                    rows.append((f"  └─ {suffix}", ""))
             if rows:
                 with formatter.section(category_title):
                     formatter.write_dl(rows)
@@ -109,7 +122,7 @@ def quickstart() -> None:
     click.echo("  Opens http://localhost:8010 when ready.")
     click.echo("")
     click.echo("Optional:")
-    click.echo("  hogli start --minimal         fewer services, faster")
+    click.echo("  hogli dev:setup               configure which services to run")
     click.echo("  hogli dev:demo-data           generate test data")
     click.echo("  hogli dev:reset               full reset & reload")
     click.echo("")
@@ -212,8 +225,9 @@ def _register_script_commands() -> None:
             bin_script = config.get("bin_script")
             steps = config.get("steps")
             cmd = config.get("cmd")
+            hogli = config.get("hogli")
 
-            if not (bin_script or steps or cmd):
+            if not (bin_script or steps or cmd or hogli):
                 continue
 
             # Handle composition (steps field)
@@ -225,6 +239,12 @@ def _register_script_commands() -> None:
             # Handle direct commands (cmd field)
             if cmd:
                 command = DirectCommand(cli_name, config)
+                command.register(cli)
+                continue
+
+            # Handle hogli wrapper commands (hogli field)
+            if hogli:
+                command = HogliCommand(cli_name, config)
                 command.register(cli)
                 continue
 
@@ -246,7 +266,7 @@ def _import_custom_commands() -> None:
     """Import custom commands from configured commands_dir.
 
     Looks for commands in:
-    1. config.commands_dir in hogli.yaml (e.g., common/hogli)
+    1. config.commands_dir in hogli.yaml (e.g., common/posthog_hogli)
     2. Default: hogli/ folder next to hogli.yaml
     """
     import importlib.util

@@ -99,7 +99,7 @@ function getDjangoAdminLink(
     if (!user || !cloudRegion) {
         return ''
     }
-    const link = `http://go/admin${cloudRegion}/${user.email}`
+    const link = `https://${cloudRegion.toLowerCase()}.posthog.com/admin/posthog/user/${user.id}/change/`
     return `\nAdmin: ${link} (organization ID ${currentOrganization?.id}: ${currentOrganization?.name}, project ID ${currentTeam?.id}: ${currentTeam?.name})`
 }
 
@@ -178,7 +178,7 @@ export const TARGET_AREA_TO_NAME = [
             {
                 value: 'setup-wizard',
                 'data-attr': `support-form-target-area-setup-wizard`,
-                label: 'Setup wizard',
+                label: 'Wizard',
             },
         ],
     },
@@ -189,6 +189,11 @@ export const TARGET_AREA_TO_NAME = [
                 value: 'data_warehouse',
                 'data-attr': `support-form-target-area-data_warehouse`,
                 label: 'Data warehouse (sources)',
+            },
+            {
+                value: 'data_modeling',
+                'data-attr': `support-form-target-area-data_modeling`,
+                label: 'Data modeling (views, matviews, endpoints)',
             },
             {
                 value: 'batch_exports',
@@ -285,11 +290,6 @@ export const TARGET_AREA_TO_NAME = [
                 'data-attr': `support-form-target-area-logs`,
                 label: 'Logs',
             },
-            {
-                value: 'endpoints',
-                'data-attr': `support-form-target-area-endpoints`,
-                label: 'Endpoints',
-            },
         ],
     },
 ]
@@ -317,6 +317,7 @@ export type SupportTicketTargetArea =
     | 'data_management'
     | 'notebooks'
     | 'data_warehouse'
+    | 'data_modeling'
     | 'feature_flags'
     | 'analytics'
     | 'session_replay'
@@ -324,7 +325,6 @@ export type SupportTicketTargetArea =
     | 'surveys'
     | 'web_analytics'
     | 'error_tracking'
-    | 'logs'
     | 'cdp_destinations'
     | 'data_ingestion'
     | 'batch_exports'
@@ -333,7 +333,6 @@ export type SupportTicketTargetArea =
     | 'max-ai'
     | 'customer-analytics'
     | 'logs'
-    | 'endpoints'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -378,7 +377,6 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     workflows: 'workflows',
     billing: 'billing',
     logs: 'logs',
-    endpoints: 'endpoints',
 }
 
 export const SUPPORT_TICKET_TEMPLATES = {

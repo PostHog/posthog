@@ -354,7 +354,12 @@ class SnowflakeField(Field):
         else:
             snowflake_type = SnowflakeType(name=field.type, repeated=False)
 
-        return cls(field.name, snowflake_type, snowflake_type_to_data_type(snowflake_type), field.is_nullable)
+        return cls(
+            field.name,
+            snowflake_type,
+            snowflake_type_to_data_type(snowflake_type),
+            field.is_nullable,
+        )
 
     @property
     def snowflake_type_name(self) -> SnowflakeTypeName:
@@ -365,6 +370,9 @@ class SnowflakeField(Field):
 
     def to_destination_field(self) -> SnowflakeDestinationField:
         return SnowflakeDestinationField(name=self.name, type=self.snowflake_type_name, is_nullable=self.nullable)
+
+    def with_new_arrow_type(self, new_type: pa.DataType) -> "SnowflakeField":
+        return SnowflakeField(self.name, data_type_to_snowflake_type(new_type), new_type, self.nullable)
 
 
 class SnowflakeTable(Table):
@@ -599,7 +607,10 @@ class SnowflakeClient:
         # Call this again in case level was reset.
         self.ensure_snowflake_logger_level("INFO")
 
-        await self.execute_async_query("ALTER SESSION SET QUOTED_IDENTIFIERS_IGNORE_CASE = FALSE", fetch_results=False)
+        await self.execute_async_query(
+            "ALTER SESSION SET QUOTED_IDENTIFIERS_IGNORE_CASE = FALSE",
+            fetch_results=False,
+        )
 
         if use_namespace:
             await self.use_namespace()
@@ -731,7 +742,10 @@ class SnowflakeClient:
 
         query_execution_time = time.monotonic() - query_start_time
         self.logger.debug(
-            "Async query finished with status '%s' in %.2fs", query_status, query_execution_time, query_id=query_id
+            "Async query finished with status '%s' in %.2fs",
+            query_status,
+            query_execution_time,
+            query_id=query_id,
         )
 
         if fetch_results is False:
@@ -774,6 +788,12 @@ class SnowflakeClient:
 
         Returns:
             A SnowflakeTable.
+
+        Raises:
+            SnowflakeTableNotFoundError: If the table we are trying to get doesn't exist.
+            SnowflakeIncompatibleSchemaError: If the table does exist, but it is a
+                mutable table and one or more fields from the primary key are missing
+                from the table.
         """
         try:
             result = await self.execute_async_query(f"""
@@ -787,12 +807,27 @@ class SnowflakeClient:
             else:
                 raise
 
-        record_batch_field_names = [field.name.lower() for field in table.fields]
+        if table.is_mutable():
+            missing_primary_key_fields = set(table.primary_key) - {
+                field_metadata.name.lower() for field_metadata in metadata
+            }
+            if missing_primary_key_fields:
+                raise SnowflakeIncompatibleSchemaError(
+                    "Missing one or more fields from the table's primary key, "
+                    f"which are required for mutable models: {', '.join(f"'{name}'" for name in missing_primary_key_fields)}. "
+                    "Please review your table's schema and model configuration. "
+                    "Has the model been updated without updating the target table?"
+                )
+
+        record_batch_field_names = {field.name.lower() for field in table.fields}
         fields = (
-            SnowflakeDestinationField(metadata.name, FIELD_ID_TO_NAME[metadata.type_code], metadata.is_nullable)  # type: ignore[arg-type]
-            for metadata in metadata
-            # Only include fields that are present in the record batch schema
-            if metadata.name.lower() in record_batch_field_names
+            SnowflakeDestinationField(
+                field_metadata.name,
+                FIELD_ID_TO_NAME[field_metadata.type_code],  # type: ignore[arg-type]
+                field_metadata.is_nullable,
+            )
+            for field_metadata in metadata
+            if field_metadata.name.lower() in record_batch_field_names
         )
 
         return SnowflakeTable.from_snowflake_table(
@@ -1140,7 +1175,10 @@ def _get_merge_settings(
     if isinstance(model, BatchExportModel):
         if model.name == "persons":
             primary_key: collections.abc.Sequence[str] = ("team_id", "distinct_id")
-            version_key: collections.abc.Sequence[str] = ("person_version", "person_distinct_id_version")
+            version_key: collections.abc.Sequence[str] = (
+                "person_version",
+                "person_distinct_id_version",
+            )
 
         elif model.name == "sessions":
             primary_key = ("team_id", "session_id")
@@ -1163,8 +1201,9 @@ class SnowflakeConsumer(Consumer):
         self,
         snowflake_client: SnowflakeClient,
         snowflake_table: SnowflakeTable,
+        model: str = "events",
     ):
-        super().__init__()
+        super().__init__(model=model)
 
         self.snowflake_client = snowflake_client
         self.snowflake_table = snowflake_table
@@ -1172,7 +1211,8 @@ class SnowflakeConsumer(Consumer):
         # Simple file management - no concurrent uploads for now
         self.current_file_index = 0
         self.current_buffer = NamedBytesIO(
-            b"", name=f"{self.snowflake_table.stage_prefix}/{self.current_file_index}.parquet.zst"
+            b"",
+            name=f"{self.snowflake_table.stage_prefix}/{self.current_file_index}.parquet.zst",
         )
 
     async def consume_chunk(self, data: bytes):
@@ -1187,7 +1227,8 @@ class SnowflakeConsumer(Consumer):
         """Start a new file (reset state for file splitting)."""
         self.current_file_index += 1
         self.current_buffer = NamedBytesIO(
-            b"", name=f"{self.snowflake_table.stage_prefix}/{self.current_file_index}.parquet.zst"
+            b"",
+            name=f"{self.snowflake_table.stage_prefix}/{self.current_file_index}.parquet.zst",
         )
 
     async def _upload_current_buffer(self):
@@ -1226,7 +1267,9 @@ class SnowflakeConsumer(Consumer):
 
 @activity.defn
 @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
-async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInputs) -> BatchExportResult:
+async def insert_into_snowflake_activity_from_stage(
+    inputs: SnowflakeInsertInputs,
+) -> BatchExportResult:
     """Activity to batch export data from internal S3 stage to Snowflake.
 
     This activity reads data from our internal S3 stage instead of ClickHouse directly, and uses concurrent uploads to
@@ -1287,7 +1330,12 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
         )
 
         # TODO: Figure out which fields are JSON without hard-coding them here.
-        json_fields = {"properties", "people_set", "people_set_once", "person_properties"}
+        json_fields = {
+            "properties",
+            "people_set",
+            "people_set_once",
+            "person_properties",
+        }
         record_batch_schema = pa.schema(
             field.with_type(JsonType()) if field.name in json_fields else field for field in record_batch_schema
         )
@@ -1348,6 +1396,7 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                 consumer = SnowflakeConsumer(
                     snowflake_client=snow_client,
                     snowflake_table=snow_consumer_table,
+                    model=model.name if isinstance(model, BatchExportModel) else "events",
                 )
 
                 transformer = PipelineTransformer(
@@ -1427,7 +1476,11 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=60),
                     maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
+                    non_retryable_error_types=[
+                        "NotNullViolation",
+                        "IntegrityError",
+                        "OverBillingLimitError",
+                    ],
                 ),
             )
         except OverBillingLimitError:

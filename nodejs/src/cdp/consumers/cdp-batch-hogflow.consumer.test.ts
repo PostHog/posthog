@@ -5,7 +5,6 @@ import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
-import { HOG_FILTERS_EXAMPLES } from '../_tests/examples'
 import { createKafkaMessage } from '../_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
@@ -72,8 +71,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     .withTeamId(team.id)
                     .withSimpleWorkflow({
                         trigger: {
-                            type: 'event',
-                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                            type: 'batch',
+                            filters: { properties: [] },
                         },
                     })
                     .build()
@@ -82,7 +81,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
-                batchJobId: new UUIDT().toString(),
+                parentRunId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
                     filter_test_accounts: false,
@@ -105,7 +104,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: 'non-existent-id',
-                batchJobId: new UUIDT().toString(),
+                parentRunId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
                 },
@@ -124,8 +123,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     .withTeamId(team.id)
                     .withSimpleWorkflow({
                         trigger: {
-                            type: 'event',
-                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                            type: 'batch',
+                            filters: { properties: [] },
                         },
                     })
                     .build()
@@ -134,7 +133,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: 999999, // Non-existent team
                 hogFlowId: hogFlow.id,
-                batchJobId: new UUIDT().toString(),
+                parentRunId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
                 },
@@ -163,6 +162,66 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
 
             expect(result).toHaveLength(0)
         })
+
+        it('should filter out messages with draft hogflow status', async () => {
+            const hogFlow = await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'batch',
+                            filters: { properties: [] },
+                        },
+                    })
+                    .withStatus('draft')
+                    .build()
+            )
+
+            const batchRequest: BatchHogFlowRequest = {
+                teamId: team.id,
+                hogFlowId: hogFlow.id,
+                parentRunId: new UUIDT().toString(),
+                filters: {
+                    properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
+                },
+            }
+
+            const messages = [createKafkaMessage(batchRequest)]
+
+            const result = await processor._parseKafkaBatch(messages)
+
+            expect(result).toHaveLength(0)
+        })
+
+        it('should filter out messages with archived hogflow status', async () => {
+            const hogFlow = await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'batch',
+                            filters: { properties: [] },
+                        },
+                    })
+                    .withStatus('archived')
+                    .build()
+            )
+
+            const batchRequest: BatchHogFlowRequest = {
+                teamId: team.id,
+                hogFlowId: hogFlow.id,
+                parentRunId: new UUIDT().toString(),
+                filters: {
+                    properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
+                },
+            }
+
+            const messages = [createKafkaMessage(batchRequest)]
+
+            const result = await processor._parseKafkaBatch(messages)
+
+            expect(result).toHaveLength(0)
+        })
     })
 
     describe('createHogFlowInvocations', () => {
@@ -172,8 +231,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     .withTeamId(team.id)
                     .withSimpleWorkflow({
                         trigger: {
-                            type: 'event',
-                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                            type: 'batch',
+                            filters: {} as any,
                         },
                     })
                     .build()
@@ -182,7 +241,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
-                batchJobId: new UUIDT().toString(),
+                parentRunId: new UUIDT().toString(),
                 filters: {},
             }
 
@@ -201,8 +260,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     .withTeamId(team.id)
                     .withSimpleWorkflow({
                         trigger: {
-                            type: 'event',
-                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                            type: 'batch',
+                            filters: { properties: [] },
                         },
                     })
                     .build()
@@ -210,13 +269,15 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
 
             // Mock the personsManager to return some persons
             const mockCountMany = jest.fn().mockResolvedValue(2)
-            const mockStreamMany = jest.fn().mockImplementation(async ({ onPerson }: any) => {
-                await onPerson({ personId: 'person-1', distinctId: 'distinct-1' })
-                await onPerson({ personId: 'person-2', distinctId: 'distinct-2' })
+            const mockStreamMany = jest.fn().mockImplementation(async ({ onPersonBatch }: any) => {
+                await onPersonBatch([
+                    { personId: 'person-1', distinctId: 'distinct-1' },
+                    { personId: 'person-2', distinctId: 'distinct-2' },
+                ])
             })
 
-            processor['personsManager'].countMany = mockCountMany
-            processor['personsManager'].streamMany = mockStreamMany
+            processor['clickHousePersonsManager'].countMany = mockCountMany
+            processor['clickHousePersonsManager'].streamMany = mockStreamMany
 
             // Mock rate limiter to not limit
             jest.spyOn(processor['hogRateLimiter'], 'rateLimitMany').mockResolvedValue([
@@ -226,7 +287,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
-                batchJobId: new UUIDT().toString(),
+                parentRunId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
                 },
@@ -243,6 +304,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                 id: expect.any(String),
                 teamId: team.id,
                 functionId: hogFlow.id,
+                parentRunId: batchRequest.parentRunId,
                 queue: 'hogflow',
                 queuePriority: 1,
                 state: {
@@ -259,6 +321,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             expect(result[1]).toMatchObject({
                 id: expect.any(String),
                 teamId: team.id,
+                parentRunId: batchRequest.parentRunId,
                 functionId: hogFlow.id,
                 queue: 'hogflow',
                 queuePriority: 1,
@@ -283,90 +346,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     teamId: team.id,
                     properties: batchRequest.filters.properties,
                 },
-                onPerson: expect.any(Function),
+                onPersonBatch: expect.any(Function),
             })
-        })
-
-        it('should respect rate limits', async () => {
-            const hogFlow = await insertHogFlow(
-                new FixtureHogFlowBuilder()
-                    .withTeamId(team.id)
-                    .withSimpleWorkflow({
-                        trigger: {
-                            type: 'event',
-                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
-                        },
-                    })
-                    .build()
-            )
-
-            // Mock the personsManager to return some persons
-            jest.spyOn(processor['personsManager'], 'countMany').mockResolvedValue(2)
-            jest.spyOn(processor['personsManager'], 'streamMany').mockResolvedValue()
-
-            // Mock rate limiter to limit
-            jest.spyOn(processor['hogRateLimiter'], 'rateLimitMany').mockResolvedValue([
-                [hogFlow.id, { isRateLimited: true, tokens: 0 }],
-            ])
-
-            const batchRequest: BatchHogFlowRequest = {
-                teamId: team.id,
-                hogFlowId: hogFlow.id,
-                batchJobId: new UUIDT().toString(),
-                filters: {
-                    properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
-                },
-            }
-
-            const result = await processor['createHogFlowInvocations']({
-                batchHogFlowRequest: batchRequest,
-                team,
-                hogFlow,
-            })
-
-            expect(result).toHaveLength(0)
-            expect(processor['personsManager'].streamMany).not.toHaveBeenCalled()
-        })
-
-        it('should respect rate limits when tokens are insufficient', async () => {
-            const hogFlow = await insertHogFlow(
-                new FixtureHogFlowBuilder()
-                    .withTeamId(team.id)
-                    .withSimpleWorkflow({
-                        trigger: {
-                            type: 'event',
-                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
-                        },
-                    })
-                    .build()
-            )
-
-            // Mock the personsManager to return 10 persons
-            jest.spyOn(processor['personsManager'], 'countMany').mockResolvedValue(10)
-            jest.spyOn(processor['personsManager'], 'streamMany').mockResolvedValue()
-
-            // Mock rate limiter with isRateLimited=false but insufficient tokens (5 tokens for 10 persons)
-            jest.spyOn(processor['hogRateLimiter'], 'rateLimitMany').mockResolvedValue([
-                [hogFlow.id, { isRateLimited: false, tokens: 5 }],
-            ])
-
-            const batchRequest: BatchHogFlowRequest = {
-                teamId: team.id,
-                hogFlowId: hogFlow.id,
-                batchJobId: new UUIDT().toString(),
-                filters: {
-                    properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
-                },
-            }
-
-            const result = await processor['createHogFlowInvocations']({
-                batchHogFlowRequest: batchRequest,
-                team,
-                hogFlow,
-            })
-
-            expect(result).toHaveLength(0)
-            expect(processor['personsManager'].streamMany).not.toHaveBeenCalled()
         })
 
         it('should include default variables from hogFlow', async () => {
@@ -375,8 +356,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     .withTeamId(team.id)
                     .withSimpleWorkflow({
                         trigger: {
-                            type: 'event',
-                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                            type: 'batch',
+                            filters: { properties: [] },
                         },
                     })
                     .build()
@@ -390,11 +371,11 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             ]
 
             // Mock the personsManager
-            const mockStreamMany = jest.fn().mockImplementation(async ({ onPerson }: any) => {
-                await onPerson({ personId: 'person-1', distinctId: 'distinct-1' })
+            const mockStreamMany = jest.fn().mockImplementation(async ({ onPersonBatch }: any) => {
+                await onPersonBatch([{ personId: 'person-1', distinctId: 'distinct-1' }])
             })
-            jest.spyOn(processor['personsManager'], 'countMany').mockResolvedValue(1)
-            processor['personsManager'].streamMany = mockStreamMany
+            jest.spyOn(processor['clickHousePersonsManager'], 'countMany').mockResolvedValue(1)
+            processor['clickHousePersonsManager'].streamMany = mockStreamMany
 
             // Mock rate limiter
             jest.spyOn(processor['hogRateLimiter'], 'rateLimitMany').mockResolvedValue([
@@ -404,7 +385,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
-                batchJobId: new UUIDT().toString(),
+                parentRunId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
                 },
@@ -432,19 +413,19 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     .withTeamId(team.id)
                     .withSimpleWorkflow({
                         trigger: {
-                            type: 'event',
-                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                            type: 'batch',
+                            filters: { properties: [] },
                         },
                     })
                     .build()
             )
 
             // Mock the personsManager
-            const mockStreamMany = jest.fn().mockImplementation(async ({ onPerson }: any) => {
-                await onPerson({ personId: 'person-1', distinctId: 'distinct-1' })
+            const mockStreamMany = jest.fn().mockImplementation(async ({ onPersonBatch }: any) => {
+                await onPersonBatch([{ personId: 'person-1', distinctId: 'distinct-1' }])
             })
-            jest.spyOn(processor['personsManager'], 'countMany').mockResolvedValue(1)
-            processor['personsManager'].streamMany = mockStreamMany
+            jest.spyOn(processor['clickHousePersonsManager'], 'countMany').mockResolvedValue(1)
+            processor['clickHousePersonsManager'].streamMany = mockStreamMany
 
             // Mock rate limiter
             jest.spyOn(processor['hogRateLimiter'], 'rateLimitMany').mockResolvedValue([
@@ -454,7 +435,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
-                batchJobId: new UUIDT().toString(),
+                parentRunId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
                 },
@@ -492,8 +473,8 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     .withTeamId(team.id)
                     .withSimpleWorkflow({
                         trigger: {
-                            type: 'event',
-                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                            type: 'batch',
+                            filters: { properties: [] },
                         },
                     })
                     .build()
@@ -504,19 +485,19 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     .withTeamId(team.id)
                     .withSimpleWorkflow({
                         trigger: {
-                            type: 'event',
-                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                            type: 'batch',
+                            filters: { properties: [] },
                         },
                     })
                     .build()
             )
 
             // Mock the personsManager
-            const mockStreamMany = jest.fn().mockImplementation(async ({ onPerson }: any) => {
-                await onPerson({ personId: 'person-1', distinctId: 'distinct-1' })
+            const mockStreamMany = jest.fn().mockImplementation(async ({ onPersonBatch }: any) => {
+                await onPersonBatch([{ personId: 'person-1', distinctId: 'distinct-1' }])
             })
-            jest.spyOn(processor['personsManager'], 'countMany').mockResolvedValue(1)
-            processor['personsManager'].streamMany = mockStreamMany
+            jest.spyOn(processor['clickHousePersonsManager'], 'countMany').mockResolvedValue(1)
+            processor['clickHousePersonsManager'].streamMany = mockStreamMany
 
             // Mock rate limiter
             jest.spyOn(processor['hogRateLimiter'], 'rateLimitMany').mockResolvedValue([
@@ -527,7 +508,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest1: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow1.id,
-                batchJobId: new UUIDT().toString(),
+                parentRunId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test1@example.com', operator: 'exact', type: 'person' }],
                 },
@@ -536,7 +517,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest2: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow2.id,
-                batchJobId: new UUIDT().toString(),
+                parentRunId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test2@example.com', operator: 'exact', type: 'person' }],
                 },
@@ -565,20 +546,22 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
                     .withTeamId(team.id)
                     .withSimpleWorkflow({
                         trigger: {
-                            type: 'event',
-                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                            type: 'batch',
+                            filters: { properties: [] },
                         },
                     })
                     .build()
             )
 
             // Mock the personsManager
-            const mockStreamMany = jest.fn().mockImplementation(async ({ onPerson }: any) => {
-                await onPerson({ personId: 'person-1', distinctId: 'distinct-1' })
-                await onPerson({ personId: 'person-2', distinctId: 'distinct-2' })
+            const mockStreamMany = jest.fn().mockImplementation(async ({ onPersonBatch }: any) => {
+                await onPersonBatch([
+                    { personId: 'person-1', distinctId: 'distinct-1' },
+                    { personId: 'person-2', distinctId: 'distinct-2' },
+                ])
             })
-            jest.spyOn(processor['personsManager'], 'countMany').mockResolvedValue(2)
-            processor['personsManager'].streamMany = mockStreamMany
+            jest.spyOn(processor['clickHousePersonsManager'], 'countMany').mockResolvedValue(2)
+            processor['clickHousePersonsManager'].streamMany = mockStreamMany
 
             // Mock rate limiter
             jest.spyOn(processor['hogRateLimiter'], 'rateLimitMany').mockResolvedValue([
@@ -588,7 +571,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             const batchRequest: BatchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
-                batchJobId: new UUIDT().toString(),
+                parentRunId: new UUIDT().toString(),
                 filters: {
                     properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
                 },

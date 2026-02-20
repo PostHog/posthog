@@ -32,7 +32,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         self.organization.save()
 
     def test_team_effective_membership_level(self):
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
 
     def test_team_effective_membership_level_updated(self):
@@ -122,7 +122,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         self.organization_membership.save()
 
         # Check effective membership level
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
 
     def test_team_effective_membership_level_new_access_control_private_team_admin(self):
@@ -206,7 +206,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         )
 
         # Check effective membership level
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
 
     def test_team_effective_membership_level_new_access_control_private_team_with_role_access(self):
@@ -253,6 +253,124 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         # Check effective membership level
         with self.assertNumQueries(3):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
+
+    def test_team_effective_membership_level_higher_project_membership_than_org_membership(self):
+        """Test that users with admin project access will have its effective membership level at admin"""
+        from ee.models.rbac.access_control import AccessControl
+
+        # Set up user as a member
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        # Give the member admin access to the team
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=self.organization_membership,
+            access_level="admin",
+        )
+
+        assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+
+    def test_team_effective_membership_level_with_higher_role_based_access(self):
+        """Test that users with admin role-based access have its effective membership level at admin"""
+        from ee.models.rbac.access_control import AccessControl
+        from ee.models.rbac.role import Role, RoleMembership
+
+        # Set up user as a member
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        # Create a role
+        role = Role.objects.create(name="Test Role", organization=self.organization)
+
+        # Assign the member to the role
+        RoleMembership.objects.create(
+            role=role,
+            user=self.user,
+            organization_member=self.organization_membership,
+        )
+
+        # Give the role access to the team
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            role=role,
+            access_level="admin",
+        )
+
+        # Check effective membership level
+        with self.assertNumQueries(3):
+            assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+
+    def test_team_effective_membership_level_lower_project_membership_than_org_membership(self):
+        """Test that users with admin org access maintain their admin level even with lower member project access"""
+        from ee.models.rbac.access_control import AccessControl
+
+        # Set up user as admin
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Give the user member access to the team
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=self.organization_membership,
+            access_level="member",
+        )
+
+        assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+
+    def test_role_admin_access_overrides_direct_member_access(self):
+        """
+        BUG TEST: When a user has both:
+        1. Direct MEMBER access to a project
+        2. Role-based ADMIN access to the same project
+
+        The role admin access should take precedence and return ADMIN level.
+        Currently this fails because direct member access returns early without checking roles.
+        """
+        from ee.models.rbac.access_control import AccessControl
+        from ee.models.rbac.role import Role, RoleMembership
+
+        # Set up user as organization member (not admin)
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        # Step 1: Give user direct MEMBER access to the project
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=self.organization_membership,
+            access_level="member",
+        )
+
+        # Step 2: Create a role with ADMIN access to the same project
+        admin_role = Role.objects.create(name="Project Admin Role", organization=self.organization)
+
+        # Step 3: Assign the user to this admin role
+        RoleMembership.objects.create(
+            role=admin_role,
+            user=self.user,
+            organization_member=self.organization_membership,
+        )
+
+        # Step 4: Give the role ADMIN access to the project
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            role=admin_role,
+            access_level="admin",
+        )
+
+        # Expected: Should return ADMIN level (role access trumps direct access)
+        # Currently fails: Returns MEMBER level (direct access returned early)
+        assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
 
 
 class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
@@ -467,7 +585,7 @@ class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
         user_permissions = self.permissions()
         user_permissions.set_preloaded_dashboard_tiles(tiles)
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(5):
             assert user_permissions.current_team.effective_membership_level is not None
             assert user_permissions.dashboard(dashboard).effective_restriction_level is not None
             assert user_permissions.dashboard(dashboard).can_restrict is not None

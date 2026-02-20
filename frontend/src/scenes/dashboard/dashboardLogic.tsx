@@ -31,7 +31,7 @@ import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uu
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { BREAKPOINTS } from 'scenes/dashboard/dashboardUtils'
-import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
+import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { Scene } from 'scenes/sceneTypes'
@@ -201,6 +201,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setRefreshError: (shortId: InsightShortId, error?: Error) => ({ shortId, error }),
         abortQuery: (payload: { queryId: string; queryStartTime: number }) => payload,
         abortAnyRunningQuery: true,
+        cancelDashboardRefresh: true,
 
         /**
          * Auto-refresh while on page.
@@ -238,6 +239,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setAccessDeniedToDashboard: true,
         /** Update the dashboard in dashboardsModel with given payload. */
         triggerDashboardUpdate: (payload) => ({ payload }),
+        updateDashboardTags: (tags: string[]) => ({ tags }),
         /** Update page visibility for virtualized rendering. */
         setPageVisibility: (visible: boolean) => ({ visible }),
         setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
@@ -355,9 +357,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.abortAnyRunningQuery()
 
                     try {
+                        // Only persist sm layouts; xs layouts are derived on the fly
                         const layoutsToUpdate = (values.dashboard?.tiles || []).map((tile) => ({
                             id: tile.id,
-                            layouts: tile.layouts,
+                            layouts: tile.layouts?.sm ? { sm: tile.layouts.sm } : {},
                         }))
 
                         breakpoint()
@@ -433,10 +436,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             newTile.text = { body: newTile.text.body } as TextModel
                         }
 
+                        const { duplicateLayouts, tilesToUpdate } = calculateDuplicateLayout(values.layouts, tile.id)
+
                         const dashboard: DashboardType<InsightModel> = await api.update(
                             `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                             {
-                                duplicate_tiles: [newTile],
+                                duplicate_tiles: [{ ...newTile, layouts: duplicateLayouts }],
+                                tiles: tilesToUpdate.length > 0 ? tilesToUpdate : undefined,
                             }
                         )
                         return getQueryBasedDashboard(dashboard)
@@ -563,9 +569,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 updateLayouts: (state, { layouts }) => {
                     const itemLayouts = layoutsByTile(layouts)
 
+                    // Only persist sm layouts; xs layouts are derived on the fly
                     return {
                         ...state,
-                        tiles: state?.tiles?.map((tile) => ({ ...tile, layouts: itemLayouts[tile.id] })),
+                        tiles: state?.tiles?.map((tile) => ({
+                            ...tile,
+                            layouts: itemLayouts[tile.id]?.sm ? { sm: itemLayouts[tile.id].sm } : {},
+                        })),
                     } as DashboardType<QueryBasedInsightModel>
                 },
                 [dashboardsModel.actionTypes.tileMovedToDashboard]: (state, { tile, dashboardId }) => {
@@ -722,6 +732,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }),
                 refreshDashboardItems: () => ({}),
                 abortQuery: () => ({}),
+                cancelDashboardRefresh: () => ({}),
             },
         ],
         columns: [
@@ -863,6 +874,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     breakdown_filter: undefined,
                     explicitDate: undefined,
                 }),
+            },
+        ],
+        isSavingTags: [
+            false,
+            {
+                updateDashboardTags: () => true,
+                [dashboardsModel.actionTypes.updateDashboardSuccess]: (state, { dashboard }) => {
+                    return dashboard && dashboard.id === props.id ? false : state
+                },
+                [dashboardsModel.actionTypes.updateDashboardFailure]: () => false,
             },
         ],
     })),
@@ -1602,7 +1623,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // REFRESH DONE: all insights have been refreshed
 
                 // update last refresh time, only if we've forced a blocking refresh of the dashboard
-                if (forceRefresh) {
+                // and all tiles were refreshed
+                if (forceRefresh && tilesAbortedCount === 0) {
                     actions.updateDashboardLastRefresh(dayjs())
                 }
 
@@ -1694,8 +1716,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     action: RefreshDashboardItemsAction.Refresh,
                     forceRefresh: false,
                 })
-            } else if (mode === null && source === DashboardEventSource.DashboardHeaderSaveDashboard) {
-                // save edit mode changes
+            } else if (
+                mode === null &&
+                (source === DashboardEventSource.DashboardHeaderSaveDashboard ||
+                    source === DashboardEventSource.SceneCommonButtons)
+            ) {
+                // save edit mode changes when exiting via Save button or E key/Edit layout button
                 actions.saveEditModeChanges()
             }
 
@@ -1786,6 +1812,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 cache.abortController.abort()
                 cache.abortController = null
             }
+        },
+        cancelDashboardRefresh: () => {
+            actions.abortAnyRunningQuery()
         },
         abortQuery: async ({ queryId, queryStartTime }) => {
             const { currentTeamId } = values
@@ -1879,7 +1908,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 id: props.id,
                 last_refresh: lastDashboardRefresh.toISOString(),
                 discardResult: true,
+                allowUndo: false,
             })
+        },
+        updateDashboardTags: ({ tags }: { tags: string[] }) => {
+            actions.triggerDashboardUpdate({ tags })
         },
         setTileOverride: ({ tile }) => {
             const tileLogicProps = { dashboardId: props.id, tileId: tile.id, filtersOverrides: tile.filters_overrides }

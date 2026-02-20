@@ -10,6 +10,7 @@ from posthog.dags.common import JobOwners
 
 notification_channel_per_team = {
     JobOwners.TEAM_ANALYTICS_PLATFORM.value: "#alerts-analytics-platform",
+    JobOwners.TEAM_BILLING.value: "#alerts-billing",
     JobOwners.TEAM_CLICKHOUSE.value: "#alerts-clickhouse",
     JobOwners.TEAM_DATA_STACK.value: "#alerts-data-warehouse",
     JobOwners.TEAM_ERROR_TRACKING.value: "#alerts-error-tracking",
@@ -37,7 +38,7 @@ def get_job_owner_for_alert(failed_run: dagster.DagsterRun, error_message: str) 
     # Special handling for manually launched asset jobs
     if job_name == "__ASSET_JOB":
         # Check if the error message contains web_ prefixed failed steps
-        # Pattern: "Steps failed: ['web_analytics_bounces_hourly', 'web_analytics_stats_table_hourly']"
+        # Pattern: "Steps failed: ['web_pre_aggregated_bounces', 'web_pre_aggregated_stats']"
         web_step_pattern = r"Steps failed:.*?\[([^\]]+)\]"
         match = re.search(web_step_pattern, error_message)
 
@@ -113,7 +114,7 @@ def notify_slack_on_failure(context: dagster.RunFailureSensorContext, slack: dag
     environment = (
         f"{settings.CLOUD_DEPLOYMENT} :flag-{settings.CLOUD_DEPLOYMENT}:" if settings.CLOUD_DEPLOYMENT else "unknown"
     )
-    blocks = [
+    blocks: list[dict[str, object]] = [
         {
             "type": "section",
             "text": {

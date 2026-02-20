@@ -26,46 +26,42 @@ def create_clickhouse_tables():
         CREATE_MV_TABLE_QUERIES,
         CREATE_VIEW_QUERIES,
         build_query,
+        get_table_name,
     )
 
-    num_expected_tables = (
-        len(CREATE_MERGETREE_TABLE_QUERIES)
-        + len(CREATE_DISTRIBUTED_TABLE_QUERIES)
-        + len(CREATE_MV_TABLE_QUERIES)
-        + len(CREATE_VIEW_QUERIES)
-        + len(CREATE_DICTIONARY_QUERIES)
-    )
+    existing_tables = {
+        row[0]
+        for row in sync_execute(
+            "SELECT name FROM system.tables WHERE database = %(database)s",
+            {"database": settings.CLICKHOUSE_DATABASE},
+        )
+    }
 
-    # Evaluation tests use Kafka for faster data ingestion.
-    if settings.IN_EVAL_TESTING:
-        num_expected_tables += len(CREATE_KAFKA_TABLE_QUERIES)
+    def missing(queries):
+        return [q for q in queries if get_table_name(q) not in existing_tables]
 
-    [[num_tables]] = sync_execute(
-        "SELECT count() FROM system.tables WHERE database = %(database)s",
-        {"database": settings.CLICKHOUSE_DATABASE},
-    )
-
-    # Check if all the tables have already been created. Views, materialized views, and dictionaries also count
-    if num_tables == num_expected_tables:
-        return
-
-    table_queries = list(map(build_query, CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES))
-    run_clickhouse_statement_in_parallel(table_queries)
+    table_queries = list(map(build_query, missing(CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES)))
+    if table_queries:
+        run_clickhouse_statement_in_parallel(table_queries)
 
     if settings.IN_EVAL_TESTING:
-        kafka_table_queries = list(map(build_query, CREATE_KAFKA_TABLE_QUERIES))
-        run_clickhouse_statement_in_parallel(kafka_table_queries)
+        kafka_table_queries = list(map(build_query, missing(CREATE_KAFKA_TABLE_QUERIES)))
+        if kafka_table_queries:
+            run_clickhouse_statement_in_parallel(kafka_table_queries)
 
-    mv_queries = list(map(build_query, CREATE_MV_TABLE_QUERIES))
-    run_clickhouse_statement_in_parallel(mv_queries)
+    mv_queries = list(map(build_query, missing(CREATE_MV_TABLE_QUERIES)))
+    if mv_queries:
+        run_clickhouse_statement_in_parallel(mv_queries)
 
-    view_queries = list(map(build_query, CREATE_VIEW_QUERIES))
-    run_clickhouse_statement_in_parallel(view_queries)
+    view_queries = list(map(build_query, missing(CREATE_VIEW_QUERIES)))
+    if view_queries:
+        run_clickhouse_statement_in_parallel(view_queries)
 
-    dictionary_queries = list(map(build_query, CREATE_DICTIONARY_QUERIES))
-    run_clickhouse_statement_in_parallel(dictionary_queries)
+    dictionary_queries = list(map(build_query, missing(CREATE_DICTIONARY_QUERIES)))
+    if dictionary_queries:
+        run_clickhouse_statement_in_parallel(dictionary_queries)
 
-    data_queries = list(map(build_query, CREATE_DATA_QUERIES))
+    data_queries = list(map(build_query, CREATE_DATA_QUERIES()))
     run_clickhouse_statement_in_parallel(data_queries)
 
 
@@ -95,10 +91,7 @@ def reset_clickhouse_tables():
     from posthog.models.sessions.sql import TRUNCATE_SESSIONS_TABLE_SQL
 
     from products.error_tracking.backend.embedding import TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL
-    from products.error_tracking.backend.sql import (
-        TRUNCATE_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL,
-        TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
-    )
+    from products.error_tracking.backend.sql import TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
     TABLES_TO_CREATE_DROP: list[str] = [
@@ -110,7 +103,6 @@ def reset_clickhouse_tables():
         TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL(),
         TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL(),
         TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL(),
-        TRUNCATE_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL(),
         TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL(),
         TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
         TRUNCATE_COHORTPEOPLE_TABLE_SQL,
@@ -143,7 +135,7 @@ def reset_clickhouse_tables():
 
     from posthog.clickhouse.schema import CREATE_DATA_QUERIES
 
-    run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES))
+    run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES()))
 
 
 def run_persons_sqlx_migrations(keepdb: bool = False):
@@ -215,13 +207,11 @@ def run_persons_sqlx_migrations(keepdb: bool = False):
         )
     except subprocess.CalledProcessError as e:
         raise RuntimeError(
-            f"Failed to run sqlx migrations from {migrations_path}. "
-            f"Error: {e.stderr.decode() if e.stderr else str(e)}"
+            f"Failed to run sqlx migrations from {migrations_path}. Error: {e.stderr.decode() if e.stderr else str(e)}"
         ) from e
 
 
-@pytest.fixture(scope="package")
-def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
+def _django_db_setup(django_db_keepdb, django_db_blocker):
     # Django migrations have run (via django_db_setup parameter)
     # Configure persons database now that we know the actual test database name
     from django.db import connection
@@ -310,6 +300,11 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
             reset_clickhouse_tables()
     else:
         database.drop_database()
+
+
+@pytest.fixture(scope="package")
+def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
+    yield from _django_db_setup(django_db_keepdb, django_db_blocker)
 
 
 @pytest.fixture(autouse=True)
@@ -403,11 +398,14 @@ def mock_email_mfa_verifier(request, mocker):
     Mock the EmailMFAVerifier.should_send_email_mfa_verification method to return False for all tests.
     Can be disabled by using @pytest.mark.disable_mock_email_mfa_verifier decorator.
     """
+    from posthog.helpers.two_factor_session import EmailMFACheckResult
+
     if "disable_mock_email_mfa_verifier" in request.keywords:
         return
 
     mocker.patch(
-        "posthog.helpers.two_factor_session.EmailMFAVerifier.should_send_email_mfa_verification", return_value=False
+        "posthog.helpers.two_factor_session.EmailMFAVerifier.should_send_email_mfa_verification",
+        return_value=EmailMFACheckResult(should_send=False),
     )
 
 

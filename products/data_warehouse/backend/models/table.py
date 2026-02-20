@@ -20,10 +20,11 @@ from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     build_function_call,
 )
+from posthog.hogql.escape_sql import escape_clickhouse_identifier
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Product, tag_queries
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries, wrap_query_error
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries, wrap_clickhouse_query_error
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.settings import TEST
@@ -161,7 +162,11 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 select_from=ast.JoinExpr(table=ast.Field(chain=[self.name])),
             )
 
-            execute_hogql_query(query, self.team, modifiers=HogQLQueryModifiers(s3TableUseInvalidColumns=True))
+            execute_hogql_query(
+                query,
+                self.team,
+                modifiers=HogQLQueryModifiers(s3TableUseInvalidColumns=True),
+            )
             return True
         except:
             return False
@@ -270,7 +275,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 product=Product.WAREHOUSE,
             )
             result = sync_execute(
-                f"SELECT max(`{column}`) FROM {s3_table_func}",
+                f"SELECT max({escape_clickhouse_identifier(column)}) FROM {s3_table_func}",
                 args=placeholder_context.values,
             )
 
@@ -429,7 +434,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         return clickhouse_type
 
     def _safe_expose_ch_error(self, err):
-        err = wrap_query_error(err)
+        err = wrap_clickhouse_query_error(err)
         for key, value in ExtractErrors.items():
             if key in err.message:
                 raise Exception(value)

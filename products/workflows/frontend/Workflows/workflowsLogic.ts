@@ -1,8 +1,14 @@
 import FuseClass from 'fuse.js'
-import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { actions, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
+
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { urls } from 'scenes/urls'
+
+import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 
 import type { HogFlow } from './hogflows/types'
 import type { workflowsLogicType } from './workflowsLogicType'
@@ -21,6 +27,8 @@ export const workflowsLogic = kea<workflowsLogicType>([
     actions({
         toggleWorkflowStatus: (workflow: HogFlow) => ({ workflow }),
         duplicateWorkflow: (workflow: HogFlow) => ({ workflow }),
+        archiveWorkflow: (workflow: HogFlow) => ({ workflow }),
+        restoreWorkflow: (workflow: HogFlow) => ({ workflow }),
         deleteWorkflow: (workflow: HogFlow) => ({ workflow }),
         loadWorkflows: () => ({}),
         setFilters: (filters: Partial<WorkflowsFilters>) => ({ filters }),
@@ -39,7 +47,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         workflows: [
             [] as HogFlow[],
             {
@@ -61,9 +69,82 @@ export const workflowsLogic = kea<workflowsLogicType>([
                     })
                     return [duplicatedWorkflow, ...values.workflows]
                 },
+                archiveWorkflow: async ({ workflow }) => {
+                    LemonDialog.open({
+                        width: 500,
+                        title: 'Archive workflow?',
+                        description: `Are you sure you want to archive "${workflow.name}"?${
+                            workflow.status === 'active'
+                                ? ' In-progress workflow invocations will end without completing.'
+                                : ''
+                        }`,
+                        primaryButton: {
+                            children: 'Archive',
+                            type: 'primary',
+                            status: 'danger',
+                            onClick: async () => {
+                                try {
+                                    await api.hogFlows.updateHogFlow(workflow.id, {
+                                        status: 'archived',
+                                    })
+                                    lemonToast.success(`Workflow "${workflow.name}" archived`)
+                                    router.actions.push(urls.workflows())
+                                    actions.loadWorkflows()
+                                } catch (error: any) {
+                                    lemonToast.error(
+                                        `Failed to archive workflow: ${error.detail || error.message || 'Unknown error'}`
+                                    )
+                                }
+                            },
+                        },
+                        secondaryButton: {
+                            children: 'Cancel',
+                        },
+                    })
+                    // Return unchanged workflows since dialog handles the update
+                    return values.workflows
+                },
+                restoreWorkflow: async ({ workflow }) => {
+                    try {
+                        const updatedWorkflow = await api.hogFlows.updateHogFlow(workflow.id, {
+                            status: 'draft',
+                        })
+                        lemonToast.success(`Workflow "${workflow.name}" restored to draft status`)
+                        return values.workflows.map((c) => (c.id === updatedWorkflow.id ? updatedWorkflow : c))
+                    } catch (error: any) {
+                        lemonToast.error(
+                            `Failed to restore workflow: ${error?.detail || error?.message || 'Unknown error'}`
+                        )
+                        return values.workflows
+                    }
+                },
                 deleteWorkflow: async ({ workflow }) => {
-                    await api.hogFlows.deleteHogFlow(workflow.id)
-                    return values.workflows.filter((c) => c.id !== workflow.id)
+                    LemonDialog.open({
+                        width: 500,
+                        title: 'Delete workflow?',
+                        description: `Are you sure you want to permanently delete "${workflow.name}"? This action cannot be undone.`,
+                        primaryButton: {
+                            children: 'Delete',
+                            type: 'primary',
+                            status: 'danger',
+                            onClick: async () => {
+                                try {
+                                    await api.hogFlows.deleteHogFlow(workflow.id)
+                                    lemonToast.success(`Workflow "${workflow.name}" deleted`)
+                                    deleteFromTree('hog_flow/', workflow.id)
+                                    actions.loadWorkflows()
+                                } catch (error: any) {
+                                    lemonToast.error(
+                                        `Failed to delete workflow: ${error.detail || error.message || 'Unknown error'}`
+                                    )
+                                }
+                            },
+                        },
+                        secondaryButton: {
+                            children: 'Cancel',
+                        },
+                    })
+                    return values.workflows
                 },
             },
         ],
@@ -83,7 +164,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
         filteredWorkflows: [
             (s) => [s.workflows, s.filters, s.workflowsFuse],
             (workflows, filters, workflowsFuse): HogFlow[] => {
-                let filtered = workflows
+                let filtered = workflows.filter((workflow) => workflow.status !== 'archived')
 
                 // Filter by search term using Fuse
                 if (filters.search) {
@@ -104,6 +185,12 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 return filtered
             },
         ],
+        archivedWorkflows: [
+            (s) => [s.workflows],
+            (workflows): HogFlow[] => {
+                return workflows.filter((workflow) => workflow.status === 'archived')
+            },
+        ],
         creators: [
             (s) => [s.workflows],
             (workflows) => {
@@ -121,8 +208,5 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 return Array.from(uniqueCreators.values())
             },
         ],
-    }),
-    afterMount(({ actions }) => {
-        actions.loadWorkflows()
     }),
 ])

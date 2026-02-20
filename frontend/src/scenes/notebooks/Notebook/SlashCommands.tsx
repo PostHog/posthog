@@ -27,7 +27,7 @@ import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
 import { EditorCommands, EditorRange } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
+import { IconBold, IconItalic, IconTableChart } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { selectFiles } from 'lib/utils/file-utils'
 
@@ -275,10 +275,53 @@ order by count() desc
             ),
     },
     {
+        title: 'SQL (DuckDB)',
+        search: 'duck sql',
+        icon: <IconHogQL color="currentColor" />,
+        command: (chain, pos) =>
+            chain.insertContentAt(pos, {
+                type: NotebookNodeType.DuckSQL,
+                attrs: {
+                    code: '',
+                    returnVariable: 'duck_df',
+                    __init: {
+                        showSettings: true,
+                    },
+                },
+            }),
+        featureFlag: FEATURE_FLAGS.NOTEBOOK_PYTHON,
+    },
+    {
+        title: 'SQL (HogQL)',
+        search: 'hogql sql',
+        icon: <IconHogQL color="currentColor" />,
+        command: (chain, pos) =>
+            chain.insertContentAt(pos, {
+                type: NotebookNodeType.HogQLSQL,
+                attrs: {
+                    code: '',
+                    returnVariable: 'hogql_df',
+                    __init: {
+                        showSettings: true,
+                    },
+                },
+            }),
+        featureFlag: FEATURE_FLAGS.NOTEBOOK_PYTHON,
+    },
+    {
         title: 'Python',
         search: 'python',
         icon: <IconPython color="currentColor" />,
-        command: (chain, pos) => chain.insertContentAt(pos, { type: NotebookNodeType.Python, attrs: { code: '' } }),
+        command: (chain, pos) =>
+            chain.insertContentAt(pos, {
+                type: NotebookNodeType.Python,
+                attrs: {
+                    code: '',
+                    __init: {
+                        showSettings: true,
+                    },
+                },
+            }),
         featureFlag: FEATURE_FLAGS.NOTEBOOK_PYTHON,
     },
     {
@@ -304,8 +347,8 @@ order by count() desc
         title: 'Insight',
         search: 'insight saved existing browse',
         icon: <IconGraph color="currentColor" />,
-        command: (chain) => {
-            addInsightsToNotebookModalLogic.actions.toggleIsAddInsightsToNotebookModalOpen()
+        command: (chain, pos) => {
+            addInsightsToNotebookModalLogic.actions.openModal(typeof pos === 'number' ? pos : null)
             return chain
         },
     },
@@ -321,6 +364,7 @@ order by count() desc
                     columns: defaultDataTableColumns(NodeKind.ActorsQuery),
                     source: {
                         kind: NodeKind.ActorsQuery,
+                        select: defaultDataTableColumns(NodeKind.ActorsQuery),
                         properties: [],
                     },
                 })
@@ -350,6 +394,41 @@ order by count() desc
 
             return chain
         },
+    },
+    {
+        title: 'Table',
+        search: 'table grid spreadsheet',
+        icon: <IconTableChart />,
+        command: (chain, pos) =>
+            chain.insertContentAt(pos, {
+                type: 'table',
+                content: [
+                    {
+                        type: 'tableRow',
+                        content: [
+                            { type: 'tableHeader', content: [{ type: 'paragraph' }] },
+                            { type: 'tableHeader', content: [{ type: 'paragraph' }] },
+                            { type: 'tableHeader', content: [{ type: 'paragraph' }] },
+                        ],
+                    },
+                    {
+                        type: 'tableRow',
+                        content: [
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                        ],
+                    },
+                    {
+                        type: 'tableRow',
+                        content: [
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                            { type: 'tableCell', content: [{ type: 'paragraph' }] },
+                        ],
+                    },
+                ],
+            }),
     },
     {
         title: 'Embedded iframe',

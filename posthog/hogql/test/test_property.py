@@ -297,7 +297,7 @@ class TestProperty(BaseTest):
                     "operator": "icontains",
                 }
             ),
-            self._parse_expr("toString(properties.a) ilike '%b%' or toString(properties.a) ilike '%c%'"),
+            self._parse_expr("multiSearchAnyCaseInsensitive(toString(properties.a), ['b', 'c']) > 0"),
         )
         a = self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"})
         self.assertEqual(
@@ -322,7 +322,7 @@ class TestProperty(BaseTest):
                     "operator": "not_icontains",
                 }
             ),
-            self._parse_expr("toString(properties.a) not ilike '%b%' and toString(properties.a) not ilike '%c%'"),
+            self._parse_expr("multiSearchAnyCaseInsensitive(toString(properties.a), ['b', 'c']) = 0"),
         )
         a = self._property_to_expr(
             {
@@ -404,6 +404,109 @@ class TestProperty(BaseTest):
             self._parse_expr(
                 "arrayExists(v -> ifNull(not(match(toString(v), 'ValidationError')), 1), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
             ),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": "ValidationError",
+                    "operator": "icontains",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> toString(v) ILIKE '%ValidationError%', JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": "ValidationError",
+                    "operator": "not_icontains",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> toString(v) NOT ILIKE '%ValidationError%', JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": ["ReferenceError", "TypeError"],
+                    "operator": "icontains",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> multiSearchAnyCaseInsensitive(toString(v), ['ReferenceError', 'TypeError']) > 0, JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": ["ReferenceError", "TypeError"],
+                    "operator": "not_icontains",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> multiSearchAnyCaseInsensitive(toString(v), ['ReferenceError', 'TypeError']) = 0, JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+
+    def test_property_to_expr_multiSearch_edge_cases(self):
+        # Test empty array with icontains - falls back to single value logic
+        result = self._property_to_expr(
+            {
+                "type": "event",
+                "key": "a",
+                "value": [],
+                "operator": "icontains",
+            }
+        )
+        # Empty arrays are treated as single values, converted to string representation
+        expected = self._parse_expr("toString(properties.a) ILIKE '%[]%'")
+        self.assertEqual(result, expected)
+
+        # Test single-element array with icontains - should use ILIKE, not multiSearch
+        result = self._property_to_expr(
+            {
+                "type": "event",
+                "key": "a",
+                "value": ["single"],
+                "operator": "icontains",
+            }
+        )
+        expected = self._parse_expr("toString(properties.a) ILIKE '%single%'")
+        self.assertEqual(result, expected)
+
+        # Test single-element array with not_icontains - should use NOT ILIKE, not multiSearch
+        result = self._property_to_expr(
+            {
+                "type": "event",
+                "key": "a",
+                "value": ["single"],
+                "operator": "not_icontains",
+            }
+        )
+        expected = self._parse_expr("toString(properties.a) NOT ILIKE '%single%'")
+        self.assertEqual(result, expected)
+
+        # Test non-string values being stringified
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "a",
+                    "value": [123, 456.78, True],
+                    "operator": "icontains",
+                }
+            ),
+            self._parse_expr("multiSearchAnyCaseInsensitive(toString(properties.a), ['123', '456.78', 'True']) > 0"),
         )
 
     def test_property_to_expr_element(self):
@@ -754,15 +857,11 @@ class TestProperty(BaseTest):
 
     def test_entity_to_expr_events_type_with_id(self):
         entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_EVENTS, "id": "event_id"})
-        result = entity_to_expr(entity, self.team)
-        expected = ast.And(
-            exprs=[
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["events", "event"]),
-                    right=ast.Constant(value="event_id"),
-                )
-            ]
+        result = clear_locations(entity_to_expr(entity, self.team))
+        expected = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["events", "event"]),
+            right=ast.Constant(value="event_id"),
         )
         self.assertEqual(result, expected)
 
@@ -1079,6 +1178,232 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._property_to_expr({"type": "person", "key": "score", "operator": "max", "value": 100}),
             self._parse_expr("person.properties.score <= 100"),
+        )
+
+    def test_property_to_expr_semver_operators(self):
+        # Test semver_eq
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "app_version", "operator": "semver_eq", "value": "1.2.3"}),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('1.2.3')"),
+        )
+
+        # Test semver_gt
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "app_version", "operator": "semver_gt", "value": "1.2.3"}),
+            self._parse_expr("sortableSemver(person.properties.app_version) > sortableSemver('1.2.3')"),
+        )
+
+        # Test semver_gte
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_gte", "value": "1.2.3"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) >= sortableSemver('1.2.3')"),
+        )
+
+        # Test semver_lt
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "app_version", "operator": "semver_lt", "value": "1.2.3"}),
+            self._parse_expr("sortableSemver(person.properties.app_version) < sortableSemver('1.2.3')"),
+        )
+
+        # Test semver_lte
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_lte", "value": "1.2.3"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) <= sortableSemver('1.2.3')"),
+        )
+
+        # Test semver_tilde (~1.2.3 means >=1.2.3 <1.3.0)
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_tilde", "value": "1.2.3"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('1.2.3') AND sortableSemver(person.properties.app_version) < sortableSemver('1.3.0'))"
+            ),
+        )
+
+        # Test semver_caret (^1.2.3 means >=1.2.3 <2.0.0)
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_caret", "value": "1.2.3"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('1.2.3') AND sortableSemver(person.properties.app_version) < sortableSemver('2.0.0'))"
+            ),
+        )
+
+        # Test semver_caret with 0.x.y versions (^0.2.3 means >=0.2.3 <0.3.0)
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_caret", "value": "0.2.3"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('0.2.3') AND sortableSemver(person.properties.app_version) < sortableSemver('0.3.0'))"
+            ),
+        )
+
+        # Test semver_caret with 0.0.x versions (^0.0.3 means >=0.0.3 <0.0.4)
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_caret", "value": "0.0.3"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('0.0.3') AND sortableSemver(person.properties.app_version) < sortableSemver('0.0.4'))"
+            ),
+        )
+
+        # Test semver_wildcard (1.2.* means >=1.2.0 <1.3.0)
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_wildcard", "value": "1.2.*"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('1.2.0') AND sortableSemver(person.properties.app_version) < sortableSemver('1.3.0'))"
+            ),
+        )
+
+        # Test semver_wildcard with major version (1.* means >=1.0.0 <2.0.0)
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_wildcard", "value": "1.*"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('1.0.0') AND sortableSemver(person.properties.app_version) < sortableSemver('2.0.0'))"
+            ),
+        )
+
+    def test_property_to_expr_semver_validation(self):
+        # Test tilde requires at least major.minor
+        with self.assertRaisesMessage(QueryError, "Tilde operator requires a valid semver string"):
+            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_tilde", "value": "1"})
+
+        # Test caret requires valid semver
+        with self.assertRaisesMessage(QueryError, "Caret operator requires a valid semver string"):
+            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_caret", "value": "abc.def"})
+
+        # Test wildcard requires valid pattern
+        with self.assertRaisesMessage(QueryError, "Wildcard operator requires a valid semver string (e.g., '1.2.3')"):
+            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_wildcard", "value": "*"})
+
+        # Test wildcard requires valid pattern
+        with self.assertRaisesMessage(QueryError, "Wildcard operator requires a valid semver string (e.g., '1.2.3')"):
+            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_wildcard", "value": ".*"})
+
+    def test_property_to_expr_semver_edge_cases(self):
+        """Test edge cases to document expected behavior with various version formats"""
+        # Minimal version (0.0.0)
+        self.assertEqual(
+            self._property_to_expr({"type": "person", "key": "app_version", "operator": "semver_eq", "value": "0.0.0"}),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('0.0.0')"),
+        )
+
+        # Prerelease versions (1.2.3-alpha) - Not officially supported yet but sortableSemver handles them
+        # We pass through to ClickHouse's sortableSemver function which should handle the parsing
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "1.2.3-alpha"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('1.2.3-alpha')"),
+        )
+
+        # v-prefix (v1.2.3) - sortableSemver should handle this
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "v1.2.3"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('v1.2.3')"),
+        )
+
+        # Leading space ( 1.2.3) - sortableSemver will receive it as-is
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": " 1.2.3"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver(' 1.2.3')"),
+        )
+
+        # Trailing space (1.2.3 ) - sortableSemver will receive it as-is
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "1.2.3 "}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('1.2.3 ')"),
+        )
+
+        # Leading zeros (01.02.03) - Should be treated same as 1.2.3 by sortableSemver
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "01.02.03"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('01.02.03')"),
+        )
+
+        # Too many version numbers (1.2.3.4) - Common in .NET, sortableSemver will handle or fail
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "1.2.3.4"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('1.2.3.4')"),
+        )
+
+        # Empty component (1..2.3) - sortableSemver will handle or fail
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "1..2.3"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('1..2.3')"),
+        )
+
+        # Trailing dot (1.2.3.) - sortableSemver will handle or fail
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "1.2.3."}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('1.2.3.')"),
+        )
+
+        # Leading dot (.1.2.3) - sortableSemver will handle or fail
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": ".1.2.3"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('.1.2.3')"),
+        )
+
+        # Negative version part (1.-2.3) - Invalid semver, sortableSemver will handle or fail
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_eq", "value": "1.-2.3"}
+            ),
+            self._parse_expr("sortableSemver(person.properties.app_version) = sortableSemver('1.-2.3')"),
+        )
+
+        # Range operators with edge cases also pass through to sortableSemver
+        # Tilde with minimal version (our code handles major.minor requirement)
+        with self.assertRaisesMessage(QueryError, "Tilde operator requires a valid semver string"):
+            self._property_to_expr({"type": "person", "key": "version", "operator": "semver_tilde", "value": "0"})
+
+        # Caret with leading zeros should still work (our code extracts numeric values)
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_caret", "value": "01.02.03"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('01.02.03') AND sortableSemver(person.properties.app_version) < sortableSemver('2.0.0'))"
+            ),
+        )
+
+        # Wildcard with too many parts (1.2.3.*) - Our code should handle this
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "app_version", "operator": "semver_wildcard", "value": "1.2.3.*"}
+            ),
+            self._parse_expr(
+                "(sortableSemver(person.properties.app_version) >= sortableSemver('1.2.3.0') AND sortableSemver(person.properties.app_version) < sortableSemver('1.2.4.0'))"
+            ),
         )
 
 

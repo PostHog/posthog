@@ -87,24 +87,28 @@ def _build_model_table_uri(team_id: int, saved_query_id_hex: str, normalized_nam
 
 
 def _get_aws_storage_options() -> dict[str, str]:
-    opts = {
-        "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-        "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
-        "region_name": settings.AIRBYTE_BUCKET_REGION,
-        "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
-        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-    }
     if settings.USE_LOCAL_SETUP:
         ensure_bucket_exists(
             settings.BUCKET_URL,
-            settings.AIRBYTE_BUCKET_KEY,
-            settings.AIRBYTE_BUCKET_SECRET,
+            settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
             settings.OBJECT_STORAGE_ENDPOINT,
         )
+
     if settings.USE_LOCAL_SETUP or TEST:
-        opts["endpoint_url"] = settings.OBJECT_STORAGE_ENDPOINT
-        opts["AWS_ALLOW_HTTP"] = "true"
-    return opts
+        return {
+            "aws_access_key_id": settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            "aws_secret_access_key": settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
+            "region_name": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "AWS_ALLOW_HTTP": "true",
+        }
+
+    return {
+        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+    }
 
 
 def _combine_batches(batches: list[pa.RecordBatch]) -> pa.RecordBatch:
@@ -366,7 +370,7 @@ def _get_matview_input_objects(
 ) -> tuple[Team, Node, DataWarehouseSavedQuery, DataModelingJob]:
     team = Team.objects.get(id=inputs.team_id)
     node = Node.objects.prefetch_related("saved_query").get(
-        id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
+        id=inputs.node_id, team_id=inputs.team_id, dag_id_text=inputs.dag_id
     )
     if node.type == NodeType.TABLE:
         raise InvalidNodeTypeException(f"Cannot materialize a TABLE node: {node.name}")
@@ -436,7 +440,6 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                     mode="overwrite",
                     schema_mode="overwrite",
                     storage_options=storage_options,
-                    engine="rust",
                 )
             else:
                 await logger.adebug(
@@ -449,7 +452,6 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                     mode="append",
                     schema_mode="merge",
                     storage_options=storage_options,
-                    engine="rust",
                 )
             if index == 0:
                 delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)

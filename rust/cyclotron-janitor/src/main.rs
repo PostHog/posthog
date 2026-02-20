@@ -78,8 +78,6 @@ async fn main() {
         .await
         .expect("failed to create janitor");
 
-    janitor.run_migrations().await;
-
     let janitor_liveness = liveness
         .register(
             "janitor".to_string(),

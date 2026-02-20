@@ -14,23 +14,20 @@
  */
 export type ModelEnumApi = (typeof ModelEnumApi)[keyof typeof ModelEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ModelEnumApi = {
-    events: 'events',
-    persons: 'persons',
-    sessions: 'sessions',
+    Events: 'events',
+    Persons: 'persons',
+    Sessions: 'sessions',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BlankEnumApi = {
     '': '',
 } as const
 
 export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const NullEnumApi = {} as const
 
 /**
@@ -40,6 +37,7 @@ export const NullEnumApi = {} as const
  * `Redshift` - Redshift
  * `BigQuery` - Bigquery
  * `Databricks` - Databricks
+ * `AzureBlob` - Azure Blob
  * `Workflows` - Workflows
  * `HTTP` - Http
  * `NoOp` - Noop
@@ -47,7 +45,6 @@ export const NullEnumApi = {} as const
 export type BatchExportDestinationTypeEnumApi =
     (typeof BatchExportDestinationTypeEnumApi)[keyof typeof BatchExportDestinationTypeEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BatchExportDestinationTypeEnumApi = {
     S3: 'S3',
     Snowflake: 'Snowflake',
@@ -55,8 +52,9 @@ export const BatchExportDestinationTypeEnumApi = {
     Redshift: 'Redshift',
     BigQuery: 'BigQuery',
     Databricks: 'Databricks',
+    AzureBlob: 'AzureBlob',
     Workflows: 'Workflows',
-    HTTP: 'HTTP',
+    Http: 'HTTP',
     NoOp: 'NoOp',
 } as const
 
@@ -72,6 +70,7 @@ export interface BatchExportDestinationApi {
 * `Redshift` - Redshift
 * `BigQuery` - Bigquery
 * `Databricks` - Databricks
+* `AzureBlob` - Azure Blob
 * `Workflows` - Workflows
 * `HTTP` - Http
 * `NoOp` - Noop */
@@ -95,12 +94,11 @@ export interface BatchExportDestinationApi {
  */
 export type IntervalEnumApi = (typeof IntervalEnumApi)[keyof typeof IntervalEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const IntervalEnumApi = {
-    hour: 'hour',
-    day: 'day',
-    week: 'week',
-    every_5_minutes: 'every 5 minutes',
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Every5Minutes: 'every 5 minutes',
 } as const
 
 /**
@@ -117,7 +115,6 @@ export const IntervalEnumApi = {
  */
 export type BatchExportRunStatusEnumApi = (typeof BatchExportRunStatusEnumApi)[keyof typeof BatchExportRunStatusEnumApi]
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
 export const BatchExportRunStatusEnumApi = {
     Cancelled: 'Cancelled',
     Completed: 'Completed',
@@ -219,7 +216,7 @@ export interface BatchExportApi {
 * `events` - Events
 * `persons` - Persons
 * `sessions` - Sessions */
-    model?: ModelEnumApi | BlankEnumApi | NullEnumApi
+    model?: ModelEnumApi | BlankEnumApi | NullEnumApi | null
     destination: BatchExportDestinationApi
     interval: IntervalEnumApi
     /** Whether this BatchExport is paused or not. */
@@ -246,8 +243,21 @@ export interface BatchExportApi {
     readonly latest_runs: readonly BatchExportRunApi[]
     hogql_query?: string
     /** A schema of custom fields to select when exporting data. */
-    readonly schema: unknown
-    filters?: unknown
+    readonly schema: unknown | null
+    filters?: unknown | null
+    timezone?: string | NullEnumApi | null
+    /**
+     * @minimum 0
+     * @maximum 6
+     * @nullable
+     */
+    offset_day?: number | null
+    /**
+     * @minimum 0
+     * @maximum 23
+     * @nullable
+     */
+    offset_hour?: number | null
 }
 
 export interface PaginatedBatchExportListApi {
@@ -257,14 +267,6 @@ export interface PaginatedBatchExportListApi {
     /** @nullable */
     previous?: string | null
     results: BatchExportApi[]
-}
-
-export interface PaginatedBatchExportRunListApi {
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: BatchExportRunApi[]
 }
 
 /**
@@ -281,7 +283,7 @@ export interface PatchedBatchExportApi {
 * `events` - Events
 * `persons` - Persons
 * `sessions` - Sessions */
-    model?: ModelEnumApi | BlankEnumApi | NullEnumApi
+    model?: ModelEnumApi | BlankEnumApi | NullEnumApi | null
     destination?: BatchExportDestinationApi
     interval?: IntervalEnumApi
     /** Whether this BatchExport is paused or not. */
@@ -308,30 +310,103 @@ export interface PatchedBatchExportApi {
     readonly latest_runs?: readonly BatchExportRunApi[]
     hogql_query?: string
     /** A schema of custom fields to select when exporting data. */
-    readonly schema?: unknown
-    filters?: unknown
+    readonly schema?: unknown | null
+    filters?: unknown | null
+    timezone?: string | NullEnumApi | null
+    /**
+     * @minimum 0
+     * @maximum 6
+     * @nullable
+     */
+    offset_day?: number | null
+    /**
+     * @minimum 0
+     * @maximum 23
+     * @nullable
+     */
+    offset_hour?: number | null
 }
 
-export type EnvironmentsBatchExportsListParams = {
+/**
+ * * `Cancelled` - Cancelled
+ * `Completed` - Completed
+ * `ContinuedAsNew` - Continued As New
+ * `Failed` - Failed
+ * `FailedRetryable` - Failed Retryable
+ * `Terminated` - Terminated
+ * `TimedOut` - Timedout
+ * `Running` - Running
+ * `Starting` - Starting
+ */
+export type BatchExportBackfillStatusEnumApi =
+    (typeof BatchExportBackfillStatusEnumApi)[keyof typeof BatchExportBackfillStatusEnumApi]
+
+export const BatchExportBackfillStatusEnumApi = {
+    Cancelled: 'Cancelled',
+    Completed: 'Completed',
+    ContinuedAsNew: 'ContinuedAsNew',
+    Failed: 'Failed',
+    FailedRetryable: 'FailedRetryable',
+    Terminated: 'Terminated',
+    TimedOut: 'TimedOut',
+    Running: 'Running',
+    Starting: 'Starting',
+} as const
+
+export interface BatchExportBackfillApi {
+    readonly id: string
+    readonly progress: string
     /**
-     * Number of results to return per page.
+     * The start of the data interval.
+     * @nullable
      */
-    limit?: number
+    start_at?: string | null
     /**
-     * The initial index from which to return the results.
+     * The end of the data interval.
+     * @nullable
      */
-    offset?: number
+    end_at?: string | null
+    /** The status of this backfill.
+
+* `Cancelled` - Cancelled
+* `Completed` - Completed
+* `ContinuedAsNew` - Continued As New
+* `Failed` - Failed
+* `FailedRetryable` - Failed Retryable
+* `Terminated` - Terminated
+* `TimedOut` - Timedout
+* `Running` - Running
+* `Starting` - Starting */
+    status: BatchExportBackfillStatusEnumApi
+    /** The timestamp at which this BatchExportBackfill was created. */
+    readonly created_at: string
+    /**
+     * The timestamp at which this BatchExportBackfill finished, successfully or not.
+     * @nullable
+     */
+    finished_at?: string | null
+    /** The timestamp at which this BatchExportBackfill was last updated. */
+    readonly last_updated_at: string
+    /** The team this belongs to. */
+    team: number
+    /** The BatchExport this backfill belongs to. */
+    batch_export: string
 }
 
-export type EnvironmentsBatchExportsRunsListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string
+export interface PaginatedBatchExportBackfillListApi {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: BatchExportBackfillApi[]
+}
+
+export interface PaginatedBatchExportRunListApi {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: BatchExportRunApi[]
 }
 
 export type BatchExportsListParams = {
@@ -354,6 +429,17 @@ export type BatchExportsList2Params = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type BatchExportsBackfillsListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string
 }
 
 export type BatchExportsRunsListParams = {

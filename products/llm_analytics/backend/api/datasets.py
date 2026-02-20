@@ -14,11 +14,15 @@ from posthog.schema import ProductKey
 
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import User
+from posthog.permissions import AccessControlPermission
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
+from products.llm_analytics.backend.api.metrics import llma_track_latency
 from products.llm_analytics.backend.models import Dataset
 from products.llm_analytics.backend.models.datasets import DatasetItem
 
@@ -133,8 +137,9 @@ class DatasetFilter(django_filters.FilterSet):
 
 
 @extend_schema(tags=[ProductKey.LLM_ANALYTICS])
-class DatasetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
+class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, ModelViewSet):
     scope_object = "dataset"
+    permission_classes = [AccessControlPermission]
     serializer_class = DatasetSerializer
     queryset = Dataset.objects.all()
     filter_backends = [DjangoFilterBackend]
@@ -198,6 +203,31 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
                 self.team,
             )
 
+    @llma_track_latency("llma_datasets_list")
+    @monitor(feature=None, endpoint="llma_datasets_list", method="GET")
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    @llma_track_latency("llma_datasets_retrieve")
+    @monitor(feature=None, endpoint="llma_datasets_retrieve", method="GET")
+    def retrieve(self, request, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
+
+    @llma_track_latency("llma_datasets_create")
+    @monitor(feature=None, endpoint="llma_datasets_create", method="POST")
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+
+    @llma_track_latency("llma_datasets_update")
+    @monitor(feature=None, endpoint="llma_datasets_update", method="PUT")
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
+
+    @llma_track_latency("llma_datasets_partial_update")
+    @monitor(feature=None, endpoint="llma_datasets_partial_update", method="PATCH")
+    def partial_update(self, request, *args, **kwargs):
+        return super().partial_update(request, *args, **kwargs)
+
 
 class DatasetItemSerializer(serializers.ModelSerializer):
     class Meta:
@@ -237,6 +267,7 @@ class DatasetItemSerializer(serializers.ModelSerializer):
 @extend_schema(tags=[ProductKey.LLM_ANALYTICS])
 class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
     scope_object = "dataset"
+    permission_classes = [AccessControlPermission]
     serializer_class = DatasetItemSerializer
     queryset = DatasetItem.objects.all()
     filter_backends = [DjangoFilterBackend]
@@ -312,6 +343,26 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
                 self.team,
             )
 
+    @llma_track_latency("llma_dataset_items_retrieve")
+    @monitor(feature=None, endpoint="llma_dataset_items_retrieve", method="GET")
+    def retrieve(self, request, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
+
+    @llma_track_latency("llma_dataset_items_create")
+    @monitor(feature=None, endpoint="llma_dataset_items_create", method="POST")
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+
+    @llma_track_latency("llma_dataset_items_update")
+    @monitor(feature=None, endpoint="llma_dataset_items_update", method="PUT")
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
+
+    @llma_track_latency("llma_dataset_items_partial_update")
+    @monitor(feature=None, endpoint="llma_dataset_items_partial_update", method="PATCH")
+    def partial_update(self, request, *args, **kwargs):
+        return super().partial_update(request, *args, **kwargs)
+
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -327,5 +378,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSe
             ),
         ]
     )
+    @llma_track_latency("llma_dataset_items_list")
+    @monitor(feature=None, endpoint="llma_dataset_items_list", method="GET")
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)

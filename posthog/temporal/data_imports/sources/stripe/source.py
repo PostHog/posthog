@@ -1,4 +1,7 @@
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
+
+if TYPE_CHECKING:
+    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -9,7 +12,7 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource, WebhookSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -51,15 +54,23 @@ PERMISSIONS = [
     "rak_subscription_read",
     "rak_application_fee_read",
     "rak_transfer_read",
+    "rak_connected_account_read",
+    "rak_payment_method_read",
 ]
-STRIPE_API_KEYS_URL = f"{STRIPE_BASE_URL}/apikeys/create?name=PostHog&{"&".join( [f"permissions[{i}]={permission}" for i, permission in enumerate(PERMISSIONS)] )}"
+STRIPE_API_KEYS_URL = f"{STRIPE_BASE_URL}/apikeys/create?name=PostHog&{'&'.join([f'permissions[{i}]={permission}' for i, permission in enumerate(PERMISSIONS)])}"
 
 
 @SourceRegistry.register
-class StripeSource(ResumableSource[StripeSourceConfig, StripeResumeConfig]):
+class StripeSource(ResumableSource[StripeSourceConfig, StripeResumeConfig], WebhookSource[StripeSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.STRIPE
+
+    @property
+    def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
+        from posthog.temporal.data_imports.sources.stripe.webhook_template import template
+
+        return template
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -73,7 +84,7 @@ By clicking the link above, you will be taken to a form that pre-fills everythin
 
 - Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customers**, **Disputes**, **Payouts**, and **Products**
 - Under the **Billing** resource type, select *read* for **Credit notes**, **Invoices**, **Prices**, and **Subscriptions**
-- Under the **Connect** resource type, select *read* for either the **entire resource** or **Application Fees** and **Transfers**
+- Under the **Connect** resource type, select *read* for the **entire resource**
 
 These permissions are automatically pre-filled in the API key creation form if you use the link above, so all you need to do is scroll down and click "Create Key".
 """,

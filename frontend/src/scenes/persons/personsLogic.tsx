@@ -41,12 +41,15 @@ export interface PersonsLogicProps {
     fixedProperties?: PersonPropertyFilter[]
 }
 
+export const PERSON_EVENTS_CONTEXT_KEY = 'person-profile-events'
+
 function createInitialEventsPayload(personId: string): DataTableNode {
     return {
         kind: NodeKind.DataTableNode,
         full: true,
         showEventsFilter: true,
-        showSavedFilters: true,
+        showTableViews: true,
+        contextKey: PERSON_EVENTS_CONTEXT_KEY,
         hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
         source: {
             kind: NodeKind.EventsQuery,
@@ -478,9 +481,16 @@ export const personsLogic = kea<personsLogicType>([
                 router.values.location.pathname.indexOf('/person') > -1 &&
                 router.values.hashParams.activeTab !== values.activeTab
             ) {
+                // When navigating away from recordings tab, clear sessionRecordingId from search params
+                // to prevent urlToAction from forcing back to recordings tab
+                let searchParams = router.values.searchParams
+                if (values.activeTab !== PersonsTabType.SESSION_RECORDINGS && searchParams.sessionRecordingId) {
+                    const { sessionRecordingId: _, ...restSearchParams } = searchParams
+                    searchParams = restSearchParams
+                }
                 return [
                     router.values.location.pathname,
-                    router.values.location.search,
+                    searchParams,
                     {
                         ...router.values.hashParams,
                         activeTab: values.activeTab,

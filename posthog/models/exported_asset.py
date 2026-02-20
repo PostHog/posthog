@@ -5,7 +5,7 @@ from typing import Optional
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
 from django.utils.text import slugify
 from django.utils.timezone import now
 
@@ -89,6 +89,8 @@ class ExportedAsset(models.Model):
     exception = models.TextField(null=True, blank=True)
     # The exception class name (e.g., "QueryError", "TimeoutError") for categorization
     exception_type = models.CharField(max_length=255, null=True, blank=True)
+    # Classification of the failure, see failure_handler.py for details
+    failure_type = models.CharField(max_length=255, null=True, blank=True)
 
     # DEPRECATED: We now use JWT for accessing assets
     access_token = models.CharField(max_length=400, null=True, blank=True, default=get_default_access_token)
@@ -135,6 +137,10 @@ class ExportedAsset(models.Model):
             filename = f"{filename}-{slugify(self.dashboard.name)}"
         elif self.insight:
             filename = f"{filename}-{slugify(self.insight.name or self.insight.derived_name)}"
+
+        timestamp = self.created_at.strftime("%Y-%m-%d") if self.created_at else ""
+        if timestamp:
+            filename = f"{filename}-{timestamp}"
 
         filename = f"{filename}.{ext}"
 
@@ -185,12 +191,18 @@ def asset_for_token(token: str) -> ExportedAsset:
 
 
 def get_content_response(asset: ExportedAsset, download: bool = False):
-    content = asset.content
-    if not content and asset.content_location:
-        content = object_storage.read_bytes(asset.content_location)
+    if asset.content_location:
+        content_disposition = f'attachment; filename="{asset.filename}"' if download else None
+        presigned_url = object_storage.get_presigned_url(
+            asset.content_location,
+            content_type=asset.export_format,
+            content_disposition=content_disposition,
+        )
+        if presigned_url:
+            return HttpResponseRedirect(presigned_url)
 
+    content = asset.content
     if not content:
-        # Don't modify the asset here as the task might still be running concurrently
         raise NotFound()
 
     res = HttpResponse(content, content_type=asset.export_format)
@@ -237,3 +249,35 @@ def save_content_to_object_storage(exported_asset: ExportedAsset, content: bytes
     object_storage.write(object_path, content)
     exported_asset.content_location = object_path
     exported_asset.save(update_fields=["content_location"])
+
+
+def _get_object_path(exported_asset: ExportedAsset) -> str:
+    path_parts: list[str] = [
+        settings.OBJECT_STORAGE_EXPORTS_FOLDER,
+        exported_asset.export_format.split("/")[1],
+        f"team-{exported_asset.team.id}",
+        f"task-{exported_asset.id}",
+        str(UUIDT()),
+    ]
+    return "/".join(path_parts)
+
+
+def save_content_from_file(exported_asset: ExportedAsset, file_path: str) -> None:
+    """Save content from a file to object storage, with fallback to storing in the database."""
+    try:
+        if settings.OBJECT_STORAGE_ENABLED:
+            object_path = _get_object_path(exported_asset)
+            object_storage.write_from_file(object_path, file_path)
+            exported_asset.content_location = object_path
+            exported_asset.save(update_fields=["content_location"])
+            return
+    except ObjectStorageError as ose:
+        capture_exception(ose)
+        logger.error(
+            "exported_asset.object-storage-error",
+            exported_asset_id=exported_asset.id,
+            exception=ose,
+            exc_info=True,
+        )
+    with open(file_path, "rb") as f:
+        save_content_to_exported_asset(exported_asset, f.read())

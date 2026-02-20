@@ -25,6 +25,7 @@ from .core_event import CoreEvent
 from .dashboard import Dashboard
 from .dashboard_templates import DashboardTemplate
 from .data_color_theme import DataColorTheme
+from ..ducklake.models import DuckLakeCatalog
 from .dashboard_tile import DashboardTile, Text
 from .element import Element
 from .element_group import ElementGroup
@@ -50,6 +51,7 @@ from .host_definition import HostDefinition
 from .hog_flow import HogFlow
 from .hog_functions import HogFunction
 from .hog_function_template import HogFunctionTemplate
+from .health_issue import HealthIssue
 from .insight import Insight, InsightViewed
 from .insight_caching_state import InsightCachingState
 from .insight_variable import InsightVariable
@@ -62,12 +64,14 @@ from .message_template import MessageTemplate
 from .message_category import MessageCategory
 from .message_preferences import MessageRecipientPreference
 from .messaging import MessagingRecord
+from .object_media_preview import ObjectMediaPreview
 from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain
 from .organization_integration import OrganizationIntegration
 from .organization_invite import OrganizationInvite, InviteExpiredException
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
 from .personal_api_key import PersonalAPIKey
+from .project_secret_api_key import ProjectSecretAPIKey
 from .plugin import Plugin, PluginAttachment, PluginConfig, PluginLogEntry, PluginSourceFile
 from .product_intent import ProductIntent
 from .project import Project
@@ -76,6 +80,7 @@ from .property_definition import PropertyDefinition
 from .proxy_record import ProxyRecord
 from .quick_filter import QuickFilter
 from .remote_config import RemoteConfig
+from .resource_transfer.resource_transfer import ResourceTransfer
 from .scheduled_change import ScheduledChange
 from .schema import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
 from .share_password import SharePassword
@@ -124,6 +129,7 @@ __all__ = [
     "DashboardTemplate",
     "DataColorTheme",
     "DeletionType",
+    "DuckLakeCatalog",
     "Element",
     "ElementGroup",
     "Entity",
@@ -145,6 +151,7 @@ __all__ = [
     "GroupUsageMetric",
     "GroupTypeMapping",
     "HeatmapSnapshot",
+    "HealthIssue",
     "HogFlow",
     "HogFunction",
     "HogFunctionTemplate",
@@ -167,6 +174,7 @@ __all__ = [
     "Notebook",
     "MigrationStatus",
     "NotificationViewed",
+    "ObjectMediaPreview",
     "Organization",
     "OrganizationDomain",
     "OrganizationIntegration",
@@ -180,6 +188,7 @@ __all__ = [
     "Person",
     "PersonDistinctId",
     "PersonalAPIKey",
+    "ProjectSecretAPIKey",
     "PersonOverride",
     "PersonOverrideMapping",
     "Plugin",
@@ -195,6 +204,7 @@ __all__ = [
     "QuickFilter",
     "RetentionFilter",
     "RemoteConfig",
+    "ResourceTransfer",
     "EventSchema",
     "SavedHeatmap",
     "SchemaPropertyGroup",

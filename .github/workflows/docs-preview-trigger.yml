@@ -3,14 +3,12 @@ name: Trigger Docs Preview Build
 on:
     pull_request:
         paths:
-            - 'docs/published/**'
-            - 'docs/onboarding/**'
+            - 'docs/**'
     push:
         branches:
             - master
         paths:
-            - 'docs/published/**'
-            - 'docs/onboarding/**'
+            - 'docs/**'
 
 permissions:
     pull-requests: write
@@ -26,10 +24,11 @@ jobs:
             - name: Trigger Vercel build
               id: trigger-build
               env:
+                  BRANCH_NAME: ${{ github.event.pull_request.head.ref || github.ref_name }}
                   VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
                   VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
                   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-              run: .github/scripts/trigger-vercel-preview.sh "${{ github.event.pull_request.head.ref || github.ref_name }}"
+              run: .github/scripts/trigger-vercel-preview.sh "$BRANCH_NAME"
 
             - name: Comment on PR
               if: github.event_name == 'pull_request'
@@ -87,13 +86,5 @@ jobs:
 
                   echo "✅ No internal docs found in published directory"
 
-            - name: Check for broken relative links
-              run: |
-                  echo "Checking for obvious link issues..."
-
-                  # Check for links pointing outside /published/
-                  if grep -r '\[.*\](\.\.\/\.\./' docs/published/ 2>/dev/null; then
-                    echo "⚠️ Found links that go outside /published/ directory - verify these are intentional"
-                  else
-                    echo "✅ Links appear to be within /published/ directory"
-                  fi
+            - name: Check for broken links
+              run: node .github/scripts/check-docs-links.js

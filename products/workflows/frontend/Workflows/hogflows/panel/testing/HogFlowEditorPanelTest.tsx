@@ -185,15 +185,13 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                         panels={[
                             {
                                 key: 'event',
-                                header: {
-                                    children: sampleGlobalsLoading ? (
-                                        <>
-                                            Loading test event... <Spinner />
-                                        </>
-                                    ) : (
-                                        <>Test event: {sampleGlobals?.event?.event} </>
-                                    ),
-                                },
+                                header: sampleGlobalsLoading ? (
+                                    <>
+                                        Loading test event... <Spinner />
+                                    </>
+                                ) : (
+                                    <>Test event: {sampleGlobals?.event?.event} </>
+                                ),
                                 className: 'bg-surface-secondary',
                                 content: (
                                     <div>
@@ -239,10 +237,10 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                                                     )}{' '}
                                                     <span className="text-muted">performed</span>{' '}
                                                     <span className="space-y-1 font-semibold text-md">
-                                                        {sampleGlobals?.event.event}
+                                                        {sampleGlobals?.event?.event}
                                                     </span>{' '}
-                                                    {sampleGlobals?.event.timestamp && (
-                                                        <TZLabel time={sampleGlobals.event.timestamp} />
+                                                    {sampleGlobals?.event?.timestamp && (
+                                                        <TZLabel time={sampleGlobals?.event?.timestamp} />
                                                     )}
                                                 </div>
                                                 {shouldLoadSampleGlobals ? (

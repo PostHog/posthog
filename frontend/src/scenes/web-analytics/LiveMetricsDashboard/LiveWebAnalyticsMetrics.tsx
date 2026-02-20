@@ -1,210 +1,99 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useLayoutEffect, useRef } from 'react'
-
-import { LemonSkeleton, Spinner } from '@posthog/lemon-ui'
+import { useEffect, useMemo } from 'react'
 
 import { liveUserCountLogic } from 'lib/components/LiveUserCount/liveUserCountLogic'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 
-import { ChartDataPoint, DeviceBreakdownItem, PathItem } from './LiveWebAnalyticsMetricsTypes'
-import { DeviceBreakdownChart, UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
+import { BreakdownLiveCard } from './BreakdownLiveCard'
+import { LiveChartCard } from './LiveChartCard'
+import { LiveStatCard, LiveStatDivider } from './LiveStatCard'
+import { LiveTopPathsTable } from './LiveTopPathsTable'
+import { BrowserBreakdownItem, DeviceBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
+import { getBrowserLogo } from './browserLogos'
+import { UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
 import { liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
 
-const STATS_POLL_INTERVAL_MS = 30000
-const ROW_HEIGHT = 36
-
-const StatsHeader = ({
-    liveUserCount,
-    totalPageviews,
-}: {
-    liveUserCount: number | null
-    totalPageviews: number
-}): JSX.Element => {
-    return (
-        <div className="flex justify-between items-center mb-6">
-            <div className="flex items-center gap-6">
-                <div className="flex items-center gap-4">
-                    <div className="flex flex-col">
-                        <span className="text-muted text-xs uppercase font-medium">Users online</span>
-                        <span className="text-2xl font-bold">
-                            {liveUserCount !== null ? liveUserCount.toLocaleString() : '-'}
-                        </span>
-                    </div>
-                    <div className="w-px h-10 bg-border" />
-                    <div className="flex flex-col">
-                        <span className="text-muted text-xs uppercase font-medium">Pageviews (30 min)</span>
-                        <span className="text-2xl font-bold">{totalPageviews.toLocaleString()}</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    )
-}
-
-const ChartsSection = ({
-    chartData,
-    deviceBreakdown,
-    isLoading,
-}: {
-    chartData: ChartDataPoint[]
-    deviceBreakdown: DeviceBreakdownItem[]
-    isLoading: boolean
-}): JSX.Element => {
-    return (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-            <div className="md:col-span-2 bg-bg-light rounded-lg border p-4">
-                <h3 className="text-sm font-semibold mb-4">Active users per minute</h3>
-                {isLoading ? (
-                    <div className="h-64 flex items-center justify-center">
-                        <Spinner className="text-2xl" />
-                    </div>
-                ) : (
-                    <div className="h-64">
-                        <UsersPerMinuteChart data={chartData} />
-                    </div>
-                )}
-            </div>
-            <div className="bg-bg-light rounded-lg border p-4">
-                <h3 className="text-sm font-semibold mb-4">Devices</h3>
-                {isLoading ? (
-                    <div className="h-64 flex items-center justify-center">
-                        <Spinner className="text-2xl" />
-                    </div>
-                ) : (
-                    <div className="h-64">
-                        <DeviceBreakdownChart data={deviceBreakdown} />
-                    </div>
-                )}
-            </div>
-        </div>
-    )
-}
-
-const AnimatedPathRow = ({
-    item,
-    offset,
-    positionDelta,
-    deltaVersion,
-}: {
-    item: PathItem
-    offset: number
-    positionDelta: number
-    deltaVersion: number
-}): JSX.Element => {
-    const currentOffsetRef = useRef(offset)
-    const shouldSkipAnimation = currentOffsetRef.current === offset
-
-    useLayoutEffect(() => {
-        currentOffsetRef.current = offset
-    }, [offset])
-
-    return (
-        <div
-            className={clsx(
-                'flex items-center justify-between px-3 absolute w-full left-0 ease-out border-b border-border',
-                shouldSkipAnimation ? 'duration-0' : 'transition-transform duration-500'
-            )}
-            style={{
-                height: ROW_HEIGHT,
-                transform: `translateY(${offset}px)`,
-            }}
-        >
-            <div className="flex items-center gap-2">
-                <span className="font-mono text-xs truncate max-w-72" title={item.path}>
-                    {item.path}
-                </span>
-                {positionDelta !== 0 && (
-                    <span
-                        key={`${positionDelta}-${deltaVersion}`}
-                        className={clsx(
-                            'flex items-center text-xs font-semibold animate-fade-out-delayed',
-                            positionDelta < 0 ? 'text-success' : 'text-danger'
-                        )}
-                    >
-                        {positionDelta < 0 ? '↑' : '↓'}
-                        {Math.abs(positionDelta)}
-                    </span>
-                )}
-            </div>
-            <span className="font-semibold text-sm">{item.views.toLocaleString()}</span>
-        </div>
-    )
-}
-
-const PathsTable = ({ paths, isLoading }: { paths: PathItem[]; isLoading: boolean }): JSX.Element => {
-    const prevPositionsRef = useRef<Map<string, number>>(new Map())
-    const deltaVersionRef = useRef(0)
-
-    const positionDeltas = new Map<string, number>()
-    paths.forEach((item, index) => {
-        const prevPosition = prevPositionsRef.current.get(item.path)
-        if (prevPosition !== undefined && prevPosition !== index) {
-            positionDeltas.set(item.path, index - prevPosition)
-        }
-    })
-
-    if (positionDeltas.size > 0) {
-        deltaVersionRef.current++
-    }
-
-    useLayoutEffect(() => {
-        prevPositionsRef.current = new Map(paths.map((item, index) => [item.path, index]))
-    }, [paths])
-
-    return (
-        <div className="bg-bg-light rounded-lg border p-4">
-            <h3 className="text-sm font-semibold mb-4">Top pages (last 30 minutes)</h3>
-            {isLoading ? (
-                <div className="space-y-2">
-                    {Array.from({ length: 5 }).map((_, i) => (
-                        <LemonSkeleton key={i} className="h-8" />
-                    ))}
-                </div>
-            ) : paths.length === 0 ? (
-                <div className="text-center py-6 text-muted">No pageviews recorded in the last 30 minutes</div>
-            ) : (
-                <>
-                    <div className="flex items-center justify-between px-3 py-2 border-b text-xs font-semibold text-muted uppercase">
-                        <span>Path</span>
-                        <span>Views</span>
-                    </div>
-                    <div className="relative" style={{ height: paths.length * ROW_HEIGHT }}>
-                        {paths.map((item, index) => (
-                            <AnimatedPathRow
-                                key={item.path}
-                                item={item}
-                                offset={index * ROW_HEIGHT}
-                                positionDelta={positionDeltas.get(item.path) ?? 0}
-                                deltaVersion={deltaVersionRef.current}
-                            />
-                        ))}
-                    </div>
-                </>
-            )}
-        </div>
-    )
-}
+const STATS_POLL_INTERVAL_MS = 1000
 
 export const LiveWebAnalyticsMetrics = (): JSX.Element => {
-    const { chartData, deviceBreakdown, topPaths, totalPageviews, isLoading } = useValues(liveWebAnalyticsMetricsLogic)
+    const {
+        chartData,
+        deviceBreakdown,
+        browserBreakdown,
+        topPaths,
+        totalPageviews,
+        totalUniqueVisitors,
+        totalBrowsers,
+        isLoading,
+    } = useValues(liveWebAnalyticsMetricsLogic)
+    const { pauseStream, resumeStream } = useActions(liveWebAnalyticsMetricsLogic)
     const { liveUserCount } = useValues(liveUserCountLogic({ pollIntervalMs: STATS_POLL_INTERVAL_MS }))
-    const { pauseStream, resumeStream } = useActions(liveUserCountLogic({ pollIntervalMs: STATS_POLL_INTERVAL_MS }))
+    const { pauseStream: pauseLiveCount, resumeStream: resumeLiveCount } = useActions(
+        liveUserCountLogic({ pollIntervalMs: STATS_POLL_INTERVAL_MS })
+    )
 
     const { isVisible } = usePageVisibility()
     useEffect(() => {
         if (isVisible) {
             resumeStream()
+            resumeLiveCount()
         } else {
             pauseStream()
+            pauseLiveCount()
         }
-    }, [isVisible, resumeStream, pauseStream])
+    }, [isVisible, resumeStream, pauseStream, resumeLiveCount, pauseLiveCount])
+
+    const timezone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, [])
 
     return (
         <div className="LivePageviews mt-4">
-            <StatsHeader liveUserCount={liveUserCount} totalPageviews={totalPageviews} />
-            <ChartsSection chartData={chartData} deviceBreakdown={deviceBreakdown} isLoading={isLoading} />
-            <PathsTable paths={topPaths} isLoading={isLoading} />
+            <div className="flex flex-wrap items-center gap-4 md:gap-6 mb-6">
+                <LiveStatCard label="Users online" value={liveUserCount} />
+                <LiveStatDivider />
+                <LiveStatCard label="Unique visitors" value={totalUniqueVisitors} isLoading={isLoading} />
+                <LiveStatDivider />
+                <LiveStatCard label="Pageviews" value={totalPageviews} isLoading={isLoading} />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <LiveChartCard
+                    title="Active users per minute"
+                    subtitle={timezone}
+                    subtitleTooltip="Metrics are shown in your local timezone"
+                    isLoading={isLoading}
+                    contentClassName="h-64 md:h-80"
+                >
+                    <UsersPerMinuteChart data={chartData} />
+                </LiveChartCard>
+
+                <LiveTopPathsTable paths={topPaths} isLoading={isLoading} totalPageviews={totalPageviews} />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <BreakdownLiveCard<DeviceBreakdownItem>
+                    title="Devices"
+                    data={deviceBreakdown}
+                    getKey={(d) => d.device}
+                    getLabel={(d) => d.device}
+                    emptyMessage="No device data"
+                    statLabel="unique devices"
+                    isLoading={isLoading}
+                />
+                <BreakdownLiveCard<BrowserBreakdownItem>
+                    title="Browsers"
+                    data={browserBreakdown}
+                    getKey={(d) => d.browser}
+                    getLabel={(d) => d.browser}
+                    renderIcon={(d) => {
+                        const Logo = getBrowserLogo(d.browser)
+                        return <Logo className="w-4 h-4 flex-shrink-0" />
+                    }}
+                    emptyMessage="No browser data"
+                    statLabel="unique browsers"
+                    totalCount={totalBrowsers}
+                    isLoading={isLoading}
+                />
+            </div>
         </div>
     )
 }

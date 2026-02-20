@@ -1,30 +1,39 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 import { AnyPropertyFilter, CustomerProfileScope, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { CustomerProfileMenu } from 'products/customer_analytics/frontend/components/CustomerProfileMenu'
+import { FeedbackBanner } from 'products/customer_analytics/frontend/components/FeedbackBanner'
 import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 
 type PersonProfileCanvasProps = {
     person: PersonType
+    attachTo: BuiltLogic | LogicWrapper
 }
 
-const PersonProfileCanvas = ({ person }: PersonProfileCanvasProps): JSX.Element | null => {
+const PersonProfileCanvas = ({ person, attachTo }: PersonProfileCanvasProps): JSX.Element | null => {
     const id = person.id
     const distinctId = person.distinct_ids[0]
     const shortId = `canvas-${id}`
     const mode = 'canvas'
     const { reportPersonProfileViewed } = useActions(eventUsageLogic)
-    const customerProfileLogicProps = {
-        attrs: {
+
+    const attrs = useMemo(
+        () => ({
             personId: id,
             distinctId,
-        },
+        }),
+        [id, distinctId]
+    )
+    const customerProfileLogicProps = {
+        attrs,
         scope: CustomerProfileScope.PERSON,
         key: `person-${id}`,
         canvasShortId: shortId,
@@ -43,17 +52,27 @@ const PersonProfileCanvas = ({ person }: PersonProfileCanvasProps): JSX.Element 
     useOnMountEffect(() => {
         reportPersonProfileViewed()
     })
+    const notebookLogicProps: NotebookLogicProps = {
+        shortId,
+        mode,
+        canvasFiltersOverride: personFilter,
+    }
+    const mountedNotebookLogic = notebookLogic(notebookLogicProps)
+    useAttachedLogic(mountedNotebookLogic, attachTo)
 
     return (
-        <BindLogic logic={notebookLogic} props={{ shortId, mode, canvasFiltersOverride: personFilter }}>
+        <BindLogic logic={notebookLogic} props={notebookLogicProps}>
             <BindLogic logic={customerProfileLogic} props={customerProfileLogicProps}>
-                <div className="flex items-start">
-                    <CustomerProfileMenu />
-                </div>
+                <FeedbackBanner
+                    feedbackButtonId="person-profile"
+                    message="We're improving the persons experience. Send us your feedback!"
+                />
+                <CustomerProfileMenu />
                 <Notebook
                     editable={false}
                     shortId={shortId}
                     mode={mode}
+                    className="NotebookProfileCanvas"
                     initialContent={{
                         type: 'doc',
                         content,

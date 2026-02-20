@@ -28,12 +28,12 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     ActionType,
-    AvailableFeature,
     ChartDisplayType,
     FilterLogicalOperator,
 } from '~/types'
 
 import { actionsLogic } from '../logics/actionsLogic'
+import { SCREEN_NAME_MATCHING_LABEL, type ScreenNameMatching, isScreenNameFilter } from '../utils/screenName'
 import { NewActionButton } from './NewActionButton'
 
 export function ActionsTable(): JSX.Element {
@@ -43,8 +43,6 @@ export function ActionsTable(): JSX.Element {
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { filterType, searchTerm, actionsFiltered, shouldShowEmptyState } = useValues(actionsLogic)
     const { setFilterType, setSearchTerm } = useActions(actionsLogic)
-
-    const { hasAvailableFeature } = useValues(userLogic)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
 
     const tryInInsightsUrl = (action: ActionType): string => {
@@ -137,6 +135,22 @@ export function ActionsTable(): JSX.Element {
                                                             </>
                                                         )
                                                 }
+                                            case '$screen': {
+                                                const screenFilter = step.properties?.find(isScreenNameFilter)
+                                                if (screenFilter && 'value' in screenFilter && screenFilter.value) {
+                                                    const operator =
+                                                        'operator' in screenFilter
+                                                            ? (screenFilter.operator as ScreenNameMatching)
+                                                            : 'icontains'
+                                                    return (
+                                                        <>
+                                                            Screen name {SCREEN_NAME_MATCHING_LABEL[operator]}{' '}
+                                                            <strong>{String(screenFilter.value)}</strong>
+                                                        </>
+                                                    )
+                                                }
+                                                return 'Screen'
+                                            }
                                             case '':
                                             case null:
                                             case undefined:
@@ -158,19 +172,15 @@ export function ActionsTable(): JSX.Element {
                 )
             },
         },
-        ...(hasAvailableFeature(AvailableFeature.TAGGING)
-            ? [
-                  {
-                      title: 'Tags',
-                      dataIndex: 'tags',
-                      width: 250,
-                      key: 'tags',
-                      render: function renderTags(tags: string[]) {
-                          return <ObjectTags tags={tags} staticOnly />
-                      },
-                  } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
-              ]
-            : []),
+        {
+            title: 'Tags',
+            dataIndex: 'tags',
+            width: 250,
+            key: 'tags',
+            render: function renderTags(tags: string[]) {
+                return <ObjectTags tags={tags} staticOnly />
+            },
+        } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
         createdByColumn() as LemonTableColumn<ActionType, keyof ActionType | undefined>,
         createdAtColumn() as LemonTableColumn<ActionType, keyof ActionType | undefined>,
         ...(currentTeam?.slack_incoming_webhook

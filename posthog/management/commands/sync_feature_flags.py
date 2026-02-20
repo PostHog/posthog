@@ -13,12 +13,20 @@ from posthog.models import FeatureFlag, Team, User
 #
 # Examples of changes that should go here are authentication changes, big UI changes, debugging flags, etc.
 INACTIVE_FLAGS = [
+    "billing-forecasting-issues",
     "session-reset-on-load",
-    "debug-react-renders",
-    "posthog-3000-nav",
+    "support-message-override",
+    "usage-spend-dashboards",
+    "halloween-override",
+    "christmas-override",
+    "control_support_login",
+    "person-property-incident-annotation-jan-2026",
+    "replay-exclude-from-hide-recordings-menu",
+    "webhooks-denylist",
     "insight-horizontal-controls",
     "flagged-feature-indicator",
     "ai-only-mode",
+    "ai-first",
 ]
 
 
@@ -102,5 +110,5 @@ class Command(BaseCommand):
                         )
 
                     print(
-                        f"Created feature flag '{flag} for team {team.id} {' - ' + team.name if team.name else ''}{f' (multivariate: {', '.join(flag_type)})' if isinstance(flag_type, list) else ''}"
+                        f"Created feature flag '{flag} for team {team.id} {' - ' + team.name if team.name else ''}{f' (multivariate: {", ".join(flag_type)})' if isinstance(flag_type, list) else ''}"
                     )

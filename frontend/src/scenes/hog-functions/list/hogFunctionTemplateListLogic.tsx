@@ -10,6 +10,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
+import { cleanSourceId, isManagedSourceId, isSelfManagedSourceId } from 'scenes/data-warehouse/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -46,6 +47,8 @@ export type HogFunctionTemplateListLogicProps = {
     manualTemplatesLoading?: boolean
     hideComingSoonByDefault?: boolean
     customFilterFunction?: (template: HogFunctionTemplateType) => boolean
+    /** Extra search params to include in the URL when navigating to create a new hog function */
+    queryParams?: Record<string, string>
 }
 
 export const shouldShowHogFunctionTemplate = (
@@ -152,6 +155,11 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                     .filter((x) => shouldShowHogFunctionTemplate(x, user))
                     .filter((x) => !x.flag || !!featureFlags[x.flag as FeatureFlagKey])
                     .filter((x) => x.type !== 'source_webhook' || !!featureFlags[FEATURE_FLAGS.CDP_HOG_SOURCES])
+                    .filter(
+                        (x) =>
+                            x.id !== 'template-source-vercel-log-drain' ||
+                            !!featureFlags[FEATURE_FLAGS.CDP_VERCEL_LOG_DRAIN]
+                    )
                     .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
             },
         ],
@@ -219,7 +227,10 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
 
         urlForTemplate: [
             () => [(_, props) => props],
-            ({ getConfigurationOverrides }): ((template: HogFunctionTemplateWithSubTemplateType) => string | null) => {
+            ({
+                getConfigurationOverrides,
+                queryParams,
+            }): ((template: HogFunctionTemplateWithSubTemplateType) => string | null) => {
                 return (template: HogFunctionTemplateWithSubTemplateType) => {
                     if (template.status === 'coming_soon') {
                         // "Coming soon" sources don't have docs yet
@@ -232,10 +243,8 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
 
                     // TRICKY: Hacky place but this is where we handle "nonHogFunctionTemplates" to modify the linked url
 
-                    if (template.id.startsWith('managed-') || template.id.startsWith('self-managed-')) {
-                        return urls.dataWarehouseSourceNew(
-                            template.id.replace('self-managed-', '').replace('managed-', '')
-                        )
+                    if (isManagedSourceId(template.id) || isSelfManagedSourceId(template.id)) {
+                        return urls.dataWarehouseSourceNew(cleanSourceId(template.id))
                     }
 
                     if (template.id.startsWith('batch-export-')) {
@@ -263,13 +272,9 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                         ...(filters ? { filters } : {}),
                     }
 
-                    return combineUrl(
-                        urls.hogFunctionNew(template.id),
-                        {},
-                        {
-                            configuration,
-                        }
-                    ).url
+                    return combineUrl(urls.hogFunctionNew(template.id), queryParams ?? {}, {
+                        configuration,
+                    }).url
                 }
             },
         ],

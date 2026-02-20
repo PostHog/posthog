@@ -4,6 +4,7 @@ import { ExpandableConfig } from 'lib/lemon-ui/LemonTable'
 
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import {
+    CurrencyCode,
     DataTableNode,
     DataVisualizationNode,
     InsightActorsQuery,
@@ -59,6 +60,10 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataTableRowsTransformer?: (rows: DataTableRow[]) => DataTableRow[]
     /** Compare filter for Web Analytics queries */
     compareFilter?: any
+    /** Base currency for formatting monetary values */
+    baseCurrency?: CurrencyCode
+    /** Limit context sent to the /query endpoint */
+    limitContext?: 'posthog_ai'
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

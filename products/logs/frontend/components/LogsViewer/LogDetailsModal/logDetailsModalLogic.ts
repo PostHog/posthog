@@ -1,14 +1,22 @@
-import { actions, kea, listeners, path, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { ParsedLogMessage } from 'products/logs/frontend/types'
+import { getSessionIdFromLogAttributes } from 'products/logs/frontend/utils'
 
 import type { logDetailsModalLogicType } from './logDetailsModalLogicType'
 
-export type LogDetailsTab = 'details' | 'explore-ai' | 'comments'
+export type LogDetailsTab = 'details' | 'raw' | 'explore-ai' | 'comments' | 'related-errors'
+
+export interface LogDetailsModalProps {
+    id: string
+}
 
 export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
     path(['products', 'logs', 'frontend', 'components', 'LogsViewer', 'LogDetailsModal', 'logDetailsModalLogic']),
+    props({} as LogDetailsModalProps),
+    key((props) => props.id),
 
     actions({
         openLogDetails: (log: ParsedLogMessage) => ({ log }),
@@ -17,14 +25,17 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
         setActiveTab: (tab: LogDetailsTab) => ({ tab }),
     }),
 
-    listeners(({ values }) => ({
-        openLogDetails: () => {
-            if (!values.isOpen) {
-                posthog.capture('logs details opened')
-            }
-        },
+    listeners(() => ({
         setActiveTab: ({ tab }) => {
             posthog.capture('logs details tab changed', { tab })
+        },
+    })),
+
+    subscriptions(() => ({
+        isLogDetailsOpen: (isLogDetailsOpen: boolean, wasOpen: boolean) => {
+            if (isLogDetailsOpen && !wasOpen) {
+                posthog.capture('logs details opened')
+            }
         },
     })),
 
@@ -36,7 +47,7 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
                 closeLogDetails: () => null,
             },
         ],
-        isOpen: [
+        isLogDetailsOpen: [
             false,
             {
                 openLogDetails: () => true,
@@ -57,5 +68,16 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
                 closeLogDetails: () => 'details',
             },
         ],
+    }),
+
+    selectors({
+        sessionId: [
+            (s) => [s.selectedLog],
+            (selectedLog): string | null =>
+                selectedLog
+                    ? getSessionIdFromLogAttributes(selectedLog.attributes, selectedLog.resource_attributes)
+                    : null,
+        ],
+        hasSessionId: [(s) => [s.sessionId], (sessionId): boolean => sessionId !== null],
     }),
 ])

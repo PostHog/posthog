@@ -1,6 +1,20 @@
+import json
 from functools import lru_cache
 
+from pydantic import BaseModel, field_validator
 from pydantic_settings import BaseSettings
+
+
+class ProductCostLimit(BaseModel):
+    limit_usd: float
+    window_seconds: int
+
+
+DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
+    "llm_gateway": ProductCostLimit(limit_usd=1000.0, window_seconds=86400),
+    "wizard": ProductCostLimit(limit_usd=2000.0, window_seconds=86400),
+    "twig": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
+}
 
 
 class Settings(BaseSettings):
@@ -38,6 +52,67 @@ class Settings(BaseSettings):
     # ~600 bytes per entry (key + AuthenticatedUser + LRU overhead), 10000 entries ≈ 6 MB
     auth_cache_max_size: int = 10000
     auth_cache_ttl: int = 900  # 15 minutes
+
+    team_rate_limit_multipliers: dict[int, int] = {}
+
+    product_cost_limits: dict[str, ProductCostLimit] = DEFAULT_PRODUCT_COST_LIMITS
+
+    default_user_cost_limit_usd: float = 500.0
+    default_user_cost_window_seconds: int = 3600
+    user_cost_limits_disabled: bool = False
+
+    default_fallback_cost_usd: float = 0.01
+
+    @field_validator("product_cost_limits", mode="before")
+    @classmethod
+    def parse_product_cost_limits(cls, v: str | dict | None) -> dict[str, ProductCostLimit]:
+        if v is None or v == "":
+            return DEFAULT_PRODUCT_COST_LIMITS
+        if isinstance(v, dict):
+            result = {}
+            for product, config in v.items():
+                if isinstance(config, ProductCostLimit):
+                    result[product] = config
+                elif isinstance(config, dict):
+                    result[product] = ProductCostLimit(**config)
+                else:
+                    raise ValueError(f"Invalid config for product {product}")
+            return result
+        try:
+            parsed = json.loads(v)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in product_cost_limits: {e}") from e
+        if not isinstance(parsed, dict):
+            raise ValueError("product_cost_limits must be a JSON object")
+        return {product: ProductCostLimit(**config) for product, config in parsed.items()}
+
+    @field_validator("team_rate_limit_multipliers", mode="before")
+    @classmethod
+    def parse_team_multipliers(cls, v: str | dict[int, int] | None) -> dict[int, int]:
+        if v is None or v == "":
+            return {}
+        if isinstance(v, dict):
+            return v
+        try:
+            parsed = json.loads(v)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in team_rate_limit_multipliers: {e}") from e
+
+        if not isinstance(parsed, dict):
+            raise ValueError("team_rate_limit_multipliers must be a JSON object")
+
+        try:
+            result = {int(k): int(val) for k, val in parsed.items()}
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"team_rate_limit_multipliers keys and values must be integers: {e}") from e
+
+        for team_id, multiplier in result.items():
+            if multiplier < 1:
+                raise ValueError(
+                    f"team_rate_limit_multipliers values must be >= 1, got {multiplier} for team {team_id}"
+                )
+
+        return result
 
     model_config = {"env_prefix": "LLM_GATEWAY_"}
 

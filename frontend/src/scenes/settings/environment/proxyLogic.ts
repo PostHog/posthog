@@ -2,7 +2,11 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
+import { LemonDialog } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
+import { SetupTaskId } from 'lib/components/ProductSetup'
+import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isDomain } from 'lib/utils'
 import { apiHostOrigin } from 'lib/utils/apiHost'
@@ -33,6 +37,12 @@ export function domainFor(proxyRecord: ProxyRecord | undefined): string {
     return domain
 }
 
+const RISKY_DOMAIN_PATTERNS = /posthog|analytics|tracking|tracker|pixel|telemetry|measure|collect|beacon/i
+
+function isRiskyDomain(domain: string): boolean {
+    return RISKY_DOMAIN_PATTERNS.test(domain)
+}
+
 export const proxyLogic = kea<proxyLogicType>([
     path(['scenes', 'project', 'Settings', 'proxyLogic']),
     connect(() => ({
@@ -43,18 +53,43 @@ export const proxyLogic = kea<proxyLogicType>([
         showForm: true,
         completeForm: true,
         maybeRefreshRecords: true,
+        acknowledgeCloudflareOptIn: true,
+        setCloudflareOptInChecked: (checked: boolean) => ({ checked }),
+        setMaxProxyRecords: (maxProxyRecords: number) => ({ maxProxyRecords }),
     })),
     reducers(() => ({
         formState: [
             'collapsed' as FormState,
             { showForm: () => 'active', collapseForm: () => 'collapsed', completeForm: () => 'complete' },
         ],
+        cloudflareOptInAcknowledged: [
+            false,
+            { persist: true },
+            {
+                acknowledgeCloudflareOptIn: () => true,
+            },
+        ],
+        cloudflareOptInChecked: [
+            false,
+            {
+                setCloudflareOptInChecked: (_, { checked }) => checked,
+                acknowledgeCloudflareOptIn: () => false, // Reset when acknowledged
+            },
+        ],
+        maxProxyRecords: [
+            2 as number, // default matching backend DEFAULT_MAX_PROXY_RECORDS
+            {
+                setMaxProxyRecords: (_, { maxProxyRecords }) => maxProxyRecords,
+            },
+        ],
     })),
     loaders(({ values, actions }) => ({
         proxyRecords: {
             __default: [] as ProxyRecord[],
             loadRecords: async () => {
-                return await api.get(`api/organizations/${values.currentOrganization?.id}/proxy_records`)
+                const response = await api.get(`api/organizations/${values.currentOrganization?.id}/proxy_records`)
+                actions.setMaxProxyRecords(response.max_proxy_records)
+                return response.results
             },
             createRecord: async ({ domain }: { domain: string }) => {
                 const response = await api.create(`api/organizations/${values.currentOrganization?.id}/proxy_records`, {
@@ -86,6 +121,13 @@ export const proxyLogic = kea<proxyLogicType>([
         collapseForm: () => actions.loadRecords(),
         deleteRecordFailure: () => actions.loadRecords(),
         createRecordSuccess: () => actions.loadRecords(),
+        loadRecordsSuccess: ({ proxyRecords }) => {
+            // Mark the reverse proxy setup task as completed if any proxy is valid
+            const hasValidProxy = proxyRecords.some((r) => r.status === 'valid')
+            if (hasValidProxy) {
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpReverseProxy)
+            }
+        },
         maybeRefreshRecords: () => {
             if (values.shouldRefreshRecords) {
                 actions.loadRecords()
@@ -105,8 +147,29 @@ export const proxyLogic = kea<proxyLogicType>([
                         : undefined,
             }),
             submit: ({ domain }) => {
-                actions.createRecord({ domain })
-                actions.resetCreateRecord()
+                const doSubmit = (): void => {
+                    actions.createRecord({ domain })
+                    actions.resetCreateRecord()
+                }
+
+                if (isRiskyDomain(domain)) {
+                    LemonDialog.open({
+                        title: 'This domain may be blocked by ad-blockers',
+                        width: '25rem',
+                        content: `The domain "${domain}" contains a word commonly associated with tracking or analytics. Ad-blockers are likely to block requests to this domain, which will cause data loss. Are you sure you want to proceed?`,
+                        primaryButton: {
+                            status: 'danger',
+                            children: 'Proceed anyway',
+                            onClick: doSubmit,
+                        },
+                        secondaryButton: {
+                            children: 'Choose a different domain',
+                        },
+                    })
+                    return
+                }
+
+                doSubmit()
             },
         },
     })),

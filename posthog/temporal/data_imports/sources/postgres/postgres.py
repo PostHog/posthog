@@ -5,7 +5,10 @@ import time
 import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
+from datetime import UTC, date, datetime
 from typing import Any, Literal, LiteralString, Optional, cast
+
+from django.conf import settings
 
 import psycopg
 import pyarrow as pa
@@ -31,6 +34,30 @@ from posthog.temporal.data_imports.sources.common.sql import Column, Table
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
+# Sources created after this date must use SSL/TLS connections
+SSL_REQUIRED_AFTER_DATE = datetime(2025, 2, 17, tzinfo=UTC)
+
+
+class SSLRequiredError(Exception):
+    """Raised when SSL/TLS is required but the database does not support it."""
+
+    pass
+
+
+def _get_sslmode(require_ssl: bool) -> str:
+    """Return the appropriate sslmode based on whether SSL is required.
+
+    Args:
+        require_ssl: If True, returns "require" which forces SSL and fails if
+            the server doesn't support it. If False, returns "prefer" which
+            tries SSL but falls back to unencrypted if not available.
+    """
+
+    if settings.TEST or settings.DEBUG:
+        return "prefer"
+
+    return "require" if require_ssl else "prefer"
+
 
 def filter_postgres_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
     results: list[tuple[str, IncrementalFieldType]] = []
@@ -47,20 +74,29 @@ def filter_postgres_incremental_fields(columns: list[tuple[str, str]]) -> list[t
 
 
 def get_postgres_row_count(
-    host: str, port: int, database: str, user: str, password: str, schema: str
+    host: str, port: int, database: str, user: str, password: str, schema: str, require_ssl: bool = False
 ) -> dict[str, int]:
-    connection = psycopg.connect(
-        host=host,
-        port=port,
-        dbname=database,
-        user=user,
-        password=password,
-        sslmode="prefer",
-        connect_timeout=15,
-        sslrootcert="/tmp/no.txt",
-        sslcert="/tmp/no.txt",
-        sslkey="/tmp/no.txt",
-    )
+    sslmode = _get_sslmode(require_ssl)
+    try:
+        connection = psycopg.connect(
+            host=host,
+            port=port,
+            dbname=database,
+            user=user,
+            password=password,
+            sslmode=sslmode,
+            connect_timeout=15,
+            sslrootcert="/tmp/no.txt",
+            sslcert="/tmp/no.txt",
+            sslkey="/tmp/no.txt",
+        )
+    except psycopg.OperationalError as e:
+        if require_ssl and "SSL" in str(e):
+            raise SSLRequiredError(
+                "SSL/TLS connection is required but your database does not support it. "
+                "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
+            ) from e
+        raise
 
     try:
         with connection.cursor() as cursor:
@@ -102,22 +138,31 @@ def get_postgres_row_count(
 
 
 def get_schemas(
-    host: str, database: str, user: str, password: str, schema: str, port: int
+    host: str, database: str, user: str, password: str, schema: str, port: int, require_ssl: bool = False
 ) -> dict[str, list[tuple[str, str]]]:
     """Get all tables from PostgreSQL source schemas to sync."""
 
-    connection = psycopg.connect(
-        host=host,
-        port=port,
-        dbname=database,
-        user=user,
-        password=password,
-        sslmode="prefer",
-        connect_timeout=15,
-        sslrootcert="/tmp/no.txt",
-        sslcert="/tmp/no.txt",
-        sslkey="/tmp/no.txt",
-    )
+    sslmode = _get_sslmode(require_ssl)
+    try:
+        connection = psycopg.connect(
+            host=host,
+            port=port,
+            dbname=database,
+            user=user,
+            password=password,
+            sslmode=sslmode,
+            connect_timeout=15,
+            sslrootcert="/tmp/no.txt",
+            sslcert="/tmp/no.txt",
+            sslkey="/tmp/no.txt",
+        )
+    except psycopg.OperationalError as e:
+        if require_ssl and "SSL" in str(e):
+            raise SSLRequiredError(
+                "SSL/TLS connection is required but your database does not support it. "
+                "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
+            ) from e
+        raise
 
     with connection.cursor() as cursor:
         cursor.execute(
@@ -178,6 +223,48 @@ class RangeAsStringLoader(Loader):
         return bytes(data).decode("utf-8")
 
 
+class SafeDateLoader(Loader):
+    """Load PostgreSQL dates, handling edge cases beyond Python's date range.
+
+    PostgreSQL can store dates beyond Python's datetime.date limits (year 1 to
+    year 9999). This includes 'infinity', '-infinity', and dates in years > 9999.
+    When encountering such dates, we clamp to Python's date limits rather than
+    raising an error.
+    """
+
+    def load(self, data) -> date | None:
+        if data is None:
+            return None
+
+        s = bytes(data).decode("utf-8")
+
+        if s in ("infinity", "-infinity"):
+            return date.max if s == "infinity" else date.min
+
+        # Handle negative years (BC dates)
+        if s.startswith("-") or "bc" in s.lower():
+            return date.min
+
+        try:
+            parts = s.split("-")
+            if len(parts) == 3:
+                year = int(parts[0])
+                month = int(parts[1])
+                day = int(parts[2])
+
+                if year > 9999:
+                    return date.max
+                if year < 1:
+                    return date.min
+
+                return date(year, month, day)
+        except (ValueError, IndexError):
+            pass
+
+        # Fallback: clamp to max for unparseable dates
+        return date.max
+
+
 def _build_query(
     schema: str,
     table_name: str,
@@ -212,7 +299,7 @@ def _build_query(
     if add_sampling:
         if table_type == "view":
             query = sql.SQL(
-                "SELECT * FROM {schema}.{table} WHERE {incremental_field} >= {last_value} AND random() < 0.01"
+                "SELECT * FROM {schema}.{table} WHERE {incremental_field} > {last_value} AND random() < 0.01"
             ).format(
                 schema=sql.Identifier(schema),
                 table=sql.Identifier(table_name),
@@ -221,7 +308,7 @@ def _build_query(
             )
         else:
             query = sql.SQL(
-                "SELECT * FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} >= {last_value}"
+                "SELECT * FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} > {last_value}"
             ).format(
                 schema=sql.Identifier(schema),
                 table=sql.Identifier(table_name),
@@ -229,7 +316,7 @@ def _build_query(
                 last_value=sql.Literal(db_incremental_field_last_value),
             )
     else:
-        query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} >= {last_value}").format(
+        query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} > {last_value}").format(
             schema=sql.Identifier(schema),
             table=sql.Identifier(table_name),
             incremental_field=sql.Identifier(incremental_field),
@@ -285,6 +372,10 @@ def _get_primary_keys(
     rows = cursor.fetchall()
     if len(rows) > 0:
         return [row[0] for row in rows]
+
+    logger.warning(
+        f"No primary keys found for {table_name}. If the table is not a view, (a) does the table have a primary key set? (b) is the primary key returned from querying information_schema?"
+    )
 
     return None
 
@@ -628,24 +719,37 @@ def postgres_source(
     team_id: Optional[int] = None,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
+    require_ssl: bool = False,
 ) -> SourceResponse:
     table_name = table_names[0]
     if not table_name:
         raise ValueError("Table name is missing")
 
+    effective_sslmode = _get_sslmode(require_ssl)
+
     with tunnel() as (host, port):
-        with psycopg.connect(
-            host=host,
-            port=port,
-            dbname=database,
-            user=user,
-            password=password,
-            sslmode=sslmode,
-            connect_timeout=15,
-            sslrootcert="/tmp/no.txt",
-            sslcert="/tmp/no.txt",
-            sslkey="/tmp/no.txt",
-        ) as connection:
+        try:
+            connection = psycopg.connect(
+                host=host,
+                port=port,
+                dbname=database,
+                user=user,
+                password=password,
+                sslmode=effective_sslmode,
+                connect_timeout=15,
+                sslrootcert="/tmp/no.txt",
+                sslcert="/tmp/no.txt",
+                sslkey="/tmp/no.txt",
+            )
+        except psycopg.OperationalError as e:
+            if require_ssl and "SSL" in str(e):
+                raise SSLRequiredError(
+                    "SSL/TLS connection is required but your database does not support it. "
+                    "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
+                ) from e
+            raise
+
+        with connection:
             with connection.cursor() as cursor:
                 logger.debug("Getting table types...")
                 table = _get_table(cursor, schema, table_name, logger)
@@ -722,19 +826,27 @@ def postgres_source(
             cursor_factory = psycopg.ServerCursor if not using_read_replica else None
 
             def get_connection():
-                connection = psycopg.connect(
-                    host=host,
-                    port=port,
-                    dbname=database,
-                    user=user,
-                    password=password,
-                    sslmode=sslmode,
-                    connect_timeout=15,
-                    sslrootcert="/tmp/no.txt",
-                    sslcert="/tmp/no.txt",
-                    sslkey="/tmp/no.txt",
-                    cursor_factory=cursor_factory,
-                )
+                try:
+                    connection = psycopg.connect(
+                        host=host,
+                        port=port,
+                        dbname=database,
+                        user=user,
+                        password=password,
+                        sslmode=effective_sslmode,
+                        connect_timeout=15,
+                        sslrootcert="/tmp/no.txt",
+                        sslcert="/tmp/no.txt",
+                        sslkey="/tmp/no.txt",
+                        cursor_factory=cursor_factory,
+                    )
+                except psycopg.OperationalError as e:
+                    if require_ssl and "SSL" in str(e):
+                        raise SSLRequiredError(
+                            "SSL/TLS connection is required but your database does not support it. "
+                            "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
+                        ) from e
+                    raise
                 connection.adapters.register_loader("json", JsonAsStringLoader)
                 connection.adapters.register_loader("jsonb", JsonAsStringLoader)
                 connection.adapters.register_loader("int4range", RangeAsStringLoader)
@@ -743,6 +855,7 @@ def postgres_source(
                 connection.adapters.register_loader("tsrange", RangeAsStringLoader)
                 connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
                 connection.adapters.register_loader("daterange", RangeAsStringLoader)
+                connection.adapters.register_loader("date", SafeDateLoader)
                 return connection
 
             def offset_chunking(offset: int, chunk_size: int):

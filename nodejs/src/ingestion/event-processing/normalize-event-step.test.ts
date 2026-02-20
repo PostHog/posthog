@@ -1,42 +1,20 @@
 import { DateTime } from 'luxon'
-import { v4 } from 'uuid'
+
+import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
-import { PipelineEvent, ProjectId, Team } from '../../types'
+import { createTestTeam } from '../../../tests/helpers/team'
 import { UUIDT } from '../../utils/utils'
 import { PipelineResultType } from '../pipelines/results'
 import { createNormalizeEventStep } from './normalize-event-step'
 
-const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
-    id: 1,
-    project_id: 1 as ProjectId,
-    organization_id: 'test-org-id',
-    uuid: v4(),
-    name: 'Test Team',
-    anonymize_ips: false,
-    api_token: 'test-api-token',
-    slack_incoming_webhook: null,
-    session_recording_opt_in: true,
-    person_processing_opt_out: null,
-    heatmaps_opt_in: null,
-    ingested_event: true,
-    person_display_name_properties: null,
-    test_account_filters: null,
-    cookieless_server_hash_mode: null,
-    timezone: 'UTC',
-    available_features: [],
-    drop_events_older_than_seconds: null,
-    ...overrides,
-})
-
 describe('normalizeEventStep wrapper', () => {
-    const timestampComparisonLoggingSampleRate = 0
     const team = createTestTeam()
 
     describe('distinctId conversion', () => {
         it('converts number distinct_id to string', async () => {
             const uuid = new UUIDT().toString()
-            const event: PipelineEvent = {
+            const event: PluginEvent = {
                 distinct_id: 123 as any,
                 ip: null,
                 site_url: 'http://localhost',
@@ -47,11 +25,10 @@ describe('normalizeEventStep wrapper', () => {
                 uuid: uuid,
             }
 
-            const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+            const step = createNormalizeEventStep()
             const input = {
                 event,
                 headers: createTestEventHeaders(),
-                team,
                 processPerson: true,
             }
 
@@ -66,7 +43,7 @@ describe('normalizeEventStep wrapper', () => {
 
         it('converts boolean distinct_id to string', async () => {
             const uuid = new UUIDT().toString()
-            const event: PipelineEvent = {
+            const event: PluginEvent = {
                 distinct_id: true as any,
                 ip: null,
                 site_url: 'http://localhost',
@@ -77,11 +54,10 @@ describe('normalizeEventStep wrapper', () => {
                 uuid: uuid,
             }
 
-            const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+            const step = createNormalizeEventStep()
             const input = {
                 event,
                 headers: createTestEventHeaders(),
-                team,
                 processPerson: true,
             }
 
@@ -97,7 +73,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('initializes empty properties object when missing', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -109,11 +85,10 @@ describe('normalizeEventStep wrapper', () => {
             // No properties field
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -126,39 +101,9 @@ describe('normalizeEventStep wrapper', () => {
         }
     })
 
-    it('sanitizes token with null bytes', async () => {
-        const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
-            distinct_id: 'my_id',
-            ip: null,
-            site_url: 'http://localhost',
-            team_id: team.id,
-            token: '\u0000token',
-            now: '2020-02-23T02:15:00Z',
-            timestamp: '2020-02-23T02:15:00Z',
-            event: 'test event',
-            uuid: uuid,
-        }
-
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
-        const input = {
-            event,
-            headers: createTestEventHeaders(),
-            team,
-            processPerson: true,
-        }
-
-        const result = await step(input)
-
-        expect(result.type).toBe(PipelineResultType.OK)
-        if (result.type === PipelineResultType.OK) {
-            expect(result.value.normalizedEvent.token).toBe('\uFFFDtoken')
-        }
-    })
-
     it('merges $set with priority: root level overrides properties', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -173,11 +118,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -196,7 +140,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('merges $set_once with priority: root level overrides properties', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -211,11 +155,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -234,7 +177,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('normalizes with processPerson=true and preserves person properties', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -254,11 +197,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -284,18 +226,13 @@ describe('normalizeEventStep wrapper', () => {
 
             expect(result.value.timestamp).toEqual(DateTime.fromISO(event.timestamp!, { zone: 'utc' }))
 
-            // Verify required fields are present
-            expect(result.value.team).toBe(team)
             expect(result.value.headers).toEqual(createTestEventHeaders())
-
-            // Verify event field is removed
-            expect('event' in result.value).toBe(false)
         }
     })
 
     it('replaces null byte with unicode replacement character in distinct_id (processPerson=true)', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: '\u0000foo',
             ip: null,
             site_url: 'http://localhost',
@@ -306,11 +243,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -326,18 +262,13 @@ describe('normalizeEventStep wrapper', () => {
 
             expect(result.value.timestamp).toEqual(DateTime.fromISO(event.timestamp!, { zone: 'utc' }))
 
-            // Verify required fields are present
-            expect(result.value.team).toBe(team)
             expect(result.value.headers).toEqual(createTestEventHeaders())
-
-            // Verify event field is removed
-            expect('event' in result.value).toBe(false)
         }
     })
 
     it('normalizes events with processPerson=false by dropping person-related properties', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -364,11 +295,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: false,
         }
 
@@ -390,18 +320,13 @@ describe('normalizeEventStep wrapper', () => {
 
             expect(result.value.timestamp).toEqual(DateTime.fromISO(event.timestamp!, { zone: 'utc' }))
 
-            // Verify required fields are present
-            expect(result.value.team).toBe(team)
             expect(result.value.headers).toEqual(createTestEventHeaders())
-
-            // Verify event field is removed
-            expect('event' in result.value).toBe(false)
         }
     })
 
     it('merges $set from root level into properties.$set', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -420,11 +345,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -442,7 +366,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('merges $set_once from root level into properties.$set_once', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -461,11 +385,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -483,7 +406,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('adds $ip from event.ip to properties if not already present', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: '192.168.1.1',
             site_url: 'http://localhost',
@@ -495,11 +418,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -515,7 +437,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('does not override existing $ip in properties', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: '192.168.1.1',
             site_url: 'http://localhost',
@@ -529,11 +451,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -548,7 +469,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('adds $sent_at to properties from event.sent_at', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -561,11 +482,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -579,7 +499,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('deletes $unset for processPerson=false', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -593,11 +513,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: false,
         }
 
@@ -612,7 +531,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('handles $groupidentify event with processPerson=true by removing person properties', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -631,11 +550,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -653,7 +571,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('removes $process_person_profile when processPerson=true', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -668,11 +586,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: true,
         }
 
@@ -688,7 +605,7 @@ describe('normalizeEventStep wrapper', () => {
 
     it('passes through additional input fields to the output', async () => {
         const uuid = new UUIDT().toString()
-        const event: PipelineEvent = {
+        const event: PluginEvent = {
             distinct_id: 'my_id',
             ip: null,
             site_url: 'http://localhost',
@@ -699,11 +616,10 @@ describe('normalizeEventStep wrapper', () => {
             uuid: uuid,
         }
 
-        const step = createNormalizeEventStep(timestampComparisonLoggingSampleRate)
+        const step = createNormalizeEventStep()
         const input = {
             event,
             headers: createTestEventHeaders(),
-            team,
             processPerson: false,
             // Additional fields
             customField: 'custom value',
@@ -718,10 +634,7 @@ describe('normalizeEventStep wrapper', () => {
             expect((result.value as any).customField).toBe('custom value')
             expect((result.value as any).anotherField).toBe(123)
 
-            // Verify event field is removed
-            expect('event' in result.value).toBe(false)
-
-            // Verify normalized fields are added
+            // Verify normalized event is present
             expect(result.value.normalizedEvent).toBeDefined()
             expect(result.value.timestamp).toBeDefined()
         }

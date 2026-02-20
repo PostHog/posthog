@@ -52,6 +52,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
 struct MetricsData {
     team_id: Option<i32>,
     flags_disabled: Option<bool>,
+    library: Library,
 }
 
 fn record_metrics(
@@ -69,9 +70,12 @@ fn record_metrics(
         .map(|disabled| disabled.to_string())
         .unwrap_or_else(|| "not_available".to_string());
 
+    let library = data.library.to_string();
+
     let labels = [
         ("flags_disabled".to_string(), flags_disabled),
         ("team_id".to_string(), team_id.clone()),
+        ("library".to_string(), library),
     ];
 
     inc(FLAG_REQUESTS_COUNTER, &labels, 1);
@@ -91,39 +95,51 @@ fn record_metrics(
 async fn process_request_inner(
     context: RequestContext,
 ) -> (Result<FlagsResponse, FlagError>, MetricsData) {
+    let library = Library::from_headers(&context.headers);
+
     let mut metrics_data = MetricsData {
         team_id: None,
         flags_disabled: None,
+        library,
     };
 
     let result = async {
-        // Use the pre-initialized HyperCacheReader from state
+        // Use the pre-initialized HyperCacheReaders from state (for team and flags)
         // This avoids per-request AWS SDK initialization overhead
         let flag_service = FlagService::new(
             context.state.redis_client.clone(),
             context.state.database_pools.non_persons_reader.clone(),
-            context.state.config.team_cache_ttl_seconds,
+            context.state.team_hypercache_reader.clone(),
             context.state.flags_hypercache_reader.clone(),
         );
 
-        let (original_distinct_id, verified_token, request) =
+        let (original_distinct_id, team, request) =
             authentication::parse_and_authenticate(&context, &flag_service).await?;
 
         let distinct_id_for_logging = original_distinct_id
             .clone()
             .unwrap_or_else(|| "disabled".to_string());
 
-        // Populate canonical log with distinct_id
-        with_canonical_log(|log| log.distinct_id = Some(distinct_id_for_logging.clone()));
+        // Populate canonical log with distinct_id, device_id, and anon_distinct_id
+        // anon_distinct_id uses same precedence as hash_key_override: top-level > person_properties
+        let anon_distinct_id_for_logging = request.anon_distinct_id.clone().or_else(|| {
+            request
+                .person_properties
+                .as_ref()
+                .and_then(|props| props.get("$anon_distinct_id"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        });
+        with_canonical_log(|log| {
+            log.distinct_id = Some(distinct_id_for_logging.clone());
+            log.device_id = request.device_id.clone();
+            log.anon_distinct_id = anon_distinct_id_for_logging;
+        });
 
         tracing::debug!(
             "Authentication completed for distinct_id: {}",
             distinct_id_for_logging
         );
-
-        let team = flag_service
-            .get_team_from_cache_or_pg(&verified_token)
-            .await?;
 
         metrics_data.team_id = Some(team.id);
         metrics_data.flags_disabled = Some(request.is_flags_disabled());
@@ -138,7 +154,7 @@ async fn process_request_inner(
             with_canonical_log(|log| log.flags_disabled = true);
             FlagsResponse::new(false, HashMap::new(), None, context.request_id)
         } else if let Some(quota_limited_response) =
-            billing::check_limits(&context, &verified_token).await?
+            billing::check_limits(&context, &team.api_token).await?
         {
             warn!("Request quota limited");
             with_canonical_log(|log| log.quota_limited = true);
@@ -161,7 +177,7 @@ async fn process_request_inner(
                 &context.meta,
                 &context.headers,
                 request.evaluation_runtime,
-                request.evaluation_environments.as_ref(),
+                request.evaluation_contexts.as_ref(),
             )
             .await?;
 
@@ -188,16 +204,19 @@ async fn process_request_inner(
 
             // Only record billing if flags are not disabled
             if !request.is_flags_disabled() {
-                billing::record_usage(&context, &filtered_flags, team.id).await;
+                billing::record_usage(&context, &filtered_flags, team.id, metrics_data.library)
+                    .await;
             }
 
             response
         };
 
-        // build the rest of the FlagsResponse, since the caller may have passed in `&config=true` and may need additional fields
-        // beyond just feature flags
+        // Build the rest of the FlagsResponse with config from HyperCache.
+        // When config=true, reads pre-computed config from Python's RemoteConfig.
+        // On cache miss, returns fallback config.
         let response =
-            config_response_builder::build_response(flags_response, &context, &team).await?;
+            config_response_builder::build_response_from_cache(flags_response, &context, &team)
+                .await?;
 
         // Populate canonical log with flag evaluation results
         with_canonical_log(|log| {
@@ -297,6 +316,7 @@ mod metrics_tests {
         let data = MetricsData {
             team_id: Some(123),
             flags_disabled: Some(false),
+            library: Library::PosthogNode,
         };
 
         // Call the real record_metrics function - it will use our test metrics functions
@@ -321,6 +341,9 @@ mod metrics_tests {
         assert!(counter
             .labels
             .contains(&("flags_disabled".to_string(), "false".to_string())));
+        assert!(counter
+            .labels
+            .contains(&("library".to_string(), "posthog-node".to_string())));
 
         // Check the histogram metric
         let histogram = &metrics[1];
@@ -342,6 +365,7 @@ mod metrics_tests {
         let data = MetricsData {
             team_id: None,
             flags_disabled: None,
+            library: Library::Other,
         };
 
         record_metrics(&result, data, std::time::Duration::from_millis(50));
@@ -368,6 +392,7 @@ mod metrics_tests {
         let data = MetricsData {
             team_id: Some(456),
             flags_disabled: Some(true),
+            library: Library::PosthogJs,
         };
 
         record_metrics(&result, data, std::time::Duration::from_millis(200));
@@ -400,6 +425,7 @@ mod metrics_tests {
         let data = MetricsData {
             team_id: None,
             flags_disabled: Some(false),
+            library: Library::PosthogPython,
         };
 
         record_metrics(&result, data, std::time::Duration::from_millis(150));
@@ -428,6 +454,7 @@ mod metrics_tests {
         let data = MetricsData {
             team_id: Some(789),
             flags_disabled: Some(false),
+            library: Library::PosthogAndroid,
         };
 
         record_metrics(&result, data, std::time::Duration::from_millis(75));

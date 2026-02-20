@@ -1,9 +1,12 @@
+from decimal import Decimal
 from uuid import UUID
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 
+import structlog
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 
@@ -14,6 +17,8 @@ from posthog.models.utils import UUIDTModel
 from posthog.storage import object_storage
 
 from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
+
+logger = structlog.get_logger(__name__)
 
 
 class ErrorTrackingIssueManager(models.Manager):
@@ -301,6 +306,77 @@ class ErrorTrackingSuppressionRule(UUIDTModel):
         # ]
 
 
+class ErrorTrackingAutoCaptureControls(UUIDTModel):
+    """
+    Controls for error tracking autocapture behavior.
+    Defines sample rates, feature flag linkage, and URL/event-based triggers.
+    Each team can have one set of controls per library (SDK).
+    """
+
+    class MatchType(models.TextChoices):
+        ALL = "all"
+        ANY = "any"
+
+    class Library(models.TextChoices):
+        WEB = "web"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    library = models.CharField(max_length=24, choices=Library.choices, null=False, blank=False, default=Library.WEB)
+
+    match_type = models.CharField(
+        max_length=24, choices=MatchType.choices, null=False, blank=False, default=MatchType.ALL
+    )
+
+    sample_rate = models.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        null=False,
+        blank=False,
+        default=Decimal(1),
+        validators=[MinValueValidator(Decimal(0)), MaxValueValidator(Decimal(1))],
+    )
+
+    linked_feature_flag = models.JSONField(null=True, blank=True)
+    event_triggers = ArrayField(models.TextField(null=True, blank=True), default=list, blank=True, null=True)
+    url_triggers = ArrayField(models.JSONField(null=True, blank=True), default=list, blank=True, null=True)
+    url_blocklist = ArrayField(models.JSONField(null=True, blank=True), default=list, blank=True, null=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingautocapturecontrols"
+        indexes = [
+            models.Index(fields=["team_id"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["team", "library"], name="unique_controls_per_team_library"),
+        ]
+
+
+def get_autocapture_controls(team_id: int, library: str = "web") -> dict | None:
+    """Get the autocapture controls for a team and library, formatted for API responses."""
+    result = ErrorTrackingAutoCaptureControls.objects.filter(team_id=team_id, library=library).values().first()
+    if result:
+        if result.get("sample_rate") is not None:
+            result["sample_rate"] = float(result["sample_rate"])
+        if result.get("id") is not None:
+            result["id"] = str(result["id"])
+    return result
+
+
+def get_autocapture_triggers(team_id: int) -> dict | None:
+    controls = ErrorTrackingAutoCaptureControls.objects.filter(team_id=team_id).values().first()
+    if not controls:
+        return None
+    return {
+        "library": controls.get("library"),
+        "matchType": controls.get("match_type"),
+        "sampleRate": float(controls["sample_rate"]) if controls.get("sample_rate") is not None else None,
+        "linkedFeatureFlag": controls.get("linked_feature_flag"),
+        "eventTriggers": controls.get("event_triggers"),
+        "urlTriggers": controls.get("url_triggers"),
+        "urlBlocklist": controls.get("url_blocklist"),
+    }
+
+
 class ErrorTrackingStackFrame(UUIDTModel):
     # Produced by a raw frame
     raw_id = models.TextField(null=False, blank=False)
@@ -431,3 +507,18 @@ def delete_symbol_set_contents(upload_path: str) -> None:
             code="object_storage_required",
             detail="Object storage must be available to delete source maps.",
         )
+
+
+class ErrorTrackingSpikeDetectionConfig(models.Model):
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="error_tracking_spike_detection_config",
+    )
+    snooze_duration_minutes = models.IntegerField(default=10)
+    multiplier = models.IntegerField(default=10)
+    threshold = models.IntegerField(default=500)
+
+    class Meta:
+        db_table = "posthog_errortrackingspikedetectionconfig"

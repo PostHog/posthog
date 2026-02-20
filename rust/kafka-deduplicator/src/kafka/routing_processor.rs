@@ -101,10 +101,9 @@ where
         for (partition, result) in results {
             if let Err(e) = result {
                 warn!(
-                    "Failed to route batch to partition {}:{}: {}",
+                    "Failed to route batch to partition {}:{}: {e:#}",
                     partition.topic(),
-                    partition.partition_number(),
-                    e
+                    partition.partition_number()
                 );
             }
         }
@@ -118,6 +117,7 @@ mod tests {
     use super::*;
     use crate::kafka::partition_router::shutdown_workers;
     use crate::kafka::partition_router::PartitionRouterConfig;
+    use crate::test_utils::create_test_tracker;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::time::{sleep, Duration};
 
@@ -148,7 +148,8 @@ mod tests {
     #[tokio::test]
     async fn test_routing_processor_groups_by_partition() {
         let processor = Arc::new(CountingProcessor::new());
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let coordinator = create_test_tracker();
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
         let config = PartitionRouterConfig::default();
         let router = Arc::new(PartitionRouter::new(
             processor.clone(),
@@ -188,7 +189,8 @@ mod tests {
     #[tokio::test]
     async fn test_routing_processor_handles_missing_worker() {
         let processor = Arc::new(CountingProcessor::new());
-        let offset_tracker = Arc::new(OffsetTracker::new());
+        let coordinator = create_test_tracker();
+        let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
         let config = PartitionRouterConfig::default();
         let router = Arc::new(PartitionRouter::new(
             processor.clone(),

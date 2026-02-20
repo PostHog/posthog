@@ -220,14 +220,14 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             _create_event(
                 event="$pageview",
                 distinct_id="person4",
-                timestamp=f"2023-04-{30-i} 16:00",
+                timestamp=f"2023-04-{30 - i} 16:00",
                 properties={"some_property": 20},
                 team=other_team,
             )
             _create_event(
                 event="$pageview",
                 distinct_id="person4",
-                timestamp=f"2023-05-0{i+1} 16:00",
+                timestamp=f"2023-05-0{i + 1} 16:00",
                 properties={"some_property": 20},
                 team=other_team,
             )
@@ -1003,7 +1003,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         for i in range(4):
-            result = self._get_actors(trends_query=source_query, day=f"2023-04-{i+25}")
+            result = self._get_actors(trends_query=source_query, day=f"2023-04-{i + 25}")
             self.assertEqual(len(result), 0)
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29")
@@ -1023,7 +1023,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(get_event_count(result[0]), 1)
 
         for i in range(20):
-            result = self._get_actors(trends_query=source_query, day=f"2023-05-{2+i}")
+            result = self._get_actors(trends_query=source_query, day=f"2023-05-{2 + i}")
             self.assertEqual(len(result), 0)
 
     def test_trends_math_first_time_for_user_breakdowns_basic(self):

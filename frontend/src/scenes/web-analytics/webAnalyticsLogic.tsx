@@ -9,6 +9,7 @@ import { errorTrackingQuery } from '@posthog/products-error-tracking/frontend/qu
 
 import api from 'lib/api'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS, RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link/Link'
@@ -21,7 +22,6 @@ import {
     isNotNil,
     isValidRelativeOrAbsoluteDate,
     objectsEqual,
-    updateDatesWithInterval,
 } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -31,6 +31,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS } from '~/queries/nodes/WebVitals/definitions'
 import { hogqlQuery } from '~/queries/query'
 import { isCompareFilter, isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
@@ -103,10 +104,24 @@ import {
     personPropertiesToPathClean,
     sessionPropertiesToPathClean,
 } from './common'
+import {
+    PROPERTY_HOST,
+    WEB_ANALYTICS_PRE_AGGREGATED_ALLOWED_EVENT_PROPERTIES,
+    WEB_ANALYTICS_PRE_AGGREGATED_ALLOWED_SESSION_PROPERTIES,
+    convertCurrentURLFilter,
+    hasURLSearchParams,
+} from './constants'
 import { webAnalyticsHealthLogic } from './health'
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import { webAnalyticsFilterLogic } from './webAnalyticsFilterLogic'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
+
+export interface DateFilterState {
+    dateFrom: string | null
+    dateTo: string | null
+    interval: IntervalType
+    isIntervalManuallySet: boolean
+}
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 const persistConfig = { persist: true, prefix: `${teamId}__` }
@@ -165,9 +180,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 'setCompareFilter',
                 'loadPreset',
             ],
+            dataNodeCollectionLogic({ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }),
+            ['cancelAllLoading'],
         ],
     })),
     actions({
+        removeIncompatibleFilters: true,
         setGraphsTab: (tab: string) => ({ tab }),
         setSourceTab: (tab: string) => ({ tab }),
         setDeviceTab: (tab: string) => ({ tab }),
@@ -182,7 +200,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             direction,
         }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
-        setInterval: (interval: IntervalType) => ({ interval }),
+        setDateInterval: (interval: IntervalType) => ({ interval }),
         setDatesAndInterval: (dateFrom: string | null, dateTo: string | null, interval: IntervalType) => ({
             dateFrom,
             dateTo,
@@ -330,10 +348,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 dateFrom: INITIAL_DATE_FROM,
                 dateTo: INITIAL_DATE_TO,
                 interval: INITIAL_INTERVAL,
-            },
+                isIntervalManuallySet: false,
+            } as DateFilterState,
             persistConfig,
             {
-                setDates: (_, { dateTo, dateFrom }) => {
+                setDates: ({ interval, isIntervalManuallySet }, { dateTo, dateFrom }) => {
                     if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
                         dateTo = INITIAL_DATE_TO
                     }
@@ -343,17 +362,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return {
                         dateTo,
                         dateFrom,
-                        interval: getDefaultInterval(dateFrom, dateTo),
+                        interval: isIntervalManuallySet ? interval : getDefaultInterval(dateFrom, dateTo),
+                        isIntervalManuallySet,
                     }
                 },
-                setInterval: ({ dateFrom: oldDateFrom, dateTo: oldDateTo }, { interval }) => {
-                    const { dateFrom, dateTo } = updateDatesWithInterval(interval, oldDateFrom, oldDateTo)
-                    return {
-                        dateTo,
-                        dateFrom,
-                        interval,
-                    }
-                },
+                setDateInterval: ({ dateFrom, dateTo }, { interval }) => ({
+                    dateTo,
+                    dateFrom,
+                    interval,
+                    isIntervalManuallySet: true,
+                }),
                 setDatesAndInterval: (_, { dateTo, dateFrom, interval }) => {
                     if (!dateFrom && !dateTo) {
                         dateFrom = INITIAL_DATE_FROM
@@ -369,12 +387,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         dateTo,
                         dateFrom,
                         interval: interval || getDefaultInterval(dateFrom, dateTo),
+                        isIntervalManuallySet: !!interval,
                     }
                 },
                 clearFilters: () => ({
                     dateFrom: INITIAL_DATE_FROM,
                     dateTo: INITIAL_DATE_TO,
                     interval: INITIAL_INTERVAL,
+                    isIntervalManuallySet: false,
                 }),
             },
         ],
@@ -461,6 +481,40 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
                 )
             },
+        ],
+        incompatibleFilters: [
+            (s) => [s.rawWebAnalyticsFilters, s.preAggregatedEnabled],
+            (
+                rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
+                preAggregatedEnabled: boolean
+            ): WebAnalyticsPropertyFilters => {
+                if (!preAggregatedEnabled) {
+                    return []
+                }
+
+                return rawWebAnalyticsFilters.filter((filter) => {
+                    if (filter.type === PropertyFilterType.Cohort) {
+                        return true
+                    }
+
+                    if (hasURLSearchParams(filter)) {
+                        return true
+                    }
+
+                    if (filter.type === PropertyFilterType.Event) {
+                        return !WEB_ANALYTICS_PRE_AGGREGATED_ALLOWED_EVENT_PROPERTIES.includes(filter.key)
+                    } else if (filter.type === PropertyFilterType.Session) {
+                        return !WEB_ANALYTICS_PRE_AGGREGATED_ALLOWED_SESSION_PROPERTIES.includes(filter.key)
+                    } else if (filter.type === PropertyFilterType.Person) {
+                        return true
+                    }
+                    return false
+                })
+            },
+        ],
+        hasIncompatibleFilters: [
+            (s) => [s.incompatibleFilters],
+            (incompatibleFilters: WebAnalyticsPropertyFilters) => incompatibleFilters.length > 0,
         ],
         breadcrumbs: [
             () => [],
@@ -566,6 +620,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 // Translate exact path filters to cleaned path filters
                 if (isPathCleaningEnabled) {
                     filters = filters.map((filter) => {
+                        if (filter.type === PropertyFilterType.Cohort) {
+                            return filter
+                        }
                         if (filter.operator !== PropertyOperator.Exact) {
                             return filter
                         }
@@ -915,7 +972,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     showIntervalSelect: true,
                     insightProps: createInsightProps(TileId.GRAPHS, id),
-                    canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                    canOpenInsight: true,
                     canOpenModal: true,
                 })
 
@@ -980,7 +1037,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 embedded: true,
                                 hideTooltipOnScroll: true,
                             },
-                            canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                            canOpenInsight: true,
                             canOpenModal: true,
                         }
                     }
@@ -1008,7 +1065,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             showActions: true,
                             columns,
                         },
-                        canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                        canOpenInsight: true,
                         canOpenModal: true,
                     }
                 }
@@ -1115,13 +1172,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             kind: NodeKind.WebOverviewQuery,
                             properties: webAnalyticsFilters,
                             dateRange,
+                            interval,
                             sampling,
                             compareFilter,
                             filterTestAccounts,
                             conversionGoal,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
-                        canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                        canOpenInsight: true,
                         canOpenModal: false,
                     },
                     {
@@ -1644,7 +1702,46 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               embedded: true,
                                           },
                                           insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.MAP),
-                                          canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                                          canOpenInsight: true,
+                                      }
+                                    : null,
+                                shouldShowGeoIPQueries && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REGIONS_MAP]
+                                    ? {
+                                          id: GeographyTab.REGIONS_MAP,
+                                          title: 'Regions Map',
+                                          linkText: 'Regions Map',
+                                          query: {
+                                              kind: NodeKind.InsightVizNode,
+                                              source: {
+                                                  kind: NodeKind.TrendsQuery,
+                                                  breakdownFilter: {
+                                                      breakdowns: [
+                                                          { property: '$geoip_country_code', type: 'event' },
+                                                          { property: '$geoip_subdivision_1_code', type: 'event' },
+                                                      ],
+                                                  },
+                                                  dateRange,
+                                                  series: [
+                                                      {
+                                                          event: '$pageview',
+                                                          name: 'Pageview',
+                                                          kind: NodeKind.EventsNode,
+                                                          math: BaseMathType.UniqueUsers,
+                                                      },
+                                                  ],
+                                                  trendsFilter: {
+                                                      display: ChartDisplayType.WorldMap,
+                                                  },
+                                                  conversionGoal,
+                                                  filterTestAccounts,
+                                                  properties: webAnalyticsFilters,
+                                                  tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                              },
+                                              hidePersonsModal: true,
+                                              embedded: true,
+                                          },
+                                          insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.REGIONS_MAP),
+                                          canOpenInsight: true,
                                       }
                                     : null,
                                 shouldShowGeoIPQueries
@@ -1724,7 +1821,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   embedded: true,
                               },
                               insightProps: createInsightProps(TileId.RETENTION),
-                              canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                              canOpenInsight: true,
                               canOpenModal: true,
                               docs: {
                                   url: 'https://posthog.com/docs/web-analytics/dashboard#retention',
@@ -1804,7 +1901,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                     bottom-right cell shows the grand total. The displayed time is based
                                                     on your project's date and time settings (UTC by default,
                                                     configurable in{' '}
-                                                    <Link to={urls.settings('project', 'date-and-time')}>
+                                                    <Link
+                                                        to={urls.settings('environment-customization', 'date-and-time')}
+                                                    >
                                                         project settings
                                                     </Link>
                                                     ).
@@ -1865,7 +1964,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                     bottom-right cell shows the grand total. The displayed time is based
                                                     on your project's date and time settings (UTC by default,
                                                     configurable in{' '}
-                                                    <Link to={urls.settings('project', 'date-and-time')}>
+                                                    <Link
+                                                        to={urls.settings('environment-customization', 'date-and-time')}
+                                                    >
                                                         project settings
                                                     </Link>
                                                     ).
@@ -2006,7 +2107,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                               insightProps: createInsightProps(TileId.FRUSTRATING_PAGES, 'table'),
                               canOpenModal: true,
-                              canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                              canOpenInsight: true,
                               docs: {
                                   title: 'Frustrating Pages',
                                   description: (
@@ -2168,7 +2269,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             togglePropertyFilter: stateToUrl,
             setConversionGoal: stateToUrl,
             setDates: stateToUrl,
-            setInterval: stateToUrl,
+            setDateInterval: stateToUrl,
             setDeviceTab: stateToUrl,
             setSourceTab: stateToUrl,
             setGraphsTab: stateToUrl,
@@ -2223,7 +2324,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
 
             const parsedFilters = filters ? (isWebAnalyticsPropertyFilters(filters) ? filters : []) : undefined
-            if (parsedFilters && !objectsEqual(parsedFilters, values.webAnalyticsFilters)) {
+            if (parsedFilters && !objectsEqual(parsedFilters, values.rawWebAnalyticsFilters)) {
                 actions.setWebAnalyticsFilters(parsedFilters)
             }
             if (
@@ -2329,6 +2430,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     date_to: dateTo,
                     interval: values.dateFilter.interval,
                 })
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
             },
             setDatesAndInterval: ({ dateFrom, dateTo, interval }) => {
                 eventUsageLogic.actions.reportWebAnalyticsDateRangeChanged({
@@ -2336,6 +2438,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     date_to: dateTo,
                     interval,
                 })
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
+            },
+            setWebAnalyticsFilters: () => {
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
             },
             setIsPathCleaningEnabled: ({ isPathCleaningEnabled }) => {
                 eventUsageLogic.actions.reportWebAnalyticsPathCleaningToggled({
@@ -2348,7 +2454,39 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     total_filter_count: values.webAnalyticsFilters.length,
                 })
             },
+            removeIncompatibleFilters: () => {
+                let compatibleFilters = values.rawWebAnalyticsFilters.filter(
+                    (filter) =>
+                        !values.incompatibleFilters.some(
+                            (incompatible) =>
+                                incompatible.key === filter.key &&
+                                incompatible.value === filter.value &&
+                                incompatible.operator === filter.operator &&
+                                incompatible.type === filter.type
+                        )
+                )
+
+                const convertedFilters: WebAnalyticsPropertyFilters = []
+                for (const filter of compatibleFilters) {
+                    const converted = convertCurrentURLFilter(filter)
+                    if (converted) {
+                        convertedFilters.push(...converted)
+                    } else {
+                        convertedFilters.push(filter)
+                    }
+                }
+
+                const hostFilters = convertedFilters.filter((f) => f.key === PROPERTY_HOST)
+                if (hostFilters.length > 1) {
+                    const dedupedFilters = convertedFilters.filter((f) => f.key !== PROPERTY_HOST)
+                    dedupedFilters.push(hostFilters[0])
+                    actions.setWebAnalyticsFilters(dedupedFilters)
+                } else {
+                    actions.setWebAnalyticsFilters(convertedFilters)
+                }
+            },
             setProductTab: ({ tab }) => {
+                actions.cancelAllLoading()
                 if (tab === ProductTab.HEALTH) {
                     actions.trackTabViewed()
                 }
@@ -2374,6 +2512,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         goalType = 'custom_event'
                     }
                     eventUsageLogic.actions.reportWebAnalyticsConversionGoalSet({ goal_type: goalType })
+                },
+                ({ conversionGoal }) => {
+                    if (conversionGoal) {
+                        globalSetupLogic
+                            .findMounted()
+                            ?.actions.markTaskAsCompleted(SetupTaskId.SetUpWebAnalyticsConversionGoals)
+                    }
                 },
             ],
             addAuthorizedUrl: ({ url }) => {

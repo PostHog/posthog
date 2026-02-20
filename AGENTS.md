@@ -1,5 +1,11 @@
 # PostHog Development Guide
 
+## Codebase Structure
+
+- [Monorepo layout](docs/internal/monorepo-layout.md) - high-level directory structure (products, services, common)
+- [Products README](products/README.md) - how to create and structure products
+- [Products architecture](products/architecture.md) - DTOs, facades, isolated testing
+
 ## Commands
 
 - Environment:
@@ -9,6 +15,7 @@
 - Tests:
   - All tests: `pytest`
   - Single test: `pytest path/to/test.py::TestClass::test_method`
+  - Product tests (Turbo): `pnpm turbo run backend:test --filter=@posthog/products-<name>`
   - Frontend: `pnpm --filter=@posthog/frontend test`
   - Single frontend test: `pnpm --filter=@posthog/frontend jest <test_file>`
 - Lint:
@@ -20,6 +27,7 @@
 - Build:
   - Frontend: `pnpm --filter=@posthog/frontend build`
   - Start dev: `./bin/start`
+- LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
 
 ## Commits and Pull Requests
 
@@ -30,6 +38,7 @@ Use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) for a
 - `feat`: New feature or functionality (touches production code)
 - `fix`: Bug fix (touches production code)
 - `chore`: Non-production changes (docs, tests, config, CI, refactoring agents instructions, etc.)
+- Scope convention: use `llma` for LLM analytics changes (for example, `feat(llma): ...`)
 
 ### Format
 
@@ -50,61 +59,88 @@ Examples:
 - Description should be lowercase and not end with a period
 - Keep the first line under 72 characters
 
-## ClickHouse Migrations
+## Security
 
-### Migration structure
+### SQL Security
+
+- **Never** use f-strings with user-controlled values in SQL queries - this creates SQL injection vulnerabilities
+- Use parameterized queries for all VALUES: `cursor.execute("SELECT * FROM t WHERE id = %s", [id])`
+- Table/column names from Django ORM metadata (`model._meta.db_table`) are trusted sources
+- For ClickHouse identifiers, use `escape_clickhouse_identifier()` from `posthog/hogql/escape_sql.py`
+- When raw SQL is necessary with dynamic table/column names:
+
+  ```python
+  # Build query string separately from execution, document why identifiers are safe
+  table = model._meta.db_table  # Trusted: from Django ORM metadata
+  query = f"SELECT COUNT(*) FROM {table} WHERE team_id = %s"
+  cursor.execute(query, [team_id])  # Values always parameterized
+  ```
+
+### HogQL Security
+
+HogQL queries use `parse_expr()`, `parse_select()`, and `parse_order_expr()`. Two patterns exist:
+
+**Vulnerable pattern** - User data interpolated INTO a HogQL template:
 
 ```python
-operations = [
-    run_sql_with_exceptions(
-        SQL_FUNCTION(),
-        node_roles=[...],
-        sharded=False,  # True for sharded tables
-        is_alter_on_replicated_table=False  # True for ALTER on replicated tables
-    ),
-]
+# User data embedded in f-string - can escape context!
+parse_expr(f"field = '{self.query.value}'")  # VULNERABLE
 ```
 
-### Node roles (choose based on table type)
+**Safe patterns**:
 
-- `[NodeRole.DATA]`: Sharded tables (data nodes only)
-- `[NodeRole.DATA, NodeRole.COORDINATOR]`: Non-sharded data tables, distributed read tables, replicated tables, views, dictionaries
-- `[NodeRole.INGESTION_SMALL]`: Writable tables, Kafka tables, materialized views on ingestion layer
+```python
+# User provides ENTIRE expression - no context to escape
+parse_expr(self.query.expression)  # SAFE - HogQL parser validates syntax
 
-### Table engines quick reference
+# User data wrapped in ast.Constant placeholder
+parse_expr("{x}", placeholders={"x": ast.Constant(value=self.query.field)})  # SAFE
+```
 
-MergeTree engines:
+**Why direct pass-through is safe**: When users provide the entire HogQL expression (not data embedded in a template), there's no string context to escape from. The HogQL parser validates syntax and rejects malformed input.
 
-- `AggregatingMergeTree(table, replication_scheme=ReplicationScheme.SHARDED)` for sharded tables
-- `ReplacingMergeTree(table, replication_scheme=ReplicationScheme.REPLICATED)` for non-sharded
-- Other variants: `CollapsingMergeTree`, `ReplacingMergeTreeDeleted`
+**Sanitizers** (for use in placeholders):
 
-Distributed engine:
+- `ast.Constant(value=...)` - wraps values safely
+- `ast.Tuple(exprs=...)` - for lists of values
 
-- Sharded: `Distributed(data_table="sharded_events", sharding_key="sipHash64(person_id)")`
-- Non-sharded: `Distributed(data_table="my_table", cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)`
+### Semgrep Rules
 
-### Critical rules
+Run `semgrep --config .semgrep/rules/hogql-no-fstring.yaml .` to check for HogQL injection issues.
 
-- NEVER use `ON CLUSTER` clause in SQL statements
-- Always use `IF EXISTS` / `IF NOT EXISTS` clauses
-- When dropping and recreating replicated table in same migration, use `DROP TABLE IF EXISTS ... SYNC`
-- If a function generating SQL has on_cluster param, always set `on_cluster=False`
-- Use `sharded=True` when altering sharded tables
-- Use `is_alter_on_replicated_table=True` when altering non-sharded replicated tables
+Two rules:
 
-### Testing
+1. `hogql-injection-taint` - Flags user data (`self.query.*`, etc.) interpolated into f-strings passed to parse functions (HIGH confidence)
+2. `hogql-fstring-audit` - Flags all f-strings in parse functions for manual review (LOW confidence)
 
-Delete entry from `infi_clickhouse_orm_migrations` table to re-run a migration
+**When semgrep flags your code:**
 
-### Detailed documentation
+- If user data is interpolated into f-string → wrap with `ast.Constant()` in placeholders
+- If f-string uses safe values (loop index, enum, dict lookup) → add `# nosemgrep: <rule-id>` with explanation
 
-See `posthog/clickhouse/migrations/AGENTS.md` for comprehensive patterns, examples, and ingestion layer setup
+**Running tests:**
+
+```bash
+# Local install
+semgrep --test .semgrep/rules/
+
+# Or via Docker
+docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/rules/
+```
+
+## Architecture guidelines
+
+- API views should declare request/response schemas — prefer `@validated_request` from `posthog.api.mixins` or `@extend_schema` from drf-spectacular
+- Django serializers are the source of truth for frontend API types — `hogli build:openapi` generates TypeScript via drf-spectacular + Orval. Generated files (`api.schemas.ts`, `api.ts`) live in `frontend/src/generated/core/` and `products/{product}/frontend/generated/` — don't edit them manually, change serializers and rerun. See `docs/published/type-system.md` for the full pipeline
+- New features should live in `products/` — read [products/README.md](products/README.md) for layout and setup. When _creating a new_ product, follow [products/architecture.md](products/architecture.md) (DTOs, facades, isolation). Most existing products are legacy moves and don't use this architecture yet — match the patterns already in the product you're editing
+- Always filter querysets by `team_id` — in serializers, access the team via `self.context["get_team"]()`
+- **Do not add domain-specific fields to the `Team` model.** Use a Team Extension model instead — see `posthog/models/team/README.md` for the pattern and helpers
 
 ## Important rules for Code Style
 
 - Python: Use type hints, follow mypy strict rules
 - Frontend: TypeScript required, explicit return types
+- Frontend: If there is a kea logic file, write all business logic there, avoid React hooks at all costs.
 - Imports: Use prettier-plugin-sort-imports (automatically runs on format), avoid direct dayjs imports (use lib/dayjs)
 - CSS: Use tailwind utility classes instead of inline styles
 - Error handling: Prefer explicit error handling with typed errors
@@ -122,5 +158,10 @@ See `posthog/clickhouse/migrations/AGENTS.md` for comprehensive patterns, exampl
 
 ## General
 
+- Markdown: prefer semantic line breaks; no hard wrapping
 - Use American English spelling
 - When mentioning PostHog products, the product names should use Sentence casing, not Title Casing. For example, 'Product analytics', not 'Product Analytics'. Any other buttons, tab text, tooltips, etc should also all use Sentence casing. For example, 'Save as view' instead of 'Save As View'.
+
+## Skills
+
+Skills are created inside [.agents/skills](.agents/skills/) by default and then symlinked to [.claude/skills](.claude/skills). Make sure you always treat `.agents/skills` as the source of truth.

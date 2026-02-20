@@ -317,33 +317,43 @@
             }
 
             // Tables
-            > table {
+            table {
                 width: 100%;
                 margin: 1rem 0;
                 border-spacing: 0;
                 border-collapse: separate;
             }
 
-            > table th,
-            > table td {
+            table th,
+            table td {
+                position: relative;
                 padding: 0.5rem 0.75rem;
                 vertical-align: top;
                 border: 0;
                 border-bottom: 1px solid color-mix(in oklab, var(--color-border-primary), transparent 35%);
             }
 
-            > table th {
+            table th {
                 font-weight: 600;
                 text-align: left;
                 background: var(--color-bg-surface-primary);
             }
 
-            > table tbody tr:nth-child(odd) {
+            table tbody tr:nth-child(odd) {
                 background: color-mix(in oklab, var(--color-bg-surface-primary), transparent 60%);
             }
 
-            > table tbody tr:hover {
+            table tbody tr:hover {
                 background: color-mix(in oklab, var(--color-bg-surface-primary), transparent 30%);
+            }
+
+            // TipTap table cell selection
+            table .selectedCell {
+                background: color-mix(in oklab, var(--color-accent), transparent 85%);
+            }
+
+            table p {
+                margin: 0;
             }
 
             // Links
@@ -609,8 +619,15 @@
     display: flex;
     flex: 1;
     justify-content: center;
+    padding: 0 0.75rem;
 
     .SidePanel3000 & {
         padding: 0 0.75rem; // Padding to fit in the HeadingToggles
+    }
+}
+
+.NotebookProfileCanvas {
+    .Notebook_content {
+        padding: 0;
     }
 }

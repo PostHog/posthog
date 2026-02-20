@@ -28,6 +28,21 @@ else:
     _GenericViewSet = object
 
 
+class OrganizationMemberField(serializers.PrimaryKeyRelatedField):
+    def __init__(self, **kwargs):
+        kwargs.setdefault(
+            "pk_field",
+            serializers.UUIDField(
+                format="hex_verbose",
+                error_messages={
+                    "invalid": "Invalid organization member id. "
+                    "Use the 'id' field from the /api/organizations/<organization_id>/members/ endpoint.",
+                },
+            ),
+        )
+        super().__init__(**kwargs)
+
+
 class UserAccessInfoSerializer(serializers.Serializer):
     """Serializer for user access information"""
 
@@ -57,7 +72,16 @@ class AccessControlSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
-    # Validate that resource is a valid option from the API_SCOPE_OBJECTS
+    def build_relational_field(self, field_name, relation_info):
+        """Override to customize error messages for organization_member field"""
+        field_class, field_kwargs = super().build_relational_field(field_name, relation_info)
+
+        if field_name == "organization_member":
+            # Inject our custom field class with better error messages
+            field_class = OrganizationMemberField
+
+        return field_class, field_kwargs
+
     def validate_resource(self, resource):
         if resource not in API_SCOPE_OBJECTS:
             raise serializers.ValidationError("Invalid resource. Must be one of: {}".format(API_SCOPE_OBJECTS))

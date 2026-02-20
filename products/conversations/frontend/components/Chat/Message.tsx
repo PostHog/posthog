@@ -1,27 +1,72 @@
+import { JSONContent } from '@tiptap/core'
+
+import { IconLock } from '@posthog/icons'
+import { ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+
 import { TZLabel } from 'lib/components/TZLabel'
 
-import type { CommentType } from '~/types'
+import type { ChatMessage, MessageDeliveryStatus } from '../../types'
+import { SupportMarkdown, SupportRichContentPreview } from '../Editor'
 
 export interface MessageProps {
-    message: CommentType
+    message: ChatMessage
     isCustomer: boolean
-    displayName: string
+    deliveryStatus?: MessageDeliveryStatus
 }
 
-export function Message({ message, isCustomer, displayName }: MessageProps): JSX.Element {
+export function Message({ message, isCustomer, deliveryStatus }: MessageProps): JSX.Element {
+    const profileType = message.authorType === 'AI' ? 'bot' : 'person'
+    const isPrivate = message.isPrivate
+
     return (
-        <div className={`flex ${isCustomer ? 'mr-10' : 'flex-row-reverse ml-10'}`}>
-            <div className="flex flex-col min-w-0 items-start">
-                <div className="text-xs text-muted mb-1 px-1">{displayName}</div>
-                <div className="max-w-full">
-                    <div className="border py-2 px-3 rounded-lg bg-surface-primary">
-                        <p className="text-sm p-0 m-0">{message.content}</p>
+        <div className={`flex ${isCustomer ? 'mr-10' : 'flex-row-reverse ml-10'} mb-4`}>
+            <div className="flex gap-2">
+                <div className="flex flex-col min-w-0 items-start">
+                    <div className="flex items-center justify-between w-full gap-2 mb-1">
+                        <ProfilePicture
+                            size="sm"
+                            user={message.createdBy}
+                            name={message.authorName}
+                            type={profileType}
+                            showName={true}
+                        />
+                        <div className="flex items-center gap-1.5">
+                            {isPrivate && (
+                                <Tooltip title="Only visible to your team">
+                                    <span className="inline-flex items-center gap-0.5 text-xs text-warning-dark bg-warning-highlight px-1.5 py-0.5 rounded">
+                                        <IconLock className="text-xs" />
+                                        Private note
+                                    </span>
+                                </Tooltip>
+                            )}
+                            <span className="text-xs text-muted-alt">
+                                <TZLabel time={message.createdAt} />
+                            </span>
+                        </div>
                     </div>
-                </div>
-                <div className="text-xs text-muted-alt mt-1 px-1">
-                    {message.created_at && typeof message.created_at === 'string' && (
-                        <TZLabel time={message.created_at} />
-                    )}
+                    <div className="max-w-full min-w-80">
+                        <div
+                            className={`border py-2 px-3 rounded-lg ${
+                                isPrivate ? 'bg-warning-highlight border-warning' : 'bg-surface-primary'
+                            } [&_.SupportMarkdown__image]:max-h-64 [&_.SupportEditor__image]:max-h-64`}
+                        >
+                            {message.richContent ? (
+                                <SupportRichContentPreview
+                                    content={message.richContent as JSONContent}
+                                    className="text-sm"
+                                />
+                            ) : (
+                                <SupportMarkdown className="text-sm">{message.content}</SupportMarkdown>
+                            )}
+                        </div>
+                        <div className="flex items-center justify-end gap-1">
+                            {deliveryStatus && (
+                                <span className="text-xs text-muted-alt">
+                                    {deliveryStatus === 'read' ? 'Read' : 'Sent'}
+                                </span>
+                            )}
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

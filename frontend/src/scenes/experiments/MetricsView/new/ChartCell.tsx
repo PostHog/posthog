@@ -27,6 +27,11 @@ import {
 } from './constants'
 import { useAxisScale } from './useAxisScale'
 
+const CHART_CELL_HEIGHT_STYLE = {
+    height: `${CELL_HEIGHT}px`,
+    maxHeight: `${CELL_HEIGHT}px`,
+}
+
 interface ChartCellProps {
     variantResult: ExperimentVariantResult
     metric: ExperimentMetric
@@ -64,9 +69,15 @@ export function ChartCell({
     const viewBoxHeight = CHART_CELL_VIEW_BOX_HEIGHT
     const barHeightPercent = CHART_CELL_BAR_HEIGHT_PERCENT
     const y = (viewBoxHeight - barHeightPercent) / 2 // Center the bar vertically
-    const x1 = scale(lower)
-    const x2 = scale(upper)
-    const deltaX = scale(delta)
+
+    // Cap positions to valid SVG range so bars extending beyond ±MAX_AXIS_RANGE are cut off at edges
+    const minX = SVG_EDGE_MARGIN
+    const maxX = VIEW_BOX_WIDTH - SVG_EDGE_MARGIN
+    const capToChartBounds = (value: number): number => Math.max(minX, Math.min(maxX, value))
+
+    const x1 = capToChartBounds(scale(lower))
+    const x2 = capToChartBounds(scale(upper))
+    const deltaX = capToChartBounds(scale(delta))
 
     const isClickable = !!onTimeseriesClick
 
@@ -76,7 +87,7 @@ export function ChartCell({
             className={`p-0 align-top text-center relative overflow-hidden ${
                 isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
             } ${isLastRow ? 'border-b' : ''}`}
-            style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+            style={CHART_CELL_HEIGHT_STYLE}
         >
             <div className="relative h-full">
                 <svg

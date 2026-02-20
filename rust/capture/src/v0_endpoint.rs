@@ -64,7 +64,7 @@ pub async fn event(
 
         Err(err) => {
             report_internal_error_metrics(err.to_metric_tag(), "parsing");
-            error!("event: request payload parsing error: {:?}", err);
+            error!("event: request payload parsing error: {err:#}");
             Err(err)
         }
 
@@ -72,6 +72,7 @@ pub async fn event(
             if let Err(err) = process_events(
                 state.sink.clone(),
                 state.token_dropper.clone(),
+                state.event_restriction_service.clone(),
                 state.historical_cfg.clone(),
                 &events,
                 &context,
@@ -80,7 +81,7 @@ pub async fn event(
             {
                 report_dropped_events(err.to_metric_tag(), events.len() as u64);
                 report_internal_error_metrics(err.to_metric_tag(), "processing");
-                warn!("event: rejected payload: {}", err);
+                warn!("event: rejected payload: {err:#}");
                 return Err(err);
             }
 
@@ -129,15 +130,22 @@ pub async fn recording(
         }),
         Err(err) => {
             report_internal_error_metrics(err.to_metric_tag(), "parsing");
-            error!("recordings: request payload parsing error: {:?}", err);
+            error!("recordings: request payload parsing error: {err:#}");
             Err(err)
         }
         Ok((context, events)) => {
             let count = events.len() as u64;
-            if let Err(err) = process_replay_events(state.sink.clone(), events, &context).await {
+            if let Err(err) = process_replay_events(
+                state.sink.clone(),
+                state.event_restriction_service.clone(),
+                events,
+                &context,
+            )
+            .await
+            {
                 report_dropped_events(err.to_metric_tag(), count);
                 report_internal_error_metrics(err.to_metric_tag(), "processing");
-                warn!("recordings:rejected payload: {:?}", err);
+                warn!("recordings: rejected payload: {err:#}");
                 return Err(err);
             }
             Ok(CaptureResponse {

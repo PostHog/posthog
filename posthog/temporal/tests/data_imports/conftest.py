@@ -12,7 +12,6 @@ from django.test import override_settings
 import aioboto3
 import pytest_asyncio
 from asgiref.sync import sync_to_async
-from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -55,28 +54,6 @@ async def minio_client():
         yield minio_client
 
 
-def _mock_to_session_credentials(class_self):
-    return {
-        "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-        "aws_session_token": None,
-        "AWS_ALLOW_HTTP": "true",
-        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-    }
-
-
-def _mock_to_object_store_rs_credentials(class_self):
-    return {
-        "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-        "region": "us-east-1",
-        "AWS_ALLOW_HTTP": "true",
-        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-    }
-
-
 async def run_external_data_job_workflow(
     team,
     external_data_source,
@@ -98,10 +75,10 @@ async def run_external_data_job_workflow(
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             BUCKET_PATH=BUCKET_NAME,
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
         ),
         mock.patch.object(DeltaTableHelper, "compact_table") as mock_compact_table,
         mock.patch(
@@ -109,8 +86,6 @@ async def run_external_data_job_workflow(
         ) as mock_get_data_import_finished_metric,
         # make sure intended error of line 175 in posthog/warehouse/models/table.py doesn't trigger flag calls
         mock.patch("posthoganalytics.capture_exception", return_value=None),
-        mock.patch.object(AwsCredentials, "to_session_credentials", _mock_to_session_credentials),
-        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", _mock_to_object_store_rs_credentials),
     ):
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(

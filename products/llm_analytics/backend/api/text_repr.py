@@ -31,8 +31,10 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models import User
+from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import LLMAnalyticsTextReprBurstThrottle, LLMAnalyticsTextReprSustainedThrottle
 
+from products.llm_analytics.backend.api.metrics import llma_track_latency
 from products.llm_analytics.backend.text_repr.formatters import (
     format_event_text_repr,
     format_trace_text_repr,
@@ -131,7 +133,8 @@ class LLMAnalyticsTextReprViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     Uses pure Python formatters for all processing.
     """
 
-    scope_object = "llm_analytics"  # type: ignore[assignment]
+    scope_object = "llm_analytics"
+    permission_classes = [AccessControlPermission]
 
     def get_throttles(self):
         """Apply rate limiting to prevent abuse of text formatting endpoint."""
@@ -259,7 +262,8 @@ The response includes the formatted text and metadata about the rendering.
         """,
         tags=["LLM Analytics"],
     )
-    @monitor(feature=None, endpoint="llm_analytics_text_repr", method="POST")
+    @llma_track_latency("llma_text_repr")
+    @monitor(feature=None, endpoint="llma_text_repr", method="POST")
     def create(self, request: Request, **kwargs) -> Response:
         """
         Stringify a single LLM trace event.

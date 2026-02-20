@@ -3,7 +3,7 @@ import { urls } from 'scenes/urls'
 
 import { PersonType } from '~/types'
 
-import { asDisplay, asLink } from './person-utils'
+import { asDisplay, asLink, getPersonColorIndex } from './person-utils'
 
 describe('the person header', () => {
     describe('linking to a person', () => {
@@ -147,5 +147,38 @@ describe('the person header', () => {
         }
 
         expect(asDisplay(person)).toEqual(testCase.personDisplay)
+    })
+
+    describe('color index', () => {
+        it('returns undefined for null/undefined identifier', () => {
+            expect(getPersonColorIndex(null)).toBeUndefined()
+            expect(getPersonColorIndex(undefined)).toBeUndefined()
+        })
+
+        it('returns a number between 0 and 15', () => {
+            for (let i = 0; i < 26; i++) {
+                const letter = String.fromCharCode(97 + i) // a-z
+                const idx = getPersonColorIndex(`user-1234${letter}`)
+                expect(idx).toBeGreaterThanOrEqual(0)
+                expect(idx).toBeLessThanOrEqual(15)
+            }
+        })
+
+        it('returns consistent index for the same identifier', () => {
+            const index1 = getPersonColorIndex('user-abc-123')
+            const index2 = getPersonColorIndex('user-abc-123')
+            expect(index1).toEqual(index2)
+        })
+
+        it('returns different indices for identifiers starting with the same character', () => {
+            // This is the key test: identifiers starting with same char should get different colors
+            const index1 = getPersonColorIndex('0abc123')
+            const index2 = getPersonColorIndex('0xyz789')
+            const index3 = getPersonColorIndex('0different')
+
+            // At least two of these should be different (with good hash distribution)
+            const uniqueIndices = new Set([index1, index2, index3])
+            expect(uniqueIndices.size).toBe(3)
+        })
     })
 })

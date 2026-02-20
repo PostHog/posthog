@@ -247,8 +247,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 s.sceneSource,
             ],
             (insightLogicRef, insight, insightQuery, dashboardId, dashboardName, tabId, sceneSource): Breadcrumb[] => {
+                const dashboardLabel = dashboardName ?? 'Dashboard'
                 return [
-                    ...(dashboardId !== null && dashboardName
+                    ...(dashboardId !== null
                         ? [
                               {
                                   key: Scene.Dashboards,
@@ -258,7 +259,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                               },
                               {
                                   key: Scene.Dashboard,
-                                  name: dashboardName,
+                                  name: dashboardLabel,
                                   path: urls.dashboard(dashboardId),
                                   iconType: 'dashboard' as FileSystemIconType,
                               },
@@ -398,17 +399,21 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 upgradedQuery = query
             }
 
-            values.insightLogicRef?.logic.actions.setInsight(
-                {
-                    ...createEmptyInsight(`new-${values.tabId}`),
-                    ...(values.dashboardId ? { dashboards: [values.dashboardId] } : {}),
-                    query: upgradedQuery,
-                },
-                {
-                    fromPersistentApi: false,
-                    overrideQuery: true,
-                }
-            )
+            if (values.insightId === 'new' || values.insightId?.startsWith('new-')) {
+                values.insightLogicRef?.logic.actions.setInsight(
+                    {
+                        ...createEmptyInsight(`new-${values.tabId}`),
+                        ...(values.dashboardId ? { dashboards: [values.dashboardId] } : {}),
+                        query: upgradedQuery,
+                    },
+                    {
+                        fromPersistentApi: false,
+                        overrideQuery: true,
+                    }
+                )
+            } else {
+                values.insightDataLogicRef?.logic.actions.setQuery(upgradedQuery)
+            }
         },
     })),
     tabAwareUrlToAction(({ actions, values }) => ({
@@ -436,7 +441,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
 
             const currentScene = sceneLogic.findMounted()?.values
 
-            const alertChanged = alert_id !== values.alertId
+            const alertChanged = (alert_id ?? null) !== values.alertId
 
             if (
                 currentScene?.activeSceneId === Scene.Insight &&
@@ -463,14 +468,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             if (
                 insightId !== values.insightId ||
                 insightMode !== values.insightMode ||
-                itemId !== values.itemId ||
+                (itemId ?? null) !== values.itemId ||
                 (sceneSource ?? null) !== values.sceneSource ||
                 alertChanged ||
-                !objectsEqual(variablesOverride, values.variablesOverride) ||
-                !objectsEqual(filtersOverride, values.filtersOverride) ||
-                !objectsEqual(tileFiltersOverride, values.tileFiltersOverride) ||
-                dashboard !== values.dashboardId ||
-                dashboardName !== values.dashboardName
+                !objectsEqual(variablesOverride ?? null, values.variablesOverride) ||
+                !objectsEqual(filtersOverride ?? null, values.filtersOverride) ||
+                !objectsEqual(tileFiltersOverride ?? null, values.tileFiltersOverride) ||
+                (dashboard ?? null) !== values.dashboardId ||
+                (dashboardName ?? null) !== values.dashboardName
             ) {
                 actions.setSceneState(
                     insightId,

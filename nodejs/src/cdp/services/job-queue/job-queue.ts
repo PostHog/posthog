@@ -18,7 +18,7 @@ import {
 } from '../../types'
 import { CyclotronJobQueueDelay } from './job-queue-delay'
 import { CyclotronJobQueueKafka } from './job-queue-kafka'
-import { CyclotronJobQueuePostgres } from './job-queue-postgres'
+import { CyclotronJobQueuePostgres, CyclotronJobQueuePostgresShadow } from './job-queue-postgres'
 
 const cyclotronBatchUtilizationGauge = new Gauge({
     name: 'cdp_cyclotron_batch_utilization',
@@ -53,6 +53,9 @@ export class CyclotronJobQueue {
     private jobQueuePostgres: CyclotronJobQueuePostgres
     private jobQueueKafka: CyclotronJobQueueKafka
     private jobQueueDelay: CyclotronJobQueueDelay
+    private shadowPostgres: CyclotronJobQueuePostgresShadow | null = null
+    private shadowFailures = 0
+    private shadowCircuitOpenUntil = 0
 
     constructor(
         private config: PluginsServerConfig,
@@ -72,13 +75,22 @@ export class CyclotronJobQueue {
             this.consumeBatch(invocations, 'delay')
         )
         this.jobQueuePostgres = new CyclotronJobQueuePostgres(this.config, this.queue, (invocations) =>
-            this.consumeBatch(invocations, 'postgres')
+            this.consumeBatch(invocations, this.consumerMode === 'shadow' ? 'shadow' : 'postgres')
         )
+
+        if (this.config.CDP_CYCLOTRON_SHADOW_WRITE_ENABLED && this.config.CYCLOTRON_SHADOW_DATABASE_URL) {
+            const shadowConfig = {
+                ...this.config,
+                CYCLOTRON_DATABASE_URL: this.config.CYCLOTRON_SHADOW_DATABASE_URL,
+            }
+            this.shadowPostgres = new CyclotronJobQueuePostgresShadow(shadowConfig, this.queue)
+        }
 
         logger.info('🔄', 'CyclotronJobQueue initialized', {
             consumerMode: this.consumerMode,
             producerMapping: this.producerMapping,
             producerTeamMapping: this.producerTeamMapping,
+            shadowWriteEnabled: !!this.shadowPostgres,
         })
     }
 
@@ -133,6 +145,15 @@ export class CyclotronJobQueue {
         if (this.consumerMode === 'delay') {
             await this.jobQueueDelay.startAsProducer()
         }
+
+        if (this.shadowPostgres) {
+            await this.shadowPostgres.startAsProducer().catch((err) => {
+                logger.warn('Shadow cyclotron producer failed to start, disabling shadow writes', {
+                    error: err.message,
+                })
+                this.shadowPostgres = null
+            })
+        }
     }
 
     public async start() {
@@ -143,7 +164,7 @@ export class CyclotronJobQueue {
         // The consumer always needs the producers as well
         await this.startAsProducer()
 
-        if (this.consumerMode === 'postgres') {
+        if (this.consumerMode === 'postgres' || this.consumerMode === 'shadow') {
             await this.jobQueuePostgres.startAsConsumer()
         } else if (this.consumerMode === 'kafka') {
             await this.jobQueueKafka.startAsConsumer()
@@ -165,11 +186,12 @@ export class CyclotronJobQueue {
             this.jobQueuePostgres.stopProducer(),
             this.jobQueueKafka.stopProducer(),
             this.jobQueueDelay.stopProducer(),
+            this.shadowPostgres?.stopProducer(),
         ])
     }
 
     public isHealthy() {
-        if (this.consumerMode === 'postgres') {
+        if (this.consumerMode === 'postgres' || this.consumerMode === 'shadow') {
             return this.jobQueuePostgres.isHealthy()
         } else if (this.consumerMode === 'kafka') {
             return this.jobQueueKafka.isHealthy()
@@ -223,6 +245,27 @@ export class CyclotronJobQueue {
             this.jobQueuePostgres.queueInvocations(postgresInvocations),
             this.jobQueueKafka.queueInvocations(kafkaInvocations),
         ])
+
+        if (this.shadowPostgres && Date.now() >= this.shadowCircuitOpenUntil) {
+            const hogInvocations = invocations.filter((x) => x.queue === 'hog')
+            if (!hogInvocations.length) {
+                return
+            }
+            void this.shadowPostgres
+                .queueInvocations(hogInvocations)
+                .then(() => {
+                    this.shadowFailures = 0
+                })
+                .catch((err) => {
+                    this.shadowFailures++
+                    if (this.shadowFailures >= 5) {
+                        this.shadowCircuitOpenUntil = Date.now() + 60_000
+                        this.shadowFailures = 0
+                        logger.warn('Shadow cyclotron circuit breaker opened')
+                    }
+                    logger.warn('Shadow cyclotron write failed', { error: err.message, stack: err.stack })
+                })
+        }
     }
 
     public async dequeueInvocations(invocations: CyclotronJobInvocation[]) {
@@ -230,6 +273,14 @@ export class CyclotronJobQueue {
         const pgJobsToDequeue = invocations.filter((x) => x.queueSource === 'postgres')
         if (pgJobsToDequeue.length > 0) {
             await this.jobQueuePostgres.dequeueInvocations(pgJobsToDequeue)
+        }
+    }
+
+    public async cancelInvocations(invocations: CyclotronJobInvocation[]) {
+        // NOTE: This is only relevant to postgres backed jobs as kafka jobs can just be dropped
+        const pgJobsToCancel = invocations.filter((x) => x.queueSource === 'postgres')
+        if (pgJobsToCancel.length > 0) {
+            await this.jobQueuePostgres.cancelInvocations(pgJobsToCancel)
         }
     }
 

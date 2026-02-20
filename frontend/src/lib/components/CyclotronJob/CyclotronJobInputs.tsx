@@ -123,6 +123,7 @@ function JsonConfigField(props: {
 }): JSX.Element {
     const key = useMemo(() => `json_field_${uuid()}`, [])
     const templatingKind = props.input.templating ?? 'hog'
+    const [isExpanded, setIsExpanded] = useState(true)
 
     // Set up validation logic for this JSON field
     const logic = cyclotronJobInputLogic({
@@ -140,7 +141,7 @@ function JsonConfigField(props: {
     const panels = [
         {
             key: 1,
-            header: 'Click to edit',
+            header: isExpanded ? 'Click to collapse' : 'Click to expand',
             content: (
                 <LemonField.Pure error={error}>
                     <span className={clsx('group relative', props.className)}>
@@ -183,7 +184,15 @@ function JsonConfigField(props: {
         },
     ]
 
-    return <LemonCollapse embedded={false} panels={panels} size="xsmall" />
+    return (
+        <LemonCollapse
+            embedded={false}
+            panels={panels}
+            size="xsmall"
+            activeKey={isExpanded ? 1 : undefined}
+            onChange={(key) => setIsExpanded(key === 1)}
+        />
+    )
 }
 
 function EmailTemplateField({
@@ -263,7 +272,7 @@ function DictionaryField({
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
 }): JSX.Element {
     const value = input.value ?? {}
-    const [entries, setEntries] = useState<[string, string][]>(Object.entries(value))
+    const [entries, setEntries] = useState<[string, string][]>(() => Object.entries(value))
     const prevFilteredEntriesRef = useRef<[string, string][]>(entries)
 
     useEffect(() => {
@@ -283,7 +292,7 @@ function DictionaryField({
     }, [entries, onChange])
 
     const handleEnableIncludeObject = (): void => {
-        setEntries([[EXTEND_OBJECT_KEY, '{event.properties}'], ...entries])
+        setEntries((prev) => [[EXTEND_OBJECT_KEY, '{event.properties}'], ...prev])
     }
 
     return (
@@ -301,9 +310,11 @@ function DictionaryField({
                             disabled={key === EXTEND_OBJECT_KEY}
                             className="flex-1 min-w-60"
                             onChange={(key) => {
-                                const newEntries = [...entries]
-                                newEntries[index] = [key, newEntries[index][1]]
-                                setEntries(newEntries)
+                                setEntries((prev) => {
+                                    const newEntries = [...prev]
+                                    newEntries[index] = [key, newEntries[index][1]]
+                                    return newEntries
+                                })
                             }}
                             placeholder="Key"
                         />
@@ -313,12 +324,15 @@ function DictionaryField({
                         className="overflow-hidden flex-2"
                         input={{ ...input, value: val }}
                         onChange={(val) => {
-                            const newEntries = [...entries]
-                            newEntries[index] = [newEntries[index][0], val.value ?? '']
                             if (val.templating) {
                                 onChange?.({ ...input, templating: val.templating })
                             }
-                            setEntries(newEntries)
+
+                            setEntries((prev) => {
+                                const newEntries = [...prev]
+                                newEntries[index] = [newEntries[index][0], val.value ?? '']
+                                return newEntries
+                            })
                         }}
                         templating={templating}
                         sampleGlobalsWithInputs={sampleGlobalsWithInputs}
@@ -328,9 +342,11 @@ function DictionaryField({
                         icon={<IconX />}
                         size="small"
                         onClick={() => {
-                            const newEntries = [...entries]
-                            newEntries.splice(index, 1)
-                            setEntries(newEntries)
+                            setEntries((prev) => {
+                                const newEntries = [...prev]
+                                newEntries.splice(index, 1)
+                                return newEntries
+                            })
                         }}
                     />
                 </div>
@@ -340,7 +356,7 @@ function DictionaryField({
                 size="small"
                 type="secondary"
                 onClick={() => {
-                    setEntries([...entries, ['', '']])
+                    setEntries((prev) => [...prev, ['', '']])
                 }}
             >
                 Add entry

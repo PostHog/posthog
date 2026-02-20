@@ -183,6 +183,9 @@ export default function FeatureFlagSchedule(): JSX.Element {
                             recurringDescription = `Monthly on the ${dayText} at ${timeStr}`
                             break
                         }
+                        case RecurrenceInterval.Yearly:
+                            recurringDescription = `Yearly on ${scheduledAt.format('MMMM Do')} at ${timeStr}`
+                            break
                         default:
                             recurringDescription = `Every ${scheduledChange.recurrence_interval}`
                     }
@@ -371,6 +374,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                             { value: RecurrenceInterval.Daily, label: 'Daily' },
                                             { value: RecurrenceInterval.Weekly, label: 'Weekly' },
                                             { value: RecurrenceInterval.Monthly, label: 'Monthly' },
+                                            { value: RecurrenceInterval.Yearly, label: 'Yearly' },
                                         ]}
                                     />
                                 </div>
@@ -384,7 +388,10 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                         title={
                                             <>
                                                 Schedule will run through end of this day in the{' '}
-                                                <Link to={urls.settings('project', 'date-and-time')} target="_blank">
+                                                <Link
+                                                    to={urls.settings('environment-customization', 'date-and-time')}
+                                                    target="_blank"
+                                                >
                                                     project's timezone
                                                 </Link>
                                             </>

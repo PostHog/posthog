@@ -112,6 +112,28 @@ class BatchImportConfigBuilder:
         self.batch_import.secrets[secret_access_key_key] = secret_access_key
         return self
 
+    def from_s3_gzip(
+        self,
+        bucket: str,
+        prefix: str,
+        region: str,
+        access_key_id: str,
+        secret_access_key: str,
+        access_key_id_key: str = "aws_access_key_id",
+        secret_access_key_key: str = "aws_secret_access_key",
+    ) -> Self:
+        self.batch_import.import_config["source"] = {
+            "type": "s3_gzip",
+            "bucket": bucket,
+            "prefix": prefix,
+            "region": region,
+            "access_key_id_key": access_key_id_key,
+            "secret_access_key_key": secret_access_key_key,
+        }
+        self.batch_import.secrets[access_key_id_key] = access_key_id
+        self.batch_import.secrets[secret_access_key_key] = secret_access_key
+        return self
+
     def from_date_range(
         self,
         start_date: str,

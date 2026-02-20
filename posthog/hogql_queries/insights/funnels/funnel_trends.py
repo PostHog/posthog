@@ -151,7 +151,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
             SELECT
                 arraySort(t -> t.1, groupArray(tuple(
                     toFloat(timestamp),
-                    _toUInt64(toDateTime({get_start_of_interval_hogql_str(self.context.interval.value, team=self.context.team, source='timestamp')})),
+                    _toUInt64(toDateTime({get_start_of_interval_hogql_str(self.context.interval.value, team=self.context.team, source="timestamp")})),
                     uuid,
                     {prop_selector},
                     arrayFilter((x) -> x != 0, [{steps}{exclusions}])
@@ -334,7 +334,13 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
                 ):
                     serialized_result.update({"breakdown_value": (breakdown_value)})
                 else:
-                    serialized_result.update({"breakdown_value": Cohort.objects.get(pk=breakdown_value).name})
+                    serialized_result.update(
+                        {
+                            "breakdown_value": Cohort.objects.get(
+                                pk=breakdown_value, team__project_id=self.context.team.project_id
+                            ).name
+                        }
+                    )
 
             summary.append(serialized_result)
 

@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
@@ -15,36 +16,47 @@ import { isTracesQuery } from '~/queries/utils'
 
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
-import { llmAnalyticsLogic } from './llmAnalyticsLogic'
-import { formatLLMCost, formatLLMLatency, formatLLMUsage, getTraceTimestamp, normalizeMessages } from './utils'
+import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
+import {
+    formatLLMCost,
+    formatLLMLatency,
+    formatLLMUsage,
+    getTraceTimestamp,
+    normalizeMessages,
+    sanitizeTraceUrlSearchParams,
+} from './utils'
 
 export function LLMAnalyticsTraces(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setShouldFilterSupportTraces, setPropertyFilters } =
-        useActions(llmAnalyticsLogic)
-    const { tracesQuery, propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsLogic)
+        useActions(llmAnalyticsSharedLogic)
+    const { propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
+    const { tracesQuery } = useValues(llmAnalyticsTracesTabLogic)
 
     return (
-        <DataTable
-            query={{
-                ...tracesQuery,
-                showSavedFilters: true,
-            }}
-            setQuery={(query) => {
-                if (!isTracesQuery(query.source)) {
-                    throw new Error('Invalid query')
-                }
-                setDates(query.source.dateRange?.date_from || null, query.source.dateRange?.date_to || null)
-                setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
-                setShouldFilterSupportTraces(query.source.filterSupportTraces ?? true)
+        <div data-attr="llm-trace-table">
+            <DataTable
+                query={{
+                    ...tracesQuery,
+                    showSavedFilters: true,
+                }}
+                setQuery={(query) => {
+                    if (!isTracesQuery(query.source)) {
+                        throw new Error('Invalid query')
+                    }
+                    setDates(query.source.dateRange?.date_from || null, query.source.dateRange?.date_to || null)
+                    setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
+                    setShouldFilterSupportTraces(query.source.filterSupportTraces ?? true)
 
-                const newPropertyFilters = query.source.properties || []
-                if (!objectsEqual(newPropertyFilters, currentPropertyFilters)) {
-                    setPropertyFilters(newPropertyFilters)
-                }
-            }}
-            context={useTracesQueryContext()}
-            uniqueKey="llm-analytics-traces"
-        />
+                    const newPropertyFilters = query.source.properties || []
+                    if (!objectsEqual(newPropertyFilters, currentPropertyFilters)) {
+                        setPropertyFilters(newPropertyFilters)
+                    }
+                }}
+                context={useTracesQueryContext()}
+                uniqueKey="llm-analytics-traces"
+            />
+        </div>
     )
 }
 
@@ -100,11 +112,19 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
 
 const IDColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
+    const { searchParams } = useValues(router)
+    const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     return (
         <strong>
             <Tooltip title={row.id}>
                 <Link
-                    to={urls.llmAnalyticsTrace(row.id, { timestamp: getTraceTimestamp(row.createdAt) })}
+                    to={
+                        combineUrl(urls.llmAnalyticsTrace(row.id), {
+                            ...nonTraceSearchParams,
+                            back_to: 'traces',
+                            timestamp: getTraceTimestamp(row.createdAt),
+                        }).url
+                    }
                     data-attr="trace-id-link"
                 >
                     {row.id.slice(0, 4)}...{row.id.slice(-4)}
@@ -116,11 +136,19 @@ const IDColumn: QueryContextColumnComponent = ({ record }) => {
 
 const TraceNameColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
+    const { searchParams } = useValues(router)
+    const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     return (
         <div className="flex items-center gap-2">
             <strong>
                 <Link
-                    to={urls.llmAnalyticsTrace(row.id, { timestamp: getTraceTimestamp(row.createdAt) })}
+                    to={
+                        combineUrl(urls.llmAnalyticsTrace(row.id), {
+                            ...nonTraceSearchParams,
+                            back_to: 'traces',
+                            timestamp: getTraceTimestamp(row.createdAt),
+                        }).url
+                    }
                     data-attr="trace-name-link"
                 >
                     {row.traceName || '–'}

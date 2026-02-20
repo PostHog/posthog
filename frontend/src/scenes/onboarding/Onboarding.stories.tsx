@@ -2,7 +2,6 @@ import { Meta } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { router } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -260,6 +259,27 @@ export const Alerts = (): JSX.Element => {
 }
 
 // ==========================================
+// Workflows
+// ==========================================
+
+export const WorkflowsCustomInstallationInstructions = (): JSX.Element => {
+    useMountedLogic(onboardingLogic)
+    const { setProduct } = useActions(onboardingLogic)
+
+    useDelayedOnMountEffect(() => {
+        setProduct(availableOnboardingProducts[ProductKey.WORKFLOWS])
+        router.actions.push(
+            urls.onboarding({
+                productKey: ProductKey.WORKFLOWS,
+                stepKey: OnboardingStepKey.INSTALL,
+            })
+        )
+    })
+
+    return <App />
+}
+
+// ==========================================
 // Shared Steps
 // ==========================================
 
@@ -312,35 +332,4 @@ export const ReverseProxy = (): JSX.Element => {
     })
 
     return <App />
-}
-
-export const AIConsent = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
-    const { setProduct } = useActions(onboardingLogic)
-
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
-        router.actions.push(
-            urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.AI_CONSENT })
-        )
-    })
-
-    return <App />
-}
-
-export const TellUsMore = (): JSX.Element => {
-    useMountedLogic(onboardingLogic)
-    const { setProduct } = useActions(onboardingLogic)
-
-    useDelayedOnMountEffect(() => {
-        setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
-        router.actions.push(
-            urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.TELL_US_MORE })
-        )
-    })
-
-    return <App />
-}
-TellUsMore.parameters = {
-    featureFlags: [FEATURE_FLAGS.ONBOARDING_TELL_US_MORE_STEP],
 }

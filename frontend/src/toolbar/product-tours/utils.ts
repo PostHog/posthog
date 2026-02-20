@@ -1,7 +1,7 @@
-import { domToJpeg } from 'modern-screenshot'
-
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { TOOLBAR_ID, elementToQuery } from '~/toolbar/utils'
+
+export const PRODUCT_TOURS_SIDEBAR_TRANSITION_MS = 200
 
 export interface ElementInfo {
     selector: string
@@ -10,26 +10,6 @@ export interface ElementInfo {
     ariaLabel: string | null
     attributes: Record<string, string>
     rect: { top: number; left: number; width: number; height: number }
-}
-
-/**
- * Capture a screenshot of the current page using modern-screenshot.
- * No user prompt required - captures DOM directly.
- * Returns base64-encoded JPEG without the data URL prefix.
- */
-export async function captureScreenshot(): Promise<string> {
-    const dataUrl = await domToJpeg(document.body, {
-        quality: 0.7,
-        scale: 0.5, // Reduce size for faster upload
-        filter: (node) => {
-            // Exclude the toolbar from the screenshot
-            if (node instanceof HTMLElement && node.id === TOOLBAR_ID) {
-                return false
-            }
-            return true
-        },
-    })
-    return dataUrl.split(',')[1]
 }
 
 /**

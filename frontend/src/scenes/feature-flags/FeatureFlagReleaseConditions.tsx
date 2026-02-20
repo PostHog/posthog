@@ -677,12 +677,12 @@ export function FeatureFlagReleaseConditions({
                         options={[
                             {
                                 value: 'user',
-                                label: 'User ID',
-                                description: 'Stable assignment for logged-in users based on their unique user ID.',
+                                label: 'User',
+                                description: 'Stable assignment for logged-in users based on their distinct ID.',
                             },
                             {
                                 value: 'device',
-                                label: 'Device ID',
+                                label: 'Device',
                                 description:
                                     'Stable assignment per device. Good fit for experiments on anonymous users.',
                             },
@@ -747,7 +747,12 @@ export function FeatureFlagReleaseConditions({
                 ))}
             </div>
             {!readOnly && (
-                <LemonButton type="secondary" className="mt-0 w-max" onClick={addConditionSet} icon={<IconPlus />}>
+                <LemonButton
+                    type="secondary"
+                    className="mt-0 w-max"
+                    onClick={() => addConditionSet()}
+                    icon={<IconPlus />}
+                >
                     Add condition set
                 </LemonButton>
             )}

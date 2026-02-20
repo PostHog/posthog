@@ -1,4 +1,5 @@
-import { Link, ProfilePicture } from '@posthog/lemon-ui'
+import { IconTrash } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
 
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
@@ -12,6 +13,7 @@ const RICH_LOG_REGEX = /(\[[a-zA-Z0-9_-]+:.*?\])/
 
 const ACTION_REGEX = /\[Action:([a-zA-Z0-9_-]+)\]/
 const PERSON_REGEX = /\[Person:([a-zA-Z0-9_-]+)\|(.*?)\]/
+const EVENT_REGEX = /\[Event:([a-zA-Z0-9_-]+)\|(.*?)\|(.*?)\]/
 const ACTOR_REGEX = /\[Actor:(.*?)\]/
 
 export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JSX.Element => {
@@ -27,7 +29,8 @@ export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JS
             const action = workflow.actions.find((action) => action.id === actionId)
 
             const step = action ? getHogFlowStep(action, {}) : undefined
-            const stepName = action?.name
+            const stepName = action?.name || 'Deleted action'
+            const stepIcon = step?.icon || <IconTrash />
 
             elements.push(
                 <Link
@@ -35,7 +38,7 @@ export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JS
                     className="rounded p-1 -m-1 bg-border text-bg-primary"
                     to={urls.workflow(workflow.id, 'workflow') + `?node=${actionId}&mode=logs`}
                 >
-                    {step?.icon && <span className="mr-1">{step.icon}</span>}
+                    <span className="mr-1">{stepIcon}</span>
                     {stepName}
                 </Link>
             )
@@ -48,7 +51,14 @@ export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JS
             const personName = matchesPersonRegex[2]
 
             elements.push(
-                <PersonDisplay key={part} person={{ id: personId }} displayName={personName} withIcon inline />
+                <PersonDisplay
+                    key={part}
+                    person={{ id: personId }}
+                    displayName={personName}
+                    withIcon="sm"
+                    className="mt-1"
+                    inline
+                />
             )
             continue
         }
@@ -58,19 +68,34 @@ export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JS
             const actorEmail = matchesActorRegex[1]
 
             elements.push(
-                <ProfilePicture
-                    key={part}
-                    user={{
-                        email: actorEmail,
-                    }}
-                    showName
-                    size="sm"
-                />
+                <PersonDisplay key={part} displayName={actorEmail} className="mt-1" withIcon="sm" inline noPopover />
             )
             continue
         }
 
-        elements.push(part)
+        const matchesEventRegex = EVENT_REGEX.exec(part)
+        if (matchesEventRegex) {
+            const eventUuid = matchesEventRegex[1]
+            const eventName = matchesEventRegex[2]
+            const eventTimestamp = matchesEventRegex[3]
+
+            elements.push(
+                <Link
+                    key={part}
+                    className="rounded p-1 -m-1 bg-border text-bg-primary"
+                    to={urls.event(eventUuid, eventTimestamp)}
+                    target="_blank"
+                    targetBlankIcon
+                >
+                    Event: {eventName}
+                </Link>
+            )
+            continue
+        }
+
+        if (part) {
+            elements.push(part)
+        }
     }
 
     return <>{elements}</>

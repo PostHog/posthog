@@ -6,11 +6,14 @@ import pytest
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
+    ClickhouseTestMixin,
     _create_event,
     _create_person,
     clean_varying_query_parts,
     cleanup_materialized_columns,
+    get_index_from_explain,
     materialized,
+    snapshot_clickhouse_queries,
 )
 from unittest import mock
 from unittest.mock import patch
@@ -29,7 +32,15 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLDialect, HogQLGlobalSettings, HogQLQuerySettings
+from posthog.hogql.constants import (
+    MAX_SELECT_POSTHOG_AI_LIMIT,
+    MAX_SELECT_RETURNED_ROWS,
+    HogQLDialect,
+    HogQLGlobalSettings,
+    HogQLParserBackend,
+    HogQLQuerySettings,
+    LimitContext,
+)
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
@@ -44,12 +55,18 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import PropertyDefinition
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
+from posthog.models.property_definition import PropertyType
 from posthog.models.team.team import WeekStartDay
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
 
-from ee.clickhouse.materialized_columns.columns import materialize
+from ee.clickhouse.materialized_columns.columns import (
+    get_bloom_filter_index_name,
+    get_minmax_index_name,
+    get_ngram_lower_index_name,
+    materialize,
+)
 
 
 class TestPrinter(BaseTest):
@@ -62,8 +79,9 @@ class TestPrinter(BaseTest):
         context: Optional[HogQLContext] = None,
         dialect: HogQLDialect = "clickhouse",
         settings: Optional[HogQLQuerySettings] = None,
+        backend: HogQLParserBackend = "cpp-json",
     ) -> str:
-        node = parse_expr(query)
+        node = parse_expr(query, backend=backend)
         context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         select_query = ast.SelectQuery(
             select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])), settings=settings
@@ -106,6 +124,13 @@ class TestPrinter(BaseTest):
 
     def _assert_select_error(self, statement, expected_error):
         with self.assertRaises(ExposedHogQLError) as context:
+            self._select(statement, None)
+        if expected_error not in str(context.exception):
+            raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
+        self.assertTrue(expected_error in str(context.exception))
+
+    def _assert_query_error(self, statement, expected_error):
+        with self.assertRaises(QueryError) as context:
             self._select(statement, None)
         if expected_error not in str(context.exception):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
@@ -843,19 +868,19 @@ class TestPrinter(BaseTest):
         )  # if changing this assumption, you'll need to change the printer too
         self._test_property_group_comparison(
             "properties.key in NULL",
-            "in(has(events.properties_group_custom, %(hogql_val_1)s) ? events.properties_group_custom[%(hogql_val_1)s] : null, NULL)",
+            "in(has(events.properties_group_custom, %(hogql_val_2)s) ? events.properties_group_custom[%(hogql_val_2)s] : null, NULL)",
         )
         self._test_property_group_comparison(
             "properties.key in (NULL)",
-            "in(has(events.properties_group_custom, %(hogql_val_1)s) ? events.properties_group_custom[%(hogql_val_1)s] : null, NULL)",
+            "in(has(events.properties_group_custom, %(hogql_val_2)s) ? events.properties_group_custom[%(hogql_val_2)s] : null, NULL)",
         )
         self._test_property_group_comparison(
             "properties.key in (NULL, NULL, NULL)",
-            "in(has(events.properties_group_custom, %(hogql_val_1)s) ? events.properties_group_custom[%(hogql_val_1)s] : null, tuple(NULL, NULL, NULL))",
+            "in(has(events.properties_group_custom, %(hogql_val_2)s) ? events.properties_group_custom[%(hogql_val_2)s] : null, tuple(NULL, NULL, NULL))",
         )
         self._test_property_group_comparison(
             "properties.key in [NULL, NULL, NULL]",
-            "in(has(events.properties_group_custom, %(hogql_val_1)s) ? events.properties_group_custom[%(hogql_val_1)s] : null, [NULL, NULL, NULL])",
+            "in(has(events.properties_group_custom, %(hogql_val_2)s) ? events.properties_group_custom[%(hogql_val_2)s] : null, [NULL, NULL, NULL])",
         )
 
         # Don't optimize comparisons to types that require additional type conversions.
@@ -1307,7 +1332,7 @@ class TestPrinter(BaseTest):
             self._select("select 1 from events"),
             f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
-        self._assert_select_error("select 1 from other", "Unknown table `other`.")
+        self._assert_query_error("select 1 from other", "Unknown table `other`.")
 
     def test_select_from_placeholder(self):
         self.assertEqual(
@@ -1344,6 +1369,83 @@ class TestPrinter(BaseTest):
             self._select("select 1 from events, raw_groups"),
             f"SELECT 1 FROM events CROSS JOIN groups WHERE and(equals(groups.team_id, {self.team.pk}), equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
+
+    def test_left_join_team_id_in_on_clause(self):
+        # LEFT JOINs should have team_id in ON clause, not WHERE, to preserve LEFT JOIN semantics
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+
+        select_query = ast.SelectQuery(
+            select=[ast.Constant(value=1)],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                next_join=ast.JoinExpr(
+                    join_type="LEFT JOIN",
+                    table=ast.Field(chain=["events"]),
+                    alias="e2",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["events", "event"]),
+                            right=ast.Field(chain=["e2", "event"]),
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
+        )
+
+        prepared = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="clickhouse", stack=[select_query]),
+        )
+        result = print_prepared_ast(prepared, context=context, dialect="clickhouse", stack=[])
+
+        # The main events table should have its team_id filter in WHERE
+        where_start = result.find("WHERE")
+        where_clause = result[where_start:] if where_start != -1 else ""
+        self.assertIn(f"equals(events.team_id, {self.team.pk})", where_clause)
+
+        # The LEFT JOINed table (alias 'e2') should have team_id in ON clause, NOT in WHERE
+        on_start = result.find("ON")
+        on_clause = result[on_start:where_start] if on_start != -1 and where_start != -1 else ""
+        self.assertIn(f"equals(e2.team_id, {self.team.pk})", on_clause)
+        self.assertNotIn("e2.team_id", where_clause)
+
+    def test_inner_join_team_id_in_where_clause(self):
+        # INNER JOINs should still have team_id in WHERE clause (current behavior)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+
+        select_query = ast.SelectQuery(
+            select=[ast.Constant(value=1)],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                next_join=ast.JoinExpr(
+                    join_type="JOIN",
+                    table=ast.Field(chain=["events"]),
+                    alias="e2",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["events", "event"]),
+                            right=ast.Field(chain=["e2", "event"]),
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
+        )
+
+        prepared = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="clickhouse", stack=[select_query]),
+        )
+        result = print_prepared_ast(prepared, context=context, dialect="clickhouse", stack=[])
+
+        # Both tables should have team_id filters in the WHERE clause for INNER JOIN
+        where_start = result.find("WHERE")
+        where_clause = result[where_start:] if where_start != -1 else ""
+        self.assertIn(f"equals(events.team_id, {self.team.pk})", where_clause)
+        self.assertIn(f"equals(e2.team_id, {self.team.pk})", where_clause)
 
     def test_select_array_join(self):
         self.assertEqual(
@@ -1430,6 +1532,13 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._select("select event from events limit (select 100000000) with ties"),
             f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT min2({MAX_SELECT_RETURNED_ROWS}, (SELECT 100000000)) WITH TIES",
+        )
+
+    def test_select_limit_with_posthog_ai_context(self):
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, limit_context=LimitContext.POSTHOG_AI)
+        self.assertEqual(
+            self._select("select 1 limit 1000", context=context),
+            f"SELECT 1 LIMIT {MAX_SELECT_POSTHOG_AI_LIMIT}",
         )
 
     def test_select_offset(self):
@@ -2198,6 +2307,86 @@ class TestPrinter(BaseTest):
             f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS optimize_aggregation_in_order=1, readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
+    def test_table_top_level_settings_added_to_query(self):
+        printed = self._print("SELECT job_id FROM preaggregation_results")
+        assert "load_balancing='in_order'" in printed
+
+    def test_table_top_level_settings_not_added_for_regular_tables(self):
+        printed = self._print("SELECT event FROM events")
+        assert "load_balancing" not in printed
+
+    def test_table_top_level_settings_deduplication(self):
+        printed = self._print(
+            "SELECT a.job_id, b.job_id "
+            "FROM preaggregation_results a "
+            "JOIN experiment_exposures_preaggregated b ON a.job_id = b.job_id"
+        )
+        assert printed.count("load_balancing") == 1
+
+    def test_table_top_level_settings_conflict_between_tables(self):
+        db = Database()
+        db.get_table("preaggregation_results").top_level_settings = HogQLQuerySettings(load_balancing="round_robin")
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        query_both = parse_select(
+            "SELECT a.job_id, b.job_id "
+            "FROM preaggregation_results a "
+            "JOIN experiment_exposures_preaggregated b ON a.job_id = b.job_id"
+        )
+        with self.assertRaises(QueryError) as cm:
+            prepare_and_print_ast(query_both, context, "clickhouse")
+        assert "Conflicting" in str(cm.exception)
+
+    def test_table_top_level_settings_conflict_with_query_settings(self):
+        query = parse_select("SELECT job_id FROM preaggregation_results")
+        assert isinstance(query, ast.SelectQuery)
+        query.settings = HogQLQuerySettings(load_balancing="round_robin")
+        with self.assertRaises(QueryError) as cm:
+            prepare_and_print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                "clickhouse",
+            )
+        assert "Conflicting" in str(cm.exception)
+
+    def test_table_top_level_settings_conflict_with_global_settings(self):
+        query = parse_select("SELECT job_id FROM preaggregation_results")
+        with self.assertRaises(QueryError) as cm:
+            prepare_and_print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                "clickhouse",
+                settings=HogQLGlobalSettings(load_balancing="round_robin"),
+            )
+        assert "Conflicting" in str(cm.exception)
+
+    def test_table_top_level_settings_same_value_in_query_settings(self):
+        query = parse_select("SELECT job_id FROM preaggregation_results")
+        assert isinstance(query, ast.SelectQuery)
+        query.settings = HogQLQuerySettings(load_balancing="in_order")
+        printed, _ = prepare_and_print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+        )
+        assert "load_balancing='in_order'" in printed
+        assert printed.count("load_balancing") == 1
+
+    def test_table_top_level_settings_with_global_settings_single_clause(self):
+        query = parse_select("SELECT job_id FROM preaggregation_results")
+        printed, _ = prepare_and_print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=30),
+        )
+        assert "load_balancing='in_order'" in printed
+        assert printed.count("SETTINGS") == 1
+        assert printed.count("load_balancing") == 1
+
+    def test_subquery_table_settings_bubble_up(self):
+        printed = self._print("SELECT job_id FROM (SELECT job_id FROM preaggregation_results)")
+        assert "load_balancing='in_order'" in printed
+
     def test_pretty_print(self):
         printed = self._pretty("SELECT 1, event FROM events")
         self.assertEqual(
@@ -2430,7 +2619,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
+                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
@@ -2443,7 +2632,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
+                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
@@ -2473,61 +2662,87 @@ class TestPrinter(BaseTest):
         )
 
     def test_get_survey_response(self):
-        # Test with just question index
-        with patch("posthog.hogql.printer.base.get_survey_response_clickhouse_query") as mock_get_survey_response:
-            mock_get_survey_response.return_value = "MOCKED SQL FOR SURVEY RESPONSE"
+        # Test with just question index (0) - dynamic key
+        result = execute_hogql_query(
+            team=self.team,
+            query="SELECT getSurveyResponse(0) FROM events",
+        )
+        assert result.clickhouse is not None
+        # Dynamic key (no question_id) uses concat for key construction
+        self.assertIn("coalesce", result.clickhouse)
+        self.assertIn("nullIf", result.clickhouse)
+        self.assertIn("concat", result.clickhouse)
+        # Always uses JSONExtractString for consistent String return type
+        self.assertIn("JSONExtractString", result.clickhouse)
 
-            printed = self._print(
-                "select getSurveyResponse(0) from events",
-                settings=HogQLGlobalSettings(max_execution_time=10),
-            )
-
-            # Verify the utility function was called with correct parameters
-            mock_get_survey_response.assert_called_once_with(0, None, False)
-
-            # Just test that the mock value was inserted into the query
-            self.assertIn("MOCKED SQL FOR SURVEY RESPONSE", printed)
-
-        # Test with question index and specific ID
-        with patch("posthog.hogql.printer.base.get_survey_response_clickhouse_query") as mock_get_survey_response:
-            mock_get_survey_response.return_value = "MOCKED SQL FOR SURVEY RESPONSE WITH ID"
-
-            printed = self._print(
-                "select getSurveyResponse(1, 'question123') from events",
-                settings=HogQLGlobalSettings(max_execution_time=10),
-            )
-
-            # Verify the utility function was called with correct parameters
-            mock_get_survey_response.assert_called_once_with(1, "question123", False)
-
-            # Just test that the mock value was inserted into the query
-            self.assertIn("MOCKED SQL FOR SURVEY RESPONSE WITH ID", printed)
+        # Test with question index and specific ID - static key
+        result = execute_hogql_query(
+            team=self.team,
+            query="SELECT getSurveyResponse(1, 'question123') FROM events",
+        )
+        assert result.clickhouse is not None
+        # Static key also uses JSONExtractString for type consistency
+        self.assertIn("coalesce", result.clickhouse)
+        self.assertIn("nullIf", result.clickhouse)
+        self.assertIn("JSONExtractString", result.clickhouse)
 
         # Test with multiple choice question
-        with patch("posthog.hogql.printer.base.get_survey_response_clickhouse_query") as mock_get_survey_response:
-            mock_get_survey_response.return_value = "MOCKED SQL FOR MULTIPLE CHOICE SURVEY RESPONSE"
+        result = execute_hogql_query(
+            team=self.team,
+            query="SELECT getSurveyResponse(2, 'abc123', true) FROM events",
+        )
+        assert result.clickhouse is not None
+        # Multiple choice uses if() with JSONHas and JSONExtractArrayRaw
+        self.assertIn("JSONHas", result.clickhouse)
+        self.assertIn("JSONExtractArrayRaw", result.clickhouse)
+        self.assertIn("if(", result.clickhouse)
 
-            printed = self._print(
-                "select getSurveyResponse(2, 'abc123', true) from events",
-                settings=HogQLGlobalSettings(max_execution_time=10),
-            )
+    def test_get_survey_response_with_numeric_property_type(self):
+        """Test that getSurveyResponse returns consistent types even when property has Numeric type.
 
-            # Verify the utility function was called with correct parameters
-            mock_get_survey_response.assert_called_once_with(2, "abc123", True)
+        Regression test for a bug where PropertySwapper would wrap the index-based
+        property access with toFloat() when $survey_response had type=Numeric in
+        PropertyDefinition, causing a ClickHouse type mismatch error:
+        "There is no supertype for types String, Float64"
+        """
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name="$survey_response",
+            property_type=PropertyType.Numeric,
+            type=PropertyDefinition.Type.EVENT,
+        )
+
+        # This should NOT raise a ClickHouse error about type mismatch
+        # Before the fix, this would fail with:
+        # "There is no supertype for types String, Float64 because some of them
+        # are String/FixedString/Enum and some of them are not"
+        result = execute_hogql_query(
+            team=self.team,
+            query="SELECT getSurveyResponse(0) FROM events",
+        )
+
+        # Query should execute successfully (even with no results)
+        assert result.clickhouse is not None
+        # Both branches of coalesce should return String type (via JSONExtractString)
+        self.assertIn("JSONExtractString", result.clickhouse)
+        # Should NOT contain Float64 casting which would cause type mismatch
+        self.assertNotIn("accurateCastOrNull", result.clickhouse)
+        self.assertNotIn("Float64", result.clickhouse)
 
     def test_unique_survey_submissions_filter(self):
-        with patch(
-            "posthog.hogql.printer.base.filter_survey_sent_events_by_unique_submission"
-        ) as mock_filter_survey_sent_events_by_unique_submission:
-            mock_filter_survey_sent_events_by_unique_submission.return_value = (
-                "MOCKED SQL FOR UNIQUE SURVEY SUBMISSIONS FILTER"
-            )
-            printed = self._print(
-                "select uuid from events where uniqueSurveySubmissionsFilter('survey123')",
-                settings=HogQLGlobalSettings(max_execution_time=10),
-            )
-            mock_filter_survey_sent_events_by_unique_submission.assert_called_once_with("survey123", self.team.pk)
-            self.assertIn("MOCKED SQL FOR UNIQUE SURVEY SUBMISSIONS FILTER", printed)
+        printed = self._print(
+            "select uuid from events where uniqueSurveySubmissionsFilter('survey123')",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        # Should contain subquery with argMax for deduplication
+        # String literals are parameterized, so check for structure instead
+        self.assertIn("argMax", printed)
+        self.assertIn("in(events.uuid", printed)
+        self.assertIn("SELECT argMax(events.uuid", printed)
+        self.assertIn("FROM events WHERE", printed)
+        self.assertIn("GROUP BY", printed)
+        self.assertIn("JSONExtractString", printed)
 
     def test_override_timezone(self):
         context = HogQLContext(
@@ -2799,6 +3014,26 @@ class TestPrinter(BaseTest):
                 dialect="clickhouse",
             )
 
+    def test_fails_on_placeholder_macro_expansion_depth_limit(self):
+        query = parse_select(
+            """
+            SELECT date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', now())))))))))
+            """
+        )
+        with pytest.raises(QueryError, match="exceeded maximum placeholder macro depth"):
+            prepare_and_print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+            )
+
+    def test_date_part_macro_does_not_expand_exponentially(self):
+        sql = self._select("SELECT date_part('year', date_part('year', date_part('year', now())))")
+
+        assert "arrayMap((part, dt) -> multiIf" in sql
+        assert sql.count("now()") == 1
+        assert len(sql) < 3_000
+
     def test_team_id_guarding_events(self):
         sql = self._select(
             "SELECT event FROM events",
@@ -2864,14 +3099,16 @@ class TestPrinter(BaseTest):
                 credential=credential,
                 columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
             )
-            printed = self._select("""
+            printed = self._select(
+                """
                                    WITH some_remote_table AS
                                             (SELECT e.event, t.id
                                              FROM events e
                                                       JOIN test_table t on toString(t.id) = e.event)
                                    SELECT some_remote_table.event
                                    FROM events
-                                            JOIN some_remote_table ON events.event = toString(some_remote_table.id)""")
+                                            JOIN some_remote_table ON events.event = toString(some_remote_table.id)"""
+            )
 
             if using_global_joins:
                 assert "GLOBAL JOIN" in printed
@@ -2895,11 +3132,13 @@ class TestPrinter(BaseTest):
                 credential=credential,
                 columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
             )
-            printed = self._select("""
+            printed = self._select(
+                """
                                    SELECT e.event, s.event, t.id
                                    FROM events e
                                             JOIN (SELECT event from events) as s ON e.event = s.event
-                                            LEFT JOIN test_table t on e.event = toString(t.id)""")
+                                            LEFT JOIN test_table t on e.event = toString(t.id)"""
+            )
 
             if using_global_joins:
                 assert "GLOBAL JOIN" in printed  # Join #1
@@ -2926,11 +3165,13 @@ class TestPrinter(BaseTest):
                 columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
             )
 
-            printed = self._select("""
+            printed = self._select(
+                """
                                    SELECT event
                                    FROM events
                                    WHERE properties.$browser IN (SELECT id
-                                                                 FROM test_table)""")
+                                                                 FROM test_table)"""
+            )
 
             if using_global_joins:
                 assert "globalIn" in printed
@@ -3056,8 +3297,132 @@ class TestPrinter(BaseTest):
 
         assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot  # type: ignore
 
+    def test_cte_with_alias_in_join_clickhouse(self):
+        """Test that CTETableAliasType properly prints in ClickHouse dialect with qualified fields"""
+        result = self._select(
+            """
+            WITH
+                exposures AS (SELECT event AS person_id, timestamp AS exposure_time FROM events),
+                conversions AS (SELECT event AS person_id, timestamp AS conversion_time FROM events)
+            SELECT
+                e.person_id,
+                e.exposure_time,
+                c.conversion_time
+            FROM exposures AS e
+            LEFT JOIN conversions AS c ON e.person_id = c.person_id AND c.conversion_time >= e.exposure_time
+            """
+        )
 
-class TestMaterializedColumnOptimization(BaseTest):
+        # The key assertion: JOIN constraint fields should be qualified with CTE aliases
+        self.assertIn("equals(e.person_id, c.person_id)", result)
+        # timestamp fields get wrapped in toTimeZone, but the important part is the alias qualification
+        self.assertIn("c.conversion_time", result)
+        self.assertIn("e.exposure_time", result)
+        # Verify the greaterOrEquals comparison exists with the qualified fields
+        self.assertIn("greaterOrEquals(toTimeZone(c.conversion_time", result)
+        self.assertIn("toTimeZone(e.exposure_time", result)
+        # Verify CTE aliasing in FROM/JOIN clauses
+        self.assertIn("FROM exposures AS e", result)
+        self.assertIn("LEFT JOIN conversions AS c", result)
+
+    def test_cte_non_aliased_with_aliased_join_clickhouse(self):
+        """Test mixing non-aliased and aliased CTEs in ClickHouse output"""
+        result = self._select(
+            """
+            WITH users AS (SELECT event AS user_id, timestamp FROM events)
+            SELECT users.user_id, u2.user_id, users.timestamp
+            FROM users
+            LEFT JOIN users AS u2 ON users.user_id = u2.user_id
+            """
+        )
+
+        # Non-aliased CTE: fields qualified with CTE name
+        self.assertIn("users.user_id", result)
+        self.assertIn("users.timestamp", result)
+        # Aliased CTE: fields qualified with alias
+        self.assertIn("u2.user_id", result)
+        # JOIN constraint should have both
+        self.assertIn("equals(users.user_id, u2.user_id)", result)
+        # Verify table references
+        self.assertIn("FROM users", result)
+        self.assertIn("LEFT JOIN users AS u2", result)
+
+    def test_cte_multiple_aliases_same_cte_clickhouse(self):
+        """Test that the same CTE can be joined multiple times with different aliases"""
+        result = self._select(
+            """
+            WITH base AS (SELECT event AS id FROM events)
+            SELECT b1.id, b2.id, b3.id
+            FROM base AS b1
+            LEFT JOIN base AS b2 ON b1.id = b2.id
+            LEFT JOIN base AS b3 ON b2.id = b3.id
+            """
+        )
+
+        # All three aliases should be present and properly qualified
+        self.assertIn("b1.id", result)
+        self.assertIn("b2.id", result)
+        self.assertIn("b3.id", result)
+        # JOIN constraints should use the right aliases
+        self.assertIn("equals(b1.id, b2.id)", result)
+        self.assertIn("equals(b2.id, b3.id)", result)
+        # Table aliases in FROM/JOIN
+        self.assertIn("FROM base AS b1", result)
+        self.assertIn("LEFT JOIN base AS b2", result)
+        self.assertIn("LEFT JOIN base AS b3", result)
+
+    def test_final_keyword_not_supported(self):
+        with self.assertRaises(QueryError) as e:
+            self._select("SELECT * FROM events FINAL")
+        self.assertEqual("The FINAL keyword is not supported in HogQL as it causes slow queries", str(e.exception))
+
+        with self.assertRaises(QueryError) as e:
+            self._select("SELECT * FROM events FINAL WHERE timestamp > '2026-01-01'")
+        self.assertEqual("The FINAL keyword is not supported in HogQL as it causes slow queries", str(e.exception))
+
+    @parameterized.expand(
+        [
+            # Integer types
+            ("int", "event::int", "toInt64(events.event)"),
+            ("integer", "event::integer", "toInt64(events.event)"),
+            ("int_upper", "event::INT", "toInt64(events.event)"),
+            # Float types
+            ("float", "event::float", "toFloat64(events.event)"),
+            ("double", "event::double", "toFloat64(events.event)"),
+            ("double_precision", 'event::"double precision"', "toFloat64(events.event)"),
+            ("real", "event::real", "toFloat64(events.event)"),
+            # String types
+            ("text", "event::text", "toString(events.event)"),
+            ("varchar", "event::varchar", "toString(events.event)"),
+            ("char", "event::char", "toString(events.event)"),
+            ("string", "event::string", "toString(events.event)"),
+            # Boolean types
+            ("boolean", "event::boolean", "toBoolean(events.event)"),
+            ("bool", "event::bool", "toBoolean(events.event)"),
+            # Date type
+            ("date", "event::date", "toDate(events.event)"),
+            # Constant cast
+            ("const_int", "'123'::int", "toInt64(%(hogql_val_0)s)"),
+            ("const_float", "123.45::float", "toFloat64(123.45)"),
+        ]
+    )
+    def test_postgres_style_cast(self, name, expr, expected):
+        self.assertEqual(self._expr(expr), expected)
+
+    def test_postgres_style_cast_datetime(self):
+        # DateTime types include timezone, test separately
+        self.assertIn("toDateTime(events.event", self._expr("event::datetime"))
+        self.assertIn("toDateTime(events.event", self._expr("event::timestamp"))
+        self.assertIn("toDateTime(events.event", self._expr("event::timestamptz"))
+
+    def test_postgres_style_cast_unsupported_type(self):
+        with self.assertRaises(QueryError) as ctx:
+            self._expr("event::unsupported_type")
+        self.assertIn("Unsupported type cast", str(ctx.exception))
+
+
+@snapshot_clickhouse_queries
+class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _expr(
@@ -3082,32 +3447,26 @@ class TestMaterializedColumnOptimization(BaseTest):
     def _test_materialized_column_comparison(
         self,
         input_expression: str,
-        expected_optimized_query: str | None,
+        expected_query: str,
         expected_context_values: Mapping[str, Any] | None = None,
+        optimization_mode: MaterializedColumnsOptimizationMode | None = None,
     ) -> None:
-        def build_context(optimization_mode: MaterializedColumnsOptimizationMode | None) -> HogQLContext:
-            return HogQLContext(
-                team_id=self.team.pk,
-                modifiers=HogQLQueryModifiers(
-                    materializationMode=MaterializationMode.AUTO,
-                    materializedColumnsOptimizationMode=optimization_mode,
-                ),
-            )
-
-        context = build_context(MaterializedColumnsOptimizationMode.OPTIMIZED)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            modifiers=HogQLQueryModifiers(
+                materializationMode=MaterializationMode.AUTO,
+                materializedColumnsOptimizationMode=optimization_mode,
+            ),
+        )
         printed_expr = self._expr(input_expression, context)
-        if expected_optimized_query is not None:
-            self.assertEqual(printed_expr, expected_optimized_query)
-        else:
-            disabled_context = build_context(MaterializedColumnsOptimizationMode.DISABLED)
-            disabled_expr = self._expr(input_expression, disabled_context)
-            self.assertEqual(printed_expr % context.values, disabled_expr % disabled_context.values)
+        assert printed_expr == expected_query
 
         if expected_context_values is not None:
             self.assertLessEqual(expected_context_values.items(), context.values.items())
 
-    def test_materialized_column_optimized_equality_comparison(self) -> None:
-        with materialized("events", "test_prop") as mat_col:
+    def test_materialized_column_optimized_equality_comparison_non_nullable(self) -> None:
+        # Non-nullable columns don't need any wrapping
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
             self._test_materialized_column_comparison(
                 "properties.test_prop = 'some_value'",
                 f"equals(events.{mat_col.name}, %(hogql_val_0)s)",
@@ -3118,9 +3477,6 @@ class TestMaterializedColumnOptimization(BaseTest):
                 f"equals(events.{mat_col.name}, %(hogql_val_0)s)",
                 {"hogql_val_0": "some_value"},
             )
-
-    def test_materialized_column_optimized_not_equality_comparison(self) -> None:
-        with materialized("events", "test_prop") as mat_col:
             self._test_materialized_column_comparison(
                 "properties.test_prop != 'some_value'",
                 f"notEquals(events.{mat_col.name}, %(hogql_val_0)s)",
@@ -3132,50 +3488,68 @@ class TestMaterializedColumnOptimization(BaseTest):
                 {"hogql_val_0": "some_value"},
             )
 
-    def test_materialized_column_not_optimized_for_empty_string(self) -> None:
-        with materialized("events", "test_prop"):
+    def test_materialized_column_optimized_equality_comparison_nullable(self) -> None:
+        # Nullable columns need wrapping to handle NULL properly
+        with materialized("events", "test_prop", is_nullable=True) as mat_col:
+            # equals: use AND IS NOT NULL to preserve skip index usage
+            self._test_materialized_column_comparison(
+                "properties.test_prop = 'some_value'",
+                f"(equals(events.{mat_col.name}, %(hogql_val_0)s) AND (events.{mat_col.name} IS NOT NULL))",
+                {"hogql_val_0": "some_value"},
+            )
+            self._test_materialized_column_comparison(
+                "'some_value' = properties.test_prop",
+                f"(equals(events.{mat_col.name}, %(hogql_val_0)s) AND (events.{mat_col.name} IS NOT NULL))",
+                {"hogql_val_0": "some_value"},
+            )
+            # notEquals: use ifNull since skip index is less important here
+            self._test_materialized_column_comparison(
+                "properties.test_prop != 'some_value'",
+                f"ifNull(notEquals(events.{mat_col.name}, %(hogql_val_0)s), 1)",
+                {"hogql_val_0": "some_value"},
+            )
+            self._test_materialized_column_comparison(
+                "'some_value' != properties.test_prop",
+                f"ifNull(notEquals(events.{mat_col.name}, %(hogql_val_0)s), 1)",
+                {"hogql_val_0": "some_value"},
+            )
+
+    def test_materialized_column_equality_not_optimized_for_empty_string(self) -> None:
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
             self._test_materialized_column_comparison(
                 "properties.test_prop = ''",
-                None,
+                f"ifNull(equals(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s), 0)",
             )
 
-    def test_materialized_column_not_optimized_for_null_string(self) -> None:
-        with materialized("events", "test_prop"):
+    def test_materialized_column_equality_not_optimized_for_null_string(self) -> None:
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
             self._test_materialized_column_comparison(
                 "properties.test_prop = 'null'",
-                None,
+                f"ifNull(equals(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s), 0)",
             )
 
-    def test_materialized_column_not_optimized_for_non_string_constant(self) -> None:
-        with materialized("events", "test_prop"):
+    def test_materialized_column_equality_not_optimized_for_non_string_constant(self) -> None:
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
             self._test_materialized_column_comparison(
                 "properties.test_prop = 123",
-                None,
+                f"ifNull(equals(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), 123), 0)",
             )
 
-    def test_materialized_column_not_optimized_for_null_comparison(self) -> None:
-        with materialized("events", "test_prop"):
+    def test_materialized_column_equality_not_optimized_for_null_comparison(self) -> None:
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
             self._test_materialized_column_comparison(
                 "properties.test_prop = null",
-                None,
+                f"isNull(nullIf(nullIf(events.{mat_col.name}, ''), 'null'))",
             )
 
-    def test_materialized_column_not_optimized_when_disabled(self) -> None:
-        with materialized("events", "test_prop") as mat_col:
-            context = HogQLContext(
-                team_id=self.team.pk,
-                modifiers=HogQLQueryModifiers(
-                    materializationMode=MaterializationMode.AUTO,
-                    materializedColumnsOptimizationMode=MaterializedColumnsOptimizationMode.DISABLED,
-                ),
-            )
-            printed_expr = self._expr("properties.test_prop = 'some_value'", context)
-            self.assertEqual(
-                printed_expr, f"ifNull(equals(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s), 0)"
-            )
-
-    def test_materialized_column_results_match_with_and_without_optimization(self) -> None:
-        with materialized("events", "test_prop"):
+    @parameterized.expand(
+        [
+            ("nullable", True),
+            ("not nullable", False),
+        ]
+    )
+    def test_materialized_column_optimization_returns_correct_results(self, _, is_nullable) -> None:
+        with materialized("events", "test_prop", create_minmax_index=True, is_nullable=is_nullable) as mat_col:
             _create_event(
                 team=self.team,
                 distinct_id="d1",
@@ -3213,39 +3587,22 @@ class TestMaterializedColumnOptimization(BaseTest):
                 properties={"test_prop": None},
             )
 
-            optimized_result = execute_hogql_query(
+            eq_result = execute_hogql_query(
                 team=self.team,
                 query="SELECT distinct_id FROM events WHERE properties.test_prop = 'target_value' ORDER BY distinct_id",
-                modifiers=HogQLQueryModifiers(
-                    materializedColumnsOptimizationMode=MaterializedColumnsOptimizationMode.OPTIMIZED
-                ),
             )
-            unoptimized_result = execute_hogql_query(
-                team=self.team,
-                query="SELECT distinct_id FROM events WHERE properties.test_prop = 'target_value' ORDER BY distinct_id",
-                modifiers=HogQLQueryModifiers(
-                    materializedColumnsOptimizationMode=MaterializedColumnsOptimizationMode.DISABLED
-                ),
+            self.assertEqual(eq_result.results, [("d1",)])
+            assert eq_result.clickhouse is not None
+            index_name = get_minmax_index_name(mat_col.name)
+            assert get_index_from_explain(eq_result.clickhouse, index_name), (
+                f"Expected skip index {index_name} to be used"
             )
-            self.assertEqual(optimized_result.results, [("d1",)])
-            self.assertEqual(unoptimized_result.results, [("d1",)])
 
-            optimized_neq_result = execute_hogql_query(
+            neq_result = execute_hogql_query(
                 team=self.team,
                 query="SELECT distinct_id FROM events WHERE properties.test_prop != 'target_value' ORDER BY distinct_id",
-                modifiers=HogQLQueryModifiers(
-                    materializedColumnsOptimizationMode=MaterializedColumnsOptimizationMode.OPTIMIZED
-                ),
             )
-            unoptimized_neq_result = execute_hogql_query(
-                team=self.team,
-                query="SELECT distinct_id FROM events WHERE properties.test_prop != 'target_value' ORDER BY distinct_id",
-                modifiers=HogQLQueryModifiers(
-                    materializedColumnsOptimizationMode=MaterializedColumnsOptimizationMode.DISABLED
-                ),
-            )
-            self.assertEqual(optimized_neq_result.results, [("d2",), ("d3",), ("d4",), ("d5",), ("d6",)])
-            self.assertEqual(unoptimized_neq_result.results, [("d2",), ("d3",), ("d4",), ("d5",), ("d6",)])
+            self.assertEqual(neq_result.results, [("d2",), ("d3",), ("d4",), ("d5",), ("d6",)])
 
     @parameterized.expand(
         [
@@ -3389,6 +3746,414 @@ class TestMaterializedColumnOptimization(BaseTest):
             assert sql_lower.count("has") == 1
             assert sql_lower.count("contains") == 0
 
+    def test_materialized_column_ilike_uses_raw_column_for_non_nullable(self) -> None:
+        # For non-nullable columns, ILIKE uses raw column directly
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop ilike '%@posthog.com%'",
+                f"ilike(events.{mat_col.name}, %(hogql_val_0)s)",
+                {"hogql_val_0": "%@posthog.com%"},
+            )
+            # should also work if wrapped with toString()
+            self._test_materialized_column_comparison(
+                "ilike(toString(properties.test_prop), '%@gmail.com%')",
+                f"ilike(events.{mat_col.name}, %(hogql_val_0)s)",
+                {"hogql_val_0": "%@gmail.com%"},
+            )
+
+    def test_materialized_column_ilike_with_tostring_uses_ngram_index_for_non_nullable(self) -> None:
+        # toString() wrapper should use ngram index optimization when available
+        with materialized("events", "test_prop", is_nullable=False, create_ngram_lower_index=True) as mat_col:
+            self._test_materialized_column_comparison(
+                "ilike(properties.test_prop, '%@gmail.com%')",
+                f"like(lower(events.{mat_col.name}), lower(%(hogql_val_0)s))",
+                {"hogql_val_0": "%@gmail.com%"},
+            )
+
+            # should also work if wrapped with toString()
+            self._test_materialized_column_comparison(
+                "ilike(toString(properties.test_prop), '%@gmail.com%')",
+                f"like(lower(events.{mat_col.name}), lower(%(hogql_val_0)s))",
+                {"hogql_val_0": "%@gmail.com%"},
+            )
+
+    def test_materialized_column_ilike_with_tostring_not_optimized_for_numeric_property(self) -> None:
+        # Numeric properties should not use the ILIKE optimization - fall back to default handling
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project=self.team.project,
+            name="test_numeric_prop",
+            property_type="Numeric",
+            type=PropertyDefinition.Type.EVENT,
+        )
+        with materialized("events", "test_numeric_prop", is_nullable=False) as mat_col:
+            # Direct property access: optimization skipped, PropertySwapper wraps in accurateCastOrNull
+            self._test_materialized_column_comparison(
+                "ilike(properties.test_numeric_prop, '%123%')",
+                f"ifNull(ilike(accurateCastOrNull(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s), %(hogql_val_1)s), 0)",
+                {"hogql_val_1": "%123%"},
+            )
+
+            # With toString() wrapper: same behavior, optimization not applied
+            self._test_materialized_column_comparison(
+                "ilike(toString(properties.test_numeric_prop), '%123%')",
+                f"ifNull(ilike(toString(accurateCastOrNull(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s)), %(hogql_val_1)s), 0)",
+                {"hogql_val_1": "%123%"},
+            )
+
+    def test_materialized_column_not_ilike_uses_raw_column_for_non_nullable(self) -> None:
+        # For non-nullable columns, NOT ILIKE uses raw column directly
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop not ilike '%@posthog.com%'",
+                f"notILike(events.{mat_col.name}, %(hogql_val_0)s)",
+                {"hogql_val_0": "%@posthog.com%"},
+            )
+
+    def test_materialized_column_ilike_bails_out_for_sentinel_pattern_on_non_nullable(self) -> None:
+        # For non-nullable columns, patterns that could match sentinel values bail out
+        # of the optimization and let the normal code path handle it with proper nullif wrapping
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop ilike '%null%'",
+                f"ifNull(ilike(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_1)s), 0)",
+                {"hogql_val_1": "%null%"},
+            )
+            self._test_materialized_column_comparison(
+                "properties.test_prop ilike '%NULL%'",
+                f"ifNull(ilike(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_1)s), 0)",
+                {"hogql_val_1": "%NULL%"},
+            )
+
+    def test_materialized_column_like_uses_raw_column_for_non_nullable(self) -> None:
+        # For non-nullable columns, LIKE uses raw column directly
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop like '%@posthog.com%'",
+                f"like(events.{mat_col.name}, %(hogql_val_0)s)",
+                {"hogql_val_0": "%@posthog.com%"},
+            )
+
+    def test_materialized_column_not_like_uses_raw_column_for_non_nullable(self) -> None:
+        # For non-nullable columns, NOT LIKE uses raw column directly
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop not like '%@posthog.com%'",
+                f"notLike(events.{mat_col.name}, %(hogql_val_0)s)",
+                {"hogql_val_0": "%@posthog.com%"},
+            )
+
+    def test_materialized_column_like_case_sensitivity(self) -> None:
+        # LIKE is case-sensitive, so %NULL% doesn't match lowercase "null" sentinel
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop like '%NULL%'",
+                f"like(events.{mat_col.name}, %(hogql_val_0)s)",
+                {"hogql_val_0": "%NULL%"},
+            )
+
+    def test_materialized_column_like_bails_out_for_sentinel_pattern_on_non_nullable(self) -> None:
+        # For non-nullable columns, %null% bails out of optimization
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop like '%null%'",
+                f"ifNull(like(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s), 0)",
+                {"hogql_val_0": "%null%"},
+            )
+
+    def test_materialized_column_in_uses_raw_column_for_non_nullable(self) -> None:
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop in ('value1', 'value2')",
+                f"has([%(hogql_val_0)s, %(hogql_val_1)s], events.{mat_col.name})",
+                {"hogql_val_0": "value1", "hogql_val_1": "value2"},
+            )
+
+    def test_materialized_column_not_in_uses_raw_column_for_non_nullable(self) -> None:
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop not in ('value1', 'value2')",
+                f"notIn(events.{mat_col.name}, tuple(%(hogql_val_0)s, %(hogql_val_1)s))",
+                {"hogql_val_0": "value1", "hogql_val_1": "value2"},
+            )
+
+    def test_materialized_column_in_bails_out_for_sentinel_value_on_non_nullable(self) -> None:
+        # When sentinel values are present, we bail out and let default handling apply nullIf wrapping
+        # Note: default IN handling does not add ifNull wrapper (unlike Eq/Like)
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop in ('null', 'value2')",
+                f"in(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), tuple(%(hogql_val_0)s, %(hogql_val_1)s))",
+                {"hogql_val_0": "null", "hogql_val_1": "value2"},
+            )
+            self._test_materialized_column_comparison(
+                "properties.test_prop in ('', 'value2')",
+                f"in(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), tuple(%(hogql_val_0)s, %(hogql_val_1)s))",
+                {"hogql_val_0": "", "hogql_val_1": "value2"},
+            )
+
+    def test_materialized_column_in_nullable(self) -> None:
+        with materialized("events", "test_prop", is_nullable=True) as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop in ('value1', 'value2')",
+                f"and(has([%(hogql_val_0)s, %(hogql_val_1)s], events.{mat_col.name}), events.mat_test_prop IS NOT NULL)",
+                {"hogql_val_0": "value1", "hogql_val_1": "value2"},
+            )
+
+    def test_materialized_column_not_in_nullable(self) -> None:
+        with materialized("events", "test_prop", is_nullable=True) as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop not in ('value1', 'value2')",
+                f"ifNull(notIn(events.{mat_col.name}, tuple(%(hogql_val_0)s, %(hogql_val_1)s)), 1)",
+                {"hogql_val_0": "value1", "hogql_val_1": "value2"},
+            )
+
+    def test_force_data_skipping_indices_works_with_simple_equality(self) -> None:
+        with materialized("events", "test_prop", is_nullable=False, create_bloom_filter_index=True) as mat_col:
+            _create_event(team=self.team, distinct_id="test", event="test", properties={"test_prop": "foo"})
+
+            index_name = get_bloom_filter_index_name(mat_col.name)
+            result = execute_hogql_query(
+                team=self.team,
+                query="SELECT distinct_id FROM events WHERE properties.test_prop = 'foo'",
+                modifiers=HogQLQueryModifiers(
+                    materializationMode=MaterializationMode.AUTO,
+                    forceClickhouseDataSkippingIndexes=[index_name],
+                ),
+            )
+
+            assert result.results == [("test",)]
+            assert result.clickhouse
+            assert f"force_data_skipping_indices='{index_name}'" in result.clickhouse
+
+    def test_force_data_skipping_indices_fails_when_index_cannot_be_used(self) -> None:
+        with materialized("events", "test_prop", is_nullable=False, create_bloom_filter_index=True) as mat_col:
+            _create_event(team=self.team, distinct_id="test", event="test", properties={"test_prop": "foo"})
+
+            index_name = get_bloom_filter_index_name(mat_col.name)
+            with pytest.raises(Exception) as exc_info:
+                execute_hogql_query(
+                    team=self.team,
+                    query="SELECT distinct_id FROM events WHERE concat(properties.test_prop, '') = 'foo'",
+                    modifiers=HogQLQueryModifiers(
+                        materializationMode=MaterializationMode.AUTO,
+                        forceClickhouseDataSkippingIndexes=[index_name],
+                    ),
+                )
+
+            assert "index" in str(exc_info.value).lower()
+
+    @parameterized.expand(
+        [
+            ("no_mat_col", None, False),
+            ("nullable_mat_col", True, False),
+            ("non_nullable_mat_col", False, False),
+            ("nullable_mat_col_with_ngram_lower", True, True),
+            ("non_nullable_mat_col_with_ngram_lower", False, True),
+        ]
+    )
+    def test_ilike_and_not_ilike_optimization_gives_correct_results(
+        self, _, is_nullable, create_ngram_lower_index
+    ) -> None:
+        if is_nullable is not None:
+            mat_col = materialize(
+                "events", "test_prop", is_nullable=is_nullable, create_ngram_lower_index=create_ngram_lower_index
+            )
+            self.addCleanup(cleanup_materialized_columns)
+        else:
+            mat_col = None
+
+        # do multiple test cases per test run, as setup and teardown are a bit slow
+        cases: set[str] = {
+            "hello@posthog.com",
+            "Hello@PostHog.com",
+            "other_value",
+            "null",
+            "NULL",
+            "'null'",
+            "contains null in the middle",
+            "null@posthog.com",
+            "",
+            "None",  # Store None (i.e. actual NULL value) as a string, because we can't have a NULL distinct_id and it makes things easier
+        }
+
+        # Map of patterns to (ilike_expected, ilike_expected_if_non_nullable) - can use ilike_expected_if_non_nullable=None to fall back to ilike_expected.
+        # Note that non-nullable mat columns treat the '' and 'null' values as NULL, this is a bug/"feature" in non-nullable mat columns, not in our optimization.
+        # In this case we bail out of our optimization and fall back to default NULL handling/wrapping.
+        # It'd be a good thing to fix this! And remove these special-cases from the tests! but my top priority was making sure that I didn't change any behavior.
+        patterns_and_expected = {
+            "%@posthog.com": ({"hello@posthog.com", "Hello@PostHog.com", "null@posthog.com"}, None),
+            "hello@posthog.com": ({"hello@posthog.com", "Hello@PostHog.com"}, None),
+            "%null%": (
+                {"null", "NULL", "'null'", "null@posthog.com", "contains null in the middle"},
+                {"NULL", "'null'", "null@posthog.com", "contains null in the middle"},
+            ),
+            "%": (
+                {
+                    "",
+                    "hello@posthog.com",
+                    "Hello@PostHog.com",
+                    "other_value",
+                    "null",
+                    "NULL",
+                    "'null'",
+                    "contains null in the middle",
+                    "null@posthog.com",
+                },
+                {
+                    "hello@posthog.com",
+                    "Hello@PostHog.com",
+                    "other_value",
+                    "NULL",
+                    "'null'",
+                    "contains null in the middle",
+                    "null@posthog.com",
+                },
+            ),
+            "": ({""}, set()),
+            "None": ({"None"}, {"None", "", "null"}),
+        }
+
+        for case in cases:
+            _create_event(
+                team=self.team,
+                distinct_id=case,
+                event="test_event",
+                properties={"test_prop": case if case != "None" else None},
+            )
+
+        for pattern, (ilike_expected, ilike_expected_if_non_nullable) in patterns_and_expected.items():
+            if ilike_expected_if_non_nullable is not None and (is_nullable is False):
+                ilike_expected = ilike_expected_if_non_nullable
+            pattern_expr = ast.Constant(value=pattern if pattern != "None" else None)
+            ilike_result = execute_hogql_query(
+                team=self.team,
+                query="SELECT distinct_id FROM events WHERE ilike(properties.test_prop, {pattern}) ORDER BY distinct_id",
+                placeholders={"pattern": pattern_expr},
+            )
+            ilike_matches = {d for (d,) in ilike_result.results}
+            assert ilike_matches == ilike_expected, "ilike " + str(pattern)
+
+            if mat_col:
+                assert ilike_result.clickhouse
+                # we can only ever use the index if it exists, pattern was not NULL, and we didn't need to bail out of the optimisation
+                should_use_index = (
+                    create_ngram_lower_index
+                    and pattern != "None"
+                    and (is_nullable or (ilike_expected_if_non_nullable is None))
+                )
+                did_use_index = bool(
+                    get_index_from_explain(ilike_result.clickhouse, get_ngram_lower_index_name(mat_col.name))
+                )
+                assert should_use_index == did_use_index
+
+            not_ilike_expected = cases.difference(ilike_expected)
+            not_ilike_result = execute_hogql_query(
+                team=self.team,
+                query="SELECT distinct_id FROM events WHERE notILike(properties.test_prop, {pattern}) ORDER BY distinct_id",
+                placeholders={"pattern": pattern_expr},
+            )
+            not_ilike_matches = {d for (d,) in not_ilike_result.results}
+            assert not_ilike_matches == not_ilike_expected, "not_ilike " + str(pattern)
+
+    @parameterized.expand(
+        [
+            ("no_mat_col", None, False),
+            ("nullable_mat_col", True, False),
+            ("non_nullable_mat_col", False, False),
+            ("nullable_mat_col_with_bloom_filter", True, True),
+            ("non_nullable_mat_col_with_bloom_filter", False, True),
+        ]
+    )
+    def test_in_and_not_in_optimization_gives_correct_results(self, _, is_nullable, create_bloom_filter_index) -> None:
+        if is_nullable is not None:
+            mat_col = materialize(
+                "events", "test_prop", is_nullable=is_nullable, create_bloom_filter_index=create_bloom_filter_index
+            )
+            self.addCleanup(cleanup_materialized_columns)
+        else:
+            mat_col = None
+
+        cases: set[str] = {
+            "hello@posthog.com",
+            "Hello@PostHog.com",
+            "other_value",
+            "null",
+            "NULL",
+            "'null'",
+            "contains null in the middle",
+            "null@posthog.com",
+            "",
+            "None",
+        }
+
+        # Map of IN values to (in_expected, in_expected_if_non_nullable). If in_expected_if_non_nullable is None, use in_expected.
+        # Non-nullable mat columns treat '' and 'null' values as NULL.
+        in_values_and_expected: dict[tuple[str, ...], tuple[set[str], set[str] | None]] = {
+            ("hello@posthog.com",): ({"hello@posthog.com"}, None),
+            ("hello@posthog.com", "other_value"): ({"hello@posthog.com", "other_value"}, None),
+            ("null",): ({"null"}, set()),
+            ("NULL",): ({"NULL"}, None),
+            ("null", "NULL"): ({"null", "NULL"}, {"NULL"}),
+            ("",): ({""}, set()),
+            ("hello@posthog.com", "null"): ({"hello@posthog.com", "null"}, {"hello@posthog.com"}),
+            ("hello@posthog.com", ""): ({"hello@posthog.com", ""}, {"hello@posthog.com"}),
+        }
+
+        for case in cases:
+            _create_event(
+                team=self.team,
+                distinct_id=case,
+                event="test_event",
+                properties={"test_prop": case if case != "None" else None},
+            )
+
+        for in_values, (in_expected, in_expected_if_non_nullable) in in_values_and_expected.items():
+            if in_expected_if_non_nullable is not None and (is_nullable is False):
+                in_expected = in_expected_if_non_nullable
+
+            in_values_exprs: list[ast.Expr] = [ast.Constant(value=v) for v in in_values]
+            in_tuple = ast.Tuple(exprs=in_values_exprs)
+
+            in_result = execute_hogql_query(
+                team=self.team,
+                query="SELECT distinct_id FROM events WHERE properties.test_prop IN {in_values} ORDER BY distinct_id",
+                placeholders={"in_values": in_tuple},
+            )
+            in_matches = {d for (d,) in in_result.results}
+            assert in_matches == in_expected, f"IN {in_values}"
+
+            if mat_col:
+                assert in_result.clickhouse
+                # We can use the bloom filter index if it exists and we didn't need to bail out of the optimisation
+                contains_sentinel = any(v in ("", "null") for v in in_values)
+                should_use_index = create_bloom_filter_index and (is_nullable or not contains_sentinel)
+                index_name = get_bloom_filter_index_name(mat_col.name)
+                index_info = get_index_from_explain(in_result.clickhouse, index_name)
+                did_use_index = bool(index_info)
+                assert should_use_index == did_use_index, f"IN {in_values}: expected index use={should_use_index}"
+
+            not_in_expected = cases.difference(in_expected)
+            not_in_result = execute_hogql_query(
+                team=self.team,
+                query="SELECT distinct_id FROM events WHERE properties.test_prop NOT IN {in_values} ORDER BY distinct_id",
+                placeholders={"in_values": in_tuple},
+            )
+            not_in_matches = {d for (d,) in not_in_result.results}
+            assert not_in_matches == not_in_expected, f"NOT IN {in_values}"
+
+    def test_recursive_cte_raises(self):
+        query = """
+        WITH RECURSIVE cte AS (
+            SELECT 1 AS n
+            UNION ALL
+            SELECT n + 1 FROM cte WHERE n < 5
+        )
+        SELECT * FROM cte;
+        """
+        with self.assertRaises(ImpossibleASTError):
+            execute_hogql_query(team=self.team, query=query)
+
 
 class TestPrinted(APIBaseTest):
     def test_can_call_parametric_function(self):
@@ -3405,11 +4170,12 @@ class TestPostgresPrinter(BaseTest):
 
     def _expr(
         self,
-        query: str,
+        query: ast.Expr | str,
         context: Optional[HogQLContext] = None,
         settings: Optional[HogQLQuerySettings] = None,
+        backend: HogQLParserBackend = "cpp-json",
     ) -> str:
-        node = parse_expr(query)
+        node = parse_expr(query, backend=backend) if isinstance(query, str) else query
         context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         select_query = ast.SelectQuery(
             select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])), settings=settings
@@ -3433,7 +4199,7 @@ class TestPostgresPrinter(BaseTest):
         dialect: HogQLDialect = "postgres",
     ) -> str:
         return prepare_and_print_ast(
-            parse_select(query, placeholders=placeholders),
+            parse_select(query, placeholders=placeholders, backend="cpp-json"),
             context or HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             dialect,
         )[0]
@@ -3582,4 +4348,58 @@ class TestPostgresPrinter(BaseTest):
                 dialect="postgres",
                 stack=[prepared_select_query],
             ),
+        )
+
+    def test_postgres_style_cast(self):
+        self.assertEqual(self._expr("123::int"), "CAST(123 AS int)")
+        self.assertEqual(self._expr("123.45::float"), "CAST(123.45 AS float)")
+        self.assertEqual(self._expr("'2024-01-01'::date"), "CAST('2024-01-01' AS date)")
+        self.assertEqual(self._expr("event::int"), "CAST(events.event AS int)")
+        self.assertEqual(self._expr("event::text"), "CAST(events.event AS text)")
+        self.assertEqual(self._expr("event::boolean"), "CAST(events.event AS boolean)")
+        self.assertEqual(self._expr("event::INT"), "CAST(events.event AS int)")
+        self.assertEqual(self._expr("(1 + 2)::int"), "CAST((1 + 2) AS int)")
+
+    @parameterized.expand(
+        [
+            # SQL injection attempts
+            ("int); DROP TABLE users; --", '"int); DROP TABLE users; --"'),
+            ("text' OR '1'='1", "\"text' OR '1'='1\""),
+            ("int; DELETE FROM events;", '"int; DELETE FROM events;"'),
+            ("varchar(100)); --", '"varchar(100)); --"'),
+            # Quote escaping
+            ('int"test', '"int""test"'),
+            ("int'test", '"int\'test"'),
+            # Backslash handling
+            ("int\\test", '"int\\test"'),
+            # Unicode/special chars
+            ("int\x00test", '"int\x00test"'),
+            # Newlines and whitespace injection
+            ("int\nDROP TABLE", '"int\nDROP TABLE"'),
+            ("int\rtest", '"int\rtest"'),
+            # Simple identifiers should not be quoted
+            ("varchar", "varchar"),
+            ("integer", "integer"),
+        ]
+    )
+    def test_type_cast_typename_escape(self, type_name, expected_escaped):
+        node = ast.TypeCast(
+            expr=ast.Constant(value=123),
+            type_name=type_name,
+        )
+        self.assertEqual(self._expr(node), f"CAST(123 AS {expected_escaped})")
+
+    def test_with_recursive(self):
+        query = "WITH RECURSIVE events_cte AS (SELECT id FROM events) SELECT id FROM events_cte"
+        self.assertEqual(
+            self._select(query),
+            "WITH RECURSIVE events_cte AS (SELECT id FROM events) SELECT id FROM events_cte LIMIT 50000",
+        )
+
+    def test_with_recursive_self_referencing(self):
+        query = "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM nums WHERE n < 5) SELECT n FROM nums"
+        self.assertEqual(
+            self._select(query),
+            "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT (nums.n + 1) FROM nums WHERE (nums.n < 5)) "
+            "SELECT nums.n FROM nums LIMIT 50000",
         )

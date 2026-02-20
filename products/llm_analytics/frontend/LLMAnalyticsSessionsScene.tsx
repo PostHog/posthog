@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
@@ -15,22 +16,20 @@ import { isHogQLQuery } from '~/queries/utils'
 
 import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
 import { useSortableColumns } from './hooks/useSortableColumns'
-import { llmAnalyticsLogic } from './llmAnalyticsLogic'
-import { formatLLMCost, getTraceTimestamp } from './utils'
+import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { llmAnalyticsSessionsViewLogic } from './tabs/llmAnalyticsSessionsViewLogic'
+import { formatLLMCost, getTraceTimestamp, sanitizeTraceUrlSearchParams } from './utils'
 
 export function LLMAnalyticsSessionsScene(): JSX.Element {
-    const {
-        setDates,
-        setShouldFilterTestAccounts,
-        setPropertyFilters,
-        setSessionsSort,
-        toggleSessionExpanded,
-        toggleTraceExpanded,
-        toggleGenerationExpanded,
-    } = useActions(llmAnalyticsLogic)
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
+    const { dateFilter } = useValues(llmAnalyticsSharedLogic)
+    const { searchParams } = useValues(router)
+    const traceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
+
+    const { setSessionsSort, toggleSessionExpanded, toggleTraceExpanded, toggleGenerationExpanded } =
+        useActions(llmAnalyticsSessionsViewLogic)
     const {
         sessionsQuery,
-        dateFilter,
         sessionsSort,
         expandedSessionIds,
         expandedTraceIds,
@@ -39,7 +38,7 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
         loadingSessionTraces,
         loadingFullTraces,
         fullTraces,
-    } = useValues(llmAnalyticsLogic)
+    } = useValues(llmAnalyticsSessionsViewLogic)
 
     const { renderSortableColumnTitle } = useSortableColumns(sessionsSort, setSessionsSort)
 
@@ -233,9 +232,12 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
                                                                 </LemonTag>
                                                             )}
                                                             <Link
-                                                                to={urls.llmAnalyticsTrace(trace.id, {
-                                                                    timestamp: getTraceTimestamp(trace.createdAt),
-                                                                })}
+                                                                to={
+                                                                    combineUrl(urls.llmAnalyticsTrace(trace.id), {
+                                                                        ...traceSearchParams,
+                                                                        timestamp: getTraceTimestamp(trace.createdAt),
+                                                                    }).url
+                                                                }
                                                                 onClick={(e) => e.stopPropagation()}
                                                                 className="text-xs"
                                                             >

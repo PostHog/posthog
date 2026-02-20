@@ -23,7 +23,6 @@ export const scene: SceneExport<SurveyLogicProps> = {
     component: SurveyComponent,
     logic: surveyLogic,
     paramsToProps: ({ params: { id } }) => ({ id }),
-    settingSectionId: 'environment-surveys',
 }
 
 export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {
@@ -46,16 +45,14 @@ export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {
         return <NotFound object="survey" />
     }
 
+    if (!id) {
+        return <LemonSkeleton />
+    }
+
     return (
-        <div>
-            {!id ? (
-                <LemonSkeleton />
-            ) : (
-                <BindLogic logic={surveyLogic} props={{ id }}>
-                    {isEditingSurvey ? <SurveyForm id={id} /> : <SurveyView id={id} />}
-                </BindLogic>
-            )}
-        </div>
+        <BindLogic logic={surveyLogic} props={{ id }}>
+            {isEditingSurvey ? <SurveyForm id={id} /> : <SurveyView id={id} />}
+        </BindLogic>
     )
 }
 

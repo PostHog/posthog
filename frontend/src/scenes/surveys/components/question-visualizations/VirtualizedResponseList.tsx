@@ -1,8 +1,9 @@
-import { useState } from 'react'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { Grid, GridCellProps, ScrollParams } from 'react-virtualized/dist/es/Grid'
+import { CSSProperties, useCallback, useState } from 'react'
+import { Grid } from 'react-window'
 
+import { AutoSizer } from 'lib/components/AutoSizer'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
@@ -11,11 +12,12 @@ import { OpenQuestionResponseData } from '~/types'
 interface VirtualizedResponseListProps {
     responses: OpenQuestionResponseData[]
     maxHeight?: number
+    className?: string
 }
 
 const ROW_HEIGHT = 72
-const COLUMN_COUNT = 2
 const COLUMN_GAP = 8
+const MAX_STATIC_RESPONSES = 24
 
 function ResponseListItem({ response }: { response: OpenQuestionResponseData }): JSX.Element {
     const responseText = typeof response.response !== 'string' ? JSON.stringify(response.response) : response.response
@@ -24,16 +26,16 @@ function ResponseListItem({ response }: { response: OpenQuestionResponseData }):
 
     const cardContent = (
         <div
-            className={`border rounded bg-surface-primary p-2 h-full flex flex-col ${isLongResponse ? 'cursor-pointer hover:border-primary' : ''}`}
+            className={`p-2 h-full flex flex-col transition-colors ${
+                isLongResponse ? 'cursor-pointer hover:bg-surface-primary' : ''
+            }`}
             onClick={isLongResponse ? () => setIsExpanded(!isExpanded) : undefined}
         >
             <div className="text-sm truncate mb-auto">{responseText}</div>
             <div className="flex items-center justify-between text-xs text-secondary mt-1">
                 <PersonDisplay
-                    person={{
-                        distinct_id: response.distinctId,
-                        properties: response.personProperties || {},
-                    }}
+                    person={{ distinct_id: response.distinctId }}
+                    displayName={response.personDisplayName}
                     withIcon="xs"
                     noEllipsis={false}
                     noLink={!response.distinctId}
@@ -59,10 +61,8 @@ function ResponseListItem({ response }: { response: OpenQuestionResponseData }):
                     <p className="text-sm whitespace-pre-wrap leading-relaxed">{responseText}</p>
                     <div className="flex items-center justify-between text-xs text-secondary mt-3 pt-2 border-t">
                         <PersonDisplay
-                            person={{
-                                distinct_id: response.distinctId,
-                                properties: response.personProperties || {},
-                            }}
+                            person={{ distinct_id: response.distinctId }}
+                            displayName={response.personDisplayName}
                             withIcon
                             noEllipsis={false}
                             noLink={!response.distinctId}
@@ -77,37 +77,70 @@ function ResponseListItem({ response }: { response: OpenQuestionResponseData }):
     )
 }
 
-export function VirtualizedResponseList({ responses, maxHeight = 400 }: VirtualizedResponseListProps): JSX.Element {
-    const rowCount = Math.ceil(responses.length / COLUMN_COUNT)
+interface ResponseCellProps {
+    responses: OpenQuestionResponseData[]
+    columnCount: number
+}
+
+function ResponseCell({
+    columnIndex,
+    rowIndex,
+    style,
+    responses,
+    columnCount,
+}: {
+    ariaAttributes: Record<string, unknown>
+    columnIndex: number
+    rowIndex: number
+    style: CSSProperties
+} & ResponseCellProps): JSX.Element | null {
+    const index = rowIndex * columnCount + columnIndex
+    if (index >= responses.length) {
+        return null
+    }
+    const response = responses[index]
+
+    const adjustedStyle = {
+        ...style,
+        paddingRight: columnIndex === columnCount - 1 ? 0 : COLUMN_GAP,
+        paddingBottom: 8,
+        boxSizing: 'border-box' as const,
+    }
+
+    return (
+        <div style={adjustedStyle}>
+            <ResponseListItem response={response} />
+        </div>
+    )
+}
+
+export function VirtualizedResponseList({
+    responses,
+    maxHeight = 520,
+    className,
+}: VirtualizedResponseListProps): JSX.Element {
+    const { isWindowLessThan } = useWindowSize()
+    const isMobile = isWindowLessThan('sm')
+    const columnCount = isMobile ? 1 : 2
+    const rowCount = Math.ceil(responses.length / columnCount)
     const [isAtBottom, setIsAtBottom] = useState(false)
 
     const containerHeight = Math.min(rowCount * ROW_HEIGHT, maxHeight)
     const totalHeight = rowCount * ROW_HEIGHT
     const isScrollable = totalHeight > maxHeight
 
-    const cellRenderer = ({ columnIndex, rowIndex, key, style }: GridCellProps): JSX.Element | null => {
-        const index = rowIndex * COLUMN_COUNT + columnIndex
-        if (index >= responses.length) {
-            return null
-        }
-        const response = responses[index]
+    const handleScroll = useCallback(
+        (event: React.UIEvent<HTMLDivElement>): void => {
+            const { scrollTop, clientHeight, scrollHeight } = event.currentTarget
+            const atBottom = scrollTop + clientHeight >= scrollHeight - 20
+            setIsAtBottom(atBottom)
+        },
+        [setIsAtBottom]
+    )
 
-        const adjustedStyle = {
-            ...style,
-            left: Number(style.left) + (columnIndex === 1 ? COLUMN_GAP : 0),
-            paddingBottom: 8,
-        }
-
+    if (responses.length <= MAX_STATIC_RESPONSES) {
         return (
-            <div key={key} style={adjustedStyle}>
-                <ResponseListItem response={response} />
-            </div>
-        )
-    }
-
-    if (responses.length <= 8) {
-        return (
-            <div className="grid grid-cols-2 gap-2">
+            <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${className ?? ''}`}>
                 {responses.map((response, index) => (
                     <ResponseListItem key={`${response.distinctId}-${index}`} response={response} />
                 ))}
@@ -115,31 +148,33 @@ export function VirtualizedResponseList({ responses, maxHeight = 400 }: Virtuali
         )
     }
 
-    const handleScroll = ({ scrollTop, clientHeight, scrollHeight }: ScrollParams): void => {
-        const atBottom = scrollTop + clientHeight >= scrollHeight - 20
-        setIsAtBottom(atBottom)
-    }
-
     const showScrollIndicator = isScrollable && !isAtBottom
 
     return (
-        <div className="relative">
+        <div className={`relative ${className ?? ''}`}>
             <div style={{ height: containerHeight }}>
-                <AutoSizer>
-                    {({ height, width }) => (
-                        <Grid
-                            width={width}
-                            height={height}
-                            columnCount={COLUMN_COUNT}
-                            columnWidth={(width - COLUMN_GAP) / COLUMN_COUNT}
-                            rowCount={rowCount}
-                            rowHeight={ROW_HEIGHT}
-                            cellRenderer={cellRenderer}
-                            overscanRowCount={3}
-                            onScroll={handleScroll}
-                        />
-                    )}
-                </AutoSizer>
+                <AutoSizer
+                    renderProp={({ height, width }) =>
+                        height && width ? (
+                            <Grid<ResponseCellProps>
+                                style={{
+                                    width,
+                                    height,
+                                    overflowX: 'hidden',
+                                    overflowY: 'auto',
+                                }}
+                                columnCount={columnCount}
+                                columnWidth={width / columnCount}
+                                rowCount={rowCount}
+                                rowHeight={ROW_HEIGHT}
+                                cellComponent={ResponseCell}
+                                cellProps={{ responses, columnCount }}
+                                overscanCount={3}
+                                onScroll={handleScroll}
+                            />
+                        ) : null
+                    }
+                />
             </div>
             <div
                 className={`absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-bg-light to-transparent pointer-events-none flex items-end justify-center pb-2 transition-all duration-300 ${

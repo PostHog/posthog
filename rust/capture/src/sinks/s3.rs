@@ -251,7 +251,7 @@ impl Inner {
                 Ok(())
             }
             Err(err) => {
-                error!("Failed to write to S3: {err}");
+                error!("Failed to write to S3: {err:#}");
                 counter!("capture_s3_write_errors_total").increment(1);
                 Err(CaptureError::RetryableSinkError)
             }
@@ -338,6 +338,9 @@ mod tests {
                 session_id: None,
                 computed_timestamp: None,
                 event_name: "test_event".to_string(),
+                force_overflow: false,
+                skip_person_processing: false,
+                redirect_to_dlq: false,
             },
         }
     }

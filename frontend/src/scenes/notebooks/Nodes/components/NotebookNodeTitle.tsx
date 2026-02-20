@@ -11,24 +11,86 @@ import { isHogQLQuery } from '~/queries/utils'
 import { NotebookNodeType } from '../../types'
 import { notebookNodeLogic } from '../notebookNodeLogic'
 
+const getNodeIndex = ({
+    isPythonNode,
+    isDuckSqlNode,
+    isHogqlSqlNode,
+    isSqlNode,
+    nodeId,
+    pythonNodeIndices,
+    duckSqlNodeIndices,
+    hogqlSqlNodeIndices,
+    sqlNodeIndices,
+}: {
+    isPythonNode: boolean
+    isDuckSqlNode: boolean
+    isHogqlSqlNode: boolean
+    isSqlNode: boolean
+    nodeId: string
+    pythonNodeIndices: Map<string, number>
+    duckSqlNodeIndices: Map<string, number>
+    hogqlSqlNodeIndices: Map<string, number>
+    sqlNodeIndices: Map<string, number>
+}): number | undefined => {
+    if (isPythonNode) {
+        return pythonNodeIndices.get(nodeId)
+    }
+    if (isDuckSqlNode) {
+        return duckSqlNodeIndices.get(nodeId)
+    }
+    if (isHogqlSqlNode) {
+        return hogqlSqlNodeIndices.get(nodeId)
+    }
+    if (isSqlNode) {
+        return sqlNodeIndices.get(nodeId)
+    }
+    return undefined
+}
+
+export const getCellLabel = (nodeIndex: number | undefined, nodeType: NotebookNodeType): string | null => {
+    if (!nodeIndex) {
+        return null
+    }
+
+    if (nodeType === NotebookNodeType.Python) {
+        return `Python ${nodeIndex}`
+    }
+    if (nodeType === NotebookNodeType.DuckSQL) {
+        return `SQL (DuckDB) ${nodeIndex}`
+    }
+    if (nodeType === NotebookNodeType.HogQLSQL) {
+        return `SQL (HogQL) ${nodeIndex}`
+    }
+    return `SQL ${nodeIndex}`
+}
+
 export function NotebookNodeTitle(): JSX.Element {
-    const { isEditable, pythonNodeIndices, sqlNodeIndices } = useValues(notebookLogic)
+    const { isEditable, pythonNodeIndices, sqlNodeIndices, duckSqlNodeIndices, hogqlSqlNodeIndices } =
+        useValues(notebookLogic)
     const { nodeAttributes, title, titlePlaceholder, isEditingTitle, nodeType } = useValues(notebookNodeLogic)
     const { updateAttributes, toggleEditingTitle } = useActions(notebookNodeLogic)
     const [newValue, setNewValue] = useState('')
 
     const isPythonNode = nodeType === NotebookNodeType.Python
+    const isDuckSqlNode = nodeType === NotebookNodeType.DuckSQL
+    const isHogqlSqlNode = nodeType === NotebookNodeType.HogQLSQL
     const isSqlNode =
         nodeType === NotebookNodeType.Query &&
         (isHogQLQuery(nodeAttributes.query) ||
             (nodeAttributes.query.source && isHogQLQuery(nodeAttributes.query.source)))
 
-    const nodeIndex = isPythonNode
-        ? pythonNodeIndices.get(nodeAttributes.nodeId)
-        : isSqlNode
-          ? sqlNodeIndices.get(nodeAttributes.nodeId)
-          : undefined
-    const cellLabel = nodeIndex ? `${isPythonNode ? 'Python' : 'SQL'} ${nodeIndex}` : null
+    const nodeIndex = getNodeIndex({
+        isPythonNode,
+        isDuckSqlNode,
+        isHogqlSqlNode,
+        isSqlNode,
+        nodeId: nodeAttributes.nodeId,
+        pythonNodeIndices,
+        duckSqlNodeIndices,
+        hogqlSqlNodeIndices,
+        sqlNodeIndices,
+    })
+    const cellLabel = getCellLabel(nodeIndex, nodeType)
     const customTitle = nodeAttributes.title
     const cellTitle = cellLabel ? (customTitle ? `${cellLabel} • ${customTitle}` : cellLabel) : title
 

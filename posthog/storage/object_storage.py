@@ -29,7 +29,14 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def get_presigned_url(self, bucket: str, file_key: str, expiration: int = 3600) -> Optional[str]:
+    def get_presigned_url(
+        self,
+        bucket: str,
+        file_key: str,
+        expiration: int = 3600,
+        content_type: Optional[str] = None,
+        content_disposition: Optional[str] = None,
+    ) -> Optional[str]:
         pass
 
     @abc.abstractmethod
@@ -56,6 +63,10 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def write(self, bucket: str, key: str, content: Union[str, bytes], extras: dict | None) -> None:
+        pass
+
+    @abc.abstractmethod
+    def write_from_file(self, bucket: str, key: str, file_path: str) -> None:
         pass
 
     @abc.abstractmethod
@@ -77,7 +88,14 @@ class UnavailableStorage(ObjectStorageClient):
     def head_object(self, bucket: str, file_key: str):
         return None
 
-    def get_presigned_url(self, bucket: str, file_key: str, expiration: int = 3600) -> Optional[str]:
+    def get_presigned_url(
+        self,
+        bucket: str,
+        file_key: str,
+        expiration: int = 3600,
+        content_type: Optional[str] = None,
+        content_disposition: Optional[str] = None,
+    ) -> Optional[str]:
         pass
 
     def get_presigned_post(
@@ -98,6 +116,9 @@ class UnavailableStorage(ObjectStorageClient):
         pass
 
     def write(self, bucket: str, key: str, content: Union[str, bytes], extras: dict | None) -> None:
+        pass
+
+    def write_from_file(self, bucket: str, key: str, file_path: str) -> None:
         pass
 
     def copy_objects(self, bucket: str, source_prefix: str, target_prefix: str) -> int | None:
@@ -125,11 +146,23 @@ class ObjectStorage(ObjectStorageClient):
             logger.warn("object_storage.head_object_failed", bucket=bucket, file_key=file_key, error=e)
             return None
 
-    def get_presigned_url(self, bucket: str, file_key: str, expiration: int = 3600) -> Optional[str]:
+    def get_presigned_url(
+        self,
+        bucket: str,
+        file_key: str,
+        expiration: int = 3600,
+        content_type: Optional[str] = None,
+        content_disposition: Optional[str] = None,
+    ) -> Optional[str]:
         try:
+            params: dict[str, str] = {"Bucket": bucket, "Key": file_key}
+            if content_type:
+                params["ResponseContentType"] = content_type
+            if content_disposition:
+                params["ResponseContentDisposition"] = content_disposition
             return self.aws_client.generate_presigned_url(
                 ClientMethod="get_object",
-                Params={"Bucket": bucket, "Key": file_key},
+                Params=params,
                 ExpiresIn=expiration,
                 HttpMethod="GET",
             )
@@ -235,6 +268,21 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             raise ObjectStorageError("write failed") from e
 
+    def write_from_file(self, bucket: str, key: str, file_path: str) -> None:
+        """Upload a file to S3 by streaming from disk."""
+        try:
+            self.aws_client.upload_file(Filename=file_path, Bucket=bucket, Key=key)
+        except Exception as e:
+            logger.exception(
+                "object_storage.write_from_file_failed",
+                bucket=bucket,
+                file_name=key,
+                file_path=file_path,
+                error=e,
+            )
+            capture_exception(e)
+            raise ObjectStorageError("write_from_file failed") from e
+
     def copy_objects(self, bucket: str, source_prefix: str, target_prefix: str) -> int | None:
         try:
             source_objects = self.list_objects(bucket, source_prefix) or []
@@ -301,6 +349,14 @@ def write(file_name: str, content: Union[str, bytes], extras: dict | None = None
     )
 
 
+def write_from_file(file_name: str, file_path: str, bucket: str | None = None) -> None:
+    return object_storage_client().write_from_file(
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET,
+        key=file_name,
+        file_path=file_path,
+    )
+
+
 def delete(file_name: str, bucket: str | None = None) -> None:
     return object_storage_client().delete(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, key=file_name)
 
@@ -335,9 +391,18 @@ def copy_objects(source_prefix: str, target_prefix: str) -> int:
     )
 
 
-def get_presigned_url(file_key: str, expiration: int = 3600) -> Optional[str]:
+def get_presigned_url(
+    file_key: str,
+    expiration: int = 3600,
+    content_type: Optional[str] = None,
+    content_disposition: Optional[str] = None,
+) -> Optional[str]:
     return object_storage_client().get_presigned_url(
-        bucket=settings.OBJECT_STORAGE_BUCKET, file_key=file_key, expiration=expiration
+        bucket=settings.OBJECT_STORAGE_BUCKET,
+        file_key=file_key,
+        expiration=expiration,
+        content_type=content_type,
+        content_disposition=content_disposition,
     )
 
 

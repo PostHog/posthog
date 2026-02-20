@@ -32,9 +32,9 @@ class SESProvider:
             region_name=settings.SES_REGION,
         )
 
-    def create_email_domain(self, domain: str, team_id: int):
+    def create_email_domain(self, domain: str, mail_from_subdomain: str, team_id: int):
         # NOTE: For sesv1, domain Identity creation is done through verification
-        self.verify_email_domain(domain, team_id)
+        self.verify_email_domain(domain, mail_from_subdomain, team_id)
 
         # Create a tenant for the domain if not exists
         tenant_name = f"team-{team_id}"
@@ -54,7 +54,7 @@ class SESProvider:
             if e.response["Error"]["Code"] != "AlreadyExistsException":
                 raise
 
-    def verify_email_domain(self, domain: str, team_id: int):
+    def verify_email_domain(self, domain: str, mail_from_subdomain: str, team_id: int):
         # Validate the domain contains valid characters for a domain name
         DOMAIN_REGEX = r"(?i)^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
         if not re.match(DOMAIN_REGEX, domain):
@@ -105,9 +105,42 @@ class SESProvider:
 
         dns_records.append(
             {
-                "type": "spf",
+                "type": "verification",
                 "recordType": "TXT",
                 "recordHostname": "@",
+                "recordValue": "v=spf1 include:amazonses.com ~all",
+                "status": "pending",
+            }
+        )
+
+        # Start/ensure MAIL FROM setup (MX + TXT) ---
+        try:
+            resp = self.ses_client.set_identity_mail_from_domain(
+                Identity=domain,
+                MailFromDomain=f"{mail_from_subdomain}.{domain}",
+                BehaviorOnMXFailure="UseDefaultValue",
+            )
+        except ClientError as e:
+            if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
+                raise
+
+        ses_region = getattr(settings, "SES_REGION", "us-east-1")
+
+        dns_records.append(
+            {
+                "type": "mail_from",
+                "recordType": "MX",
+                "recordHostname": f"{mail_from_subdomain}.{domain}",
+                "recordValue": f"feedback-smtp.{ses_region}.amazonses.com",
+                "priority": 10,
+                "status": "pending",
+            }
+        )
+        dns_records.append(
+            {
+                "type": "mail_from",
+                "recordType": "TXT",
+                "recordHostname": f"{mail_from_subdomain}.{domain}",
                 "recordValue": "v=spf1 include:amazonses.com ~all",
                 "status": "pending",
             }
@@ -128,10 +161,20 @@ class SESProvider:
         except ClientError:
             dkim_status = "Unknown"
 
+        try:
+            mail_from_attrs = self.ses_client.get_identity_mail_from_domain_attributes(Identities=[domain])
+            mail_from_status = (
+                mail_from_attrs["MailFromDomainAttributes"].get(domain, {}).get("MailFromDomainStatus", "Unknown")
+            )
+        except ClientError:
+            mail_from_status = "Unknown"
+
+        all_statuses = [verification_status, dkim_status, mail_from_status]
+
         # Normalize overall status
-        if verification_status == "Success" and dkim_status == "Success":
+        if verification_status == "Success" and dkim_status == "Success" and mail_from_status == "Success":
             overall = "success"
-        elif "Failed" in (verification_status, dkim_status):
+        elif "Failed" in all_statuses:
             overall = "failed"
         else:
             overall = "pending"
@@ -147,13 +190,30 @@ class SESProvider:
             for r in dns_records:
                 if r["type"] == "dkim":
                     r["status"] = "success"
-
-        # If MAIL FROM attrs said Success earlier, MX already marked verified
+        if mail_from_status == "Success":
+            for r in dns_records:
+                if r["type"] == "mail_from":
+                    r["status"] = "success"
 
         return {
             "status": overall,
-            "dnsRecords": dns_records if overall != "success" else [],
+            "dnsRecords": dns_records,
         }
+
+    def update_mail_from_subdomain(self, domain: str, mail_from_subdomain: str):
+        """
+        Update the MAIL FROM subdomain for a given identity
+        """
+        try:
+            self.ses_client.set_identity_mail_from_domain(
+                Identity=domain,
+                MailFromDomain=f"{mail_from_subdomain}.{domain}",
+                BehaviorOnMXFailure="UseDefaultValue",
+            )
+            logger.info(f"MAIL FROM domain for {domain} updated to {mail_from_subdomain}.{domain}")
+        except (ClientError, BotoCoreError) as e:
+            logger.exception(f"SES API error updating MAIL FROM domain: {e}")
+            raise
 
     def delete_identity(self, identity: str):
         """

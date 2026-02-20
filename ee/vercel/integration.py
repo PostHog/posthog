@@ -127,6 +127,8 @@ class VercelIntegration:
         "billing": "/organization/billing/overview",
         "usage": "/organization/billing/usage",
         "support": "/#panel=support",
+        "secrets": "/settings/project#variables",
+        "onboarding": "/onboarding",
     }
     SSO_DEFAULT_REDIRECT = "/"
 
@@ -155,6 +157,7 @@ class VercelIntegration:
     @staticmethod
     def _get_resource(resource_id: str) -> Integration:
         try:
+            # nosemgrep: idor-lookup-without-team (Vercel integration auth validates ownership)
             return Integration.objects.get(pk=resource_id, kind=Integration.IntegrationKind.VERCEL)
         except Integration.DoesNotExist:
             raise exceptions.NotFound("Resource not found")
@@ -222,8 +225,8 @@ class VercelIntegration:
             {
                 "id": "posthog-usage-based",
                 "type": "subscription",
-                "name": "PostHog",
-                "description": "Usage-based analytics. First 1M events free. View pricing: https://posthog.com/pricing",
+                "name": "Pay-as-you-go",
+                "description": "Usage-based pricing. View pricing: https://posthog.com/pricing",
                 "scope": "installation",
                 "paymentMethodRequired": True,
                 "preauthorizationAmount": 0.5,
@@ -293,16 +296,18 @@ class VercelIntegration:
                 name=config.account.name or f"Vercel Installation {installation_id}"
             )
 
-            # Check if user already exists - if so, don't create mapping yet (wait for SSO) where user proves
-            # they have access to the account associated with the email they're using.
             existing_user = User.objects.filter(email=config.account.contact.email, is_active=True).first()
 
             if existing_user:
-                # Existing user - create organization and integration but no user mapping or org membership yet
-                # They'll need to login first before connecting via SSO and being added to the org
-                # Store the intended membership level for when they complete SSO
                 user = existing_user
                 user_created = False
+                # Always add existing user to the new organization - they're installing so they should be a member
+                VercelIntegration._add_user_to_organization(
+                    existing_user, organization, OrganizationMembership.Level.OWNER
+                )
+                # Only create mapping if user is trusted (has existing Vercel mapping somewhere)
+                # External users will get mapped during SSO when they prove ownership
+                should_create_mapping = VercelIntegration._user_has_any_vercel_mapping(existing_user)
             else:
                 user, user_created = VercelIntegration._find_or_create_user_by_email(
                     email=config.account.contact.email,
@@ -310,6 +315,7 @@ class VercelIntegration:
                     organization=organization,
                     level=OrganizationMembership.Level.OWNER,  # User installing gets owner level
                 )
+                should_create_mapping = user_created
 
             try:
                 org_integration, _ = OrganizationIntegration.objects.update_or_create(
@@ -322,8 +328,7 @@ class VercelIntegration:
                     },
                 )
 
-                # Only create user mapping for new users, existing users get mapped during SSO
-                if user_created:
+                if should_create_mapping:
                     VercelIntegration._set_user_mapping(org_integration, vercel_user_id, user.pk)
 
                 logger.info("Created new Vercel installation", installation_id=installation_id, integration="vercel")
@@ -395,15 +400,36 @@ class VercelIntegration:
     def delete_installation(installation_id: str) -> dict[str, Any]:
         logger.info("Starting Vercel installation deletion", installation_id=installation_id, integration="vercel")
         installation = VercelIntegration._get_installation(installation_id)
+        organization = installation.organization
+
+        # Notify billing service to cancel subscription and reset billing provider
+        license = get_cached_instance_license()
+        if license:
+            try:
+                billing_manager = BillingManager(license)
+                billing_manager.deauthorize(organization, billing_provider=BillingProvider.VERCEL)
+                logger.info(
+                    "Deauthorized billing for Vercel installation",
+                    installation_id=installation_id,
+                    organization_id=str(organization.id),
+                )
+            except Exception as e:
+                logger.exception(
+                    "Failed to deauthorize billing for Vercel installation",
+                    installation_id=installation_id,
+                    organization_id=str(organization.id),
+                )
+                capture_exception(e)
+                # Continue with deletion even if billing deauthorization fails
+                # The billing service will handle the orphaned state gracefully
+
         installation.delete()
-        is_dev = settings.DEBUG
         logger.info(
             "Successfully deleted Vercel installation",
             installation_id=installation_id,
-            finalized=is_dev,
             integration="vercel",
         )
-        return {"finalized": is_dev}  # Immediately finalize in dev mode for testing purposes
+        return {"finalized": True}
 
     @staticmethod
     def get_product_plans(product_slug: str) -> dict[str, Any]:
@@ -518,11 +544,11 @@ class VercelIntegration:
     def _build_secrets(team: Team) -> list[dict[str, str]]:
         return [
             {
-                "name": "POSTHOG_PROJECT_API_KEY",
+                "name": "NEXT_PUBLIC_POSTHOG_KEY",
                 "value": team.api_token,
             },
             {
-                "name": "POSTHOG_HOST",
+                "name": "NEXT_PUBLIC_POSTHOG_HOST",
                 "value": absolute_uri(),
             },
         ]
@@ -860,7 +886,7 @@ class VercelIntegration:
                 )
 
                 intended_level = VercelIntegration._determine_membership_level(request.user.email, installation)
-                created = VercelIntegration._ensure_user_membership(
+                created = VercelIntegration._add_user_to_organization(
                     request.user, installation.organization, intended_level
                 )
 
@@ -904,7 +930,7 @@ class VercelIntegration:
         return OrganizationMembership.Level.MEMBER
 
     @staticmethod
-    def _ensure_user_membership(
+    def _add_user_to_organization(
         user: User, organization: Organization, level: OrganizationMembership.Level
     ) -> tuple[OrganizationMembership, bool]:
         membership, created = OrganizationMembership.objects.get_or_create(
@@ -997,6 +1023,26 @@ class VercelIntegration:
         return response
 
     @staticmethod
+    def _user_has_any_vercel_mapping(user: User) -> bool:
+        """Check if user has any Vercel mappings (i.e., they've used Vercel before)."""
+        configs = (
+            OrganizationIntegration.objects.filter(kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL)
+            .values_list("config", flat=True)
+            .iterator()
+        )
+        for config in configs:
+            if not config:
+                continue
+            user_mappings = config.get("user_mappings", {})
+            for v in user_mappings.values():
+                try:
+                    if int(v) == user.pk:
+                        return True
+                except (ValueError, TypeError):
+                    capture_exception(ValueError(f"Corrupted user_mapping value: {v}"))
+        return False
+
+    @staticmethod
     def _get_user_mapping(installation: OrganizationIntegration, vercel_user_id: str) -> int | None:
         user_mappings = installation.config.get("user_mappings", {})
         return user_mappings.get(vercel_user_id)
@@ -1040,7 +1086,7 @@ class VercelIntegration:
             )
             created = True
 
-        VercelIntegration._ensure_user_membership(user, organization, level)
+        VercelIntegration._add_user_to_organization(user, organization, level)
 
         return user, created
 
@@ -1152,6 +1198,7 @@ class VercelIntegration:
 
     @staticmethod
     def set_active_project(user: User, resource_id: str):
+        # nosemgrep: idor-lookup-without-team (Vercel integration auth validates ownership)
         resource = Integration.objects.filter(pk=resource_id, kind=Integration.IntegrationKind.VERCEL).first()
         if not resource:
             raise exceptions.NotFound(f"Vercel resource not found: {resource_id}")
@@ -1166,6 +1213,41 @@ class VercelIntegration:
         user.current_team = team
         user.save()
         return resource, user, team
+
+    @staticmethod
+    def push_secrets_to_vercel(team: Team) -> None:
+        """Push updated secrets to all Vercel resources linked to this team."""
+        setup_result = VercelIntegration._setup_vercel_client_for_team(team)
+        if not setup_result:
+            return
+
+        secrets = VercelIntegration._build_secrets(team)
+
+        try:
+            result = setup_result.client.update_resource_secrets(
+                integration_config_id=setup_result.integration_config_id,
+                resource_id=setup_result.resource_id,
+                secrets=secrets,
+            )
+            if not result.success:
+                raise Exception(f"Failed to push secrets to Vercel: {result.error}")
+
+            logger.info(
+                "Pushed secrets to Vercel",
+                team_id=team.id,
+                integration_config_id=setup_result.integration_config_id,
+                resource_id=setup_result.resource_id,
+                integration="vercel",
+            )
+        except Exception as e:
+            logger.exception(
+                "Error pushing secrets to Vercel",
+                team_id=team.id,
+                integration_config_id=setup_result.integration_config_id,
+                resource_id=setup_result.resource_id,
+                integration="vercel",
+            )
+            capture_exception(e, {"team_id": team.id, "resource_id": setup_result.resource_id})
 
 
 def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_func: Callable[[], None]) -> None:

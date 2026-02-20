@@ -118,7 +118,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
         data[0] && data[0].labels ? (
             <div className="ActionsPie">
                 <div className="ActionsPie__component">
-                    <div className="ActionsPie__chart">
+                    <div className={`ActionsPie__chart ${!showAggregation ? 'ActionsPie__chart--full-height' : ''}`}>
                         <PieChart
                             data-attr="trend-pie-graph"
                             type={GraphType.Pie}

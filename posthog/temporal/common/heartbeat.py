@@ -1,4 +1,6 @@
 import abc
+import time
+import socket
 import typing
 import asyncio
 import dataclasses
@@ -6,6 +8,8 @@ import collections.abc
 
 from structlog import get_logger
 from temporalio import activity
+
+from posthog.temporal.common.liveness_tracker import get_liveness_tracker
 
 LOGGER = get_logger(__name__)
 
@@ -52,9 +56,16 @@ class Heartbeater:
 
         async def heartbeat_forever(delay: float) -> None:
             """Heartbeat forever every delay seconds."""
+            tracker = get_liveness_tracker()
             while True:
                 await asyncio.sleep(delay)
-                activity.heartbeat(*self.details)
+                try:
+                    extra_payload = {"host": socket.gethostname(), "ts": time.time()}
+                    activity.heartbeat(*self.details, extra_payload)
+                    tracker.record_heartbeat()
+                    await self.logger.adebug("Heartbeat")
+                except Exception as e:
+                    await self.logger.adebug("Heartbeat failed %s", e, exc_info=e)
 
         heartbeat_timeout = activity.info().heartbeat_timeout
 

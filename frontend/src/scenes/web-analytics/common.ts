@@ -211,7 +211,7 @@ export const TILE_LABELS: Record<TileId, string> = {
     [TileId.PAGE_REPORTS_UTM_CAMPAIGN]: 'UTM campaign',
     [TileId.PAGE_REPORTS_UTM_CONTENT]: 'UTM content',
     [TileId.PAGE_REPORTS_UTM_TERM]: 'UTM term',
-    [TileId.PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND]: 'Avg time on page',
+    [TileId.PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND]: 'Time on page',
     [TileId.MARKETING]: 'Marketing',
     [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 'Campaign breakdown',
     [TileId.MARKETING_NON_INTEGRATED_CONVERSIONS]: 'Non-integrated conversions',
@@ -318,6 +318,7 @@ export enum PathTab {
 
 export enum GeographyTab {
     MAP = 'MAP',
+    REGIONS_MAP = 'REGIONS_MAP',
     COUNTRIES = 'COUNTRIES',
     REGIONS = 'REGIONS',
     CITIES = 'CITIES',
@@ -553,6 +554,8 @@ export interface ParsedURL {
     pathname: string | null
     isValid: boolean
 }
+
+export const faviconUrl = (domain: string): string => `${window.JS_URL}/favicons/${domain}`
 
 export const parseWebAnalyticsURL = (urlString: string): ParsedURL => {
     try {

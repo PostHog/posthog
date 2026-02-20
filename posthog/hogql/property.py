@@ -1,4 +1,5 @@
 import re
+from collections.abc import Callable
 from typing import Literal, Optional, TypeGuard, cast
 
 from django.db import models
@@ -6,6 +7,7 @@ from django.db.models import Q
 from django.db.models.functions.comparison import Coalesce
 
 from pydantic import BaseModel
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     CohortPropertyFilter,
@@ -39,7 +41,7 @@ from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.utils import map_virtual_properties
-from posthog.hogql.visitor import TraversingVisitor, clone_expr
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.models import Action, Cohort, Property, PropertyDefinition, Team
@@ -52,6 +54,137 @@ from posthog.utils import get_from_dict_or_attr
 
 from products.data_warehouse.backend.models import DataWarehouseJoin
 from products.data_warehouse.backend.models.util import get_view_or_table_by_name
+
+
+def parse_semver(value: str) -> tuple[str, str, str]:
+    """
+    Parse a semver string into (major, minor, patch) components.
+
+    - Strips pre-release suffixes (e.g., -alpha.1)
+    - Defaults missing components to "0" (e.g., 1.0 -> 1.0.0)
+
+    Returns tuple of strings for direct use in version string construction.
+    Raises ValueError if parsing fails.
+    """
+    # Strip pre-release suffix (everything after first hyphen)
+    base_version = value.split("-")[0]
+
+    parts = base_version.split(".")
+    if len(parts) < 1 or not parts[0]:
+        raise ValueError("Invalid semver format")
+
+    major = parts[0]
+    minor = parts[1] if len(parts) > 1 else "0"
+    patch = parts[2] if len(parts) > 2 else "0"
+
+    # Validate they're actually integers
+    int(major), int(minor), int(patch)
+
+    return (major, minor, patch)
+
+
+def semver_range_compare(
+    expr: ast.Expr,
+    value: ast.Any,
+    operator_name: str,
+    bounds_calculator: Callable[[str], tuple[str, str]],
+) -> ast.And:
+    """
+    Build a semver range comparison AST (lower_bound <= expr < upper_bound).
+
+    Args:
+        expr: The expression to compare (e.g., person.properties.app_version)
+        value: The semver value from the filter
+        operator_name: Name for error messages (e.g., "Tilde", "Caret", "Wildcard")
+        bounds_calculator: Function that takes the value and returns (lower_bound, upper_bound)
+
+    Returns:
+        AST node representing: sortableSemver(expr) >= sortableSemver(lower) AND sortableSemver(expr) < sortableSemver(upper)
+    """
+    if not isinstance(value, str):
+        raise QueryError(f"{operator_name} operator requires a semver string value")
+
+    try:
+        lower_bound, upper_bound = bounds_calculator(value)
+    except (ValueError, IndexError):
+        raise QueryError(f"{operator_name} operator requires a valid semver string (e.g., '1.2.3')")
+
+    return ast.And(
+        exprs=[
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=lower_bound)]),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=upper_bound)]),
+            ),
+        ]
+    )
+
+
+def _tilde_bounds(value: str) -> tuple[str, str]:
+    """~1.2.3 means >=1.2.3 <1.3.0 (allows patch-level changes)"""
+    parts = value.split("-")[0].split(".")
+    if len(parts) < 2:
+        raise ValueError("Tilde operator requires at least major.minor version")
+    major, minor, patch = parse_semver(value)
+    next_minor = str(int(minor) + 1)
+    return f"{major}.{minor}.{patch}", f"{major}.{next_minor}.0"
+
+
+def _caret_bounds(value: str) -> tuple[str, str]:
+    """
+    Caret operator follows semver spec:
+    ^1.2.3 means >=1.2.3 <2.0.0
+    ^0.2.3 means >=0.2.3 <0.3.0
+    ^0.0.3 means >=0.0.3 <0.0.4
+    The leftmost non-zero component determines the upper bound.
+    """
+    major, minor, patch = parse_semver(value)
+    lower_bound = f"{major}.{minor}.{patch}"
+
+    if int(major) > 0:
+        upper_bound = f"{int(major) + 1}.0.0"
+    elif int(minor) > 0:
+        upper_bound = f"0.{int(minor) + 1}.0"
+    else:
+        upper_bound = f"0.0.{int(patch) + 1}"
+
+    return lower_bound, upper_bound
+
+
+def _wildcard_bounds(value: str) -> tuple[str, str]:
+    """
+    Wildcard matching:
+    1.* means >=1.0.0 <2.0.0
+    1.2.* means >=1.2.0 <1.3.0
+    1.2.3.* means >=1.2.3.0 <1.2.4.0
+    """
+    # Remove trailing .* if present
+    value = value.rstrip(".*")
+    if not value:
+        raise ValueError("Invalid wildcard pattern")
+
+    # Strip pre-release suffix before counting parts
+    base_value = value.split("-")[0]
+    parts = base_value.split(".")
+
+    if len(parts) == 1:
+        major = parts[0]
+        int(major)  # Validate
+        return f"{major}.0.0", f"{int(major) + 1}.0.0"
+    elif len(parts) == 2:
+        major, minor = parts[0], parts[1]
+        int(major), int(minor)  # Validate
+        return f"{major}.{minor}.0", f"{major}.{int(minor) + 1}.0"
+    else:
+        major, minor, patch = parts[0], parts[1], parts[2]
+        int(major), int(minor), int(patch)  # Validate
+        return f"{major}.{minor}.{patch}.0", f"{major}.{minor}.{int(patch) + 1}.0"
+
 
 GROUP_KEY_PATTERN = re.compile(r"^\$group_[0-4]$")
 
@@ -173,6 +306,27 @@ def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeG
     return True
 
 
+def _multi_search_found(search_call: ast.Call) -> ast.CompareOperation:
+    """Create comparison operation to check if multiSearchAnyCaseInsensitive found a match."""
+    return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=search_call, right=ast.Constant(value=0))
+
+
+def _multi_search_not_found(search_call: ast.Call) -> ast.CompareOperation:
+    """Create comparison operation to check if multiSearchAnyCaseInsensitive did not find a match."""
+    return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=search_call, right=ast.Constant(value=0))
+
+
+def _create_multi_search_call(expr: ast.Expr, value: list) -> ast.Call:
+    """Create a multiSearchAnyCaseInsensitive call for the given expression and values."""
+    return ast.Call(
+        name="multiSearchAnyCaseInsensitive",
+        args=[
+            ast.Call(name="toString", args=[expr]),
+            ast.Array(exprs=[ast.Constant(value=str(v)) for v in value]),
+        ],
+    )
+
+
 def _expr_to_compare_op(
     expr: ast.Expr, value: ValueT, operator: PropertyOperator, property: Property, is_json_field: bool, team: Team
 ) -> ast.Expr:
@@ -189,17 +343,43 @@ def _expr_to_compare_op(
             right=ast.Constant(value=None),
         )
     elif operator == PropertyOperator.ICONTAINS:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.ILike,
-            left=ast.Call(name="toString", args=[expr]),
-            right=ast.Constant(value=f"%{value}%"),
-        )
+        if isinstance(value, list) and len(value) > 1:
+            # Multiple values: use ClickHouse's multiSearchAnyCaseInsensitive for efficient searching
+            return _multi_search_found(_create_multi_search_call(expr, value))
+        else:
+            # Single value (or single-element array): keep existing ILIKE logic for backward compatibility
+            single_value = value[0] if isinstance(value, list) and len(value) == 1 else value
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.ILike,
+                left=ast.Call(name="toString", args=[expr]),
+                right=ast.Constant(value=f"%{single_value}%"),
+            )
     elif operator == PropertyOperator.NOT_ICONTAINS:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.NotILike,
-            left=ast.Call(name="toString", args=[expr]),
-            right=ast.Constant(value=f"%{value}%"),
-        )
+        if isinstance(value, list) and len(value) > 1:
+            # Multiple values: use ClickHouse's multiSearchAnyCaseInsensitive with negation
+            return _multi_search_not_found(_create_multi_search_call(expr, value))
+        else:
+            # Single value (or single-element array): keep existing NOT ILIKE logic for backward compatibility
+            single_value = value[0] if isinstance(value, list) and len(value) == 1 else value
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.NotILike,
+                left=ast.Call(name="toString", args=[expr]),
+                right=ast.Constant(value=f"%{single_value}%"),
+            )
+    elif operator == PropertyOperator.ICONTAINS_MULTI:
+        # Always expect multiple values for multi-contains operator
+        if isinstance(value, list):
+            values_list = value
+        else:
+            values_list = cast(list, [value])
+        return _multi_search_found(_create_multi_search_call(expr, values_list))
+    elif operator == PropertyOperator.NOT_ICONTAINS_MULTI:
+        # Always expect multiple values for multi-not-contains operator
+        if isinstance(value, list):
+            values_list = value
+        else:
+            values_list = cast(list, [value])
+        return _multi_search_not_found(_create_multi_search_call(expr, values_list))
     elif operator == PropertyOperator.REGEX:
         return ast.Call(
             name="ifNull",
@@ -270,6 +450,48 @@ def _expr_to_compare_op(
             raise Exception("IN and NOT IN operators require a list of values")
         op = ast.CompareOperationOp.NotIn if operator == PropertyOperator.NOT_IN else ast.CompareOperationOp.In
         return ast.CompareOperation(op=op, left=expr, right=ast.Array(exprs=[ast.Constant(value=v) for v in value]))
+    elif operator == PropertyOperator.SEMVER_EQ:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Call(name="sortableSemver", args=[expr]),
+            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        )
+    elif operator == PropertyOperator.SEMVER_NEQ:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.NotEq,
+            left=ast.Call(name="sortableSemver", args=[expr]),
+            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        )
+    elif operator == PropertyOperator.SEMVER_GT:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Gt,
+            left=ast.Call(name="sortableSemver", args=[expr]),
+            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        )
+    elif operator == PropertyOperator.SEMVER_GTE:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Call(name="sortableSemver", args=[expr]),
+            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        )
+    elif operator == PropertyOperator.SEMVER_LT:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Lt,
+            left=ast.Call(name="sortableSemver", args=[expr]),
+            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        )
+    elif operator == PropertyOperator.SEMVER_LTE:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.LtEq,
+            left=ast.Call(name="sortableSemver", args=[expr]),
+            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        )
+    elif operator == PropertyOperator.SEMVER_TILDE:
+        return semver_range_compare(expr, value, "Tilde", _tilde_bounds)
+    elif operator == PropertyOperator.SEMVER_CARET:
+        return semver_range_compare(expr, value, "Caret", _caret_bounds)
+    elif operator == PropertyOperator.SEMVER_WILDCARD:
+        return semver_range_compare(expr, value, "Wildcard", _wildcard_bounds)
     else:
         raise NotImplementedError(f"PropertyOperator {operator} not implemented")
 
@@ -533,8 +755,13 @@ def property_to_expr(
 
         expr: ast.Expr = map_virtual_properties(field)
 
-        if property.type == "recording" and property.key == "snapshot_source":
+        if property.type == "recording" and property.key in ("snapshot_source", "snapshot_library"):
             expr = ast.Call(name="argMinMerge", args=[field])
+
+        is_visited_page_property = property.type == "recording" and property.key == "visited_page"
+        if is_visited_page_property:
+            # Use the all_urls array field to filter for pages visited during recording.
+            all_urls_field = ast.Field(chain=["all_urls"])
 
         is_exception_string_array_property = property.type == "event" and property.key in [
             "$exception_types",
@@ -553,7 +780,12 @@ def property_to_expr(
                 ],
             )
 
-        if isinstance(value, list) and operator not in (PropertyOperator.BETWEEN, PropertyOperator.NOT_BETWEEN):
+        if isinstance(value, list) and operator not in (
+            PropertyOperator.BETWEEN,
+            PropertyOperator.NOT_BETWEEN,
+            PropertyOperator.ICONTAINS,
+            PropertyOperator.NOT_ICONTAINS,
+        ):
             if len(value) == 0:
                 return ast.Constant(value=1)
             elif len(value) == 1:
@@ -571,7 +803,11 @@ def property_to_expr(
                         else ast.CompareOperationOp.NotIn
                     )
 
-                    left = ast.Field(chain=["v"]) if is_exception_string_array_property else expr
+                    left = (
+                        ast.Field(chain=["v"])
+                        if (is_exception_string_array_property or is_visited_page_property)
+                        else expr
+                    )
                     compare_op = ast.CompareOperation(
                         op=op, left=left, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value])
                     )
@@ -584,8 +820,35 @@ def property_to_expr(
                                 "field": extracted_field,
                             },
                         )
+                    elif is_visited_page_property:
+                        return parse_expr(
+                            "arrayExists(v -> {compare_op}, {field})",
+                            {
+                                "compare_op": compare_op,
+                                "field": all_urls_field,
+                            },
+                        )
                     else:
                         return compare_op
+                elif operator in (PropertyOperator.ICONTAINS, PropertyOperator.NOT_ICONTAINS):
+                    # For contains operators, delegate to _expr_to_compare_op which handles multiple values efficiently
+                    if is_exception_string_array_property or is_visited_page_property:
+                        # For exception properties and visited_page, use multiSearch optimization within arrayExists
+                        multi_search_expr = _expr_to_compare_op(
+                            ast.Field(chain=["v"]), value, operator, property, property.type != "session", team
+                        )
+                        if is_exception_string_array_property:
+                            return parse_expr(
+                                "arrayExists(v -> {expr}, {key})",
+                                {"expr": multi_search_expr, "key": extracted_field},
+                            )
+                        else:  # is_visited_page_property
+                            return parse_expr(
+                                "arrayExists(v -> {expr}, {key})",
+                                {"expr": multi_search_expr, "key": all_urls_field},
+                            )
+                    else:
+                        return _expr_to_compare_op(expr, value, operator, property, property.type != "session", team)
 
                 exprs = [
                     property_to_expr(
@@ -611,7 +874,7 @@ def property_to_expr(
                 return ast.Or(exprs=exprs)
 
         expr = _expr_to_compare_op(
-            expr=ast.Field(chain=["v"]) if is_exception_string_array_property else expr,
+            expr=ast.Field(chain=["v"]) if (is_exception_string_array_property or is_visited_page_property) else expr,
             value=value,
             operator=operator,
             team=team,
@@ -624,6 +887,25 @@ def property_to_expr(
                 "arrayExists(v -> {expr}, {key})",
                 {"expr": expr, "key": extracted_field},
             )
+        elif is_visited_page_property:
+            # Handle IS_SET and IS_NOT_SET operators specially for arrays
+            if operator == PropertyOperator.IS_SET:
+                return ast.CompareOperation(
+                    op=ast.CompareOperationOp.Gt,
+                    left=ast.Call(name="length", args=[all_urls_field]),
+                    right=ast.Constant(value=0),
+                )
+            elif operator == PropertyOperator.IS_NOT_SET:
+                return ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Call(name="length", args=[all_urls_field]),
+                    right=ast.Constant(value=0),
+                )
+            else:
+                return parse_expr(
+                    "arrayExists(v -> {expr}, {key})",
+                    {"expr": expr, "key": all_urls_field},
+                )
         else:
             return expr
     elif property.type == "element":
@@ -839,23 +1121,25 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
 
 def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
     if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
-        action = Action.objects.get(pk=entity.id)
-        return action_to_expr(action)
-    if entity.id is None:
-        return ast.Constant(value=True)
-
-    filters: list[ast.Expr] = [
-        ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["events", "event"]),
-            right=ast.Constant(value=entity.id),
-        )
-    ]
+        # action
+        try:
+            action = Action.objects.get(pk=entity.id, team=team)
+        except Action.DoesNotExist:
+            raise ValidationError(f"Action ID {entity.id} does not exist!")
+        event_expr = action_to_expr(action)
+    elif entity.id is None:
+        # all events
+        event_expr = ast.Constant(value=True)
+    else:
+        # event
+        event_expr = parse_expr("events.event = {event}", {"event": ast.Constant(value=entity.id)})
 
     if entity.properties is not None and entity.properties != []:
-        filters.append(property_to_expr(entity.properties, team))
-
-    return ast.And(exprs=filters)
+        # add property filters
+        filter_expr = property_to_expr(entity.properties, team)
+        return ast.And(exprs=[event_expr, filter_expr])
+    else:
+        return event_expr
 
 
 def tag_name_to_expr(tag_name: str):
@@ -913,10 +1197,87 @@ def get_property_operator(property):
     return get_from_dict_or_attr(property, "operator")
 
 
+def get_lowercase_index_hint(property, team: Team) -> ast.Call:
+    """
+    Returns an index hint for a case insensitive index on `lower(key)`
+    e.g. for the property `body ILIKE '%STR%'` return `indexHint(lower(body) ILIKE '%str%')`
+         this means we can use ngram indexes on `lower(body)` efficiently
+    """
+    expr = property_to_expr(property, team=team)
+    return ast.Call(name="indexHint", args=[_LowercaseIndexRewriter().visit(expr)])
+
+
+class _LowercaseIndexRewriter(CloningVisitor):
+    """Rewrites an expression tree so it can leverage a case-insensitive index on ``lower(key)``.
+
+    Transformations applied:
+    - All ``toString(x)`` calls are unwrapped to just ``x`` (stripped, not replaced).
+    - ``ILike`` → ``lower(left) Like lower_const`` / ``NotILike`` → ``lower(left) NotLike lower_const``
+    - ``multiSearchAnyCaseInsensitive(haystack, needles)`` → ``multiSearchAny(lower(haystack), lowered_needles)``
+    """
+
+    def visit_call(self, node: ast.Call):
+        if node.name == "toString" and len(node.args) == 1:
+            # Strip toString
+            return self.visit(node.args[0])
+
+        if node.name == "ifNull" and len(node.args) >= 1:
+            # Strip ifNull
+            return self.visit(node.args[0])
+
+        if node.name == "multiSearchAnyCaseInsensitive" and len(node.args) == 2:
+            # multiSearchAnyCaseInsensitive(haystack, needles)
+            # → multiSearchAny(lower(haystack), lowered_needles)
+            haystack = self.visit(node.args[0])
+            haystack = ast.Call(name="lower", args=[haystack])
+            needles = node.args[1]
+            # Lowercase all needle constants
+            if isinstance(needles, ast.Array):
+                needles = ast.Array(
+                    exprs=[
+                        ast.Constant(value=str(e.value).lower())
+                        if isinstance(e, ast.Constant) and isinstance(e.value, str)
+                        else self.visit(e)
+                        for e in needles.exprs
+                    ]
+                )
+            else:
+                needles = self.visit(needles)
+            return ast.Call(name="multiSearchAny", args=[haystack, needles])
+
+        return super().visit_call(node)
+
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        op = node.op
+        wrap_left_lower = False
+
+        if op == ast.CompareOperationOp.ILike:
+            op = ast.CompareOperationOp.Like
+            wrap_left_lower = True
+        elif op == ast.CompareOperationOp.NotILike:
+            op = ast.CompareOperationOp.NotLike
+            wrap_left_lower = True
+
+        left = self.visit(node.left)
+        right = self.visit(node.right)
+
+        if wrap_left_lower:
+            left = ast.Call(name="lower", args=[left])
+            if isinstance(right, ast.Constant) and isinstance(right.value, str):
+                right = ast.Constant(value=right.value.lower())
+
+        return ast.CompareOperation(
+            left=left,
+            right=right,
+            op=op,
+        )
+
+
 def operator_is_negative(operator: PropertyOperator) -> bool:
     return operator in [
         PropertyOperator.IS_NOT,
         PropertyOperator.NOT_ICONTAINS,
+        PropertyOperator.NOT_ICONTAINS_MULTI,
         PropertyOperator.NOT_REGEX,
         PropertyOperator.IS_NOT_SET,
         PropertyOperator.NOT_BETWEEN,

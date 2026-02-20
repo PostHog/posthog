@@ -30,6 +30,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import (
     ExposedHogQLError,
     NotImplementedError as HogQLNotImplementedError,
@@ -45,6 +46,7 @@ from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.context.insight.format import (
+    TRUNCATED_MARKER,
     FunnelResultsFormatter,
     RetentionResultsFormatter,
     RevenueAnalyticsGrossRevenueResultsFormatter,
@@ -79,6 +81,24 @@ logger = structlog.get_logger(__name__)
 TIMING_LOG_PREFIX = "[QUERY_EXECUTOR]"
 
 
+def is_supported_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> bool:
+    return isinstance(
+        query,
+        AssistantTrendsQuery
+        | TrendsQuery
+        | AssistantFunnelsQuery
+        | FunnelsQuery
+        | AssistantRetentionQuery
+        | RetentionQuery
+        | AssistantHogQLQuery
+        | HogQLQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsTopCustomersQuery,
+    )
+
+
 class AssistantQueryExecutor:
     """
     Reusable class for executing queries and formatting results for the AI assistant.
@@ -109,6 +129,7 @@ class AssistantQueryExecutor:
         execution_mode: Optional[ExecutionMode] = None,
         insight_id=None,
         debug_timing=False,
+        truncate_results: bool = True,
     ) -> tuple[str, bool]:
         """
         Run a query and format the results with detailed fallback information.
@@ -146,7 +167,9 @@ class AssistantQueryExecutor:
             try:
                 # Attempt to format results using query-specific formatters
                 format_start = time.time()
-                formatted_results = await self._compress_results(query, response_dict, debug_timing=debug_timing)
+                formatted_results = await self._compress_results(
+                    query, response_dict, debug_timing=debug_timing, truncate_results=truncate_results
+                )
                 format_elapsed = time.time() - format_start
                 total_elapsed = time.time() - start_time
                 if debug_timing:
@@ -272,6 +295,7 @@ class AssistantQueryExecutor:
                 self._team,
                 query.model_dump(mode="json"),
                 execution_mode=execution_mode,
+                limit_context=LimitContext.POSTHOG_AI,
             )
 
             process_elapsed = time.time() - process_start
@@ -381,7 +405,11 @@ class AssistantQueryExecutor:
         return response_dict
 
     async def _compress_results(
-        self, query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery, response: dict, debug_timing=False
+        self,
+        query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
+        response: dict,
+        debug_timing=False,
+        truncate_results: bool = True,
     ) -> str:
         """
         Format query results using appropriate formatter based on query type.
@@ -400,6 +428,9 @@ class AssistantQueryExecutor:
         query_type = type(query).__name__
         formatter_name = None
 
+        if not is_supported_query(query):
+            raise NotImplementedError(f"Unsupported query type: {query_type}")
+
         try:
             # Handle assistant-specific query types with direct formatting
             if isinstance(query, AssistantTrendsQuery | TrendsQuery):
@@ -415,7 +446,10 @@ class AssistantQueryExecutor:
                 result = RetentionResultsFormatter(query, response["results"]).format()
             elif isinstance(query, AssistantHogQLQuery | HogQLQuery):
                 formatter_name = "SQLResultsFormatter"
-                result = SQLResultsFormatter(query, response["results"], response["columns"]).format()
+                max_cell_length = SQLResultsFormatter.MAX_CELL_LENGTH if truncate_results else None
+                result = SQLResultsFormatter(
+                    query, response["results"], response["columns"], max_cell_length=max_cell_length
+                ).format()
             elif isinstance(query, RevenueAnalyticsGrossRevenueQuery):
                 formatter_name = "RevenueAnalyticsGrossRevenueResultsFormatter"
                 result = RevenueAnalyticsGrossRevenueResultsFormatter(query, response["results"]).format()
@@ -487,6 +521,7 @@ async def execute_and_format_query(
     query_model: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
     execution_mode: Optional[ExecutionMode] = None,
     insight_id: Optional[int] = None,
+    truncate_results: bool = True,
 ) -> str:
     """
     Executes a supported query and formats the results for the AI assistant:
@@ -508,13 +543,20 @@ async def execute_and_format_query(
     query = validate_assistant_query(query_model.model_dump(mode="json"))
     utc_now_datetime = timezone.now().astimezone(UTC)
     query_runner = AssistantQueryExecutor(team, utc_now_datetime)
-    results, used_fallback = await query_runner.arun_and_format_query(query, execution_mode, insight_id)
+    results, used_fallback = await query_runner.arun_and_format_query(
+        query, execution_mode, insight_id, truncate_results=truncate_results
+    )
     example_prompt = FALLBACK_EXAMPLE_PROMPT if used_fallback else get_example_prompt(query)
     currency = team.base_currency or CurrencyCode.USD.value
 
     insight_schema = ""
     if not isinstance(query, AssistantHogQLQuery | HogQLQuery):
         insight_schema = query.model_dump_json(exclude_none=True)
+
+    # Check if SQL results contain truncated values
+    has_truncated_values = (
+        isinstance(query, AssistantHogQLQuery | HogQLQuery) and TRUNCATED_MARKER in results and not used_fallback
+    )
 
     query_result = format_prompt_string(
         QUERY_RESULTS_PROMPT,
@@ -525,6 +567,8 @@ async def execute_and_format_query(
         project_datetime_display=utc_now_datetime.astimezone(team.timezone_info).strftime("%Y-%m-%d %H:%M:%S"),
         project_timezone=team.timezone_info.tzname(utc_now_datetime),
         currency=currency if is_revenue_analytics_query(query) else None,
+        has_truncated_values=has_truncated_values,
+        sql_query=True if isinstance(query, AssistantHogQLQuery | HogQLQuery) else None,
     )
 
     return f"{example_prompt}\n\n{query_result}"

@@ -6,6 +6,7 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.event_usage import groups
+from posthog.models import EventDefinition, ObjectMediaPreview
 
 from ee.models.event_definition import EnterpriseEventDefinition
 
@@ -21,6 +22,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
     last_updated_at = serializers.DateTimeField(read_only=True)
     post_to_slack = serializers.BooleanField(default=False)
     default_columns = serializers.ListField(child=serializers.CharField(), required=False)
+    media_preview_urls = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = EnterpriseEventDefinition
@@ -39,6 +41,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "verified_at",
             "verified_by",
             "hidden",
+            "enforcement_mode",
             # Action fields
             "is_action",
             "action_id",
@@ -47,6 +50,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "created_by",
             "post_to_slack",
             "default_columns",
+            "media_preview_urls",
         )
         read_only_fields = [
             "id",
@@ -73,6 +77,20 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             extra_kwargs["name"] = {"read_only": False}
 
         return extra_kwargs
+
+    def validate_name(self, value):
+        # For creation, check if event definition with this name already exists
+        if self.instance:
+            return value
+
+        view = self.context.get("view")
+        if not view:
+            return value
+
+        if EventDefinition.objects.filter(team_id=view.team_id, name=value).exists():
+            raise serializers.ValidationError(f"Event definition with name '{value}' already exists")
+
+        return value
 
     def validate(self, data):
         validated_data = super().validate(data)
@@ -141,5 +159,19 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
 
         return representation
 
-    def get_is_action(self, obj):
+    def get_is_action(self, obj) -> bool:
         return hasattr(obj, "action_id") and obj.action_id is not None
+
+    def get_media_preview_urls(self, obj) -> list[str]:
+        media_map = self.context.get("media_preview_urls_map")
+        if media_map is not None:
+            return media_map.get(str(obj.id), [])
+
+        if not obj.id:
+            return []
+        previews = (
+            ObjectMediaPreview.objects.filter(event_definition_id=obj.id)
+            .select_related("uploaded_media", "exported_asset")
+            .order_by("-updated_at")
+        )
+        return [p.media_url for p in previews if p.media_url]

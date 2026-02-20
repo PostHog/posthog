@@ -7,6 +7,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import ast
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.visitor import clone_expr
 
 from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
 from posthog.clickhouse import query_tagging
@@ -71,8 +72,8 @@ class RecordBatchModel(abc.ABC):
         data_interval_start: dt.datetime | None,
         data_interval_end: dt.datetime,
         s3_folder: str,
-        s3_key: str,
-        s3_secret: str,
+        s3_key: str | None,
+        s3_secret: str | None,
         num_partitions: int,
     ) -> tuple[Query, QueryParameters]:
         """Produce a printed query and any necessary ClickHouse query parameters."""
@@ -86,7 +87,7 @@ class SessionsRecordBatchModel(RecordBatchModel):
         self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
     ) -> ast.SelectQuery:
         """Return the HogQLQuery used for the sessions model."""
-        hogql_query = sql.SELECT_FROM_SESSIONS_HOGQL
+        hogql_query = clone_expr(sql.SELECT_FROM_SESSIONS_HOGQL)
 
         where_and = ast.And(
             exprs=[
@@ -154,8 +155,8 @@ class SessionsRecordBatchModel(RecordBatchModel):
         data_interval_start: dt.datetime | None,
         data_interval_end: dt.datetime,
         s3_folder: str,
-        s3_key: str,
-        s3_secret: str,
+        s3_key: str | None,
+        s3_secret: str | None,
         num_partitions: int,
     ) -> tuple[Query, QueryParameters]:
         """Produce a printed query and any necessary ClickHouse query parameters."""
@@ -179,15 +180,9 @@ class SessionsRecordBatchModel(RecordBatchModel):
         else:
             log_comment = ", " + log_comment
 
+        s3_function = sql.get_s3_function_call(s3_folder, s3_key, s3_secret, num_partitions)
         insert_query = f"""
-INSERT INTO FUNCTION
-   s3(
-       '{s3_folder}/export_{{{{_partition_id}}}}.arrow',
-       '{s3_key}',
-       '{s3_secret}',
-       'ArrowStream'
-    )
-    PARTITION BY rand() %% {num_partitions}
+INSERT INTO FUNCTION {s3_function}
 {printed}{log_comment}
 """
 

@@ -28,9 +28,8 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
         setMode: (mode: 'create' | 'link') => ({ mode }),
         validateFeatureFlagKey: (key: string) => ({ key }),
         clearFeatureFlagKeyValidation: true,
-
-        setFeatureFlagKeyDirty: true,
         setLinkedFeatureFlag: (flag: FeatureFlagType | null) => ({ flag }),
+        setFeatureFlagKeyForAutocomplete: (key: string | null) => ({ key }),
     },
     reducers: ({ props }) => ({
         featureFlagKeyError: [
@@ -52,13 +51,6 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
                 },
             },
         ],
-        featureFlagKeyDirty: [
-            false,
-            {
-                setFeatureFlagKeyDirty: () => true,
-                setMode: () => false, // Reset dirty flag when switching modes
-            },
-        ],
         linkedFeatureFlag: [
             // Initialize from experiment.feature_flag when disabled
             (props.disabled && props.experiment.feature_flag
@@ -66,6 +58,13 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
                 : null) as FeatureFlagType | null,
             {
                 setLinkedFeatureFlag: (_, { flag }) => flag,
+            },
+        ],
+        featureFlagKeyForAutocomplete: [
+            // Initialize from experiment.feature_flag_key when available
+            (props.experiment.feature_flag_key || null) as string | null,
+            {
+                setFeatureFlagKeyForAutocomplete: (_, { key }) => key,
             },
         ],
     }),

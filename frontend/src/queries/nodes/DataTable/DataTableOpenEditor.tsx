@@ -31,8 +31,8 @@ export function DataTableOpenEditor({ query }: DataTableOpenEditorProps): JSX.El
                                   <LemonMenuOverlay
                                       items={[
                                           {
-                                              label: 'Open as direct SQL insight',
-                                              to: urls.sqlEditor(response.hogql),
+                                              label: 'Open in SQL editor',
+                                              to: urls.sqlEditor({ query: response.hogql }),
                                               'data-attr': 'open-sql-editor-button',
                                           },
                                       ]}

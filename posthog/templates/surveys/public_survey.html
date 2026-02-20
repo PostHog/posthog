@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en"{% if embed_mode %} class="embed-mode"{% endif %}>
 
 <head>
     <meta charset="UTF-8">
@@ -604,7 +604,39 @@
                 transition-duration: 0.01ms !important;
             }
         }
+
+        html.embed-mode body {
+            background: transparent;
+            min-height: auto;
+        }
+
+        html.embed-mode .main-container {
+            min-height: auto;
+            padding: 0;
+        }
+
+        html.embed-mode .survey-card {
+            box-shadow: none;
+            border-radius: 0;
+            max-width: none;
+            max-height: none;
+        }
     </style>
+    {% if embed_mode %}
+    <script nonce="{{ request.csp_nonce }}">
+        document.addEventListener('DOMContentLoaded', function() {
+            var surveyCard = document.querySelector('.survey-card');
+            if (!surveyCard) return;
+            new ResizeObserver(function() {
+                window.parent.postMessage({
+                    type: 'posthog:survey:height',
+                    surveyId: '{{ survey_id }}',
+                    height: Math.ceil(surveyCard.getBoundingClientRect().height)
+                }, '*');
+            }).observe(surveyCard);
+        });
+    </script>
+    {% endif %}
 </head>
 
 <body>
@@ -963,6 +995,27 @@
         if (distinctID) {
             config.bootstrap = {
                 distinctID: distinctID,
+                isIdentifiedID: true,
+            }
+        }
+
+        // Extract additional survey event properties from URL parameters
+        const URL_PARAMS_TO_IGNORE = ['distinct_id', '__posthog_debug__', '__posthog_debug', 'auto_submit'];
+        const surveyEventProperties = {};
+
+        for (const [key, value] of searchParams.entries()) {
+            // Skip question prefill parameters (q1, q2, etc.) and ignored params
+            const keyLower = key.toLowerCase();
+            if (!URL_PARAMS_TO_IGNORE.includes(keyLower) && !keyLower.match(/^q\d+$/)) {
+                if (/^-?\d+(\.\d+)?$/.test(value)) {
+                    surveyEventProperties[key] = Number(value);
+                } else if (value === 'true') {
+                    surveyEventProperties[key] = true;
+                } else if (value === 'false') {
+                    surveyEventProperties[key] = false;
+                } else {
+                    surveyEventProperties[key] = value;
+                }
             }
         }
 
@@ -979,7 +1032,11 @@
                 autoSubmitDelay: 800,
             },
             loaded: (instance) => {
-                instance.surveys["_surveyManager"].renderSurvey(survey, document.getElementById('posthog-survey-container'));
+                instance.surveys["_surveyManager"].renderSurvey(
+                    survey,
+                    document.getElementById('posthog-survey-container'),
+                    surveyEventProperties
+                );
             }
         });
 

@@ -47,6 +47,7 @@ function toPerson(row: RawPerson): InternalPerson {
         id: String(row.id),
         created_at: DateTime.fromISO(row.created_at).toUTC(),
         version: Number(row.version || 0),
+        last_seen_at: row.last_seen_at ? DateTime.fromISO(row.last_seen_at).toUTC() : null,
     }
 }
 

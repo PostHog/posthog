@@ -3,8 +3,10 @@ import './EditorScene.scss'
 import { Monaco } from '@monaco-editor/react'
 import { BindLogic, useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { DatabaseTree } from '~/layout/panel-layout/DatabaseTree/DatabaseTree'
@@ -23,11 +25,11 @@ import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
 import { QueryWindow } from './QueryWindow'
 import { editorSizingLogic } from './editorSizingLogic'
-import { multitabEditorLogic } from './multitabEditorLogic'
 import { outputPaneLogic } from './outputPaneLogic'
+import { sqlEditorLogic } from './sqlEditorLogic'
 
 export const scene: SceneExport = {
-    logic: multitabEditorLogic,
+    logic: sqlEditorLogic,
     component: EditorScene,
 }
 
@@ -74,13 +76,20 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
     )
     const [monaco, editor] = monacoAndEditor ?? []
 
-    const logic = multitabEditorLogic({
+    // Clear editor state on unmount to avoid holding references to disposed editor
+    useOnMountEffect(() => {
+        return () => {
+            setMonacoAndEditor(null)
+        }
+    })
+
+    const logic = sqlEditorLogic({
         tabId: tabId || '',
         monaco,
         editor,
     })
 
-    const { queryInput, sourceQuery, dataLogicKey } = useValues(logic)
+    const { sourceQuery, dataLogicKey } = useValues(logic)
     const { setSourceQuery } = useActions(logic)
 
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
@@ -104,7 +113,7 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
         variablesOverride: undefined,
         autoLoad: false,
         onError: (error) => {
-            const mountedLogic = multitabEditorLogic.findMounted({
+            const mountedLogic = sqlEditorLogic.findMounted({
                 tabId: tabId || '',
                 monaco,
                 editor,
@@ -118,10 +127,11 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
 
     const { loadData } = useActions(dataNodeLogic(dataNodeLogicProps))
 
+    useAttachedLogic(dataNodeLogic(dataNodeLogicProps), logic)
+
     const variablesLogicProps: VariablesLogicProps = {
         key: dataVisualizationLogicProps.key,
         readOnly: false,
-        queryInput: queryInput ?? '',
         sourceQuery,
         setQuery: setSourceQuery,
         onUpdate: (query) => {
@@ -137,12 +147,13 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
                         <BindLogic logic={variablesLogic} props={variablesLogicProps}>
                             <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
                                 <BindLogic logic={outputPaneLogic} props={{ tabId }}>
-                                    <BindLogic logic={multitabEditorLogic} props={{ tabId, monaco, editor }}>
-                                        <div className="flex h-[calc(100vh-var(--scene-layout-header-height))]">
+                                    <BindLogic logic={sqlEditorLogic} props={{ tabId, monaco, editor }}>
+                                        <VariablesQuerySync />
+                                        <div className="flex grow h-full">
                                             <DatabaseTree databaseTreeRef={databaseTreeRef} />
                                             <div
                                                 data-attr="editor-scene"
-                                                className="EditorScene flex-1 flex flex-row overflow-hidden"
+                                                className="EditorScene grow flex flex-row overflow-hidden"
                                                 ref={ref}
                                             >
                                                 <QueryWindow
@@ -163,4 +174,16 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
             </BindLogic>
         </BindLogic>
     )
+}
+
+/** Syncs queryInput from multitabEditorLogic to variablesLogic without causing EditorScene re-renders */
+function VariablesQuerySync(): null {
+    const { queryInput } = useValues(sqlEditorLogic)
+    const { setEditorQuery } = useActions(variablesLogic)
+
+    useEffect(() => {
+        setEditorQuery(queryInput ?? '')
+    }, [queryInput, setEditorQuery])
+
+    return null
 }

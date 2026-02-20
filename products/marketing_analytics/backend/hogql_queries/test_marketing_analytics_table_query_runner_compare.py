@@ -38,34 +38,34 @@ DEFAULT_LIMIT = 100
 
 FACEBOOK_SOURCE_MAP = {
     "campaign": "campaign1",
-    "source": "source1",
+    "source": "const:Facebook Ads",
     "cost": "spend1",
     "date": "date1",
     "impressions": "impressions1",
     "clicks": "clicks1",
-    "currency": "USD",
+    "currency": "const:USD",
     "reported_conversion": "conversions1",
 }
 
 TIKTOK_SOURCE_MAP = {
     "campaign": "campaign2",
-    "source": "source2",
+    "source": "const:TikTok Ads",
     "cost": "spend2",
     "date": "date2",
     "impressions": "impressions2",
     "clicks": "clicks2",
-    "currency": "USD",
+    "currency": "const:USD",
     "reported_conversion": None,
 }
 
 LINKEDIN_SOURCE_MAP = {
     "campaign": "campaign3",
-    "source": "source3",
+    "source": "const:LinkedIn Ads",
     "cost": "spend3",
     "date": "date3",
     "impressions": "impressions3",
     "clicks": "clicks3",
-    "currency": "USD",
+    "currency": "const:USD",
     "reported_conversion": None,
 }
 
@@ -455,9 +455,9 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
 
         expected_columns = 13
         actual_columns = len(response.columns) if response.columns else 0
-        assert (
-            actual_columns == expected_columns
-        ), f"Expected {expected_columns} columns, got {actual_columns}: {response.columns}"
+        assert actual_columns == expected_columns, (
+            f"Expected {expected_columns} columns, got {actual_columns}: {response.columns}"
+        )
 
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
@@ -517,9 +517,9 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
         # Verify the JOIN uses match_key instead of multiIf
         assert "campaign_costs.match_key" in response.hogql, "Expected match_key in campaign_costs"
         assert "ucg.match_key" in response.hogql, "Expected match_key in unified conversion goals"
-        assert (
-            "equals(campaign_costs.match_key, ucg.match_key)" in response.hogql
-        ), "Expected JOIN on match_key equality"
+        assert "equals(campaign_costs.match_key, ucg.match_key)" in response.hogql, (
+            "Expected JOIN on match_key equality"
+        )
 
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
@@ -569,9 +569,9 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
 
         assert isinstance(response, MarketingAnalyticsTableQueryResponse)
         assert response.results is not None
-        assert (
-            len(response.columns) == 15
-        ), "Should have 15 columns including Reported Conversion Value and multiple conversion goal columns"
+        assert len(response.columns) == 15, (
+            "Should have 15 columns including Reported Conversion Value and multiple conversion goal columns"
+        )
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_comprehensive_marketing_analytics_basic(self):

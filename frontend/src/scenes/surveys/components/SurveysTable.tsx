@@ -20,13 +20,14 @@ import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings
 import { SurveyStatusTag } from 'scenes/surveys/components/SurveyStatusTag'
 import { SurveysEmptyState } from 'scenes/surveys/components/empty-state/SurveysEmptyState'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
+import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
 import { getSurveyWarnings } from 'scenes/surveys/surveyVersionRequirements'
 import { SurveysTabs, surveysLogic } from 'scenes/surveys/surveysLogic'
 import { isSurveyRunning } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
 import { ProductIntentContext } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, Survey } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, Survey, SurveyType } from '~/types'
 
 export function SurveysTable(): JSX.Element {
     const {
@@ -86,6 +87,24 @@ export function SurveysTable(): JSX.Element {
                         {tab === SurveysTabs.Active && (
                             <>
                                 <span>
+                                    <b>Type</b>
+                                </span>
+                                <LemonSelect
+                                    dropdownMatchSelectWidth={false}
+                                    onChange={(type) => {
+                                        setSurveysFilters({ type })
+                                    }}
+                                    size="small"
+                                    options={[
+                                        { label: 'Any', value: 'any' },
+                                        { label: 'Popover', value: SurveyType.Popover },
+                                        { label: 'Widget', value: SurveyType.Widget },
+                                        { label: 'Hosted', value: SurveyType.ExternalSurvey },
+                                        { label: 'API', value: SurveyType.API },
+                                    ]}
+                                    value={filters.type}
+                                />
+                                <span className="ml-1">
                                     <b>Status</b>
                                 </span>
                                 <LemonSelect
@@ -362,7 +381,7 @@ export function SurveysTable(): JSX.Element {
                                                 </AccessControlAction>
                                             )}
                                             <LemonDivider />
-                                            {survey.end_date && survey.archived && (
+                                            {survey.archived && (
                                                 <AccessControlAction
                                                     resourceType={AccessControlResourceType.Survey}
                                                     minAccessLevel={AccessControlLevel.Editor}
@@ -382,7 +401,7 @@ export function SurveysTable(): JSX.Element {
                                                     </LemonButton>
                                                 </AccessControlAction>
                                             )}
-                                            {survey.end_date && !survey.archived && (
+                                            {!survey.archived && (
                                                 <AccessControlAction
                                                     resourceType={AccessControlResourceType.Survey}
                                                     minAccessLevel={AccessControlLevel.Editor}
@@ -390,77 +409,45 @@ export function SurveysTable(): JSX.Element {
                                                 >
                                                     <LemonButton
                                                         fullWidth
-                                                        onClick={() => {
-                                                            LemonDialog.open({
-                                                                title: 'Archive this survey?',
-                                                                content: (
-                                                                    <div className="text-sm text-secondary">
-                                                                        This action will remove the survey from your
-                                                                        active surveys list. It can be restored at any
-                                                                        time.
-                                                                    </div>
-                                                                ),
-                                                                primaryButton: {
-                                                                    children: 'Archive',
-                                                                    type: 'primary',
-                                                                    onClick: () => {
-                                                                        updateSurvey({
-                                                                            id: survey.id,
-                                                                            updatePayload: {
-                                                                                archived: true,
-                                                                            },
-                                                                            intentContext:
-                                                                                ProductIntentContext.SURVEY_ARCHIVED,
-                                                                        })
-                                                                    },
-                                                                    size: 'small',
-                                                                },
-                                                                secondaryButton: {
-                                                                    children: 'Cancel',
-                                                                    type: 'tertiary',
-                                                                    size: 'small',
-                                                                },
+                                                        onClick={() =>
+                                                            openArchiveSurveyDialog(survey, () => {
+                                                                const updatePayload: Partial<Survey> = {
+                                                                    archived: true,
+                                                                }
+                                                                if (isSurveyRunning(survey)) {
+                                                                    updatePayload.end_date = dayjs().toISOString()
+                                                                }
+                                                                updateSurvey({
+                                                                    id: survey.id,
+                                                                    updatePayload,
+                                                                    intentContext: ProductIntentContext.SURVEY_ARCHIVED,
+                                                                })
                                                             })
-                                                        }}
+                                                        }
                                                     >
                                                         Archive
                                                     </LemonButton>
                                                 </AccessControlAction>
                                             )}
-                                            <AccessControlAction
-                                                resourceType={AccessControlResourceType.Survey}
-                                                minAccessLevel={AccessControlLevel.Editor}
-                                                userAccessLevel={survey.user_access_level}
-                                            >
-                                                <LemonButton
-                                                    status="danger"
-                                                    onClick={() => {
-                                                        LemonDialog.open({
-                                                            title: 'Delete this survey?',
-                                                            content: (
-                                                                <div className="text-sm text-secondary">
-                                                                    This action cannot be undone. All survey data will
-                                                                    be permanently removed.
-                                                                </div>
-                                                            ),
-                                                            primaryButton: {
-                                                                children: 'Delete',
-                                                                type: 'primary',
-                                                                onClick: () => deleteSurvey(survey.id),
-                                                                size: 'small',
-                                                            },
-                                                            secondaryButton: {
-                                                                children: 'Cancel',
-                                                                type: 'tertiary',
-                                                                size: 'small',
-                                                            },
-                                                        })
-                                                    }}
-                                                    fullWidth
+                                            {canDeleteSurvey(survey) && (
+                                                <AccessControlAction
+                                                    resourceType={AccessControlResourceType.Survey}
+                                                    minAccessLevel={AccessControlLevel.Editor}
+                                                    userAccessLevel={survey.user_access_level}
                                                 >
-                                                    Delete
-                                                </LemonButton>
-                                            </AccessControlAction>
+                                                    <LemonButton
+                                                        status="danger"
+                                                        onClick={() =>
+                                                            openDeleteSurveyDialog(survey, () =>
+                                                                deleteSurvey(survey.id)
+                                                            )
+                                                        }
+                                                        fullWidth
+                                                    >
+                                                        Delete permanently
+                                                    </LemonButton>
+                                                </AccessControlAction>
+                                            )}
                                         </>
                                     }
                                 />

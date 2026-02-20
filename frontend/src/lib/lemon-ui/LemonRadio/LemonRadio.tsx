@@ -54,7 +54,7 @@ export function LemonRadio<T extends React.Key>({
                             type="radio"
                             className="cursor-pointer"
                             checked={value === selectedValue}
-                            value={value}
+                            value={String(value)}
                             onChange={() => {
                                 if (!disabledReason) {
                                     onChange(value)
@@ -65,7 +65,9 @@ export function LemonRadio<T extends React.Key>({
                         />
                         <span>{label}</span>
                         {description && (
-                            <div className="text-secondary row-start-2 col-start-2 text-pretty">{description}</div>
+                            <div className="text-secondary font-normal row-start-2 col-start-2 text-pretty text-xs">
+                                {description}
+                            </div>
                         )}
                     </label>
                 )

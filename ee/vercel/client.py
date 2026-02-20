@@ -33,7 +33,9 @@ class APIError(Exception):
 
 
 @dataclass
-class ExperimentationResult:
+class OperationResult:
+    """Generic result type for Vercel API CRUD operations."""
+
     success: bool
     item_id: str | None = None
     item_count: int | None = None
@@ -84,15 +86,13 @@ class VercelAPIClient:
         log_kwargs: dict[str, Any],
         result_kwargs: dict[str, Any],
         **request_kwargs,
-    ) -> ExperimentationResult:
+    ) -> OperationResult:
         try:
             self._request(method, url, **request_kwargs)
             logger.info(success_msg, integration="vercel", **log_kwargs)
-            return ExperimentationResult(success=True, **result_kwargs)
+            return OperationResult(success=True, **result_kwargs)
         except APIError as e:
-            return ExperimentationResult(
-                success=False, error=e.message, status_code=e.status_code, error_detail=e.detail
-            )
+            return OperationResult(success=False, error=e.message, status_code=e.status_code, error_detail=e.detail)
 
     @retry(
         stop=stop_after_attempt(3),
@@ -118,7 +118,7 @@ class VercelAPIClient:
 
     def create_experimentation_items(
         self, integration_config_id: str, resource_id: str, items: list[dict[str, Any]]
-    ) -> ExperimentationResult:
+    ) -> OperationResult:
         if not items:
             raise ValueError("items list cannot be empty")
 
@@ -134,7 +134,7 @@ class VercelAPIClient:
 
     def update_experimentation_item(
         self, integration_config_id: str, resource_id: str, item_id: str, data: dict[str, Any]
-    ) -> ExperimentationResult:
+    ) -> OperationResult:
         if not data:
             raise ValueError("data dictionary cannot be empty")
 
@@ -150,7 +150,7 @@ class VercelAPIClient:
 
     def delete_experimentation_item(
         self, integration_config_id: str, resource_id: str, item_id: str
-    ) -> ExperimentationResult:
+    ) -> OperationResult:
         url = f"{self.base_url}/installations/{integration_config_id}/resources/{resource_id}/experimentation/items/{item_id}"
         return self._crud_operation(
             "DELETE",
@@ -185,6 +185,20 @@ class VercelAPIClient:
             id_token=json_data.get("id_token"),
             scope=json_data.get("scope"),
             refresh_token=json_data.get("refresh_token"),
+        )
+
+    def update_resource_secrets(
+        self, integration_config_id: str, resource_id: str, secrets: list[dict[str, Any]]
+    ) -> OperationResult:
+        """Push updated secrets to Vercel for a resource."""
+        url = f"{self.base_url}/installations/{integration_config_id}/resources/{resource_id}/secrets"
+        return self._crud_operation(
+            "PUT",
+            url,
+            "Successfully updated resource secrets",
+            {"integration_config_id": integration_config_id, "resource_id": resource_id},
+            {},
+            json={"secrets": secrets},
         )
 
     def sso_token_exchange(

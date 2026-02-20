@@ -50,6 +50,17 @@ var (
 		Name: "livestream_active_event_subscriptions_total",
 		Help: "How many active event subscriptions we have",
 	})
+	DroppedEvents = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "livestream_dropped_events_total",
+			Help: "Events dropped due to full subscriber channel",
+		},
+		[]string{"channel"},
+	)
+	GeoIPLookupFailures = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_geoip_lookup_failures_total",
+		Help: "The total number of failed GeoIP lookups",
+	})
 
 	SessionRecordingMsgConsumed = promauto.NewCounterVec(
 		prometheus.CounterOpts{
@@ -91,5 +102,11 @@ var (
 	SessionRecordingTokenCount = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "livestream_session_recording_token_count",
 		Help: "Number of unique tokens being tracked",
+	})
+
+	EventLagHistogram = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "livestream_event_lag_seconds",
+		Help:    "Distribution of event lag in seconds",
+		Buckets: []float64{1, 2, 5, 10, 30, 60, 120, 300, 600, 900, 1800, 3600},
 	})
 )

@@ -1,6 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import {
+    IconArchive,
+    IconCopy,
+    IconCursorClick,
+    IconEye,
+    IconMegaphone,
+    IconRefresh,
+    IconRocket,
+    IconStopFilled,
+    IconTrash,
+} from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -14,9 +25,15 @@ import { urls } from 'scenes/urls'
 
 import { ProductTour, ProgressStatus } from '~/types'
 
-import { ProductToursTabs, getProductTourStatus, isProductTourRunning, productToursLogic } from '../productToursLogic'
+import {
+    ProductToursTabs,
+    getProductTourStatus,
+    isAnnouncement,
+    isProductTourRunning,
+    productToursLogic,
+} from '../productToursLogic'
 
-function ProductTourStatusTag({ tour }: { tour: ProductTour }): JSX.Element {
+export function ProductTourStatusTag({ tour }: { tour: ProductTour }): JSX.Element {
     const status = getProductTourStatus(tour)
 
     const statusConfig: Record<
@@ -34,7 +51,7 @@ function ProductTourStatusTag({ tour }: { tour: ProductTour }): JSX.Element {
 
 export function ProductToursTable(): JSX.Element {
     const { filteredProductTours, productToursLoading, searchTerm, tab } = useValues(productToursLogic)
-    const { deleteProductTour, updateProductTour, setSearchTerm } = useActions(productToursLogic)
+    const { deleteProductTour, updateProductTour, duplicateProductTour, setSearchTerm } = useActions(productToursLogic)
 
     return (
         <>
@@ -67,14 +84,25 @@ export function ProductToursTable(): JSX.Element {
                         title: 'Name',
                         render: function RenderName(_, tour) {
                             return (
-                                <LemonTableLink to={urls.productTour(tour.id)} title={stringWithWBR(tour.name, 17)} />
+                                <div className="flex gap-2 items-center justify-start">
+                                    <LemonTag
+                                        type="option"
+                                        icon={isAnnouncement(tour) ? <IconMegaphone /> : <IconCursorClick />}
+                                    >
+                                        {isAnnouncement(tour) ? 'Announcement' : 'Tour'}
+                                    </LemonTag>
+                                    <LemonTableLink
+                                        to={urls.productTour(tour.id)}
+                                        title={stringWithWBR(tour.name, 17)}
+                                    />
+                                </div>
                             )
                         },
                     },
                     {
                         title: 'Steps',
                         render: function RenderSteps(_, tour) {
-                            return tour.content?.steps?.length ?? 0
+                            return isAnnouncement(tour) ? '-' : (tour.content?.steps?.length ?? 0)
                         },
                     },
                     ...(tab === ProductToursTabs.Active
@@ -101,16 +129,25 @@ export function ProductToursTable(): JSX.Element {
                                         <>
                                             <LemonButton
                                                 fullWidth
+                                                icon={<IconEye className="w-4" />}
                                                 onClick={() => router.actions.push(urls.productTour(tour.id))}
                                             >
                                                 View
                                             </LemonButton>
+                                            <LemonButton
+                                                fullWidth
+                                                icon={<IconCopy className="w-4" />}
+                                                onClick={() => duplicateProductTour(tour)}
+                                            >
+                                                Duplicate
+                                            </LemonButton>
                                             {!tour.start_date && (
                                                 <LemonButton
                                                     fullWidth
+                                                    icon={<IconRocket className="w-4" />}
                                                     disabledReason={
-                                                        !tour.content?.conditions?.url
-                                                            ? 'Set a URL pattern before launching'
+                                                        tour.archived
+                                                            ? 'Restore your tour before launching.'
                                                             : undefined
                                                     }
                                                     onClick={() => {
@@ -149,6 +186,7 @@ export function ProductToursTable(): JSX.Element {
                                             {isProductTourRunning(tour) && (
                                                 <LemonButton
                                                     fullWidth
+                                                    icon={<IconStopFilled className="w-4" />}
                                                     onClick={() => {
                                                         LemonDialog.open({
                                                             title: 'Stop this product tour?',
@@ -184,6 +222,7 @@ export function ProductToursTable(): JSX.Element {
                                             {tour.end_date && !tour.archived && (
                                                 <LemonButton
                                                     fullWidth
+                                                    icon={<IconRefresh className="w-4" />}
                                                     onClick={() => {
                                                         LemonDialog.open({
                                                             title: 'Resume this product tour?',
@@ -218,9 +257,10 @@ export function ProductToursTable(): JSX.Element {
                                                 </LemonButton>
                                             )}
                                             <LemonDivider />
-                                            {tour.end_date && tour.archived && (
+                                            {tour.archived && (
                                                 <LemonButton
                                                     fullWidth
+                                                    icon={<IconArchive className="w-4" />}
                                                     onClick={() => {
                                                         updateProductTour({
                                                             id: tour.id,
@@ -228,15 +268,21 @@ export function ProductToursTable(): JSX.Element {
                                                         })
                                                     }}
                                                 >
-                                                    Unarchive
+                                                    Restore
                                                 </LemonButton>
                                             )}
-                                            {tour.end_date && !tour.archived && (
+                                            {!tour.archived && (
                                                 <LemonButton
                                                     fullWidth
+                                                    icon={<IconArchive className="w-4" />}
+                                                    disabledReason={
+                                                        isProductTourRunning(tour)
+                                                            ? 'Stop your tour before archiving.'
+                                                            : undefined
+                                                    }
                                                     onClick={() => {
                                                         LemonDialog.open({
-                                                            title: 'Archive this product tour?',
+                                                            title: `Archive tour ${tour.name}?`,
                                                             content: (
                                                                 <div className="text-sm text-secondary">
                                                                     This action will remove the tour from your active
@@ -269,9 +315,15 @@ export function ProductToursTable(): JSX.Element {
                                             )}
                                             <LemonButton
                                                 status="danger"
+                                                icon={<IconTrash className="w-4" />}
+                                                disabledReason={
+                                                    isProductTourRunning(tour)
+                                                        ? 'Stop your tour before deleting.'
+                                                        : undefined
+                                                }
                                                 onClick={() => {
                                                     LemonDialog.open({
-                                                        title: 'Delete this product tour?',
+                                                        title: `Delete tour ${tour.name}?`,
                                                         content: (
                                                             <div className="text-sm text-secondary">
                                                                 This action cannot be undone. All tour data will be

@@ -106,6 +106,16 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
             actions.setRecordingCommentValue('commentId', comment.commentId)
             // opening to edit also sets the player timestamp, which will update the timestamps in the form
             actions.setIsCommenting(true)
+
+            if (values.richContentEditor && comment.richContent) {
+                values.richContentEditor.setContent(comment.richContent)
+            }
+        },
+        setRichContentEditor: ({ editor }) => {
+            const richContent = values.recordingComment.richContent
+            if (richContent && values.recordingComment.commentId) {
+                editor.setContent(richContent)
+            }
         },
         setIsCommenting: ({ isCommenting }) => {
             if (!isCommenting) {
@@ -131,6 +141,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                         time_in_recording: dayjs(values.currentTimestamp).toISOString(),
                         milliseconds_into_recording: values.currentPlayerTime,
                     },
+                    slug: `/replay/${props.recordingId}#panel=discussion`,
                 })
                 playerCommentModel.actions.commentEdited(props.recordingId)
             } finally {
@@ -175,6 +186,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                         time_in_recording: dateForTimestamp.toISOString(),
                         milliseconds_into_recording: values.currentPlayerTime,
                     },
+                    slug: `/replay/${props.recordingId}#panel=discussion`,
                 }
 
                 if (commentId) {

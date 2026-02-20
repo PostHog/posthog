@@ -1,13 +1,17 @@
 from products.batch_exports.backend.temporal.backfill_batch_export import (
     BackfillBatchExportWorkflow,
     backfill_schedule,
-    get_schedule_frequency,
+    get_batch_export_interval,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
     create_batch_export_backfill_model,
     finish_batch_export_run,
     start_batch_export_run,
     update_batch_export_backfill_model_status,
+)
+from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
+    AzureBlobBatchExportWorkflow,
+    insert_into_azure_blob_activity_from_stage,
 )
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryBatchExportWorkflow,
@@ -28,7 +32,6 @@ from products.batch_exports.backend.temporal.destinations.postgres_batch_export 
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     RedshiftBatchExportWorkflow,
     copy_into_redshift_activity_from_stage,
-    insert_into_redshift_activity,
     insert_into_redshift_activity_from_stage,
 )
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
@@ -63,6 +66,7 @@ WORKFLOWS = [
     S3BatchExportWorkflow,
     SnowflakeBatchExportWorkflow,
     DatabricksBatchExportWorkflow,
+    AzureBlobBatchExportWorkflow,
     HttpBatchExportWorkflow,
     BatchExportMonitoringWorkflow,
     WorkflowsBatchExportWorkflow,
@@ -73,12 +77,11 @@ ACTIVITIES = [
     create_batch_export_backfill_model,
     start_batch_export_run,
     finish_batch_export_run,
-    get_schedule_frequency,
+    get_batch_export_interval,
     insert_into_bigquery_activity_from_stage,
     insert_into_http_activity,
     insert_into_kafka_activity_from_stage,
     insert_into_postgres_activity_from_stage,
-    insert_into_redshift_activity,
     insert_into_redshift_activity_from_stage,
     copy_into_redshift_activity_from_stage,
     insert_into_snowflake_activity_from_stage,
@@ -92,4 +95,5 @@ ACTIVITIES = [
     reconcile_event_counts,
     insert_into_s3_activity_from_stage,
     insert_into_databricks_activity_from_stage,
+    insert_into_azure_blob_activity_from_stage,
 ]
