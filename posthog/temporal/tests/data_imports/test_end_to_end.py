@@ -81,6 +81,7 @@ from posthog.temporal.data_imports.workflow_activities.calculate_table_size impo
     calculate_table_size_activity,
 )
 from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import ExternalDataSourceType
+from posthog.temporal.ducklake import ACTIVITIES as DUCKLAKE_ACTIVITIES
 from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import DuckLakeCopyDataImportsWorkflow
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
@@ -459,7 +460,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
                 activity_environment.client,
                 task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                 workflows=[ExternalDataJobWorkflow, CDPProducerJobWorkflow, DuckLakeCopyDataImportsWorkflow],
-                activities=ACTIVITIES,  # type: ignore
+                activities=ACTIVITIES + DUCKLAKE_ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),
                 max_concurrent_activities=50,

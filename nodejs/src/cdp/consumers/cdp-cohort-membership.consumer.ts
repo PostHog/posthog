@@ -16,7 +16,7 @@ const CohortMembershipChangeSchema = z.object({
     person_id: z.string().uuid(),
     cohort_id: z.number(),
     team_id: z.number(),
-    status: z.enum(['entered', 'left', 'member', 'not_member']),
+    status: z.enum(['entered', 'left']),
     last_updated: z.string().optional(),
 })
 
@@ -81,7 +81,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
                 INSERT INTO cohort_membership (team_id, cohort_id, person_id, in_cohort, last_updated)
                 VALUES ${placeholders.join(', ')}
                 ON CONFLICT (team_id, cohort_id, person_id)
-                DO UPDATE SET 
+                DO UPDATE SET
                     in_cohort = EXCLUDED.in_cohort,
                     last_updated = CURRENT_TIMESTAMP
             `
