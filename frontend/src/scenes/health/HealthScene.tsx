@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconCheck, IconCode, IconDatabase, IconEllipsis, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -39,6 +41,9 @@ const HealthCard = ({
 }
 
 const DetailedViewCards = (): JSX.Element => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const pipelineStatusEnabled = !!featureFlags[FEATURE_FLAGS.PIPELINE_STATUS_PAGE]
+
     return (
         <div className="grid grid-cols-1 @2xl/main-content:grid-cols-3 gap-4 max-w-3xl">
             <HealthCard
@@ -53,12 +58,14 @@ const DetailedViewCards = (): JSX.Element => {
                 icon={<IconCode className="size-6" />}
                 to={urls.sdkDoctor()}
             />
-            <HealthCard
-                title="Pipelines status"
-                description="Click to view"
-                icon={<IconDatabase className="size-6" />}
-                to={urls.pipelineStatus()}
-            />
+            {pipelineStatusEnabled && (
+                <HealthCard
+                    title="Pipelines status"
+                    description="Click to view"
+                    icon={<IconDatabase className="size-6" />}
+                    to={urls.pipelineStatus()}
+                />
+            )}
         </div>
     )
 }
