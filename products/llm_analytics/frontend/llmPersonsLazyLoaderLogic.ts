@@ -115,45 +115,6 @@ export const llmPersonsLazyLoaderLogic = kea<llmPersonsLazyLoaderLogicType>([
     listeners(({ values, actions }) => {
         let pendingDistinctIds = new Set<string>()
         let batchTimer: ReturnType<typeof setTimeout> | null = null
-        const scheduleBatchLoad = (): void => {
-            if (batchTimer) {
-                return
-            }
-
-            batchTimer = setTimeout(async () => {
-                const batch = Array.from(pendingDistinctIds)
-                pendingDistinctIds = new Set()
-                batchTimer = null
-
-                if (batch.length === 0) {
-                    return
-                }
-
-                const teamId = values.currentTeamId
-
-                if (!teamId) {
-                    actions.loadPersonsBatchFailure(batch)
-                    return
-                }
-
-                try {
-                    const response = await api.create<BatchByDistinctIdsResponse>(
-                        `api/environments/${teamId}/persons/batch_by_distinct_ids/`,
-                        { distinct_ids: batch }
-                    )
-
-                    const persons: Record<string, LLMTracePerson> = {}
-
-                    for (const [distinctId, personData] of Object.entries(response.results)) {
-                        persons[distinctId] = toTracePerson(personData, distinctId)
-                    }
-
-                    actions.loadPersonsBatchSuccess(persons, batch)
-                } catch {
-                    actions.loadPersonsBatchFailure(batch)
-                }
-            }, 100)
-        }
 
         return {
             ensurePersonLoaded: ({ distinctId }) => {
@@ -162,7 +123,43 @@ export const llmPersonsLazyLoaderLogic = kea<llmPersonsLazyLoaderLogicType>([
                 }
 
                 pendingDistinctIds.add(distinctId)
-                scheduleBatchLoad()
+
+                if (batchTimer) {
+                    return
+                }
+
+                batchTimer = setTimeout(async () => {
+                    const batch = Array.from(pendingDistinctIds)
+                    pendingDistinctIds = new Set()
+                    batchTimer = null
+
+                    if (batch.length === 0) {
+                        return
+                    }
+
+                    const teamId = values.currentTeamId
+
+                    if (!teamId) {
+                        return
+                    }
+
+                    try {
+                        const response = await api.create<BatchByDistinctIdsResponse>(
+                            `api/environments/${teamId}/persons/batch_by_distinct_ids/`,
+                            { distinct_ids: batch }
+                        )
+
+                        const persons: Record<string, LLMTracePerson> = {}
+
+                        for (const [distinctId, personData] of Object.entries(response.results)) {
+                            persons[distinctId] = toTracePerson(personData, distinctId)
+                        }
+
+                        actions.loadPersonsBatchSuccess(persons, batch)
+                    } catch {
+                        actions.loadPersonsBatchFailure(batch)
+                    }
+                }, 0)
             },
         }
     }),

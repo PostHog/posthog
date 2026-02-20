@@ -1,4 +1,4 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonCard, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
 
@@ -14,8 +14,7 @@ import { groupEventsBySubmission } from './survey-responses/utils'
 import { FeedbackSurveyWizard } from './wizard/FeedbackSurveyWizard'
 
 export function FeedbackViewDisplay(): JSX.Element {
-    const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
-    const { traceId } = useValues(traceLogic)
+    const { traceId } = useValues(llmAnalyticsTraceLogic)
     const { surveyEvents, surveyEventsLoading, surveys, surveysLoading, hasLoadingError } = useValues(
         feedbackViewLogic({ traceId })
     )

@@ -1,4 +1,4 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
@@ -10,8 +10,7 @@ import { llmAnalyticsTraceLogic } from '../llmAnalyticsTraceLogic'
 import { clustersTabContentLogic } from './clustersTabContentLogic'
 
 export function ClustersTabContent(): JSX.Element {
-    const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
-    const { traceId } = useValues(traceLogic)
+    const { traceId } = useValues(llmAnalyticsTraceLogic)
     const { clusters, clustersLoading } = useValues(clustersTabContentLogic({ traceId }))
     const { loadClusters } = useActions(clustersTabContentLogic({ traceId }))
 
