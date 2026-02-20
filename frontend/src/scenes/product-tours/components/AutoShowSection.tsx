@@ -324,12 +324,17 @@ export function AutoShowSection({ id }: { id: string }): JSX.Element | null {
                         />
                     )}
                 </div>
+                {conditions.urlMatchType === SurveyMatchType.Exact && (
+                    <span className="text-xs text-muted">Trailing slashes are stripped when matching exact URLs.</span>
+                )}
             </div>
 
             <div>
                 <h5 className="font-semibold mb-2">
                     When to show&nbsp;
-                    <Tooltip title={`Choose when to show the ${entityKeyword} to matching users.`}>
+                    <Tooltip
+                        title={`By default, ${entityKeyword}s will show on page load when a user matches your conditions. Alternatively, you can wait to show this tour until the user performs an event or action.`}
+                    >
                         <IconInfo />
                     </Tooltip>
                 </h5>

@@ -12,7 +12,7 @@ import aioboto3
 import structlog
 from botocore.client import Config
 
-from posthog.storage.recordings.errors import BlockDeletionNotSupportedError, BlockFetchError, RecordingDeletedError
+from posthog.storage.recordings.errors import BlockFetchError, RecordingDeletedError
 
 logger = structlog.get_logger(__name__)
 
@@ -27,6 +27,9 @@ class BlockStorage(Protocol):
 
     The session_id and team_id parameters are required for the Recording API client
     to construct the correct URL, but are ignored by the S3 storage client.
+
+    Delete is intentionally excluded — only EncryptedBlockStorage supports it since
+    cleartext recordings don't have encryption keys to shred.
     """
 
     async def fetch_decompressed_block(self, block_url: str, session_id: str, team_id: int) -> str:
@@ -262,21 +265,9 @@ class EncryptedBlockStorage:
             async with self.session.delete(url) as response:
                 if response.status == 404:
                     raise BlockFetchError("Recording key not found")
-                if response.status == 410:
-                    data = await response.json()
-                    deleted_at = data.get("deleted_at")
-                    logger.info(
-                        "encrypted_block_storage.recording_already_deleted",
-                        session_id=session_id,
-                        team_id=team_id,
-                        deleted_at=deleted_at,
-                    )
-                    raise RecordingDeletedError("Recording has already been deleted", deleted_at=deleted_at)
-                if response.status == 501:
-                    raise BlockDeletionNotSupportedError("Recording deletion is not supported for this deployment")
                 response.raise_for_status()
                 return True
-        except (RecordingDeletedError, BlockFetchError, BlockDeletionNotSupportedError):
+        except BlockFetchError:
             raise
         except aiohttp.ClientError as e:
             logger.exception(
@@ -288,6 +279,30 @@ class EncryptedBlockStorage:
                 exc_info=False,
             )
             raise BlockFetchError(f"Failed to delete recording: {str(e)}")
+
+    async def bulk_delete_recordings(self, session_ids: list[str], team_id: int) -> list[str]:
+        """
+        Bulk delete recordings via the Recording API.
+
+        Returns list of session IDs that failed to delete.
+        """
+        url = f"{self.base_url}/api/projects/{team_id}/recordings/bulk_delete"
+
+        try:
+            async with self.session.post(url, json={"session_ids": session_ids}) as response:
+                response.raise_for_status()
+                data = await response.json()
+                return [f["session_id"] for f in data.get("failed", [])]
+        except aiohttp.ClientError as e:
+            logger.exception(
+                "encrypted_block_storage.bulk_delete_failed",
+                url=url,
+                team_id=team_id,
+                session_count=len(session_ids),
+                error=str(e),
+                exc_info=False,
+            )
+            return session_ids
 
 
 @asynccontextmanager
@@ -302,6 +317,12 @@ async def encrypted_block_storage() -> AsyncIterator[EncryptedBlockStorage]:
     if not settings.RECORDING_API_URL:
         raise RuntimeError("RECORDING_API_URL is not configured")
 
+    headers: dict[str, str] = {}
+    if settings.INTERNAL_API_SECRET:
+        headers["X-Internal-Api-Secret"] = settings.INTERNAL_API_SECRET
+    elif not settings.DEBUG:
+        logger.warning("encrypted_block_storage.missing_internal_api_secret")
+
     timeout = aiohttp.ClientTimeout(total=30, connect=5)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
         yield EncryptedBlockStorage(session, settings.RECORDING_API_URL)

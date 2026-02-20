@@ -181,9 +181,9 @@ def test_create_external_job_activity(activity_environment, team, **kwargs):
         team_id=team.id, source_id=new_source.pk, schema_id=test_1_schema.id, billable=True
     )
 
-    run_id, _, __ = activity_environment.run(create_external_data_job_model_activity, inputs)
+    result = activity_environment.run(create_external_data_job_model_activity, inputs)
 
-    runs = ExternalDataJob.objects.filter(id=run_id)
+    runs = ExternalDataJob.objects.filter(id=result.job_id)
     assert runs.exists()
 
 
@@ -208,10 +208,34 @@ def test_create_external_job_activity_schemas_exist(activity_environment, team, 
         team_id=team.id, source_id=new_source.pk, schema_id=schema.id, billable=True
     )
 
-    run_id, _, __ = activity_environment.run(create_external_data_job_model_activity, inputs)
+    result = activity_environment.run(create_external_data_job_model_activity, inputs)
 
-    runs = ExternalDataJob.objects.filter(id=run_id)
+    runs = ExternalDataJob.objects.filter(id=result.job_id)
     assert runs.exists()
+
+
+@pytest.mark.parametrize("ai_consent,expected", [(True, True), (False, False), (None, False)])
+@pytest.mark.django_db(transaction=True)
+def test_create_external_job_activity_emit_signals_respects_ai_consent(
+    activity_environment, team, organization, ai_consent, expected
+):
+    organization.is_ai_data_processing_approved = ai_consent
+    organization.save()
+    new_source = ExternalDataSource.objects.create(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Zendesk",
+    )
+    schema = _create_schema("tickets", new_source, team)
+    inputs = CreateExternalDataJobModelActivityInputs(
+        team_id=team.id, source_id=new_source.pk, schema_id=schema.id, billable=True
+    )
+    with mock.patch("posthoganalytics.feature_enabled", return_value=True):
+        result = activity_environment.run(create_external_data_job_model_activity, inputs)
+    assert result.emit_signals_enabled is expected
 
 
 @pytest.mark.django_db(transaction=True)

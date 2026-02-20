@@ -17,7 +17,7 @@ const shouldTrackFramerate = (loadedInstance: PostHogInterface): boolean => {
     return (
         !!window.POSTHOG_APP_CONTEXT?.preflight?.is_debug ||
         (!!loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_REACT_FRAMERATE) &&
-            sampleOnProperty(loadedInstance.get_session_id(), 0.1))
+            sampleOnProperty(loadedInstance.get_session_id(), 0.5))
     )
 }
 
@@ -137,8 +137,6 @@ export function loadPostHogJS(): void {
                 blockSelector: '.ph-replay-block',
             },
             person_profiles: 'always',
-            __preview_remote_config: true,
-            __preview_flags_v2: true,
             __add_tracing_headers: ['eu.posthog.com', 'us.posthog.com'],
             __preview_disable_xhr_credentials: true,
             external_scripts_inject_target: 'head',

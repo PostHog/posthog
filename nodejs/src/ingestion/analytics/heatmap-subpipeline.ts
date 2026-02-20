@@ -1,12 +1,11 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
+import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { createDisablePersonProcessingStep } from '../event-processing/disable-person-processing-step'
 import { createEventPipelineRunnerHeatmapStep } from '../event-processing/event-pipeline-runner-heatmap-step'
@@ -19,7 +18,6 @@ export interface HeatmapSubpipelineInput {
     event: PluginEvent
     team: Team
     headers: EventHeaders
-    groupStoreForBatch: GroupStoreForBatch
 }
 
 export interface HeatmapSubpipelineConfig {
@@ -28,8 +26,8 @@ export interface HeatmapSubpipelineConfig {
     }
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
-    hogTransformer: HogTransformerService
     personsStore: PersonsStore
+    groupStore: BatchWritingGroupStore
     kafkaProducer: KafkaProducerWrapper
 }
 
@@ -37,19 +35,19 @@ export function createHeatmapSubpipeline<TInput extends HeatmapSubpipelineInput,
     builder: StartPipelineBuilder<TInput, TContext>,
     config: HeatmapSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { options, teamManager, groupTypeManager, hogTransformer, personsStore, kafkaProducer } = config
+    const { options, teamManager, groupTypeManager, personsStore, groupStore, kafkaProducer } = config
 
     return builder
         .pipe(createDisablePersonProcessingStep())
-        .pipe(createNormalizeEventStep(options.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE))
+        .pipe(createNormalizeEventStep())
         .pipe(
             createEventPipelineRunnerHeatmapStep(
                 options,
                 kafkaProducer,
                 teamManager,
                 groupTypeManager,
-                hogTransformer,
-                personsStore
+                personsStore,
+                groupStore
             )
         )
         .pipe(

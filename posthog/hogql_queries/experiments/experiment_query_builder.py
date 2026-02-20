@@ -36,6 +36,7 @@ from posthog.hogql_queries.experiments.base_query_utils import (
 from posthog.hogql_queries.experiments.breakdown_injector import BreakdownInjector
 from posthog.hogql_queries.experiments.exposure_query_logic import normalize_to_exposure_criteria
 from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
+    aggregation_needs_numeric_input,
     build_aggregation_call,
     extract_aggregation_and_inner_expr,
 )
@@ -948,12 +949,13 @@ class ExperimentQueryBuilder:
         if not apply_coalesce:
             return base_expr
 
-        # Check if this is a count distinct math type - don't coalesce IDs
+        # Don't coalesce values for count distinct types (IDs) or HOGQL (user controls the expression)
         math_type = getattr(source, "math", ExperimentMetricMathType.TOTAL)
         if math_type in [
             ExperimentMetricMathType.UNIQUE_SESSION,
             ExperimentMetricMathType.DAU,
             ExperimentMetricMathType.UNIQUE_GROUP,
+            ExperimentMetricMathType.HOGQL,
         ]:
             return base_expr
 
@@ -1017,10 +1019,14 @@ class ExperimentQueryBuilder:
         elif math_type == ExperimentMetricMathType.HOGQL:
             math_hogql = getattr(source, "math_hogql", None)
             if math_hogql is not None:
-                aggregation_function, _, params = extract_aggregation_and_inner_expr(math_hogql)
+                aggregation_function, _, params, distinct = extract_aggregation_and_inner_expr(math_hogql)
                 if aggregation_function:
-                    inner_value_expr = parse_expr(f"toFloat({column_ref})")
-                    agg_call = build_aggregation_call(aggregation_function, inner_value_expr, params=params)
+                    inner_value_expr = parse_expr(column_ref)
+                    if aggregation_needs_numeric_input(aggregation_function):
+                        inner_value_expr = ast.Call(name="toFloat", args=[inner_value_expr])
+                    agg_call = build_aggregation_call(
+                        aggregation_function, inner_value_expr, params=params, distinct=distinct
+                    )
                     return ast.Call(name="coalesce", args=[agg_call, ast.Constant(value=0)])
             # Fallback to SUM
             return parse_expr(f"sum(coalesce(toFloat({column_ref}), 0))")
@@ -1076,7 +1082,7 @@ class ExperimentQueryBuilder:
         - Custom exposure events via event_or_action_to_filter
         - Special $feature_flag_called filtering (matching the flag key)
 
-        Used by both _build_exposure_predicate() and get_exposure_query_for_preaggregation().
+        Used by both _build_exposure_predicate() and get_exposure_query_for_precomputation().
         """
         event_predicate = event_or_action_to_filter(self.team, self.exposure_config)
 
@@ -1127,8 +1133,8 @@ class ExperimentQueryBuilder:
         )
 
     def _get_exposure_query(self) -> ast.SelectQuery:
-        if self.preaggregation_job_ids:
-            return self._build_exposure_from_preaggregated(self.preaggregation_job_ids)
+        if self.preaggregation_job_ids and not self.breakdowns:
+            return self._build_exposure_from_precomputed(self.preaggregation_job_ids)
         return self._build_exposure_select_query()
 
     def _build_exposure_select_query(self) -> ast.SelectQuery:
@@ -1171,14 +1177,18 @@ class ExperimentQueryBuilder:
 
         return exposure_query
 
-    def _build_exposure_from_preaggregated(self, job_ids: list[str]) -> ast.SelectQuery:
+    def _build_exposure_from_precomputed(self, job_ids: list[str]) -> ast.SelectQuery:
         """
-        Builds the exposure CTE by reading from the preaggregated table instead of scanning events.
+        Builds the exposure CTE by reading from the lazy-computed table instead of scanning events.
 
         Re-aggregates across jobs since the same user can appear in multiple time-window jobs.
         Returns the same column shape as _build_exposure_select_query().
+
+        Important: Jobs can cover broader time ranges than the experiment (for reusability),
+        so we must filter by experiment start/end dates to avoid including exposures outside
+        the experiment window.
         """
-        # The preaggregated table stores entity_id as String, but person_id is UUID in events.
+        # The lazy-computed table stores entity_id as String, but person_id is UUID in events.
         # Cast back to match the type expected by downstream JOINs.
         entity_id_expr = (
             parse_expr("toUUID(t.entity_id)") if self.entity_key == "person_id" else parse_expr("t.entity_id")
@@ -1204,6 +1214,8 @@ class ExperimentQueryBuilder:
                 FROM experiment_exposures_preaggregated AS t
                 WHERE t.job_id IN {job_ids}
                     AND t.team_id = {team_id}
+                    AND t.first_exposure_time >= {date_from}
+                    AND t.first_exposure_time <= {date_to}
                 GROUP BY entity_id
             """,
             placeholders={
@@ -1211,19 +1223,21 @@ class ExperimentQueryBuilder:
                 "variant_expr": variant_expr,
                 "job_ids": ast.Constant(value=job_ids),
                 "team_id": ast.Constant(value=self.team.id),
+                "date_from": self.date_range_query.date_from_as_hogql(),
+                "date_to": self.date_range_query.date_to_as_hogql(),
             },
         )
         assert isinstance(query, ast.SelectQuery)
         return query
 
-    def get_exposure_query_for_preaggregation(self) -> tuple[str, dict[str, ast.Expr]]:
+    def get_exposure_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
         """
-        Returns the exposure query and placeholders for preaggregation.
+        Returns the exposure query and placeholders for lazy computation.
 
         The query string uses {time_window_min} and {time_window_max} placeholders
-        which are filled in by the preaggregation system for each daily bucket.
+        which are filled in by the lazy computation system for each daily bucket.
         Other placeholders are returned in the dict and should be passed to
-        ensure_preaggregated().
+        ensure_precomputed().
 
         Returns:
             Tuple of (query_string, placeholders_dict)
@@ -1240,8 +1254,7 @@ class ExperimentQueryBuilder:
                 max(timestamp) AS last_exposure_time,
                 argMin(uuid, timestamp) AS exposure_event_uuid,
                 argMin(`$session_id`, timestamp) AS exposure_session_id,
-                [] AS breakdown_value,
-                today() + INTERVAL 1 DAY AS expires_at
+                [] AS breakdown_value
             FROM events
             WHERE timestamp >= {time_window_min}
                 AND timestamp < {time_window_max}

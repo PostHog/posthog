@@ -137,11 +137,16 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:25.8.12.129}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:25.12.5.44}
         restart: on-failure
         environment:
             CLICKHOUSE_SKIP_USER_SETUP: 1
             KAFKA_HOSTS: 'kafka:9092'
+        healthcheck:
+            test: ['CMD-SHELL', 'wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1'] # nosemgrep: trailofbits.generic.wget-unencrypted-url.wget-unencrypted-url
+            interval: 3s
+            timeout: 10s
+            retries: 10
 
     zookeeper:
         image: zookeeper:3.7.0
@@ -343,6 +348,12 @@ services:
             args:
                 BIN: feature-flags
         restart: on-failure
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:3001/_readiness']
+            interval: 5s
+            timeout: 5s
+            retries: 12
+            start_period: 10s
         volumes:
             - ./share:/share
         environment:
@@ -382,6 +393,8 @@ services:
             CLICKHOUSE_VERIFY: 'false'
             COOKIELESS_REDIS_HOST: redis7
             COOKIELESS_REDIS_PORT: 6379
+            SESSION_RECORDING_API_REDIS_HOST: redis7
+            SESSION_RECORDING_API_REDIS_PORT: 6379
 
     livestream:
         image: 'ghcr.io/posthog/posthog/livestream:master'
@@ -428,6 +441,12 @@ services:
             - /var/lib/elasticsearch/data
     temporal:
         restart: on-failure
+        healthcheck:
+            test: ['CMD-SHELL', 'nc -z $(hostname) 7233']
+            interval: 5s
+            timeout: 5s
+            retries: 30
+            start_period: 300s
         environment:
             - DB=postgresql
             - DB_PORT=5432

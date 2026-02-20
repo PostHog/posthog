@@ -388,7 +388,10 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                         title={
                                             <>
                                                 Schedule will run through end of this day in the{' '}
-                                                <Link to={urls.settings('project', 'date-and-time')} target="_blank">
+                                                <Link
+                                                    to={urls.settings('environment-customization', 'date-and-time')}
+                                                    target="_blank"
+                                                >
                                                     project's timezone
                                                 </Link>
                                             </>

@@ -13,6 +13,7 @@ import {
     ReactInstallation,
     ReactNativeInstallation,
     RubyInstallation,
+    RubyOnRailsInstallation,
     SvelteInstallation,
 } from '@posthog/shared-onboarding/error-tracking'
 import { JSEventCapture, PythonEventCapture } from '@posthog/shared-onboarding/product-analytics'
@@ -78,6 +79,9 @@ const ErrorTrackingRubyInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RubyInstallation,
     wizardIntegrationName: 'Ruby',
 })
+const ErrorTrackingRubyOnRailsInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: RubyOnRailsInstallation,
+})
 
 const ErrorTrackingHonoInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: HonoInstallation,
@@ -108,6 +112,7 @@ export const ErrorTrackingSDKInstructions: SDKInstructionsMap = {
     [SDKKey.TANSTACK_START]: ErrorTrackingReactInstructionsWrapper,
     [SDKKey.VITE]: ErrorTrackingReactInstructionsWrapper,
     [SDKKey.RUBY]: ErrorTrackingRubyInstructionsWrapper,
+    [SDKKey.RUBY_ON_RAILS]: ErrorTrackingRubyOnRailsInstructionsWrapper,
     [SDKKey.HONO]: ErrorTrackingHonoInstructionsWrapper,
     [SDKKey.ANDROID]: ErrorTrackingAndroidInstructionsWrapper,
     [SDKKey.FLUTTER]: ErrorTrackingFlutterInstructionsWrapper,

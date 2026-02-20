@@ -1,5 +1,17 @@
 # posthog-cli
 
+# 0.6.1
+
+- chore: bump `cargo-dist` version
+
+# 0.6.0
+
+- Add experimental dSYM upload for iOS/macOS crash symbolication
+
+# 0.5.30
+
+- Add experimental dSYM upload for iOS/macOS crash symbolication
+
 # 0.5.29
 
 - chore: introduce env variable `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID` (backwards compatible)

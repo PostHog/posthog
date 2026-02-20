@@ -1,13 +1,16 @@
 {
     "name": "@posthog/products-live-debugger",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@posthog/lemon-ui": "*",
         "@types/react": "*",
         "@types/react-dom": "*",
         "clsx": "*",
-        "kea": "*",
-        "kea-loaders": "*",
+        "kea": "catalog:",
+        "kea-loaders": "catalog:",
         "react": "*",
         "react-dom": "*"
     },
