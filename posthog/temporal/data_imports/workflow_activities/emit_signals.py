@@ -27,10 +27,23 @@ from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput
 from products.data_warehouse.backend.models import ExternalDataSchema
 from products.signals.backend.api import emit_signal
 
-# Concurrent LLM calls limit for actionability checks
+# Default model to use for LLM calls
+GEMINI_MODEL = "models/gemini-3-flash-preview"
+# Concurrent LLM calls limit for actionability/summarization checks
 LLM_CONCURRENCY_LIMIT = 20
 # Concurrent workflow spawns for signal emission
 EMIT_CONCURRENCY_LIMIT = 50
+# Temporal gRPC payload size limit (2 MB)
+TEMPORAL_PAYLOAD_MAX_BYTES = 2 * 1024 * 1024
+# Maximum number of attempts for LLM calls (summarization & actionability)
+LLM_MAX_ATTEMPTS = 3
+# Per-call timeout for LLM requests (seconds)
+LLM_CALL_TIMEOUT_SECONDS = 120
+# Thinking budget for LLM calls (summarization & actionability are judgment tasks)
+LLM_THINKING_BUDGET_TOKENS = 1024
+# Backoff between LLM retry attempts (delay = initial * coefficient ^ (attempt - 1))
+LLM_RETRY_INITIAL_DELAY_SECONDS = 5
+LLM_RETRY_BACKOFF_COEFFICIENT = 2.0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -71,9 +84,7 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
 
     async with Heartbeater():
         # Fetch schema and team
-        schema, team = await database_sync_to_async(_fetch_schema_and_team, thread_sensitive=False)(
-            inputs.schema_id, inputs.team_id
-        )
+        schema, team = await _fetch_schema_and_team(inputs.schema_id, inputs.team_id)
         if schema.table is None:
             activity.logger.warning(
                 f"Schema {inputs.schema_id} has no table for emitting signals", extra=inputs.properties_to_log
@@ -99,8 +110,18 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
             records=records,
             emitter=config.emitter,
         )
+        # Summarize long descriptions before actionability check
+        if config.summarization_prompt is not None and config.description_summarization_threshold_chars is not None:
+            outputs = await _summarize_long_descriptions(
+                outputs=outputs,
+                summarization_prompt=config.summarization_prompt,
+                threshold=config.description_summarization_threshold_chars,
+                extra=inputs.properties_to_log,
+            )
         # Keep only actionable signals, when the prompt is defined
         if config.actionability_prompt:
+            # Actionability prompt could be a security issue, as it contains user-generated content,
+            # but it should be covered by the Signals pipeline security checks
             outputs = await _filter_actionable(
                 outputs=outputs,
                 actionability_prompt=config.actionability_prompt,
@@ -120,9 +141,9 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
         return {"status": "success", "signals_emitted": signals_emitted}
 
 
-def _fetch_schema_and_team(schema_id: uuid.UUID, team_id: int) -> tuple[ExternalDataSchema, Team]:
-    schema = ExternalDataSchema.objects.prefetch_related("table", "source").get(id=schema_id, team_id=team_id)
-    team = Team.objects.get(id=team_id)
+async def _fetch_schema_and_team(schema_id: uuid.UUID, team_id: int) -> tuple[ExternalDataSchema, Team]:
+    schema = await ExternalDataSchema.objects.prefetch_related("table", "source").aget(id=schema_id, team_id=team_id)
+    team = await Team.objects.aget(id=team_id)
     return schema, team
 
 
@@ -135,13 +156,18 @@ def _query_new_records(
 ) -> list[dict[str, Any]]:
     where_parts: list[str] = []
     placeholders: dict[str, Any] = {}
+    partition_expr = (
+        f"parseDateTimeBestEffort({config.partition_field})"
+        if config.partition_field_is_datetime_string
+        else config.partition_field
+    )
     # Continuous sync - need to analyze all that happened since the last one (based on the schema schedule)
     if last_synced_at is not None:
-        where_parts.append(f"{config.partition_field} > {{last_synced_at}}")
+        where_parts.append(f"{partition_expr} > {{last_synced_at}}")
         placeholders["last_synced_at"] = ast.Constant(value=datetime.fromisoformat(last_synced_at))
     # First ever sync - look back a limited window
     else:
-        where_parts.append(f"{config.partition_field} > now() - interval {config.first_sync_lookback_days} day")
+        where_parts.append(f"{partition_expr} > now() - interval {config.first_sync_lookback_days} day")
     if config.where_clause:
         where_parts.append(config.where_clause)
     where_sql = " AND ".join(where_parts)
@@ -178,34 +204,168 @@ def _build_emitter_outputs(
     return outputs
 
 
+async def _summarize_description(
+    client: AsyncClient,
+    output: SignalEmitterOutput,
+    summarization_prompt: str,
+    threshold: int,
+) -> SignalEmitterOutput:
+    prompt_parts = [types.Part(text=summarization_prompt.format(description=output.description, max_length=threshold))]
+    for attempt in range(LLM_MAX_ATTEMPTS):
+        if attempt > 0:
+            await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
+        try:
+            response = await asyncio.wait_for(
+                client.models.generate_content(
+                    model=GEMINI_MODEL,
+                    contents=prompt_parts,
+                    config=types.GenerateContentConfig(
+                        max_output_tokens=max(threshold // 4, 256),
+                        thinking_config=types.ThinkingConfig(
+                            thinking_budget=LLM_THINKING_BUDGET_TOKENS,
+                            include_thoughts=True,
+                        ),
+                    ),
+                ),
+                timeout=LLM_CALL_TIMEOUT_SECONDS,
+            )
+            summary = (response.text or "").strip()
+            if not summary:
+                raise ValueError("Empty response from LLM when summarizing description")
+            if len(summary) >= threshold:
+                raise ValueError(f"Summary is {len(summary)} characters, must be under {threshold}")
+            return dataclasses.replace(output, description=summary)
+        except Exception as e:
+            posthoganalytics.capture_exception(
+                e,
+                properties={
+                    "tag": "data_warehouse_signals_import",
+                    "error_type": "summarization_failed",
+                    "source_type": output.source_type,
+                    "source_id": output.source_id,
+                    "attempt": attempt + 1,
+                },
+            )
+            prompt_parts.append(
+                types.Part(
+                    text=f"\n\nAttempt {attempt + 1} of {LLM_MAX_ATTEMPTS} to summarize description failed with error: {e!r}\nPlease fix your output."
+                )
+            )
+    # Hard-truncate the description to the threshold if all attempts failed
+    return dataclasses.replace(output, description=output.description[:threshold])
+
+
+async def _summarize_long_descriptions(
+    outputs: list[SignalEmitterOutput],
+    summarization_prompt: str,
+    threshold: int,
+    extra: dict[str, Any],
+) -> list[SignalEmitterOutput]:
+    needs_summary = [i for i, output in enumerate(outputs) if len(output.description) >= threshold]
+    if not needs_summary:
+        # Continue if all descriptions are under the threshold
+        return outputs
+    client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
+    semaphore = asyncio.Semaphore(LLM_CONCURRENCY_LIMIT)
+    activity.heartbeat()
+    completed_count = 0
+
+    async def _bounded_summarize(output: SignalEmitterOutput) -> SignalEmitterOutput | None:
+        nonlocal completed_count
+        async with semaphore:
+            try:
+                result = await _summarize_description(client, output, summarization_prompt, threshold)
+            except Exception as e:
+                activity.logger.exception(
+                    "Summarization failed, skipping signal",
+                    extra={**extra, "signal_source_id": output.source_id, "error": str(e)},
+                )
+                return None
+            finally:
+                completed_count += 1
+                if completed_count % LLM_CONCURRENCY_LIMIT == 0:
+                    activity.heartbeat()
+            return result
+
+    tasks: dict[int, asyncio.Task[SignalEmitterOutput | None]] = {}
+    async with asyncio.TaskGroup() as tg:
+        for i in needs_summary:
+            tasks[i] = tg.create_task(_bounded_summarize(outputs[i]))
+    result: list[SignalEmitterOutput] = []
+    skipped = 0
+    for i, output in enumerate(outputs):
+        if i not in tasks:
+            result.append(output)
+        elif (summarized := tasks[i].result()) is not None:
+            result.append(summarized)
+        else:
+            skipped += 1
+    activity.logger.info(
+        f"Summarized {len(needs_summary) - skipped} long descriptions, skipped {skipped} (threshold={threshold})",
+        extra=extra,
+    )
+    return result
+
+
+def _extract_thoughts(response: types.GenerateContentResponse) -> str | None:
+    """Extract thinking/reasoning text from a Gemini response with include_thoughts=True."""
+    if not response.candidates:
+        return None
+    content = response.candidates[0].content
+    if content is None or content.parts is None:
+        return None
+    thoughts = []
+    for part in content.parts:
+        if part.text and part.thought:
+            thoughts.append(part.text)
+    return "\n".join(thoughts) if thoughts else None
+
+
 async def _check_actionability(
     client: AsyncClient,
     output: SignalEmitterOutput,
     actionability_prompt: str,
-) -> bool:
-    """Check if the signal is actionable through LLM-as-a-judge call"""
-    try:
-        prompt = actionability_prompt.format(description=output.description)
-        response = await client.models.generate_content(
-            model="models/gemini-3-flash-preview",
-            contents=[prompt],
-            # Limiting the output in hopes it will force LLM to give a short response
-            config=types.GenerateContentConfig(max_output_tokens=128),
-        )
-        response_text = (response.text or "").strip().upper()
-        return "NOT_ACTIONABLE" not in response_text
-    except Exception as e:
-        # If LLM call fails, allow to pass to not block the emission, as fails should not happen often
-        posthoganalytics.capture_exception(
-            e,
-            properties={
-                "tag": "data_warehouse_signals_import",
-                "error_type": "actionability_check_failed",
-                "source_type": output.source_type,
-                "source_id": output.source_id,
-            },
-        )
-        return True
+) -> tuple[bool, str | None]:
+    """Check if the signal is actionable through LLM-as-a-judge call.
+
+    Returns (is_actionable, thoughts) where thoughts is the model's reasoning.
+    """
+    prompt = actionability_prompt.format(description=output.description)
+    for attempt in range(LLM_MAX_ATTEMPTS):
+        if attempt > 0:
+            await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
+        try:
+            response = await asyncio.wait_for(
+                client.models.generate_content(
+                    model=GEMINI_MODEL,
+                    contents=[prompt],
+                    config=types.GenerateContentConfig(
+                        max_output_tokens=128,
+                        thinking_config=types.ThinkingConfig(
+                            thinking_budget=LLM_THINKING_BUDGET_TOKENS,
+                            include_thoughts=True,
+                        ),
+                    ),
+                ),
+                timeout=LLM_CALL_TIMEOUT_SECONDS,
+            )
+            thoughts = _extract_thoughts(response)
+            response_text = (response.text or "").strip().upper()
+            return "NOT_ACTION" not in response_text, thoughts
+        except Exception as e:
+            posthoganalytics.capture_exception(
+                e,
+                properties={
+                    "tag": "data_warehouse_signals_import",
+                    "error_type": "actionability_check_failed",
+                    "source_type": output.source_type,
+                    "source_id": output.source_id,
+                    "attempt": attempt + 1,
+                },
+            )
+            # Not adding failure message to the prompt, as the task is simple and atomic
+    # Assume actionable if all retries exhausted
+    return True, None
 
 
 async def _filter_actionable(
@@ -219,33 +379,65 @@ async def _filter_actionable(
     activity.heartbeat()
     checked_count = 0
 
-    async def _bounded_check(output: SignalEmitterOutput) -> bool:
+    async def _bounded_check(output: SignalEmitterOutput) -> tuple[bool, str | None]:
         nonlocal checked_count
         async with semaphore:
-            result = await _check_actionability(client, output, actionability_prompt)
-            checked_count += 1
-            if checked_count % LLM_CONCURRENCY_LIMIT == 0:
-                activity.heartbeat()
+            try:
+                result = await _check_actionability(client, output, actionability_prompt)
+            except Exception as e:
+                activity.logger.exception(
+                    "Actionability check failed, assuming actionable",
+                    extra={**extra, "signal_source_id": output.source_id, "error": str(e)},
+                )
+                return True, None
+            finally:
+                checked_count += 1
+                if checked_count % LLM_CONCURRENCY_LIMIT == 0:
+                    activity.heartbeat()
             return result
 
-    tasks: dict[int, asyncio.Task[bool]] = {}
+    tasks: dict[int, asyncio.Task[tuple[bool, str | None]]] = {}
     async with asyncio.TaskGroup() as tg:
         for i, output in enumerate(outputs):
             tasks[i] = tg.create_task(_bounded_check(output))
     actionable = []
     filtered_count = 0
     for i, output in enumerate(outputs):
-        result = tasks[i].result()
-        if result:
+        is_actionable, thoughts = tasks[i].result()
+        if is_actionable:
             actionable.append(output)
         else:
             filtered_count += 1
+            activity.logger.info(
+                "Filtered non-actionable signal",
+                extra={
+                    **extra,
+                    "signal_source_type": output.source_type,
+                    "signal_source_id": output.source_id,
+                    "thoughts": thoughts,
+                },
+            )
     if filtered_count > 0:
         activity.logger.info(
             f"Filtered {filtered_count} non-actionable records out of {len(outputs)}",
             extra=extra,
         )
     return actionable
+
+
+def _estimate_output_payload_bytes(output: SignalEmitterOutput) -> int:
+    """Estimate the JSON-serialized size of the signal payload sent to Temporal."""
+    return len(
+        json.dumps(
+            {
+                "source_type": output.source_type,
+                "source_id": output.source_id,
+                "description": output.description,
+                "weight": output.weight,
+                "extra": output.extra,
+            }
+        ).encode("utf-8")
+    )
 
 
 async def _emit_signals(
@@ -255,28 +447,50 @@ async def _emit_signals(
 ) -> int:
     semaphore = asyncio.Semaphore(EMIT_CONCURRENCY_LIMIT)
     activity.heartbeat()
-    emitted_count = 0
+    completed_count = 0
 
     async def _bounded_emit(output: SignalEmitterOutput) -> bool:
-        nonlocal emitted_count
+        nonlocal completed_count
         async with semaphore:
             try:
+                payload_bytes = _estimate_output_payload_bytes(output)
+                if payload_bytes > TEMPORAL_PAYLOAD_MAX_BYTES:
+                    without_extra = dataclasses.replace(output, extra={})
+                    if _estimate_output_payload_bytes(without_extra) > TEMPORAL_PAYLOAD_MAX_BYTES:
+                        msg = "Signal payload exceeds Temporal limit even without extra metadata"
+                        activity.logger.error(
+                            msg,
+                            extra={
+                                **extra,
+                                "signal_source_type": output.source_type,
+                                "signal_source_id": output.source_id,
+                            },
+                        )
+                        # Avoid emitting signal if know that it will break the workflow anyway
+                        raise ValueError(msg)
+                    # Logging error, as it should not happen, but allowing to pass, to not lose the signal completely
+                    activity.logger.error(
+                        f"Signal extra metadata too large ({payload_bytes} bytes), emitting without extra",
+                        extra={**extra, "signal_source_type": output.source_type, "signal_source_id": output.source_id},
+                    )
+                    output = without_extra
                 await emit_signal(
                     team=team,
-                    source_product="data_imports",
+                    source_product=output.source_product,
                     source_type=output.source_type,
                     source_id=output.source_id,
                     description=output.description,
                     weight=output.weight,
                     extra=output.extra,
                 )
-                emitted_count += 1
-                if emitted_count % EMIT_CONCURRENCY_LIMIT == 0:
-                    activity.heartbeat()
                 return True
             except Exception as e:
                 activity.logger.exception(f"Error emitting signal for record: {e}", extra=extra)
                 return False
+            finally:
+                completed_count += 1
+                if completed_count % EMIT_CONCURRENCY_LIMIT == 0:
+                    activity.heartbeat()
 
     results: dict[int, asyncio.Task[bool]] = {}
     async with asyncio.TaskGroup() as tg:

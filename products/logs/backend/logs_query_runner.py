@@ -284,6 +284,16 @@ class LogsQueryRunnerMixin(QueryRunner):
 
         exprs.append(ast.Placeholder(expr=ast.Field(chain=["filters"])))
 
+        if self.query.searchTerm:
+            search_filter = LogPropertyFilter(
+                key="body",
+                operator=PropertyOperator.ICONTAINS,
+                type=LogPropertyFilterType.LOG,
+                value=self.query.searchTerm,
+            )
+            exprs.append(get_lowercase_index_hint(search_filter, team=self.team))
+            exprs.append(property_to_expr(search_filter, team=self.team))
+
         if self.query.severityLevels:
             exprs.append(
                 parse_expr(

@@ -162,6 +162,8 @@ import {
     PluginConfigWithPluginInfoNew,
     PluginLogEntry,
     ProductTour,
+    ProductTourAIGenerationResponse,
+    ProductTourStep,
     ProjectType,
     PropertyDefinition,
     PropertyDefinitionType,
@@ -230,6 +232,7 @@ import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingFingerprint,
     ErrorTrackingRelease,
+    ErrorTrackingSpikeDetectionConfig,
     ErrorTrackingStackFrame,
     ErrorTrackingStackFrameRecord,
     ErrorTrackingSymbolSet,
@@ -1265,6 +1268,10 @@ export class ApiRequest {
 
     public errorTrackingIssueCohort(issueId: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
         return this.errorTrackingIssue(issueId, teamId).addPathComponent(`cohort`)
+    }
+
+    public errorTrackingSpikeDetectionConfig(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('spike_detection_config')
     }
 
     public quickFilters(teamId?: TeamType['id']): ApiRequest {
@@ -3650,6 +3657,19 @@ const api = {
         async assignCohort(issueId: ErrorTrackingIssue['id'], cohortId: CohortType['id']): Promise<{ id: string }> {
             return await new ApiRequest().errorTrackingIssueCohort(issueId).put({ data: { cohortId } })
         },
+
+        async getSpikeDetectionConfig(): Promise<ErrorTrackingSpikeDetectionConfig> {
+            return await new ApiRequest().errorTrackingSpikeDetectionConfig().get()
+        },
+
+        async updateSpikeDetectionConfig(
+            data: Partial<ErrorTrackingSpikeDetectionConfig>
+        ): Promise<ErrorTrackingSpikeDetectionConfig> {
+            return await new ApiRequest()
+                .errorTrackingSpikeDetectionConfig()
+                .withAction('update_config')
+                .update({ data })
+        },
     },
 
     quickFilters: {
@@ -4409,6 +4429,15 @@ const api = {
         },
         async delete(tourId: ProductTour['id']): Promise<void> {
             await new ApiRequest().productTour(tourId).delete()
+        },
+        async generateContent(
+            tourId: ProductTour['id'],
+            title: ProductTour['name'],
+            steps: ProductTourStep[],
+            goal: string
+        ): Promise<ProductTourAIGenerationResponse> {
+            const apiRequest = new ApiRequest().productTour(tourId).withAction('generate')
+            return await apiRequest.create({ data: { title, steps, goal } })
         },
     },
 

@@ -183,7 +183,7 @@ export function CoreEventsSettings(): JSX.Element {
     const { addCoreEvent, updateCoreEvent, removeCoreEvent } = useActions(coreEventsLogic)
 
     const [isModalOpen, setIsModalOpen] = useState(false)
-    const [formState, setFormState] = useState<FormState>(createEmptyFormState())
+    const [formState, setFormState] = useState<FormState>(createEmptyFormState)
 
     const isEditing = formState.id !== null
 

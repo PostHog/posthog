@@ -619,3 +619,446 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                     },
                     [],
                 )
+
+    @snapshot_clickhouse_queries
+    def test_not_in_cohort_with_many_users_outside_cohort(self) -> None:
+        """
+        Test that NOT IN cohort filtering works correctly when there are many users
+        outside the cohort. This is the common case for "filter out internal users"
+        where the cohort (internal users) is small but the total user base is large.
+
+        This test verifies:
+        1. Correctness: Only sessions from non-cohort members are returned
+        2. The query uses an efficient JOIN-based approach instead of IN subquery
+        """
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            with freeze_time("2021-08-21T20:00:00.000Z"):
+                # Create a small "internal users" cohort (like employees)
+                internal_user = "internal-employee@company.com"
+                session_internal = "session-internal-user"
+
+                # Create multiple external users (simulating a large user base)
+                external_users = [f"external-user-{i}@customer.com" for i in range(5)]
+                external_sessions = [f"session-external-{i}" for i in range(5)]
+
+                # Create internal user (in cohort)
+                Person.objects.create(
+                    team=self.team,
+                    distinct_ids=[internal_user],
+                    properties={"email": internal_user, "is_internal": True},
+                )
+
+                # Create external users (not in cohort)
+                for user in external_users:
+                    Person.objects.create(
+                        team=self.team,
+                        distinct_ids=[user],
+                        properties={"email": user, "is_internal": False},
+                    )
+
+                # Create cohort for internal users
+                internal_cohort = Cohort.objects.create(
+                    team=self.team,
+                    name="internal_users",
+                    groups=[
+                        {
+                            "properties": [
+                                {
+                                    "key": "is_internal",
+                                    "value": True,
+                                    "type": "person",
+                                }
+                            ]
+                        }
+                    ],
+                )
+                internal_cohort.calculate_people_ch(pending_version=0)
+
+                # Create session for internal user
+                produce_replay_summary(
+                    distinct_id=internal_user,
+                    session_id=session_internal,
+                    first_timestamp=self.an_hour_ago,
+                    team_id=self.team.id,
+                )
+
+                # Create sessions for external users
+                for user, session_id in zip(external_users, external_sessions):
+                    produce_replay_summary(
+                        distinct_id=user,
+                        session_id=session_id,
+                        first_timestamp=self.an_hour_ago,
+                        team_id=self.team.id,
+                    )
+
+                # Test NOT IN cohort - should return all external sessions
+                self._assert_query_matches_session_ids(
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": internal_cohort.pk,
+                                "operator": "not_in",
+                                "type": "cohort",
+                            }
+                        ]
+                    },
+                    external_sessions,
+                )
+
+                # Test IN cohort - should return only internal session
+                self._assert_query_matches_session_ids(
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": internal_cohort.pk,
+                                "operator": "in",
+                                "type": "cohort",
+                            }
+                        ]
+                    },
+                    [session_internal],
+                )
+
+    @snapshot_clickhouse_queries
+    def test_not_in_cohort_with_empty_cohort(self) -> None:
+        """
+        Test that NOT IN cohort filtering works when the cohort is empty.
+        All sessions should be returned since no one is in the cohort.
+        """
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            with freeze_time("2021-08-21T20:00:00.000Z"):
+                user = "test-user@example.com"
+                session_id = "session-with-empty-cohort"
+
+                Person.objects.create(
+                    team=self.team,
+                    distinct_ids=[user],
+                    properties={"email": user},
+                )
+
+                # Create an empty cohort (no one matches)
+                empty_cohort = Cohort.objects.create(
+                    team=self.team,
+                    name="empty_cohort",
+                    groups=[
+                        {
+                            "properties": [
+                                {
+                                    "key": "nonexistent_prop",
+                                    "value": "impossible_value",
+                                    "type": "person",
+                                }
+                            ]
+                        }
+                    ],
+                )
+                empty_cohort.calculate_people_ch(pending_version=0)
+
+                produce_replay_summary(
+                    distinct_id=user,
+                    session_id=session_id,
+                    first_timestamp=self.an_hour_ago,
+                    team_id=self.team.id,
+                )
+
+                # NOT IN empty cohort should return the session
+                self._assert_query_matches_session_ids(
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": empty_cohort.pk,
+                                "operator": "not_in",
+                                "type": "cohort",
+                            }
+                        ]
+                    },
+                    [session_id],
+                )
+
+                # IN empty cohort should return nothing
+                self._assert_query_matches_session_ids(
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": empty_cohort.pk,
+                                "operator": "in",
+                                "type": "cohort",
+                            }
+                        ]
+                    },
+                    [],
+                )
+
+    @snapshot_clickhouse_queries
+    def test_not_in_cohort_combined_with_other_filters(self) -> None:
+        """
+        Test that NOT IN cohort filtering works correctly when combined with
+        other property filters (like event properties or person properties).
+        """
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            with freeze_time("2021-08-21T20:00:00.000Z"):
+                internal_user = "internal@company.com"
+                premium_external = "premium@customer.com"
+                free_external = "free@customer.com"
+
+                session_internal = "session-internal"
+                session_premium = "session-premium"
+                session_free = "session-free"
+
+                # Create users with different properties
+                Person.objects.create(
+                    team=self.team,
+                    distinct_ids=[internal_user],
+                    properties={"is_internal": True, "plan": "internal"},
+                )
+                Person.objects.create(
+                    team=self.team,
+                    distinct_ids=[premium_external],
+                    properties={"is_internal": False, "plan": "premium"},
+                )
+                Person.objects.create(
+                    team=self.team,
+                    distinct_ids=[free_external],
+                    properties={"is_internal": False, "plan": "free"},
+                )
+
+                # Create internal users cohort
+                internal_cohort = Cohort.objects.create(
+                    team=self.team,
+                    name="internal_users",
+                    groups=[
+                        {
+                            "properties": [
+                                {
+                                    "key": "is_internal",
+                                    "value": True,
+                                    "type": "person",
+                                }
+                            ]
+                        }
+                    ],
+                )
+                internal_cohort.calculate_people_ch(pending_version=0)
+
+                # Create sessions
+                for user, session_id in [
+                    (internal_user, session_internal),
+                    (premium_external, session_premium),
+                    (free_external, session_free),
+                ]:
+                    produce_replay_summary(
+                        distinct_id=user,
+                        session_id=session_id,
+                        first_timestamp=self.an_hour_ago,
+                        team_id=self.team.id,
+                    )
+
+                # Test NOT IN cohort combined with person property filter
+                # Should return only premium external user
+                self._assert_query_matches_session_ids(
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": internal_cohort.pk,
+                                "operator": "not_in",
+                                "type": "cohort",
+                            },
+                            {
+                                "key": "plan",
+                                "value": "premium",
+                                "operator": "exact",
+                                "type": "person",
+                            },
+                        ]
+                    },
+                    [session_premium],
+                )
+
+    @snapshot_clickhouse_queries
+    def test_multiple_not_in_cohorts(self) -> None:
+        """
+        Test filtering with multiple NOT IN cohort conditions.
+        This tests the case where a user wants to exclude multiple cohorts.
+        """
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            with freeze_time("2021-08-21T20:00:00.000Z"):
+                internal_user = "internal@company.com"
+                beta_user = "beta@customer.com"
+                regular_user = "regular@customer.com"
+
+                session_internal = "session-internal"
+                session_beta = "session-beta"
+                session_regular = "session-regular"
+
+                # Create users
+                Person.objects.create(
+                    team=self.team,
+                    distinct_ids=[internal_user],
+                    properties={"is_internal": True, "is_beta": False},
+                )
+                Person.objects.create(
+                    team=self.team,
+                    distinct_ids=[beta_user],
+                    properties={"is_internal": False, "is_beta": True},
+                )
+                Person.objects.create(
+                    team=self.team,
+                    distinct_ids=[regular_user],
+                    properties={"is_internal": False, "is_beta": False},
+                )
+
+                # Create cohorts
+                internal_cohort = Cohort.objects.create(
+                    team=self.team,
+                    name="internal_users",
+                    groups=[{"properties": [{"key": "is_internal", "value": True, "type": "person"}]}],
+                )
+                internal_cohort.calculate_people_ch(pending_version=0)
+
+                beta_cohort = Cohort.objects.create(
+                    team=self.team,
+                    name="beta_users",
+                    groups=[{"properties": [{"key": "is_beta", "value": True, "type": "person"}]}],
+                )
+                beta_cohort.calculate_people_ch(pending_version=0)
+
+                # Create sessions
+                for user, session_id in [
+                    (internal_user, session_internal),
+                    (beta_user, session_beta),
+                    (regular_user, session_regular),
+                ]:
+                    produce_replay_summary(
+                        distinct_id=user,
+                        session_id=session_id,
+                        first_timestamp=self.an_hour_ago,
+                        team_id=self.team.id,
+                    )
+
+                # Exclude both internal and beta users (AND) - should only return regular user
+                self._assert_query_matches_session_ids(
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": internal_cohort.pk,
+                                "operator": "not_in",
+                                "type": "cohort",
+                            },
+                            {
+                                "key": "id",
+                                "value": beta_cohort.pk,
+                                "operator": "not_in",
+                                "type": "cohort",
+                            },
+                        ]
+                    },
+                    [session_regular],
+                )
+
+    @snapshot_clickhouse_queries
+    def test_cohort_filter_with_or_operand(self) -> None:
+        """
+        Test cohort filtering with OR operand between cohorts.
+        With OR, sessions matching ANY cohort condition should be returned.
+        """
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            with freeze_time("2021-08-21T20:00:00.000Z"):
+                internal_user = "internal@company.com"
+                beta_user = "beta@customer.com"
+                regular_user = "regular@customer.com"
+
+                session_internal = "session-internal-or"
+                session_beta = "session-beta-or"
+                session_regular = "session-regular-or"
+
+                Person.objects.create(
+                    team=self.team,
+                    distinct_ids=[internal_user],
+                    properties={"is_internal": True, "is_beta": False},
+                )
+                Person.objects.create(
+                    team=self.team,
+                    distinct_ids=[beta_user],
+                    properties={"is_internal": False, "is_beta": True},
+                )
+                Person.objects.create(
+                    team=self.team,
+                    distinct_ids=[regular_user],
+                    properties={"is_internal": False, "is_beta": False},
+                )
+
+                internal_cohort = Cohort.objects.create(
+                    team=self.team,
+                    name="internal_users",
+                    groups=[{"properties": [{"key": "is_internal", "value": True, "type": "person"}]}],
+                )
+                internal_cohort.calculate_people_ch(pending_version=0)
+
+                beta_cohort = Cohort.objects.create(
+                    team=self.team,
+                    name="beta_users",
+                    groups=[{"properties": [{"key": "is_beta", "value": True, "type": "person"}]}],
+                )
+                beta_cohort.calculate_people_ch(pending_version=0)
+
+                for user, session_id in [
+                    (internal_user, session_internal),
+                    (beta_user, session_beta),
+                    (regular_user, session_regular),
+                ]:
+                    produce_replay_summary(
+                        distinct_id=user,
+                        session_id=session_id,
+                        first_timestamp=self.an_hour_ago,
+                        team_id=self.team.id,
+                    )
+
+                # IN internal OR IN beta - should return internal and beta sessions
+                self._assert_query_matches_session_ids(
+                    {
+                        "operand": "OR",
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": internal_cohort.pk,
+                                "operator": "in",
+                                "type": "cohort",
+                            },
+                            {
+                                "key": "id",
+                                "value": beta_cohort.pk,
+                                "operator": "in",
+                                "type": "cohort",
+                            },
+                        ],
+                    },
+                    [session_internal, session_beta],
+                )
+
+                # NOT IN internal OR NOT IN beta - should return all (everyone fails at least one NOT IN)
+                self._assert_query_matches_session_ids(
+                    {
+                        "operand": "OR",
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": internal_cohort.pk,
+                                "operator": "not_in",
+                                "type": "cohort",
+                            },
+                            {
+                                "key": "id",
+                                "value": beta_cohort.pk,
+                                "operator": "not_in",
+                                "type": "cohort",
+                            },
+                        ],
+                    },
+                    [session_internal, session_beta, session_regular],
+                )

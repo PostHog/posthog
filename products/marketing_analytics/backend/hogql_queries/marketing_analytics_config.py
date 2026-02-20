@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from posthog.schema import AttributionMode, MarketingAnalyticsBaseColumns, MarketingAnalyticsHelperForColumnNames
+from posthog.schema import AttributionMode, MarketingAnalyticsBaseColumns, MarketingAnalyticsConstants
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -55,7 +55,7 @@ class MarketingAnalyticsConfig:
     # Prefixes for naming
     conversion_goal_prefix: str = CONVERSION_GOAL_PREFIX
     conversion_goal_abbreviation: str = CONVERSION_GOAL_PREFIX_ABBREVIATION
-    cost_per_prefix: str = MarketingAnalyticsHelperForColumnNames.COST_PER
+    cost_per_prefix: str = MarketingAnalyticsConstants.COST_PER
 
     # Default values
     organic_campaign: str = ORGANIC_CAMPAIGN
