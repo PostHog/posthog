@@ -1,405 +1,306 @@
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
  *   hogli build:openapi
  * Questions or issues? #team-devex on Slack
- * 
+ *
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
 import type {
-  PaginatedSessionRecordingListApi,
-  PaginatedSessionRecordingPlaylistListApi,
-  PatchedSessionRecordingApi,
-  PatchedSessionRecordingPlaylistApi,
-  SessionRecordingApi,
-  SessionRecordingPlaylistApi,
-  SessionRecordingPlaylistsListParams,
-  SessionRecordingsListParams
-} from './api.schemas';
-
-import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator';
+    PaginatedSessionRecordingListApi,
+    PaginatedSessionRecordingPlaylistListApi,
+    PatchedSessionRecordingApi,
+    PatchedSessionRecordingPlaylistApi,
+    SessionRecordingApi,
+    SessionRecordingPlaylistApi,
+    SessionRecordingPlaylistsListParams,
+    SessionRecordingsListParams,
+} from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
-type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <
-T,
->() => T extends Y ? 1 : 2
-? A
-: B;
+type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
 
 type WritableKeys<T> = {
-[P in keyof T]-?: IfEquals<
-  { [Q in P]: T[P] },
-  { -readonly [Q in P]: T[P] },
-  P
->;
-}[keyof T];
+    [P in keyof T]-?: IfEquals<{ [Q in P]: T[P] }, { -readonly [Q in P]: T[P] }, P>
+}[keyof T]
 
-type UnionToIntersection<U> =
-  (U extends any ? (k: U)=>void : never) extends ((k: infer I)=>void) ? I : never;
-type DistributeReadOnlyOverUnions<T> = T extends any ? NonReadonly<T> : never;
+type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never
+type DistributeReadOnlyOverUnions<T> = T extends any ? NonReadonly<T> : never
 
-type Writable<T> = Pick<T, WritableKeys<T>>;
-type NonReadonly<T> = [T] extends [UnionToIntersection<T>] ? {
-  [P in keyof Writable<T>]: T[P] extends object
-    ? NonReadonly<NonNullable<T[P]>>
-    : T[P];
-} : DistributeReadOnlyOverUnions<T>;
-
+type Writable<T> = Pick<T, WritableKeys<T>>
+type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
+    ? {
+          [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
+      }
+    : DistributeReadOnlyOverUnions<T>
 
 /**
  * Override list to include synthetic playlists
  */
-export const getSessionRecordingPlaylistsListUrl = (projectId: string,
-    params?: SessionRecordingPlaylistsListParams,) => {
-  const normalizedParams = new URLSearchParams();
+export const getSessionRecordingPlaylistsListUrl = (
+    projectId: string,
+    params?: SessionRecordingPlaylistsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
 
-  Object.entries(params || {}).forEach(([key, value]) => {
-    
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? 'null' : value.toString())
-    }
-  });
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
 
-  const stringifiedParams = normalizedParams.toString();
+    const stringifiedParams = normalizedParams.toString()
 
-  return stringifiedParams.length > 0 ? `/api/projects/${projectId}/session_recording_playlists/?${stringifiedParams}` : `/api/projects/${projectId}/session_recording_playlists/`
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/session_recording_playlists/?${stringifiedParams}`
+        : `/api/projects/${projectId}/session_recording_playlists/`
 }
 
-export const sessionRecordingPlaylistsList = async (projectId: string,
-    params?: SessionRecordingPlaylistsListParams, options?: RequestInit): Promise<PaginatedSessionRecordingPlaylistListApi> => {
-  
-  return apiMutator<PaginatedSessionRecordingPlaylistListApi>(getSessionRecordingPlaylistsListUrl(projectId,params),
-  {      
-    ...options,
-    method: 'GET'
-    
-    
-  }
-);}
-
-
-
-export const getSessionRecordingPlaylistsCreateUrl = (projectId: string,) => {
-
-
-  
-
-  return `/api/projects/${projectId}/session_recording_playlists/`
+export const sessionRecordingPlaylistsList = async (
+    projectId: string,
+    params?: SessionRecordingPlaylistsListParams,
+    options?: RequestInit
+): Promise<PaginatedSessionRecordingPlaylistListApi> => {
+    return apiMutator<PaginatedSessionRecordingPlaylistListApi>(
+        getSessionRecordingPlaylistsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
-export const sessionRecordingPlaylistsCreate = async (projectId: string,
-    sessionRecordingPlaylistApi: NonReadonly<SessionRecordingPlaylistApi>, options?: RequestInit): Promise<SessionRecordingPlaylistApi> => {
-  
-  return apiMutator<SessionRecordingPlaylistApi>(getSessionRecordingPlaylistsCreateUrl(projectId),
-  {      
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      sessionRecordingPlaylistApi,)
-  }
-);}
-
-
-
-export const getSessionRecordingPlaylistsRetrieveUrl = (projectId: string,
-    shortId: string,) => {
-
-
-  
-
-  return `/api/projects/${projectId}/session_recording_playlists/${shortId}/`
+export const getSessionRecordingPlaylistsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/session_recording_playlists/`
 }
 
-export const sessionRecordingPlaylistsRetrieve = async (projectId: string,
-    shortId: string, options?: RequestInit): Promise<SessionRecordingPlaylistApi> => {
-  
-  return apiMutator<SessionRecordingPlaylistApi>(getSessionRecordingPlaylistsRetrieveUrl(projectId,shortId),
-  {      
-    ...options,
-    method: 'GET'
-    
-    
-  }
-);}
-
-
-
-export const getSessionRecordingPlaylistsUpdateUrl = (projectId: string,
-    shortId: string,) => {
-
-
-  
-
-  return `/api/projects/${projectId}/session_recording_playlists/${shortId}/`
+export const sessionRecordingPlaylistsCreate = async (
+    projectId: string,
+    sessionRecordingPlaylistApi: NonReadonly<SessionRecordingPlaylistApi>,
+    options?: RequestInit
+): Promise<SessionRecordingPlaylistApi> => {
+    return apiMutator<SessionRecordingPlaylistApi>(getSessionRecordingPlaylistsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sessionRecordingPlaylistApi),
+    })
 }
 
-export const sessionRecordingPlaylistsUpdate = async (projectId: string,
+export const getSessionRecordingPlaylistsRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/session_recording_playlists/${shortId}/`
+}
+
+export const sessionRecordingPlaylistsRetrieve = async (
+    projectId: string,
     shortId: string,
-    sessionRecordingPlaylistApi: NonReadonly<SessionRecordingPlaylistApi>, options?: RequestInit): Promise<SessionRecordingPlaylistApi> => {
-  
-  return apiMutator<SessionRecordingPlaylistApi>(getSessionRecordingPlaylistsUpdateUrl(projectId,shortId),
-  {      
-    ...options,
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      sessionRecordingPlaylistApi,)
-  }
-);}
-
-
-
-export const getSessionRecordingPlaylistsPartialUpdateUrl = (projectId: string,
-    shortId: string,) => {
-
-
-  
-
-  return `/api/projects/${projectId}/session_recording_playlists/${shortId}/`
+    options?: RequestInit
+): Promise<SessionRecordingPlaylistApi> => {
+    return apiMutator<SessionRecordingPlaylistApi>(getSessionRecordingPlaylistsRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
-export const sessionRecordingPlaylistsPartialUpdate = async (projectId: string,
+export const getSessionRecordingPlaylistsUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/session_recording_playlists/${shortId}/`
+}
+
+export const sessionRecordingPlaylistsUpdate = async (
+    projectId: string,
     shortId: string,
-    patchedSessionRecordingPlaylistApi: NonReadonly<PatchedSessionRecordingPlaylistApi>, options?: RequestInit): Promise<SessionRecordingPlaylistApi> => {
-  
-  return apiMutator<SessionRecordingPlaylistApi>(getSessionRecordingPlaylistsPartialUpdateUrl(projectId,shortId),
-  {      
-    ...options,
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      patchedSessionRecordingPlaylistApi,)
-  }
-);}
+    sessionRecordingPlaylistApi: NonReadonly<SessionRecordingPlaylistApi>,
+    options?: RequestInit
+): Promise<SessionRecordingPlaylistApi> => {
+    return apiMutator<SessionRecordingPlaylistApi>(getSessionRecordingPlaylistsUpdateUrl(projectId, shortId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sessionRecordingPlaylistApi),
+    })
+}
 
+export const getSessionRecordingPlaylistsPartialUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/session_recording_playlists/${shortId}/`
+}
 
+export const sessionRecordingPlaylistsPartialUpdate = async (
+    projectId: string,
+    shortId: string,
+    patchedSessionRecordingPlaylistApi: NonReadonly<PatchedSessionRecordingPlaylistApi>,
+    options?: RequestInit
+): Promise<SessionRecordingPlaylistApi> => {
+    return apiMutator<SessionRecordingPlaylistApi>(getSessionRecordingPlaylistsPartialUpdateUrl(projectId, shortId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSessionRecordingPlaylistApi),
+    })
+}
 
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const getSessionRecordingPlaylistsDestroyUrl = (projectId: string,
-    shortId: string,) => {
-
-
-  
-
-  return `/api/projects/${projectId}/session_recording_playlists/${shortId}/`
+export const getSessionRecordingPlaylistsDestroyUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/session_recording_playlists/${shortId}/`
 }
 
-export const sessionRecordingPlaylistsDestroy = async (projectId: string,
-    shortId: string, options?: RequestInit): Promise<unknown> => {
-  
-  return apiMutator<unknown>(getSessionRecordingPlaylistsDestroyUrl(projectId,shortId),
-  {      
-    ...options,
-    method: 'DELETE'
-    
-    
-  }
-);}
-
-
-
-export const getSessionRecordingPlaylistsRecordingsRetrieveUrl = (projectId: string,
-    shortId: string,) => {
-
-
-  
-
-  return `/api/projects/${projectId}/session_recording_playlists/${shortId}/recordings/`
-}
-
-export const sessionRecordingPlaylistsRecordingsRetrieve = async (projectId: string,
-    shortId: string, options?: RequestInit): Promise<void> => {
-  
-  return apiMutator<void>(getSessionRecordingPlaylistsRecordingsRetrieveUrl(projectId,shortId),
-  {      
-    ...options,
-    method: 'GET'
-    
-    
-  }
-);}
-
-
-
-export const getSessionRecordingPlaylistsRecordingsCreateUrl = (projectId: string,
+export const sessionRecordingPlaylistsDestroy = async (
+    projectId: string,
     shortId: string,
-    sessionRecordingId: string,) => {
-
-
-  
-
-  return `/api/projects/${projectId}/session_recording_playlists/${shortId}/recordings/${sessionRecordingId}/`
+    options?: RequestInit
+): Promise<unknown> => {
+    return apiMutator<unknown>(getSessionRecordingPlaylistsDestroyUrl(projectId, shortId), {
+        ...options,
+        method: 'DELETE',
+    })
 }
 
-export const sessionRecordingPlaylistsRecordingsCreate = async (projectId: string,
+export const getSessionRecordingPlaylistsRecordingsRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/session_recording_playlists/${shortId}/recordings/`
+}
+
+export const sessionRecordingPlaylistsRecordingsRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSessionRecordingPlaylistsRecordingsRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSessionRecordingPlaylistsRecordingsCreateUrl = (
+    projectId: string,
+    shortId: string,
+    sessionRecordingId: string
+) => {
+    return `/api/projects/${projectId}/session_recording_playlists/${shortId}/recordings/${sessionRecordingId}/`
+}
+
+export const sessionRecordingPlaylistsRecordingsCreate = async (
+    projectId: string,
     shortId: string,
     sessionRecordingId: string,
-    sessionRecordingPlaylistApi: NonReadonly<SessionRecordingPlaylistApi>, options?: RequestInit): Promise<void> => {
-  
-  return apiMutator<void>(getSessionRecordingPlaylistsRecordingsCreateUrl(projectId,shortId,sessionRecordingId),
-  {      
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      sessionRecordingPlaylistApi,)
-  }
-);}
+    sessionRecordingPlaylistApi: NonReadonly<SessionRecordingPlaylistApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSessionRecordingPlaylistsRecordingsCreateUrl(projectId, shortId, sessionRecordingId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sessionRecordingPlaylistApi),
+    })
+}
 
-
-
-export const getSessionRecordingPlaylistsRecordingsDestroyUrl = (projectId: string,
+export const getSessionRecordingPlaylistsRecordingsDestroyUrl = (
+    projectId: string,
     shortId: string,
-    sessionRecordingId: string,) => {
-
-
-  
-
-  return `/api/projects/${projectId}/session_recording_playlists/${shortId}/recordings/${sessionRecordingId}/`
+    sessionRecordingId: string
+) => {
+    return `/api/projects/${projectId}/session_recording_playlists/${shortId}/recordings/${sessionRecordingId}/`
 }
 
-export const sessionRecordingPlaylistsRecordingsDestroy = async (projectId: string,
+export const sessionRecordingPlaylistsRecordingsDestroy = async (
+    projectId: string,
     shortId: string,
-    sessionRecordingId: string, options?: RequestInit): Promise<void> => {
-  
-  return apiMutator<void>(getSessionRecordingPlaylistsRecordingsDestroyUrl(projectId,shortId,sessionRecordingId),
-  {      
-    ...options,
-    method: 'DELETE'
-    
-    
-  }
-);}
-
-
-
-export const getSessionRecordingsListUrl = (projectId: string,
-    params?: SessionRecordingsListParams,) => {
-  const normalizedParams = new URLSearchParams();
-
-  Object.entries(params || {}).forEach(([key, value]) => {
-    
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? 'null' : value.toString())
-    }
-  });
-
-  const stringifiedParams = normalizedParams.toString();
-
-  return stringifiedParams.length > 0 ? `/api/projects/${projectId}/session_recordings/?${stringifiedParams}` : `/api/projects/${projectId}/session_recordings/`
+    sessionRecordingId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSessionRecordingPlaylistsRecordingsDestroyUrl(projectId, shortId, sessionRecordingId), {
+        ...options,
+        method: 'DELETE',
+    })
 }
 
-export const sessionRecordingsList = async (projectId: string,
-    params?: SessionRecordingsListParams, options?: RequestInit): Promise<PaginatedSessionRecordingListApi> => {
-  
-  return apiMutator<PaginatedSessionRecordingListApi>(getSessionRecordingsListUrl(projectId,params),
-  {      
-    ...options,
-    method: 'GET'
-    
-    
-  }
-);}
+export const getSessionRecordingsListUrl = (projectId: string, params?: SessionRecordingsListParams) => {
+    const normalizedParams = new URLSearchParams()
 
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
 
+    const stringifiedParams = normalizedParams.toString()
 
-export const getSessionRecordingsRetrieveUrl = (projectId: string,
-    id: string,) => {
-
-
-  
-
-  return `/api/projects/${projectId}/session_recordings/${id}/`
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/session_recordings/?${stringifiedParams}`
+        : `/api/projects/${projectId}/session_recordings/`
 }
 
-export const sessionRecordingsRetrieve = async (projectId: string,
-    id: string, options?: RequestInit): Promise<SessionRecordingApi> => {
-  
-  return apiMutator<SessionRecordingApi>(getSessionRecordingsRetrieveUrl(projectId,id),
-  {      
-    ...options,
-    method: 'GET'
-    
-    
-  }
-);}
-
-
-
-export const getSessionRecordingsUpdateUrl = (projectId: string,
-    id: string,) => {
-
-
-  
-
-  return `/api/projects/${projectId}/session_recordings/${id}/`
+export const sessionRecordingsList = async (
+    projectId: string,
+    params?: SessionRecordingsListParams,
+    options?: RequestInit
+): Promise<PaginatedSessionRecordingListApi> => {
+    return apiMutator<PaginatedSessionRecordingListApi>(getSessionRecordingsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
-export const sessionRecordingsUpdate = async (projectId: string,
+export const getSessionRecordingsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/session_recordings/${id}/`
+}
+
+export const sessionRecordingsRetrieve = async (
+    projectId: string,
     id: string,
-    sessionRecordingApi: NonReadonly<SessionRecordingApi>, options?: RequestInit): Promise<SessionRecordingApi> => {
-  
-  return apiMutator<SessionRecordingApi>(getSessionRecordingsUpdateUrl(projectId,id),
-  {      
-    ...options,
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      sessionRecordingApi,)
-  }
-);}
-
-
-
-export const getSessionRecordingsPartialUpdateUrl = (projectId: string,
-    id: string,) => {
-
-
-  
-
-  return `/api/projects/${projectId}/session_recordings/${id}/`
+    options?: RequestInit
+): Promise<SessionRecordingApi> => {
+    return apiMutator<SessionRecordingApi>(getSessionRecordingsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
-export const sessionRecordingsPartialUpdate = async (projectId: string,
+export const getSessionRecordingsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/session_recordings/${id}/`
+}
+
+export const sessionRecordingsUpdate = async (
+    projectId: string,
     id: string,
-    patchedSessionRecordingApi: NonReadonly<PatchedSessionRecordingApi>, options?: RequestInit): Promise<SessionRecordingApi> => {
-  
-  return apiMutator<SessionRecordingApi>(getSessionRecordingsPartialUpdateUrl(projectId,id),
-  {      
-    ...options,
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      patchedSessionRecordingApi,)
-  }
-);}
-
-
-
-export const getSessionRecordingsDestroyUrl = (projectId: string,
-    id: string,) => {
-
-
-  
-
-  return `/api/projects/${projectId}/session_recordings/${id}/`
+    sessionRecordingApi: NonReadonly<SessionRecordingApi>,
+    options?: RequestInit
+): Promise<SessionRecordingApi> => {
+    return apiMutator<SessionRecordingApi>(getSessionRecordingsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sessionRecordingApi),
+    })
 }
 
-export const sessionRecordingsDestroy = async (projectId: string,
-    id: string, options?: RequestInit): Promise<void> => {
-  
-  return apiMutator<void>(getSessionRecordingsDestroyUrl(projectId,id),
-  {      
-    ...options,
-    method: 'DELETE'
-    
-    
-  }
-);}
+export const getSessionRecordingsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/session_recordings/${id}/`
+}
 
+export const sessionRecordingsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedSessionRecordingApi: NonReadonly<PatchedSessionRecordingApi>,
+    options?: RequestInit
+): Promise<SessionRecordingApi> => {
+    return apiMutator<SessionRecordingApi>(getSessionRecordingsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSessionRecordingApi),
+    })
+}
 
+export const getSessionRecordingsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/session_recordings/${id}/`
+}
 
+export const sessionRecordingsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getSessionRecordingsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
