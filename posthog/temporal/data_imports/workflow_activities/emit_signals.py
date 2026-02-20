@@ -33,14 +33,17 @@ GEMINI_MODEL = "models/gemini-3-flash-preview"
 LLM_CONCURRENCY_LIMIT = 20
 # Concurrent workflow spawns for signal emission
 EMIT_CONCURRENCY_LIMIT = 50
-# Temporal gRPC payload size limit (2 MB); we apply a conservative margin
+# Temporal gRPC payload size limit (2 MB)
 TEMPORAL_PAYLOAD_MAX_BYTES = 2 * 1024 * 1024
-# Maximum number of attempts to summarize a description, if it exceeds the threshold
-SUMMARIZATION_MAX_ATTEMPTS = 3
+# Maximum number of attempts for LLM calls (summarization & actionability)
+LLM_MAX_ATTEMPTS = 3
 # Per-call timeout for LLM requests (seconds)
 LLM_CALL_TIMEOUT_SECONDS = 120
 # Thinking budget for LLM calls (summarization & actionability are judgment tasks)
 LLM_THINKING_BUDGET_TOKENS = 1024
+# Backoff between LLM retry attempts (delay = initial * coefficient ^ (attempt - 1))
+LLM_RETRY_INITIAL_DELAY_SECONDS = 5
+LLM_RETRY_BACKOFF_COEFFICIENT = 2.0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -208,25 +211,27 @@ async def _summarize_description(
     threshold: int,
 ) -> SignalEmitterOutput:
     prompt_parts = [types.Part(text=summarization_prompt.format(description=output.description, max_length=threshold))]
-    for attempt in range(SUMMARIZATION_MAX_ATTEMPTS):
-        response = await asyncio.wait_for(
-            client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=prompt_parts,
-                config=types.GenerateContentConfig(
-                    max_output_tokens=max(threshold // 4, 256),
-                    thinking_config=types.ThinkingConfig(
-                        thinking_budget=LLM_THINKING_BUDGET_TOKENS,
-                        include_thoughts=True,
+    for attempt in range(LLM_MAX_ATTEMPTS):
+        if attempt > 0:
+            await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
+        try:
+            response = await asyncio.wait_for(
+                client.models.generate_content(
+                    model=GEMINI_MODEL,
+                    contents=prompt_parts,
+                    config=types.GenerateContentConfig(
+                        max_output_tokens=max(threshold // 4, 256),
+                        thinking_config=types.ThinkingConfig(
+                            thinking_budget=LLM_THINKING_BUDGET_TOKENS,
+                            include_thoughts=True,
+                        ),
                     ),
                 ),
-            ),
-            timeout=LLM_CALL_TIMEOUT_SECONDS,
-        )
-        try:
+                timeout=LLM_CALL_TIMEOUT_SECONDS,
+            )
             summary = (response.text or "").strip()
             if not summary:
-                raise ValueError("Empty response from LLM")
+                raise ValueError("Empty response from LLM when summarizing description")
             if len(summary) >= threshold:
                 raise ValueError(f"Summary is {len(summary)} characters, must be under {threshold}")
             return dataclasses.replace(output, description=summary)
@@ -242,7 +247,9 @@ async def _summarize_description(
                 },
             )
             prompt_parts.append(
-                types.Part(text=f"\n\nAttempt {attempt + 1} failed with error: {e!r}\nPlease fix your output.")
+                types.Part(
+                    text=f"\n\nAttempt {attempt + 1} of {LLM_MAX_ATTEMPTS} to summarize description failed with error: {e!r}\nPlease fix your output."
+                )
             )
     # Hard-truncate the description to the threshold if all attempts failed
     return dataclasses.replace(output, description=output.description[:threshold])
@@ -263,25 +270,38 @@ async def _summarize_long_descriptions(
     activity.heartbeat()
     completed_count = 0
 
-    async def _bounded_summarize(output: SignalEmitterOutput) -> SignalEmitterOutput:
+    async def _bounded_summarize(output: SignalEmitterOutput) -> SignalEmitterOutput | None:
         nonlocal completed_count
         async with semaphore:
-            result = await _summarize_description(client, output, summarization_prompt, threshold)
-            completed_count += 1
-            if completed_count % LLM_CONCURRENCY_LIMIT == 0:
-                activity.heartbeat()
+            try:
+                result = await _summarize_description(client, output, summarization_prompt, threshold)
+            except Exception as e:
+                activity.logger.exception(
+                    "Summarization failed, skipping signal",
+                    extra={**extra, "signal_source_id": output.source_id, "error": str(e)},
+                )
+                return None
+            finally:
+                completed_count += 1
+                if completed_count % LLM_CONCURRENCY_LIMIT == 0:
+                    activity.heartbeat()
             return result
 
-    tasks: dict[int, asyncio.Task[SignalEmitterOutput]] = {}
+    tasks: dict[int, asyncio.Task[SignalEmitterOutput | None]] = {}
     async with asyncio.TaskGroup() as tg:
         for i in needs_summary:
             tasks[i] = tg.create_task(_bounded_summarize(outputs[i]))
-    # Update the outputs with the summarized descriptions
-    result = list(outputs)
-    for i, task in tasks.items():
-        result[i] = task.result()
+    result: list[SignalEmitterOutput] = []
+    skipped = 0
+    for i, output in enumerate(outputs):
+        if i not in tasks:
+            result.append(output)
+        elif (summarized := tasks[i].result()) is not None:
+            result.append(summarized)
+        else:
+            skipped += 1
     activity.logger.info(
-        f"Summarized {len(needs_summary)} long descriptions (threshold={threshold})",
+        f"Summarized {len(needs_summary) - skipped} long descriptions, skipped {skipped} (threshold={threshold})",
         extra=extra,
     )
     return result
@@ -311,35 +331,41 @@ async def _check_actionability(
     Returns (is_actionable, thoughts) where thoughts is the model's reasoning.
     """
     prompt = actionability_prompt.format(description=output.description)
-    response = await asyncio.wait_for(
-        client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=[prompt],
-            config=types.GenerateContentConfig(
-                max_output_tokens=128,
-                thinking_config=types.ThinkingConfig(
-                    thinking_budget=LLM_THINKING_BUDGET_TOKENS,
-                    include_thoughts=True,
+    for attempt in range(LLM_MAX_ATTEMPTS):
+        if attempt > 0:
+            await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
+        try:
+            response = await asyncio.wait_for(
+                client.models.generate_content(
+                    model=GEMINI_MODEL,
+                    contents=[prompt],
+                    config=types.GenerateContentConfig(
+                        max_output_tokens=128,
+                        thinking_config=types.ThinkingConfig(
+                            thinking_budget=LLM_THINKING_BUDGET_TOKENS,
+                            include_thoughts=True,
+                        ),
+                    ),
                 ),
-            ),
-        ),
-        timeout=LLM_CALL_TIMEOUT_SECONDS,
-    )
-    try:
-        thoughts = _extract_thoughts(response)
-        response_text = (response.text or "").strip().upper()
-        return "NOT_ACTION" not in response_text, thoughts
-    except Exception as e:
-        posthoganalytics.capture_exception(
-            e,
-            properties={
-                "tag": "data_warehouse_signals_import",
-                "error_type": "actionability_check_failed",
-                "source_type": output.source_type,
-                "source_id": output.source_id,
-            },
-        )
-        return True, None
+                timeout=LLM_CALL_TIMEOUT_SECONDS,
+            )
+            thoughts = _extract_thoughts(response)
+            response_text = (response.text or "").strip().upper()
+            return "NOT_ACTION" not in response_text, thoughts
+        except Exception as e:
+            posthoganalytics.capture_exception(
+                e,
+                properties={
+                    "tag": "data_warehouse_signals_import",
+                    "error_type": "actionability_check_failed",
+                    "source_type": output.source_type,
+                    "source_id": output.source_id,
+                    "attempt": attempt + 1,
+                },
+            )
+            # Not adding failure message to the prompt, as the task is simple and atomic
+    # Assume actionable if all retries exhausted
+    return True, None
 
 
 async def _filter_actionable(
@@ -356,10 +382,18 @@ async def _filter_actionable(
     async def _bounded_check(output: SignalEmitterOutput) -> tuple[bool, str | None]:
         nonlocal checked_count
         async with semaphore:
-            result = await _check_actionability(client, output, actionability_prompt)
-            checked_count += 1
-            if checked_count % LLM_CONCURRENCY_LIMIT == 0:
-                activity.heartbeat()
+            try:
+                result = await _check_actionability(client, output, actionability_prompt)
+            except Exception as e:
+                activity.logger.exception(
+                    "Actionability check failed, assuming actionable",
+                    extra={**extra, "signal_source_id": output.source_id, "error": str(e)},
+                )
+                return True, None
+            finally:
+                checked_count += 1
+                if checked_count % LLM_CONCURRENCY_LIMIT == 0:
+                    activity.heartbeat()
             return result
 
     tasks: dict[int, asyncio.Task[tuple[bool, str | None]]] = {}

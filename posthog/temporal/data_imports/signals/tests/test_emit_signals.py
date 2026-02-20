@@ -16,7 +16,7 @@ from posthog.hogql import ast
 
 from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput, SignalSourceTableConfig
 from posthog.temporal.data_imports.workflow_activities.emit_signals import (
-    SUMMARIZATION_MAX_ATTEMPTS,
+    LLM_MAX_ATTEMPTS,
     TEMPORAL_PAYLOAD_MAX_BYTES,
     EmitDataImportSignalsWorkflow,
     EmitSignalsActivityInputs,
@@ -232,12 +232,15 @@ class TestCheckActionability:
         assert thoughts == "Just a billing question, not a bug."
 
     @pytest.mark.asyncio
-    async def test_propagates_llm_error(self):
+    async def test_assumes_actionable_after_retries_exhausted(self):
         mock_client = MagicMock()
         mock_client.models.generate_content = AsyncMock(side_effect=Exception("API error"))
 
-        with pytest.raises(Exception, match="API error"):
-            await _check_actionability(mock_client, _make_output(), "prompt {description}")
+        is_actionable, thoughts = await _check_actionability(mock_client, _make_output(), "prompt {description}")
+
+        assert is_actionable is True
+        assert thoughts is None
+        assert mock_client.models.generate_content.call_count == LLM_MAX_ATTEMPTS
 
     @pytest.mark.asyncio
     async def test_returns_true_on_none_response_text(self):
@@ -318,7 +321,7 @@ class TestSummarizeDescription:
 
     @pytest.mark.asyncio
     async def test_truncates_after_all_attempts_exhausted(self):
-        client = self._mock_client(["a" * 300] * SUMMARIZATION_MAX_ATTEMPTS)
+        client = self._mock_client(["a" * 300] * LLM_MAX_ATTEMPTS)
         original = "x" * 500
         output = _make_output(description=original)
 
