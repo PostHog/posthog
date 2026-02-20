@@ -1266,6 +1266,22 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
                 }
 
+                const searchParams = new URLSearchParams(window.location.search)
+                const hashParams = new URLSearchParams(window.location.hash.slice(1))
+                if (searchParams.get('open_view') || hashParams.get('view')) {
+                    return {
+                        name: 'Loading view...',
+                        resourceType: { type: 'view' },
+                    }
+                }
+
+                if (searchParams.get('open_insight') || hashParams.get('insight')) {
+                    return {
+                        name: 'Loading insight...',
+                        resourceType: { type: 'insight/hog' },
+                    }
+                }
+
                 return {
                     name: 'New SQL query',
                     resourceType: { type: 'sql_editor' },

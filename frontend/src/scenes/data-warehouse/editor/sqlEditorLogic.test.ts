@@ -122,6 +122,34 @@ describe('sqlEditorLogic', () => {
         await expectLogic(teamLogic).toFinishAllListeners()
     })
 
+    describe('title section', () => {
+        it('shows loading view title when opening a view from URL before view loads', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            window.history.replaceState({}, '', `${urls.sqlEditor()}?open_view=test-view`)
+
+            expect(logic.values.titleSectionProps.name).toEqual('Loading view...')
+        })
+
+        it('shows loading insight title when opening an insight from URL before insight loads', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            window.history.replaceState({}, '', `${urls.sqlEditor()}?open_insight=${MOCK_INSIGHT_SHORT_ID}`)
+
+            expect(logic.values.titleSectionProps.name).toEqual('Loading insight...')
+        })
+    })
+
     describe('open_insight URL parameter', () => {
         it('sets editingInsight when opening an insight via open_insight search param', async () => {
             logic = sqlEditorLogic({
