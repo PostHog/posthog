@@ -171,9 +171,7 @@ impl TokioRuntimeMonitor {
             self.metrics.blocking_queue_depth() as f64,
         );
 
-        for i in 0..num_workers {
-            let label = &worker_labels[i];
-
+        for (i, label) in worker_labels.iter().enumerate().take(num_workers) {
             // Poll count
             let polls = self.metrics.worker_poll_count(i);
             let poll_delta = polls.saturating_sub(state.prev_polls[i]);
