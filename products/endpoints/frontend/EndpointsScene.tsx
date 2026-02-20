@@ -74,7 +74,7 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                                 >
                                     <LemonButton
                                         type="primary"
-                                        to={urls.sqlEditor()}
+                                        to={urls.sqlEditor({ source: 'endpoint' })}
                                         sideAction={{
                                             dropdown: {
                                                 placement: 'bottom-end',
@@ -129,7 +129,7 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                             docsURL="https://posthog.com/docs/endpoints"
                             customHog={BigLeaguesHog}
                             isEmpty={false}
-                            action={() => router.actions.push(urls.sqlEditor())}
+                            action={() => router.actions.push(urls.sqlEditor({ source: 'endpoint' }))}
                         />
                         <LemonTabs activeKey={activeTab} data-attr="endpoints-tabs" tabs={tabs} sceneInset />
                         <InsightPickerEndpointModal tabId={tabId || ''} />

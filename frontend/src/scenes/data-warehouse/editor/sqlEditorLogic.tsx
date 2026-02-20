@@ -81,6 +81,14 @@ export interface QueryTab {
     draft?: DataWarehouseSavedQueryDraft
 }
 
+export type SqlEditorSource = 'insight' | 'endpoint'
+
+export interface SaveAsMenuItem {
+    action: 'insight' | 'endpoint' | 'view'
+    label: string
+    dataAttr?: string
+}
+
 export interface SuggestionPayload {
     suggestedValue?: string
     originalValue?: string
@@ -240,6 +248,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         }),
         syncUrlWithQuery: true,
         insertTextAtCursor: (text: string) => ({ text }),
+        setEditorSource: (source: SqlEditorSource) => ({ source }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -286,6 +295,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             null as string | null,
             {
                 setQueryInput: (_, { queryInput }) => queryInput,
+            },
+        ],
+        editorSource: [
+            'insight' as SqlEditorSource,
+            {
+                setEditorSource: (_, { source }) => source,
             },
         ],
         editingInsight: [
@@ -1258,6 +1273,37 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
 
+        saveAsMenuItems: [
+            (s) => [s.editorSource],
+            (editorSource): { primary: SaveAsMenuItem; secondary: SaveAsMenuItem[] } => {
+                const saveAsInsightItem: SaveAsMenuItem = {
+                    action: 'insight',
+                    label: 'Save as insight',
+                }
+                const saveAsEndpointItem: SaveAsMenuItem = {
+                    action: 'endpoint',
+                    label: 'Save as endpoint',
+                }
+                const saveAsViewItem: SaveAsMenuItem = {
+                    action: 'view',
+                    label: 'Save as view',
+                    dataAttr: 'sql-editor-save-view-button',
+                }
+
+                if (editorSource === 'endpoint') {
+                    return {
+                        primary: saveAsEndpointItem,
+                        secondary: [saveAsInsightItem, saveAsViewItem],
+                    }
+                }
+
+                return {
+                    primary: saveAsInsightItem,
+                    secondary: [saveAsEndpointItem, saveAsViewItem],
+                }
+            },
+        ],
+
         selectedQueryTablesAndColumns: [
             (s) => [s.queryInput],
             (queryInput: string | null): Record<string, Record<string, boolean>> => {
@@ -1297,6 +1343,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             if (isEmbeddedSQLEditorMode(props.mode ?? SQLEditorMode.FullScene)) {
                 return
             }
+
+            actions.setEditorSource(searchParams.source === 'endpoint' ? 'endpoint' : 'insight')
             if (
                 !searchParams.open_query &&
                 !searchParams.open_view &&

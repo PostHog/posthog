@@ -203,11 +203,42 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         isEmbeddedMode,
         titleSectionProps,
         updateInsightButtonEnabled,
+        saveAsMenuItems,
     } = useValues(sqlEditorLogic)
     const { updateView, updateInsight, saveAsInsight, saveAsView, saveAsEndpoint, openHistoryModal } =
         useActions(sqlEditorLogic)
     const { response } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
+
+    const secondarySaveMenuItems = useMemo(
+        () =>
+            saveAsMenuItems.secondary.map((item) => ({
+                ...item,
+                onClick: () => {
+                    if (item.action === 'insight') {
+                        saveAsInsight()
+                        return
+                    }
+
+                    if (item.action === 'endpoint') {
+                        saveAsEndpoint()
+                        return
+                    }
+
+                    saveAsView()
+                },
+            })),
+        [saveAsEndpoint, saveAsInsight, saveAsMenuItems.secondary, saveAsView]
+    )
+
+    const onPrimarySaveClick = (): void => {
+        if (saveAsMenuItems.primary.action === 'endpoint') {
+            saveAsEndpoint()
+            return
+        }
+
+        saveAsInsight()
+    }
 
     const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {
@@ -333,31 +364,17 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                             <LemonButton
                                 type="primary"
                                 size="small"
-                                onClick={() => saveAsInsight()}
+                                onClick={onPrimarySaveClick}
                                 sideAction={{
                                     icon: <IconChevronDown />,
                                     'data-attr': 'sql-editor-save-options-button',
                                     dropdown: {
                                         placement: 'bottom-end',
-                                        overlay: (
-                                            <LemonMenuOverlay
-                                                items={[
-                                                    {
-                                                        label: 'Save as view',
-                                                        'data-attr': 'sql-editor-save-view-button',
-                                                        onClick: () => saveAsView(),
-                                                    },
-                                                    {
-                                                        label: 'Save as endpoint',
-                                                        onClick: () => saveAsEndpoint(),
-                                                    },
-                                                ]}
-                                            />
-                                        ),
+                                        overlay: <LemonMenuOverlay items={secondarySaveMenuItems} />,
                                     },
                                 }}
                             >
-                                Save as insight
+                                {saveAsMenuItems.primary.label}
                             </LemonButton>
                         )}
                     </div>
