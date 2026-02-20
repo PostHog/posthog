@@ -232,6 +232,86 @@ describe('vercel log drain template', () => {
 
         expect(response.capturedPostHogEvents).toMatchSnapshot()
     })
+
+    it('should handle logs with null message without crashing', async () => {
+        const { message, ...logWithoutMessage } = vercelLogDrain
+        const log = { ...logWithoutMessage, message: null }
+
+        const response = await tester.invoke(
+            {},
+            {
+                request: createVercelRequest(log),
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.capturedPostHogEvents).toHaveLength(1)
+        expect(response.capturedPostHogEvents[0].properties.first_log.message).toBeNull()
+        expect(response.capturedPostHogEvents[0].properties.first_log.message_truncated).toBe(false)
+    })
+
+    it('should handle logs without proxy field', async () => {
+        const { proxy, ...logWithoutProxy } = vercelLogDrain
+        const log = { ...logWithoutProxy }
+
+        const response = await tester.invoke(
+            {},
+            {
+                request: createVercelRequest(log),
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.capturedPostHogEvents).toHaveLength(1)
+        expect(response.capturedPostHogEvents[0].distinct_id).toMatch(/^vercel_[a-f0-9]{64}$/)
+    })
+
+    it('should fall back to request.body when stringBody is empty', async () => {
+        const response = await tester.invoke(
+            {},
+            {
+                request: {
+                    method: 'POST',
+                    headers: {},
+                    body: vercelLogDrain,
+                    stringBody: '',
+                    query: {},
+                },
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.capturedPostHogEvents).toHaveLength(1)
+        expect(response.capturedPostHogEvents[0].properties.first_log).toMatchObject({
+            source: 'lambda',
+            level: 'info',
+            projectId: 'gdufoJxB6b9b1fEqr1jUtFkyavUU',
+        })
+    })
+
+    it('should fall back to request.body array when stringBody is empty', async () => {
+        const logs = [
+            { ...vercelLogDrain, id: 'body1' },
+            { ...vercelLogDrain, id: 'body2' },
+        ]
+
+        const response = await tester.invoke(
+            {},
+            {
+                request: {
+                    method: 'POST',
+                    headers: {},
+                    body: logs,
+                    stringBody: '',
+                    query: {},
+                },
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.capturedPostHogEvents).toHaveLength(1)
+        expect(response.capturedPostHogEvents[0].properties.log_count).toBe(2)
+    })
 })
 
 const createVercelRequest = (body: Record<string, any> | Record<string, any>[]) => {
