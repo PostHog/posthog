@@ -3,6 +3,7 @@ import json
 import time
 import uuid
 import random
+import socket
 import asyncio
 import datetime as dt
 import operator
@@ -429,6 +430,7 @@ async def test_logger_binds_activity_context(
             assert info_dict["workflow_namespace"] == activity_environment.info.workflow_namespace
             assert info_dict["workflow_type"] == activity_environment.info.workflow_type
             assert info_dict["workflow_run_id"] == activity_environment.info.workflow_run_id
+            assert info_dict["worker"] == socket.gethostname()
 
 
 @freezegun.freeze_time("2023-11-02 10:00:00.123123")

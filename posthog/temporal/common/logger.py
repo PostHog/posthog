@@ -27,6 +27,7 @@ automatically included.
 import ssl
 import sys
 import json
+import socket
 import typing
 import asyncio
 import functools
@@ -445,6 +446,8 @@ def merge_temporal_context(
 
         for k, v in ctx.items():
             event_dict.setdefault(k, v)
+
+    event_dict.setdefault("worker", socket.gethostname())
 
     return event_dict
 
