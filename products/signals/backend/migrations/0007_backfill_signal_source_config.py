@@ -8,14 +8,15 @@ def convert_proactive_tasks_enabled(apps, schema_editor):
     for team in Team.objects.filter(proactive_tasks_enabled=True).only("id"):
         SignalSourceConfig.objects.get_or_create(
             team=team,
-            source_type="session_analysis",
+            source_product="session_replay",
+            source_type="session_analysis_cluster",
             defaults={"enabled": True, "config": {}},
         )
 
 
 def reverse_convert(apps, schema_editor):
     SignalSourceConfig = apps.get_model("signals", "SignalSourceConfig")
-    SignalSourceConfig.objects.filter(source_type="session_analysis").delete()
+    SignalSourceConfig.objects.filter(source_product="session_replay", source_type="session_analysis_cluster").delete()
 
 
 class Migration(migrations.Migration):

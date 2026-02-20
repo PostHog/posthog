@@ -85,7 +85,8 @@ def _load_user_defined_recordings_query(team_id: int) -> RecordingsQuery | None:
     # If no session analysis source is enabled, we should fail, as we should not be this far then
     config = SignalSourceConfig.objects.get(
         team_id=team_id,
-        source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS,
+        source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+        source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
         enabled=True,
     )
     recording_filters = config.config.get("recording_filters")

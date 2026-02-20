@@ -8,17 +8,28 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * * `session_analysis` - Session analysis
+ * * `session_replay` - Session replay
+ */
+export type SignalSourceConfigSourceProductEnumApi =
+    (typeof SignalSourceConfigSourceProductEnumApi)[keyof typeof SignalSourceConfigSourceProductEnumApi]
+
+export const SignalSourceConfigSourceProductEnumApi = {
+    SessionReplay: 'session_replay',
+} as const
+
+/**
+ * * `session_analysis_cluster` - Session analysis cluster
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
 
 export const SignalSourceConfigSourceTypeEnumApi = {
-    SessionAnalysis: 'session_analysis',
+    SessionAnalysisCluster: 'session_analysis_cluster',
 } as const
 
 export interface SignalSourceConfigApi {
     readonly id: string
+    source_product: SignalSourceConfigSourceProductEnumApi
     source_type: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
     config?: unknown

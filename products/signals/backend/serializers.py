@@ -10,6 +10,7 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         model = SignalSourceConfig
         fields = [
             "id",
+            "source_product",
             "source_type",
             "enabled",
             "config",
@@ -18,16 +19,10 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
 
-    def validate_source_type(self, value: str) -> str:
-        valid_types = {choice[0] for choice in SignalSourceConfig.SourceType.choices}
-        if value not in valid_types:
-            raise serializers.ValidationError(f"Invalid source type. Must be one of: {', '.join(valid_types)}")
-        return value
-
     def validate(self, attrs: dict) -> dict:
-        source_type = attrs.get("source_type", getattr(self.instance, "source_type", None))
+        source_product = attrs.get("source_product", getattr(self.instance, "source_product", None))
         config = attrs.get("config", {})
-        if source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS and config:
+        if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
             recording_filters = config.get("recording_filters")
             if recording_filters is not None and not isinstance(recording_filters, dict):
                 raise serializers.ValidationError({"config": "recording_filters must be a JSON object"})

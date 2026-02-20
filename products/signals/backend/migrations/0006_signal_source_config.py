@@ -28,9 +28,16 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
+                    "source_product",
+                    models.CharField(
+                        choices=[("session_replay", "Session replay")],
+                        max_length=100,
+                    ),
+                ),
+                (
                     "source_type",
                     models.CharField(
-                        choices=[("session_analysis", "Session analysis")],
+                        choices=[("session_analysis_cluster", "Session analysis cluster")],
                         max_length=100,
                     ),
                 ),
@@ -59,6 +66,8 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name="signalsourceconfig",
-            constraint=models.UniqueConstraint(fields=("team", "source_type"), name="unique_team_source_type"),
+            constraint=models.UniqueConstraint(
+                fields=("team", "source_product", "source_type"), name="unique_team_source_product_type"
+            ),
         ),
     ]

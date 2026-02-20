@@ -146,7 +146,9 @@ class VideoSegmentClusteringCoordinatorWorkflow(PostHogWorkflow):
 async def get_proactive_tasks_enabled_team_ids_activity() -> list[int]:
     enabled_team_ids: list[int] = []
     async for config in SignalSourceConfig.objects.filter(
-        source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS, enabled=True
+        source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+        source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+        enabled=True,
     ).only("team_id"):
         enabled_team_ids.append(config.team_id)
     return enabled_team_ids

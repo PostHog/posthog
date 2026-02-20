@@ -86,7 +86,7 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             serializer.save(team_id=self.team_id, created_by=self.request.user)
         except IntegrityError:
             raise serializers.ValidationError(
-                {"source_type": "A configuration for this source type already exists for this team."}
+                {"source_product": "A configuration for this source product and type already exists for this team."}
             )
 
     def perform_update(self, serializer):
