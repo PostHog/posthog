@@ -104,18 +104,20 @@ const TrafficPreview = ({ variants, rolloutPercentage, areVariantRolloutsValid }
         <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
                 <h4 className="m-0">Traffic preview</h4>
-                <div className="flex items-center gap-2 text-sm text-secondary">
-                    <span
-                        className="inline-block h-3 w-3 rounded-sm border border-primary"
-                        style={{
-                            backgroundImage:
-                                'repeating-linear-gradient(45deg, var(--color-bg-3000) 0 6px, var(--border-3000) 6px 12px)',
-                        }}
-                    />
-                    <span>
-                        Not released to {formatPercentage(excludedPercentage, { precise: true, compact: true })}
-                    </span>
-                </div>
+                {excludedPercentage > 0 && (
+                    <div className="flex items-center gap-2 text-sm text-secondary">
+                        <span
+                            className="inline-block h-3 w-3 rounded-sm border border-primary"
+                            style={{
+                                backgroundImage:
+                                    'repeating-linear-gradient(45deg, var(--color-bg-3000) 0 6px, var(--border-3000) 6px 12px)',
+                            }}
+                        />
+                        <span>
+                            Not released to {formatPercentage(excludedPercentage, { precise: true, compact: true })}
+                        </span>
+                    </div>
+                )}
             </div>
             <div className="h-10 rounded bg-fill-secondary border border-primary overflow-hidden flex relative">
                 {rolloutPercentage > 0 ? (
