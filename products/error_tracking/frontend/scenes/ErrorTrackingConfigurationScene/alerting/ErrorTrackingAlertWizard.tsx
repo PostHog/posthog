@@ -58,11 +58,13 @@ function DestinationStep({ onBack }: { onBack: () => void }): JSX.Element {
     if (existingAlertsLoading) {
         return (
             <div className="space-y-4">
-                <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} onClick={onBack}>
-                    Alerts list
-                </LemonButton>
-                <h2 className="text-xl font-semibold mb-1 mt-2">Where should we send alerts?</h2>
-                <p className="text-secondary text-sm">Choose your preferred notification channel</p>
+                <div>
+                    <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} onClick={onBack}>
+                        Alerts list
+                    </LemonButton>
+                    <h2 className="text-xl font-semibold mb-1 mt-2">Where should we send alerts?</h2>
+                    <p className="text-secondary text-sm">Choose your preferred notification channel</p>
+                </div>
                 <div className="space-y-3">
                     {[1, 2, 3].map((i) => (
                         <div key={i} className="rounded-lg border border-border bg-bg-light animate-pulse p-5 w-full">
