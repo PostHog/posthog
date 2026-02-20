@@ -133,7 +133,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
 
             try:
                 logger.info(
-                    "Waiting for pending workflow",
+                    "Waiting for pending backfill run",
                     backfill_run_id=heartbeater.details.workflow_id,
                     schedule_id=heartbeater.details.schedule_id,
                     last_batch_data_interval_end=heartbeater.details.last_batch_data_interval_end,
@@ -141,7 +141,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
 
                 await workflow_handle.result()
             except temporalio.client.WorkflowFailureError:
-                logger.exception("Pending workflow failed", backfill_run_id=heartbeater.details.workflow_id)
+                logger.exception("Pending backfill run failed", backfill_run_id=heartbeater.details.workflow_id)
                 # TODO: Handle failures here instead of in the batch export.
                 await asyncio.sleep(inputs.start_delay)
 
@@ -216,7 +216,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
             try:
                 await workflow_handle.result()
             except temporalio.client.WorkflowFailureError:
-                logger.exception("Workflow run failed", backfill_run_id=heartbeater.details.workflow_id)
+                logger.exception("Backfill run failed", backfill_run_id=heartbeater.details.workflow_id)
                 # `WorkflowFailureError` includes cancellations, terminations, timeouts, and errors.
                 # Common errors should be handled by the workflow itself (i.e. by retrying an activity).
                 # We briefly sleep to allow heartbeating to potentially receive a cancellation request.
