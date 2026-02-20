@@ -419,6 +419,16 @@ class TestVercelRegionProxyMixin(VercelTestBase):
                             self._assert_drf_response(result, expected_super_response)
                             mock_super_dispatch.assert_called_once()
 
+    def test_dispatch_proxy_204_returns_empty_response(self):
+        request = self._create_authenticated_request(self.INVALID_INSTALLATION)
+
+        with self._setup_region_test(self.US_DOMAIN):
+            with self._patch_proxy_to_eu(Response(status=204)) as mock_proxy:
+                result = self.test_viewset.dispatch(request, *[], **{})
+                mock_proxy.assert_called_once()
+                assert result.status_code == 204
+                assert result.content == b""
+
     def test_upsert_new_installation_in_us_region_should_not_404(self):
         factory = RequestFactory()
         request_body = json.dumps(
