@@ -19,11 +19,15 @@ import {
     TileLayout,
 } from '~/types'
 
+// Layout related constants
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
     xs: 0,
 }
 export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { sm: 12, xs: 1 }
+export const GRID_ROW_HEIGHT = 80
+export const GRID_HORIZONTAL_MARGIN = 16
+export const GRID_VERTICAL_MARGIN = 16
 
 /**
  * The minimum interval between manual dashboard refreshes.
