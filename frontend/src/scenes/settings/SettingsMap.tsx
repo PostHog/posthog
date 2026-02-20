@@ -3,6 +3,7 @@ import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
 import { AutoAssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/AutoAssignmentRules'
 import { CustomGroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/CustomGroupingRules'
+import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
 import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
@@ -971,6 +972,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['notification', 'alert', 'threshold', 'spike'],
             },
             {
+                id: 'error-tracking-spike-detection',
+                title: 'Spike detection',
+                component: <SpikeDetectionSettings />,
+                flag: 'ERROR_TRACKING_SPIKE_ALERTING',
+            },
+            {
                 id: 'error-tracking-auto-assignment',
                 title: 'Auto assignment rules',
                 description: 'Automatically assign errors to team members based on rules you define.',
@@ -1101,6 +1108,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'approval-policies',
                 title: 'Policies',
                 description: 'Configure which actions require approval before being applied.',
+                docsUrl: 'https://posthog.com/docs/settings/approvals#policies',
                 component: <ApprovalPolicies />,
                 keywords: ['approval', 'policy', 'review', 'gate'],
             },
@@ -1108,6 +1116,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'change-requests',
                 title: 'Change requests',
                 description: 'Review and approve pending change requests.',
+                docsUrl: 'https://posthog.com/docs/settings/approvals#change-requests',
                 component: <ChangeRequestsList />,
                 keywords: ['approval', 'review', 'pending', 'request'],
             },
