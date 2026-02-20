@@ -1,6 +1,6 @@
 import { Meta } from '@storybook/react'
 
-import { AnyPropertyFilter, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { PropertyFilterButton } from './PropertyFilterButton'
 
@@ -96,87 +96,46 @@ export function FilterTypes(): JSX.Element {
     )
 }
 
-const operatorVariants: { label: string; filter: AnyPropertyFilter }[] = [
+const operatorVariantFilters = [
     {
-        label: 'Exact (multi)',
-        filter: {
-            key: 'Browser',
-            operator: PropertyOperator.Exact,
-            type: 'event',
-            value: ['Chrome', 'Safari', 'Edge'],
-        },
+        key: 'Browser',
+        operator: PropertyOperator.Exact,
+        type: PropertyFilterType.Event,
+        value: ['Chrome', 'Safari', 'Edge'],
     },
     {
-        label: 'Is not (multi)',
-        filter: {
-            key: 'Browser',
-            operator: PropertyOperator.IsNot,
-            type: 'event',
-            value: ['Chrome', 'Safari', 'Edge'],
-        },
+        key: 'Browser',
+        operator: PropertyOperator.IsNot,
+        type: PropertyFilterType.Event,
+        value: ['Chrome', 'Safari', 'Edge'],
     },
+    { key: '$current_url', operator: PropertyOperator.IContains, type: PropertyFilterType.Event, value: 'checkout' },
+    { key: '$current_url', operator: PropertyOperator.NotIContains, type: PropertyFilterType.Event, value: 'checkout' },
+    { key: '$pathname', operator: PropertyOperator.Regex, type: PropertyFilterType.Event, value: '^/api/v[0-9]+' },
+    { key: '$pathname', operator: PropertyOperator.NotRegex, type: PropertyFilterType.Event, value: '^/api/v[0-9]+' },
+    { key: '$session_duration', operator: PropertyOperator.GreaterThan, type: PropertyFilterType.Event, value: 42 },
     {
-        label: 'Contains',
-        filter: { key: '$current_url', operator: PropertyOperator.IContains, type: 'event', value: 'checkout' },
+        key: '$session_duration',
+        operator: PropertyOperator.GreaterThanOrEqual,
+        type: PropertyFilterType.Event,
+        value: 42,
     },
-    {
-        label: 'Does not contain',
-        filter: { key: '$current_url', operator: PropertyOperator.NotIContains, type: 'event', value: 'checkout' },
-    },
-    {
-        label: 'Matches regex',
-        filter: { key: '$pathname', operator: PropertyOperator.Regex, type: 'event', value: '^/api/v[0-9]+' },
-    },
-    {
-        label: 'Does not match regex',
-        filter: { key: '$pathname', operator: PropertyOperator.NotRegex, type: 'event', value: '^/api/v[0-9]+' },
-    },
-    {
-        label: 'Greater than',
-        filter: { key: '$session_duration', operator: PropertyOperator.GreaterThan, type: 'event', value: 42 },
-    },
-    {
-        label: 'Greater than or equal',
-        filter: { key: '$session_duration', operator: PropertyOperator.GreaterThanOrEqual, type: 'event', value: 42 },
-    },
-    {
-        label: 'Less than',
-        filter: { key: '$session_duration', operator: PropertyOperator.LessThan, type: 'event', value: 42 },
-    },
-    {
-        label: 'Less than or equal',
-        filter: { key: '$session_duration', operator: PropertyOperator.LessThanOrEqual, type: 'event', value: 42 },
-    },
-    { label: 'Between', filter: { key: 'score', operator: PropertyOperator.Between, type: 'event', value: [10, 100] } },
-    {
-        label: 'Not between',
-        filter: { key: 'score', operator: PropertyOperator.NotBetween, type: 'event', value: [10, 100] },
-    },
-    {
-        label: 'Is date exact',
-        filter: { key: '$timestamp', operator: PropertyOperator.IsDateExact, type: 'event', value: '2024-06-15' },
-    },
-    {
-        label: 'Is date before',
-        filter: { key: '$timestamp', operator: PropertyOperator.IsDateBefore, type: 'event', value: '2024-06-15' },
-    },
-    {
-        label: 'Is date after',
-        filter: { key: '$timestamp', operator: PropertyOperator.IsDateAfter, type: 'event', value: '2024-06-15' },
-    },
-    { label: 'Is set', filter: { key: 'email', operator: PropertyOperator.IsSet, type: 'event', value: 'is_set' } },
-    {
-        label: 'Is not set',
-        filter: { key: 'email', operator: PropertyOperator.IsNotSet, type: 'event', value: 'is_not_set' },
-    },
-]
+    { key: '$session_duration', operator: PropertyOperator.LessThan, type: PropertyFilterType.Event, value: 42 },
+    { key: '$session_duration', operator: PropertyOperator.LessThanOrEqual, type: PropertyFilterType.Event, value: 42 },
+    { key: 'score', operator: PropertyOperator.Between, type: PropertyFilterType.Event, value: [10, 100] },
+    { key: 'score', operator: PropertyOperator.NotBetween, type: PropertyFilterType.Event, value: [10, 100] },
+    { key: '$timestamp', operator: PropertyOperator.IsDateExact, type: PropertyFilterType.Event, value: '2024-06-15' },
+    { key: '$timestamp', operator: PropertyOperator.IsDateBefore, type: PropertyFilterType.Event, value: '2024-06-15' },
+    { key: '$timestamp', operator: PropertyOperator.IsDateAfter, type: PropertyFilterType.Event, value: '2024-06-15' },
+    { key: 'email', operator: PropertyOperator.IsSet, type: PropertyFilterType.Event, value: 'is_set' },
+    { key: 'email', operator: PropertyOperator.IsNotSet, type: PropertyFilterType.Event, value: 'is_not_set' },
+] satisfies AnyPropertyFilter[]
 
 export function OperatorVariants(): JSX.Element {
     return (
         <div className="space-y-2">
-            {operatorVariants.map(({ label, filter }) => (
-                <div key={filter.operator}>
-                    <div className="text-xs font-bold mb-1">{label}</div>
+            {operatorVariantFilters.map((filter, index) => (
+                <div key={index}>
                     <PropertyFilterButton item={filter} />
                 </div>
             ))}
