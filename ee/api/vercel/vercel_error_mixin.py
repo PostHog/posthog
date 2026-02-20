@@ -19,7 +19,13 @@ class VercelErrorResponseMixin:
     @staticmethod
     def _format_vercel_error(exc: Exception) -> dict[str, Any]:
         if isinstance(exc, APIException):
-            message = str(exc.detail)
+            detail = exc.detail
+            if isinstance(detail, list):
+                message = " ".join(str(item) for item in detail)
+            elif isinstance(detail, dict):
+                message = " ".join(f"{k}: {v}" for k, v in detail.items())
+            else:
+                message = str(detail)
         else:
             message = "An internal error occurred. Please try again."
 
