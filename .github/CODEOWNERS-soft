@@ -114,6 +114,18 @@ frontend/src/toolbar/web-vitals/** @PostHog/team-web-analytics
 rust/common/cookieless/** @PostHog/team-web-analytics
 nodejs/src/ingestion/cookieless/** @PostHog/team-web-analytics
 
+# Heatmaps - owned by @PostHog/team-web-analytics
+frontend/src/scenes/heatmaps/** @PostHog/team-web-analytics
+frontend/src/lib/components/heatmaps/** @PostHog/team-web-analytics
+frontend/src/toolbar/elements/heatmapToolbarMenuLogic.ts @PostHog/team-web-analytics
+posthog/heatmaps/** @PostHog/team-web-analytics
+posthog/models/heatmap_saved.py @PostHog/team-web-analytics
+posthog/hogql/database/schema/heatmaps.py @PostHog/team-web-analytics
+posthog/tasks/heatmap_screenshot.py @PostHog/team-web-analytics
+nodejs/src/ingestion/analytics/heatmap-subpipeline.ts @PostHog/team-web-analytics
+nodejs/src/ingestion/event-processing/extract-heatmap-data-step.ts @PostHog/team-web-analytics
+nodejs/src/ingestion/event-processing/event-pipeline-runner-heatmap-step.ts @PostHog/team-web-analytics
+
 # Analytics Platform - owned by @PostHog/team-analytics-platform
 posthog/dags/locations/analytics*platform.py @PostHog/team-analytics-platform
 ee/tasks/subscriptions/** @PostHog/team-analytics-platform
