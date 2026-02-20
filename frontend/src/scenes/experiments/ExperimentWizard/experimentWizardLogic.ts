@@ -1,6 +1,7 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import type { Experiment, FeatureFlagType } from '~/types'
@@ -12,6 +13,9 @@ import { NEW_EXPERIMENT } from '../constants'
 import type { experimentWizardLogicType } from './experimentWizardLogicType'
 
 export type ExperimentWizardStep = 'about' | 'variants' | 'analytics'
+
+const SHOW_GUIDE_STORAGE_KEY = 'experiment-wizard-show-guide'
+const SHOW_GUIDE_DEFAULT = true
 
 const WIZARD_STEPS: ExperimentWizardStep[] = ['about', 'variants', 'analytics']
 
@@ -57,6 +61,12 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             ['validateFeatureFlagKey', 'clearFeatureFlagKeyValidation'],
             selectExistingFeatureFlagModalLogic,
             ['loadFeatureFlagsForAutocomplete', 'loadFeatureFlagsSuccess'],
+            eventUsageLogic,
+            [
+                'reportExperimentWizardStarted',
+                'reportExperimentWizardGuideToggled',
+                'reportExperimentCreationFormSwitched',
+            ],
         ],
     })),
 
@@ -71,10 +81,24 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         markStepDeparted: (step: ExperimentWizardStep) => ({ step }),
         resetWizard: true,
         openFullEditor: true,
+        toggleGuide: true,
         setLinkedFeatureFlag: (flag: FeatureFlagType | null) => ({ flag }),
     }),
 
     reducers(() => ({
+        showGuide: [
+            (() => {
+                try {
+                    const stored = localStorage.getItem(SHOW_GUIDE_STORAGE_KEY)
+                    return stored === null ? SHOW_GUIDE_DEFAULT : stored === 'true'
+                } catch {
+                    return SHOW_GUIDE_DEFAULT
+                }
+            })(),
+            {
+                toggleGuide: (state) => !state,
+            },
+        ],
         currentStep: [
             'about' as ExperimentWizardStep,
             {
@@ -167,7 +191,16 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        toggleGuide: () => {
+            actions.reportExperimentWizardGuideToggled(values.showGuide, values.currentStep)
+            try {
+                localStorage.setItem(SHOW_GUIDE_STORAGE_KEY, JSON.stringify(values.showGuide))
+            } catch {
+                // Ignore localStorage errors
+            }
+        },
         openFullEditor: () => {
+            actions.reportExperimentCreationFormSwitched('wizard', 'classic_form', values.currentStep)
             router.actions.push(urls.experiment('new'))
         },
         loadFeatureFlagsSuccess: ({
@@ -218,8 +251,9 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         },
     })),
 
-    events(({ actions }) => ({
+    events(({ actions, values }) => ({
         afterMount: () => {
+            actions.reportExperimentWizardStarted(values.showGuide)
             actions.resetWizard()
             actions.loadFeatureFlagsForAutocomplete()
         },

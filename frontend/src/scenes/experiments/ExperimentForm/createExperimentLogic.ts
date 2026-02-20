@@ -149,7 +149,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             ],
             actions: [
                 eventUsageLogic,
-                ['reportExperimentCreated', 'reportExperimentUpdated'],
+                ['reportExperimentCreated', 'reportExperimentUpdated', 'reportExperimentCreationFormSwitched'],
                 featureFlagsLogic,
                 ['updateFlag'],
                 teamLogic,
@@ -330,6 +330,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
     })),
     listeners(({ values, actions, props }) => ({
         switchToWizard: () => {
+            actions.reportExperimentCreationFormSwitched('classic_form', 'wizard')
             router.actions.push(urls.experimentWizard())
         },
         clearDraft: () => {
@@ -463,7 +464,11 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                         lemonToast.success('Experiment updated successfully!')
                     } else {
                         // Create flow
-                        actions.reportExperimentCreated(response)
+                        const isWizard = router.values.searchParams['mode'] === 'wizard'
+                        actions.reportExperimentCreated(response, {
+                            creation_source: isWizard ? 'wizard' : 'classic_form',
+                            has_linked_flag: !!response.feature_flag?.id,
+                        })
                         actions.addProductIntent({
                             product_type: ProductKey.EXPERIMENTS,
                             intent_context: ProductIntentContext.EXPERIMENT_CREATED,
