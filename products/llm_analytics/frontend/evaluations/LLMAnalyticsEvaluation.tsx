@@ -22,6 +22,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { urls } from '~/scenes/urls'
@@ -49,7 +50,10 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         availableModels,
         availableModelsLoading,
         providerKeysLoading,
+        signalEmissionEnabled,
+        signalEmissionLoading,
     } = useValues(llmEvaluationLogic)
+    const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
     const {
@@ -62,6 +66,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         setSelectedProvider,
         setSelectedKeyId,
         setSelectedModel,
+        setSignalEmission,
     } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
     const triggersRef = useRef<HTMLDivElement>(null)
@@ -200,6 +205,19 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                     </span>
                                 </div>
                             </Field>
+                            {!isNewEvaluation && user?.is_staff && (
+                                <div className="flex items-center gap-2">
+                                    <LemonSwitch
+                                        checked={signalEmissionEnabled}
+                                        onChange={setSignalEmission}
+                                        loading={signalEmissionLoading}
+                                    />
+                                    <span>Emit signals</span>
+                                    <Tooltip title="When enabled, true verdicts from this evaluation will be emitted as signals for clustering and investigation.">
+                                        <IconInfo className="text-muted text-base" />
+                                    </Tooltip>
+                                </div>
+                            )}
                         </div>
                     </div>
 
