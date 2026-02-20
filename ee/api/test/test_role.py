@@ -86,6 +86,30 @@ class TestRoleAPI(APILicensedTest):
         with self.assertRaises(IntegrityError):
             Role.objects.create(name="Marketing", organization=self.organization)
 
+    def test_can_rename_role_with_case_change(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        role = Role.objects.create(name="engineering", organization=self.organization, created_by=self.user)
+        res = self.client.patch(
+            f"/api/organizations/@current/roles/{role.id}",
+            {"name": "Engineering"},
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        role.refresh_from_db()
+        self.assertEqual(role.name, "Engineering")
+
+    def test_cannot_rename_role_to_existing_name(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        Role.objects.create(name="Marketing", organization=self.organization, created_by=self.user)
+        eng_role = Role.objects.create(name="Engineering", organization=self.organization, created_by=self.user)
+        res = self.client.patch(
+            f"/api/organizations/@current/roles/{eng_role.id}",
+            {"name": "marketing"},
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res.json()["code"], "unique")
+
     def test_returns_correct_results_by_organization(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
