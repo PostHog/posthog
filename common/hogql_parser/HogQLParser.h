@@ -2105,8 +2105,6 @@ public:
     ColumnExprContext *columnExpr();
     antlr4::tree::TerminalNode *AS();
     IdentifierContext *identifier();
-    antlr4::tree::TerminalNode *MATERIALIZED();
-    antlr4::tree::TerminalNode *NOT();
 
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
