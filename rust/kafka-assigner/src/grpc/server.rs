@@ -38,9 +38,8 @@ impl KafkaAssigner for KafkaAssignerService {
         let req = request.into_inner();
         let consumer_name = req.consumer_name;
 
-        if consumer_name.is_empty() {
-            return Err(Status::invalid_argument("consumer_name is required"));
-        }
+        assignment_coordination::util::validate_identifier(&consumer_name)
+            .map_err(|e| Status::invalid_argument(format!("invalid consumer_name: {e}")))?;
 
         // Grant an etcd lease for this consumer's registration.
         let lease_id = self
@@ -122,11 +121,18 @@ impl KafkaAssigner for KafkaAssignerService {
         // task detects it via the closed channel and cleans up.
         tokio::spawn(async move {
             let result =
-                run_consumer_keepalive(&store, lease_id, DEFAULT_KEEPALIVE_INTERVAL, proto_tx)
+                run_consumer_keepalive(&store, lease_id, DEFAULT_KEEPALIVE_INTERVAL, &proto_tx)
                     .await;
 
             if let Err(e) = &result {
                 tracing::warn!(consumer = %name, error = %e, "consumer keepalive ended");
+                // Notify the consumer that the stream is being closed so it
+                // knows to reconnect rather than waiting for a timeout.
+                drop(
+                    proto_tx
+                        .send(Err(Status::unavailable(format!("keepalive lost: {e}"))))
+                        .await,
+                );
             }
 
             // Cleanup: unregister from local registry and revoke the etcd lease.
@@ -148,6 +154,11 @@ impl KafkaAssigner for KafkaAssignerService {
         let req = request.into_inner();
         let tp = convert::topic_partition_from_ready(&req)
             .ok_or_else(|| Status::invalid_argument("partition is required"))?;
+
+        assignment_coordination::util::validate_identifier(&req.consumer_name)
+            .map_err(|e| Status::invalid_argument(format!("invalid consumer_name: {e}")))?;
+        assignment_coordination::util::validate_identifier(&tp.topic)
+            .map_err(|e| Status::invalid_argument(format!("invalid topic: {e}")))?;
 
         // Write handoff phase to Ready in etcd. The leader's watch_handoffs_loop
         // will see this and call complete_handoff.
@@ -184,6 +195,11 @@ impl KafkaAssigner for KafkaAssignerService {
         let tp = convert::topic_partition_from_released(&req)
             .ok_or_else(|| Status::invalid_argument("partition is required"))?;
 
+        assignment_coordination::util::validate_identifier(&req.consumer_name)
+            .map_err(|e| Status::invalid_argument(format!("invalid consumer_name: {e}")))?;
+        assignment_coordination::util::validate_identifier(&tp.topic)
+            .map_err(|e| Status::invalid_argument(format!("invalid topic: {e}")))?;
+
         // Delete the handoff from etcd. This signals to the leader that the
         // old consumer has released and the handoff is fully complete.
         self.store
@@ -211,7 +227,7 @@ async fn run_consumer_keepalive(
     store: &KafkaAssignerStore,
     lease_id: i64,
     interval: Duration,
-    proto_tx: mpsc::Sender<Result<proto::AssignmentCommand, Status>>,
+    proto_tx: &mpsc::Sender<Result<proto::AssignmentCommand, Status>>,
 ) -> crate::error::Result<()> {
     let (mut keeper, mut stream) = store.keep_alive(lease_id).await?;
 

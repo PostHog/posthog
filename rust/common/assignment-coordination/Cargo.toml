@@ -9,6 +9,9 @@ etcd-client = "0.18"
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { version = "0.7", features = ["rt"] }
+tracing = { workspace = true }
 
 [lints]
 workspace = true

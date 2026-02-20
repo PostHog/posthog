@@ -25,6 +25,8 @@ pub struct AssignerConfig {
     /// How long to wait after the first consumer event before rebalancing,
     /// to batch rapid consumer registrations into a single rebalance.
     pub rebalance_debounce_interval: Duration,
+    /// Maximum time a handoff can stay in any phase before being cleaned up.
+    pub handoff_timeout: Duration,
 }
 
 impl Default for AssignerConfig {
@@ -35,6 +37,7 @@ impl Default for AssignerConfig {
             keepalive_interval: Duration::from_secs(5),
             election_retry_interval: Duration::from_secs(5),
             rebalance_debounce_interval: Duration::from_secs(1),
+            handoff_timeout: Duration::from_secs(300),
         }
     }
 }
@@ -90,7 +93,8 @@ impl Assigner {
 
     async fn run_coordination_loop(&self, cancel: CancellationToken) -> Result<()> {
         // Compute initial assignments for any consumers already registered
-        self.handle_consumer_change().await?;
+        self.handle_consumer_change(self.config.handoff_timeout)
+            .await?;
 
         // Watch consumers and handoffs concurrently
         let mut tasks = tokio::task::JoinSet::new();
@@ -99,17 +103,28 @@ impl Assigner {
             let store = Arc::clone(&self.store);
             let strategy = Arc::clone(&self.strategy);
             let debounce_interval = self.config.rebalance_debounce_interval;
+            let handoff_timeout = self.config.handoff_timeout;
             let token = cancel.child_token();
             tasks.spawn(async move {
-                Self::watch_consumers_loop(store, strategy, debounce_interval, token).await
+                Self::watch_consumers_loop(
+                    store,
+                    strategy,
+                    debounce_interval,
+                    handoff_timeout,
+                    token,
+                )
+                .await
             });
         }
 
         {
             let store = Arc::clone(&self.store);
             let strategy = Arc::clone(&self.strategy);
+            let handoff_timeout = self.config.handoff_timeout;
             let token = cancel.child_token();
-            tasks.spawn(async move { Self::watch_handoffs_loop(store, strategy, token).await });
+            tasks.spawn(async move {
+                Self::watch_handoffs_loop(store, strategy, handoff_timeout, token).await
+            });
         }
 
         let result = tokio::select! {
@@ -130,6 +145,7 @@ impl Assigner {
         store: Arc<KafkaAssignerStore>,
         strategy: Arc<dyn AssignmentStrategy>,
         debounce_interval: Duration,
+        handoff_timeout: Duration,
         cancel: CancellationToken,
     ) -> Result<()> {
         let mut stream = store.watch_consumers().await?;
@@ -157,7 +173,7 @@ impl Assigner {
                 }
             }
 
-            Self::handle_consumer_change_static(&store, strategy.as_ref()).await?;
+            Self::handle_consumer_change_static(&store, strategy.as_ref(), handoff_timeout).await?;
         }
     }
 
@@ -173,6 +189,7 @@ impl Assigner {
     async fn watch_handoffs_loop(
         store: Arc<KafkaAssignerStore>,
         strategy: Arc<dyn AssignmentStrategy>,
+        handoff_timeout: Duration,
         cancel: CancellationToken,
     ) -> Result<()> {
         let mut stream = store.watch_handoffs().await?;
@@ -200,13 +217,13 @@ impl Assigner {
                     // call PartitionReleased to delete the handoff).
                     let consumers = store.list_consumers().await?;
                     let active = active_consumer_names(&consumers);
-                    Self::cleanup_stale_handoffs(&store, &active).await?;
+                    Self::cleanup_stale_handoffs(&store, &active, handoff_timeout).await?;
 
                     // After processing all events, check if all handoffs have
                     // completed. If so, re-trigger rebalancing to pick up any
                     // consumer changes that were deferred.
                     if store.list_handoffs().await?.is_empty() {
-                        Self::handle_consumer_change_static(&store, strategy.as_ref()).await?;
+                        Self::handle_consumer_change_static(&store, strategy.as_ref(), handoff_timeout).await?;
                     }
                 }
             }
@@ -260,19 +277,21 @@ impl Assigner {
 
     // ── Rebalancing ──────────────────────────────────────────────
 
-    async fn handle_consumer_change(&self) -> Result<()> {
-        Self::handle_consumer_change_static(&self.store, self.strategy.as_ref()).await
+    async fn handle_consumer_change(&self, handoff_timeout: Duration) -> Result<()> {
+        Self::handle_consumer_change_static(&self.store, self.strategy.as_ref(), handoff_timeout)
+            .await
     }
 
     async fn handle_consumer_change_static(
         store: &KafkaAssignerStore,
         strategy: &dyn AssignmentStrategy,
+        handoff_timeout: Duration,
     ) -> Result<()> {
         let consumers = store.list_consumers().await?;
         let active_consumers = active_consumer_names(&consumers);
 
         // Clean up handoffs targeting consumers that are no longer active.
-        Self::cleanup_stale_handoffs(store, &active_consumers).await?;
+        Self::cleanup_stale_handoffs(store, &active_consumers, handoff_timeout).await?;
 
         // Skip rebalancing while handoffs are in flight to prevent
         // overlapping rebalances. watch_handoffs_loop re-triggers
@@ -360,24 +379,30 @@ impl Assigner {
 
     /// Delete handoffs that can no longer make progress.
     ///
-    /// Two cases:
+    /// Three cases:
     /// - `new_owner` is dead: the handoff can't complete (nobody to warm up).
     /// - `old_owner` is dead AND phase is `Complete`: the assignment is already
     ///   transferred, but nobody will call `PartitionReleased` to delete the
     ///   handoff. Without cleanup, this blocks all future rebalancing.
+    /// - Handoff has exceeded the timeout: the consumer may be stuck or
+    ///   non-responsive. Abort to unblock rebalancing.
     async fn cleanup_stale_handoffs(
         store: &KafkaAssignerStore,
         active_consumers: &[String],
+        handoff_timeout: Duration,
     ) -> Result<()> {
         let handoffs = store.list_handoffs().await?;
         let active_set: HashSet<&str> = active_consumers.iter().map(|s| s.as_str()).collect();
+        let now = util::now_seconds();
+        let timeout_secs = handoff_timeout.as_secs() as i64;
 
         for handoff in &handoffs {
             let new_owner_dead = !active_set.contains(handoff.new_owner.as_str());
             let old_owner_dead_at_complete = handoff.phase == HandoffPhase::Complete
                 && !active_set.contains(handoff.old_owner.as_str());
+            let timed_out = (now - handoff.started_at) > timeout_secs;
 
-            if new_owner_dead || old_owner_dead_at_complete {
+            if new_owner_dead || old_owner_dead_at_complete || timed_out {
                 tracing::warn!(
                     topic = %handoff.topic,
                     partition = handoff.partition,
@@ -386,6 +411,7 @@ impl Assigner {
                     phase = ?handoff.phase,
                     new_owner_dead,
                     old_owner_dead_at_complete,
+                    timed_out,
                     "cleaning up stale handoff"
                 );
                 store.delete_handoff(&handoff.topic_partition()).await?;

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use etcd_client::EventType;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio_util::sync::CancellationToken;
 
 use crate::consumer_registry::ConsumerRegistry;
@@ -75,8 +76,14 @@ async fn relay_assignments(
                             assigned: partitions,
                             unassigned: vec![],
                         };
-                        if sender.send(event).await.is_err() {
-                            tracing::debug!(consumer = %consumer, "consumer channel closed, skipping assignment");
+                        match sender.try_send(event) {
+                            Ok(()) => {}
+                            Err(TrySendError::Full(_)) => {
+                                tracing::warn!(consumer = %consumer, "consumer channel full, dropping assignment");
+                            }
+                            Err(TrySendError::Closed(_)) => {
+                                tracing::debug!(consumer = %consumer, "consumer channel closed, skipping assignment");
+                            }
                         }
                     }
                 }
@@ -103,7 +110,7 @@ async fn relay_handoffs(
                     if event.event_type() == EventType::Put {
                         match store::parse_watch_value::<HandoffState>(event) {
                             Ok(handoff) => {
-                                relay_handoff_event(&registry, &handoff).await;
+                                relay_handoff_event(&registry, &handoff);
                             }
                             Err(e) => {
                                 tracing::error!(error = %e, "failed to parse handoff event");
@@ -117,27 +124,31 @@ async fn relay_handoffs(
 }
 
 /// Route a single handoff event to the appropriate consumer.
-async fn relay_handoff_event(registry: &ConsumerRegistry, handoff: &HandoffState) {
+fn relay_handoff_event(registry: &ConsumerRegistry, handoff: &HandoffState) {
     match handoff.phase {
         HandoffPhase::Warming => {
             if let Some(sender) = registry.get_sender(&handoff.new_owner) {
-                if sender
-                    .send(AssignmentEvent::Warm(handoff.clone()))
-                    .await
-                    .is_err()
-                {
-                    tracing::debug!(consumer = %handoff.new_owner, "consumer channel closed, skipping warm");
+                match sender.try_send(AssignmentEvent::Warm(handoff.clone())) {
+                    Ok(()) => {}
+                    Err(TrySendError::Full(_)) => {
+                        tracing::warn!(consumer = %handoff.new_owner, "consumer channel full, dropping warm");
+                    }
+                    Err(TrySendError::Closed(_)) => {
+                        tracing::debug!(consumer = %handoff.new_owner, "consumer channel closed, skipping warm");
+                    }
                 }
             }
         }
         HandoffPhase::Complete => {
             if let Some(sender) = registry.get_sender(&handoff.old_owner) {
-                if sender
-                    .send(AssignmentEvent::Release(handoff.clone()))
-                    .await
-                    .is_err()
-                {
-                    tracing::debug!(consumer = %handoff.old_owner, "consumer channel closed, skipping release");
+                match sender.try_send(AssignmentEvent::Release(handoff.clone())) {
+                    Ok(()) => {}
+                    Err(TrySendError::Full(_)) => {
+                        tracing::warn!(consumer = %handoff.old_owner, "consumer channel full, dropping release");
+                    }
+                    Err(TrySendError::Closed(_)) => {
+                        tracing::debug!(consumer = %handoff.old_owner, "consumer channel closed, skipping release");
+                    }
                 }
             }
         }

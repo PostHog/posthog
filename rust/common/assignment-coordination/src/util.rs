@@ -1,5 +1,30 @@
 use std::collections::HashMap;
 
+use crate::error::{Error, Result};
+
+/// Validate that an identifier is safe for use in etcd key paths.
+///
+/// Identifiers (consumer names, topic names) are interpolated into etcd key
+/// paths. Without validation, a name like `../../handoffs/events/0` could
+/// write to arbitrary keys.
+pub fn validate_identifier(name: &str) -> Result<()> {
+    if name.is_empty() || name.len() > 128 {
+        return Err(Error::InvalidState(
+            "identifier must be 1-128 characters".to_string(),
+        ));
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(Error::InvalidState(
+            "identifier contains invalid characters (only alphanumeric, dash, underscore allowed)"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
 pub fn now_seconds() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -61,5 +86,30 @@ mod tests {
         let mut desired = HashMap::new();
         desired.insert(0, "c-0".to_string());
         assert!(compute_required_handoffs(&current, &desired).is_empty());
+    }
+
+    #[test]
+    fn validate_identifier_accepts_valid() {
+        for name in ["c-0", "consumer_1", "abc", "A-B_C-123"] {
+            assert!(validate_identifier(name).is_ok(), "should accept: {name}");
+        }
+    }
+
+    #[test]
+    fn validate_identifier_rejects_empty() {
+        assert!(validate_identifier("").is_err());
+    }
+
+    #[test]
+    fn validate_identifier_rejects_too_long() {
+        let long = "a".repeat(129);
+        assert!(validate_identifier(&long).is_err());
+    }
+
+    #[test]
+    fn validate_identifier_rejects_path_traversal() {
+        for name in ["../../etc", "foo/bar", "a.b", "hello world"] {
+            assert!(validate_identifier(name).is_err(), "should reject: {name}");
+        }
     }
 }

@@ -37,6 +37,8 @@ members = [
     "embedding-worker",
     "common/geoip",
     "common/hogvm",
+    "kafka-assigner",
+    "kafka-assigner-proto",
     "kafka-deduplicator",
     "personhog-coordination",
     "personhog-proto",
@@ -141,6 +143,7 @@ fancy-regex = "0.17"
 lz-str = "0.2.1"
 opentelemetry-proto = { version = "0.29.0", features = ["with-serde"] }
 tonic = "0.12.3"
+tonic-build = "0.12"
 clickhouse = { version = "0.13.2", features = [
     "uuid",
     "time",

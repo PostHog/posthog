@@ -336,10 +336,7 @@ impl KafkaAssignerStore {
 pub fn parse_watch_value<T: serde::de::DeserializeOwned>(
     event: &etcd_client::Event,
 ) -> std::result::Result<T, Error> {
-    let kv = event
-        .kv()
-        .ok_or_else(|| Error::invalid_state("watch event missing kv"))?;
-    serde_json::from_slice(kv.value()).map_err(Error::from)
+    Ok(assignment_coordination::store::parse_watch_value(event)?)
 }
 
 /// Extract a `TopicPartition` from an etcd key like
