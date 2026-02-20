@@ -572,13 +572,9 @@ for (const result of results) {
 if (outputDirs.length > 0) {
     console.log('')
     console.log('Formatting generated files...')
-    const globs = outputDirs.map((d) => `"${d}/**/*.ts"`).join(' ')
-    try {
-        execSync(`pnpm exec oxfmt ${globs}`, { stdio: 'pipe', cwd: repoRoot })
-        console.log('   ✓ Formatted')
-    } catch {
-        console.log('   ⚠️  Formatting skipped (not critical)')
-    }
+    const globs = outputDirs.join(' ')
+    execSync(`pnpm exec oxfmt ${globs}`, { stdio: 'pipe', cwd: repoRoot })
+    console.log('   ✓ Formatted')
 }
 
 // Cleanup temp dir
