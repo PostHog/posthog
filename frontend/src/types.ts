@@ -2260,6 +2260,7 @@ export interface EndpointType extends WithAccessControl {
     /** Last execution time from ClickHouse query_log table */
     last_executed_at?: string
     materialization?: EndpointVersionMaterializationType
+    columns?: { name: string; type: string }[]
 }
 
 /** Extends EndpointType with version-specific fields when fetching a specific version */
