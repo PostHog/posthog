@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 import { LLMProvider, LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
 import { queryEvaluationRuns } from '../utils'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
@@ -516,6 +517,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     anthropic: [],
                     gemini: [],
                     openrouter: [],
+                    fireworks: [],
                 }
                 for (const key of providerKeys) {
                     if (key.provider in byProvider) {
@@ -530,6 +532,23 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             (s) => [s.providerKeysByProvider, s.selectedProvider],
             (providerKeysByProvider: Record<LLMProvider, LLMProviderKey[]>, selectedProvider: LLMProvider) =>
                 providerKeysByProvider[selectedProvider] || [],
+        ],
+
+        evaluationProviderKeyIssue: [
+            (s) => [s.evaluation, s.providerKeys],
+            (evaluation: EvaluationConfig | null, providerKeys: LLMProviderKey[]): LLMProviderKey | null => {
+                const providerKeyId = evaluation?.model_configuration?.provider_key_id
+                if (!providerKeyId) {
+                    return null
+                }
+
+                const providerKey = providerKeys.find((key) => key.id === providerKeyId)
+                if (!providerKey || !isUnhealthyProviderKeyState(providerKey.state)) {
+                    return null
+                }
+
+                return providerKey
+            },
         ],
 
         runsLookup: [

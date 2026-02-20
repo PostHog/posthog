@@ -15,9 +15,9 @@
 export type EvaluationRuntimeEnumApi = (typeof EvaluationRuntimeEnumApi)[keyof typeof EvaluationRuntimeEnumApi]
 
 export const EvaluationRuntimeEnumApi = {
-    server: 'server',
-    client: 'client',
-    all: 'all',
+    Server: 'server',
+    Client: 'client',
+    All: 'all',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
@@ -37,8 +37,8 @@ export const NullEnumApi = {} as const
 export type BucketingIdentifierEnumApi = (typeof BucketingIdentifierEnumApi)[keyof typeof BucketingIdentifierEnumApi]
 
 export const BucketingIdentifierEnumApi = {
-    distinct_id: 'distinct_id',
-    device_id: 'device_id',
+    DistinctId: 'distinct_id',
+    DeviceId: 'device_id',
 } as const
 
 export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
@@ -89,14 +89,14 @@ export interface MinimalFeatureFlagApi {
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
 export const RoleAtOrganizationEnumApi = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
 } as const
 
 /**
@@ -175,8 +175,8 @@ export type ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi =
     (typeof ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi)[keyof typeof ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi]
 
 export const ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi = {
-    app: 'app',
-    toolbar: 'toolbar',
+    App: 'app',
+    Toolbar: 'toolbar',
 } as const
 
 /**
@@ -237,6 +237,24 @@ export interface PatchedProductTourSerializerCreateUpdateOnlyApi {
 * `app` - app
 * `toolbar` - toolbar */
     creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi
+}
+
+export type GenerateRequestApiStepsItem = { [key: string]: unknown }
+
+export interface GenerateRequestApi {
+    title?: string
+    goal?: string
+    steps?: GenerateRequestApiStepsItem[]
+}
+
+export interface GenerateStepResponseApi {
+    step_id: string
+    title: string
+    description: string
+}
+
+export interface GenerateResponseApi {
+    steps: GenerateStepResponseApi[]
 }
 
 export type ProductToursListParams = {

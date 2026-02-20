@@ -102,9 +102,9 @@ export interface PaginatedDataModelingJobListApi {
 export type SyncTypeEnumApi = (typeof SyncTypeEnumApi)[keyof typeof SyncTypeEnumApi]
 
 export const SyncTypeEnumApi = {
-    full_refresh: 'full_refresh',
-    incremental: 'incremental',
-    append: 'append',
+    FullRefresh: 'full_refresh',
+    Incremental: 'incremental',
+    Append: 'append',
 } as const
 
 /**
@@ -286,6 +286,7 @@ export interface PaginatedExternalDataSchemaListApi {
  * `Brevo` - Brevo
  * `Postmark` - Postmark
  * `Granola` - Granola
+ * `BuildBetter` - BuildBetter
  */
 export type SourceTypeEnumApi = (typeof SourceTypeEnumApi)[keyof typeof SourceTypeEnumApi]
 
@@ -302,7 +303,7 @@ export const SourceTypeEnumApi = {
     Salesforce: 'Salesforce',
     MySQL: 'MySQL',
     MongoDB: 'MongoDB',
-    MSSQL: 'MSSQL',
+    Mssql: 'MSSQL',
     Vitally: 'Vitally',
     BigQuery: 'BigQuery',
     Chargebee: 'Chargebee',
@@ -405,7 +406,7 @@ export const SourceTypeEnumApi = {
     OneDrive: 'OneDrive',
     SharePoint: 'SharePoint',
     Box: 'Box',
-    SFTP: 'SFTP',
+    Sftp: 'SFTP',
     MicrosoftTeams: 'MicrosoftTeams',
     Aircall: 'Aircall',
     Webflow: 'Webflow',
@@ -429,6 +430,7 @@ export const SourceTypeEnumApi = {
     Brevo: 'Brevo',
     Postmark: 'Postmark',
     Granola: 'Granola',
+    BuildBetter: 'BuildBetter',
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
@@ -551,14 +553,14 @@ export interface PatchedQueryTabStateApi {
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
 export const RoleAtOrganizationEnumApi = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
@@ -645,9 +647,9 @@ export const StatusD5cEnumApi = {
 export type OriginEnumApi = (typeof OriginEnumApi)[keyof typeof OriginEnumApi]
 
 export const OriginEnumApi = {
-    data_warehouse: 'data_warehouse',
-    endpoint: 'endpoint',
-    managed_viewset: 'managed_viewset',
+    DataWarehouse: 'data_warehouse',
+    Endpoint: 'endpoint',
+    ManagedViewset: 'managed_viewset',
 } as const
 
 /**
@@ -795,7 +797,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
 export type TableFormatEnumApi = (typeof TableFormatEnumApi)[keyof typeof TableFormatEnumApi]
 
 export const TableFormatEnumApi = {
-    CSV: 'CSV',
+    Csv: 'CSV',
     CSVWithNames: 'CSVWithNames',
     Parquet: 'Parquet',
     JSONEachRow: 'JSONEachRow',

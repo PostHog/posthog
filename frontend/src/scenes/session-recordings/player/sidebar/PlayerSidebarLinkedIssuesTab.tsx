@@ -37,7 +37,7 @@ type IssueConfig = Record<string, string>
 
 const IntegrationIcon = ({ kind }: { kind: IntegrationKind }): JSX.Element => {
     const className = kind === 'github' ? 'w-5 h-5 rounded-sm dark:invert' : 'w-5 h-5 rounded-sm'
-    return <img src={ICONS[kind]} className={className} />
+    return <img src={ICONS[kind]} alt={`${kind} integration`} className={className} />
 }
 
 export function PlayerSidebarLinkedIssuesTab(): JSX.Element | null {

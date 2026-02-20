@@ -563,7 +563,7 @@
        numerator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
-            coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', '') AS value
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -576,7 +576,7 @@
        denominator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
-            coalesce(accurateCastOrNull(events.distinct_id, 'Float64'), 0) AS value
+            events.distinct_id AS value
      FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -595,7 +595,7 @@
      GROUP BY exposures.entity_id),
        denominator_agg AS
     (SELECT exposures.entity_id AS entity_id,
-            coalesce(uniqExact(accurateCastOrNull(denominator_events.value, 'Float64')), 0) AS value
+            coalesce(uniqExact(denominator_events.value), 0) AS value
      FROM denominator_events
      JOIN exposures ON equals(exposures.entity_id, denominator_events.entity_id)
      WHERE ifNull(greaterOrEquals(toTimeZone(denominator_events.timestamp, 'UTC'), exposures.first_exposure_time), 0)
