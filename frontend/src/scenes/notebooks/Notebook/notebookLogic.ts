@@ -365,6 +365,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         return response
                     } catch (error: any) {
                         if (error.code === 'conflict') {
+                            actions.clearLocalContent()
                             actions.showConflictWarning()
                             return null
                         }
