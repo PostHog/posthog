@@ -389,15 +389,17 @@ export interface PatchedLLMProviderKeyApi {
 }
 
 export interface SentimentRequestApi {
-    trace_id: string
+    /**
+     * @minItems 1
+     * @maxItems 25
+     */
+    trace_ids: string[]
     force_refresh?: boolean
     /** @nullable */
     date_from?: string | null
     /** @nullable */
     date_to?: string | null
 }
-
-export type SentimentResponseApiScores = { [key: string]: number }
 
 export type MessageSentimentApiScores = { [key: string]: number }
 
@@ -418,6 +420,8 @@ export interface GenerationSentimentApi {
     messages: GenerationSentimentApiMessages
 }
 
+export type SentimentResponseApiScores = { [key: string]: number }
+
 export type SentimentResponseApiGenerations = { [key: string]: GenerationSentimentApi }
 
 export interface SentimentResponseApi {
@@ -428,19 +432,6 @@ export interface SentimentResponseApi {
     generations: SentimentResponseApiGenerations
     generation_count: number
     message_count: number
-}
-
-export interface SentimentBatchRequestApi {
-    /**
-     * @minItems 1
-     * @maxItems 25
-     */
-    trace_ids: string[]
-    force_refresh?: boolean
-    /** @nullable */
-    date_from?: string | null
-    /** @nullable */
-    date_to?: string | null
 }
 
 export type SentimentBatchResponseApiResults = { [key: string]: SentimentResponseApi }
@@ -780,10 +771,6 @@ export type LlmAnalyticsProviderKeysListParams = {
 export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown }
 
 export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown }
-
-export type LlmAnalyticsSentimentBatchCreate400 = { [key: string]: unknown }
-
-export type LlmAnalyticsSentimentBatchCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown }
 
