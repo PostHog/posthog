@@ -65,6 +65,8 @@ export interface LemonSelectPropsBase<T>
         | 'onClick'
         | 'tabIndex'
         | 'type'
+        | 'status'
+        | 'active'
         | 'tooltip'
         | 'icon'
     > {
