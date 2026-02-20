@@ -13,6 +13,7 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { DashboardTileCard } from 'scenes/dashboard/DashboardTileCard'
 import { dashboardFiltersLogic } from 'scenes/dashboard/dashboardFiltersLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
@@ -230,8 +231,10 @@ export function DashboardItems(): JSX.Element {
                             const loadingQueued = isErrorTile ? false : isRefreshingQueued(insight.short_id)
                             const loading = isErrorTile ? false : isRefreshing(insight.short_id)
 
+                            const TileComponent = useDensityV2 ? DashboardTileCard : InsightCard
+
                             return (
-                                <InsightCard
+                                <TileComponent
                                     key={tile.id}
                                     tile={tile}
                                     insight={insight}
