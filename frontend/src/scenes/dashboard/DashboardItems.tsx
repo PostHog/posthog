@@ -12,7 +12,13 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
+import {
+    BREAKPOINTS,
+    BREAKPOINT_COLUMN_COUNTS,
+    GRID_HORIZONTAL_MARGIN,
+    GRID_ROW_HEIGHT,
+    GRID_VERTICAL_MARGIN,
+} from 'scenes/dashboard/dashboardUtils'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
 import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
@@ -98,8 +104,8 @@ export function DashboardItems(): JSX.Element {
                     isDraggable={canEditLayout}
                     isResizable={canEditLayout}
                     layouts={layouts}
-                    rowHeight={80}
-                    margin={[16, 16]}
+                    rowHeight={GRID_ROW_HEIGHT}
+                    margin={[GRID_HORIZONTAL_MARGIN, GRID_VERTICAL_MARGIN]}
                     containerPadding={[0, 0]}
                     onLayoutChange={(_, newLayouts) => {
                         if (dashboardMode === DashboardMode.Edit) {
