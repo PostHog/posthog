@@ -35,6 +35,7 @@ MODULE_PATH = "posthog.temporal.data_imports.workflow_activities.emit_signals"
 def _make_config(**overrides: Any) -> SignalSourceTableConfig:
     defaults: dict[str, Any] = {
         "emitter": lambda team_id, record: SignalEmitterOutput(
+            source_product="test_product",
             source_type="test",
             source_id=str(record.get("id", "unknown")),
             description=record.get("description", ""),
@@ -70,6 +71,7 @@ def _make_llm_response(text: str | None, thought: str | None = None) -> MagicMoc
 
 def _make_output(source_id: str = "1", description: str = "test signal") -> SignalEmitterOutput:
     return SignalEmitterOutput(
+        source_product="test_product",
         source_type="test",
         source_id=source_id,
         description=description,
@@ -332,7 +334,8 @@ class TestSummarizeDescription:
     async def test_preserves_other_output_fields(self):
         client = self._mock_client(["Short summary."])
         output = SignalEmitterOutput(
-            source_type="github_issue",
+            source_product="github",
+            source_type="issue",
             source_id="42",
             description="x" * 500,
             weight=0.8,
@@ -341,7 +344,8 @@ class TestSummarizeDescription:
 
         result = await _summarize_description(client, output, self.PROMPT, self.THRESHOLD)
 
-        assert result.source_type == "github_issue"
+        assert result.source_product == "github"
+        assert result.source_type == "issue"
         assert result.source_id == "42"
         assert result.weight == 0.8
         assert result.extra == {"html_url": "https://example.com"}
@@ -395,7 +399,7 @@ class TestEmitSignals:
         assert count == 1
         mock_emit.assert_called_once_with(
             team=team,
-            source_product="data_imports",
+            source_product="test_product",
             source_type="test",
             source_id="42",
             description="bug report",
@@ -427,6 +431,7 @@ class TestEmitSignals:
     async def test_emits_without_extra_when_payload_exceeds_limit(self):
         oversized_extra = {"data": "x" * (TEMPORAL_PAYLOAD_MAX_BYTES + 1)}
         output = SignalEmitterOutput(
+            source_product="test_product",
             source_type="test",
             source_id="1",
             description="small",

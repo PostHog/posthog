@@ -77,7 +77,8 @@ def zendesk_ticket_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitte
         raise ValueError(msg)
     signal_description = f"{subject}\n{description}"
     return SignalEmitterOutput(
-        source_type="zendesk_ticket",
+        source_product="zendesk",
+        source_type="ticket",
         source_id=str(ticket_id),
         description=signal_description,
         # Sticking to 1 by default for user-generated issues

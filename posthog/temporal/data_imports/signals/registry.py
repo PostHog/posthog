@@ -11,6 +11,7 @@ EMIT_SIGNALS_FEATURE_FLAG = "emit-data-import-signals"
 
 @dataclasses.dataclass(frozen=True)
 class SignalEmitterOutput:
+    source_product: str
     source_type: str
     source_id: str
     description: str

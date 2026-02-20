@@ -12,7 +12,8 @@ class TestZendeskTicketEmitter:
         result = zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)
 
         assert result is not None
-        assert result.source_type == "zendesk_ticket"
+        assert result.source_product == "zendesk"
+        assert result.source_type == "ticket"
         assert result.source_id == "42"
         assert result.weight == 1.0
         assert "Dashboard charts not loading" in result.description

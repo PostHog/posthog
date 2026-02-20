@@ -69,7 +69,8 @@ def github_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterO
         # Issues could have empty bodies, it's not a validation error
         signal_description += f"\n{body}"
     return SignalEmitterOutput(
-        source_type="github_issue",
+        source_product="github",
+        source_type="issue",
         source_id=str(issue_id),
         description=signal_description,
         weight=1.0,

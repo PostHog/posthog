@@ -446,7 +446,7 @@ async def _emit_signals(
                     output = without_extra
                 await emit_signal(
                     team=team,
-                    source_product="data_imports",
+                    source_product=output.source_product,
                     source_type=output.source_type,
                     source_id=output.source_id,
                     description=output.description,

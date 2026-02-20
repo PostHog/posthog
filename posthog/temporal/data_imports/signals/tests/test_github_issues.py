@@ -8,7 +8,8 @@ class TestGithubIssueEmitter:
         result = github_issue_emitter(team_id=1, record=github_issue_record)
 
         assert result is not None
-        assert result.source_type == "github_issue"
+        assert result.source_product == "github"
+        assert result.source_type == "issue"
         assert result.source_id == "12345"
         assert result.weight == 1.0
         assert "Charts fail to render" in result.description
