@@ -85,8 +85,7 @@ export function DashboardItems(): JSX.Element {
     })
 
     const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver()
-    const canResizeWidth = !gridWrapperWidth || gridWrapperWidth > BREAKPOINTS['sm']
-    const isMobileView = gridWrapperWidth && gridWrapperWidth <= BREAKPOINTS['sm']
+    const isMobileView = gridWrapperWidth != null && gridWrapperWidth <= BREAKPOINTS['sm']
 
     return (
         <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
@@ -110,7 +109,7 @@ export function DashboardItems(): JSX.Element {
                         updateContainerWidth(containerWidth, newCols)
                     }}
                     breakpoints={BREAKPOINTS}
-                    resizeHandles={canResizeWidth ? ['s', 'e', 'se'] : ['s']}
+                    resizeHandles={['s', 'e', 'se']}
                     cols={BREAKPOINT_COLUMN_COUNTS}
                     onResize={(_layout: any, _oldItem: any, newItem: any) => {
                         if (!resizingItem || resizingItem.w !== newItem.w || resizingItem.h !== newItem.h) {
@@ -190,7 +189,7 @@ export function DashboardItems(): JSX.Element {
                         const commonTileProps = {
                             dashboardId: dashboard?.id,
                             showResizeHandles: dashboardMode === DashboardMode.Edit && !isMobileView,
-                            canResizeWidth: canResizeWidth,
+                            canResizeWidth: !isMobileView,
                             showEditingControls: [
                                 DashboardPlacement.Dashboard,
                                 DashboardPlacement.ProjectHomepage,
@@ -248,9 +247,7 @@ export function DashboardItems(): JSX.Element {
                                     // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
                                 />
                             )
-                        }
-
-                        if (text) {
+                        } else if (text) {
                             return (
                                 <TextCard
                                     key={tile.id}
@@ -317,6 +314,7 @@ export function DashboardItems(): JSX.Element {
                                         </>
                                     }
                                     {...commonTileProps}
+                                    // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
                                 />
                             )
                         }
