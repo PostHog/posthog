@@ -91,7 +91,8 @@ export const TRIGGER_OPTIONS: TriggerOption[] = [
     },
 ]
 
-function extractDestinationFromTemplateId(templateId: string | undefined): WizardDestination | null {
+function extractDestinationFromAlert(alert: HogFunctionType): WizardDestination | null {
+    const templateId = alert.template?.id
     if (!templateId) {
         return null
     }
@@ -188,6 +189,9 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
                         filter_groups: errorTrackingFilters as any[],
                         limit: 100,
                     })
+
+                    await new Promise((resolve) => setTimeout(resolve, 5_000))
+
                     return response.results
                 },
             },
@@ -208,7 +212,7 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
             (existingAlerts): DestinationOption[] => {
                 const counts: Record<string, number> = {}
                 for (const alert of existingAlerts) {
-                    const dest = extractDestinationFromTemplateId(alert.template_id)
+                    const dest = extractDestinationFromAlert(alert)
                     if (dest) {
                         counts[dest] = (counts[dest] || 0) + 1
                     }
@@ -263,6 +267,13 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
     listeners(({ values, actions }) => ({
         createAlertSuccess: () => {
             actions.resetWizard()
+            actions.loadExistingAlerts()
+        },
+
+        setAlertCreationView: ({ view }) => {
+            if (view === 'wizard') {
+                actions.loadExistingAlerts()
+            }
         },
 
         setTrigger: () => {
