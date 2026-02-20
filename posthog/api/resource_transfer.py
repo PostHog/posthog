@@ -168,7 +168,6 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             user=user,
             organization_id=self.organization_id,
             destination_team=destination_team,
-            source_team=source_team,
             was_impersonated=was_impersonated,
         )
 
@@ -178,7 +177,6 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             user=user,
             organization_id=self.organization_id,
             source_team=source_team,
-            destination_team=destination_team,
             was_impersonated=was_impersonated,
         )
 
@@ -320,7 +318,6 @@ def _log_destination_activity(
     user: User,
     organization_id: Any,
     destination_team: Team,
-    source_team: Team,
     was_impersonated: bool,
 ) -> None:
     from posthog.models.activity_logging.model_activity import ModelActivityMixin
@@ -352,8 +349,6 @@ def _log_destination_activity(
                     Change(
                         type=visitor.kind,
                         action="created",
-                        field="source_team_id",
-                        after=source_team.pk,
                     )
                 ],
             ),
@@ -367,7 +362,6 @@ def _log_source_activity(
     user: User,
     organization_id: Any,
     source_team: Team,
-    destination_team: Team,
     was_impersonated: bool,
 ) -> None:
     visitor = ResourceTransferVisitor.get_visitor(resource_kind)
@@ -387,9 +381,7 @@ def _log_source_activity(
             changes=[
                 Change(
                     type=visitor.kind,
-                    action="changed",
-                    field="destination_team_id",
-                    after=destination_team.pk,
+                    action="copied",
                 )
             ],
         ),
