@@ -284,6 +284,14 @@ class LogsQueryRunnerMixin(QueryRunner):
 
         exprs.append(ast.Placeholder(expr=ast.Field(chain=["filters"])))
 
+        if self.query.searchTerm:
+            exprs.append(
+                parse_expr(
+                    "body ILIKE {searchTerm}",
+                    placeholders={"searchTerm": ast.Constant(value=f"%{self.query.searchTerm}%")},
+                )
+            )
+
         if self.query.severityLevels:
             exprs.append(
                 parse_expr(
