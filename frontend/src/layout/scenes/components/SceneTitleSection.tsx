@@ -422,12 +422,6 @@ function SceneName({
         }
     }, [isLoading, forceEdit])
 
-    const debouncedOnBlurSave = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
-    }, renameDebounceMs)
-
     const debouncedOnChange = useDebouncedCallback((value: string) => {
         if (onChange) {
             onChange(value)
@@ -435,13 +429,12 @@ function SceneName({
     }, renameDebounceMs)
 
     const handleBlur = (e: React.FocusEvent): void => {
-        // Check if focus is moving to an element within our container (like the generate button)
         const relatedTarget = e.relatedTarget as HTMLElement | null
         if (relatedTarget && containerRef.current && containerRef.current.contains(relatedTarget)) {
             return
         }
         if (saveOnBlur && name !== initialName) {
-            debouncedOnBlurSave(name || '')
+            onChange?.(name || '')
         }
         if (!forceEdit) {
             setIsEditing(false)
@@ -461,8 +454,7 @@ function SceneName({
                             value={name || ''}
                             onChange={(e) => {
                                 setName(e.target.value)
-                                if (!saveOnBlur || forceEdit) {
-                                    // Call onChange immediately if not using saveOnBlur, or if in forceEdit mode
+                                if (!saveOnBlur) {
                                     debouncedOnChange(e.target.value)
                                 }
                             }}
@@ -585,12 +577,6 @@ function SceneDescription({
         }
     }, [isLoading, forceEdit])
 
-    const debouncedOnBlurSaveDescription = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
-    }, renameDebounceMs)
-
     const debouncedOnDescriptionChange = useDebouncedCallback((value: string) => {
         if (onChange) {
             onChange(value)
@@ -599,7 +585,7 @@ function SceneDescription({
 
     const handleBlur = (): void => {
         if (saveOnBlur && description !== initialDescription) {
-            debouncedOnBlurSaveDescription(description || '')
+            onChange?.(description || '')
         }
         if (!forceEdit) {
             setIsEditing(false)
@@ -616,8 +602,7 @@ function SceneDescription({
                         value={description || ''}
                         onChange={(e) => {
                             setDescription(e.target.value)
-                            if (!saveOnBlur || forceEdit) {
-                                // Call onChange immediately if not using saveOnBlur, or if in forceEdit mode
+                            if (!saveOnBlur) {
                                 debouncedOnDescriptionChange(e.target.value)
                             }
                         }}
