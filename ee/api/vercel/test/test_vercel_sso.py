@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from unittest.mock import Mock, patch
@@ -504,3 +505,103 @@ class TestSSOOrganizationHandling:
                 sso_setup["installation"].refresh_from_db()
                 user_mappings = sso_setup["installation"].config.get("user_mappings", {})
                 assert user_id in user_mappings, f"Mapping removed for level {level}"
+
+
+US_SITE_URL = "https://us.posthog.com"
+EU_SITE_URL = "https://eu.posthog.com"
+
+
+class TestSSORegionRedirect:
+    def test_us_region_redirects_to_eu_when_resource_not_found(self, sso_setup):
+        with self.settings(SITE_URL=US_SITE_URL, DEBUG=False):
+            response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"], resource_id="99999")
+
+        assert response.status_code == status.HTTP_302_FOUND
+        parsed = urlparse(response.url)
+        assert parsed.scheme == "https"
+        assert parsed.netloc == "eu.posthog.com"
+        assert parsed.path == "/login/vercel/"
+        qs = parse_qs(parsed.query)
+        assert qs["mode"] == ["sso"]
+        assert qs["code"] == [TestConstants.AUTH_CODE]
+        assert qs["state"] == [TestConstants.STATE]
+        assert qs["resource_id"] == ["99999"]
+
+    def test_us_region_processes_normally_when_resource_found(self, sso_setup):
+        team = Team.objects.create(organization=sso_setup["organization"], name="Region Test Team")
+        resource = Integration.objects.create(
+            team=team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(team.pk),
+            config={"productId": "posthog", "name": "Region Test Resource"},
+            created_by=sso_setup["user"],
+        )
+
+        with (
+            self.settings(SITE_URL=US_SITE_URL, DEBUG=False),
+            mock_vercel_integration(**MockFactory.successful_sso_flow(sso_setup["installation_id"])),
+            mock_jwt_validation(create_user_claims(sso_setup["installation_id"])),
+        ):
+            response = SSOTestHelper.make_sso_request(
+                sso_setup["client"], sso_setup["url"], resource_id=str(resource.pk)
+            )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "eu.posthog.com" not in response.url
+
+    def test_eu_region_processes_normally(self, sso_setup):
+        with (
+            self.settings(SITE_URL=EU_SITE_URL, DEBUG=False),
+            mock_vercel_integration(**MockFactory.successful_sso_flow(sso_setup["installation_id"])),
+            mock_jwt_validation(create_user_claims(sso_setup["installation_id"])),
+        ):
+            response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"], resource_id="99999")
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "eu.posthog.com" not in response.url
+
+    def test_dev_env_processes_normally(self, sso_setup):
+        with (
+            self.settings(SITE_URL="http://localhost:8000", DEBUG=True),
+            mock_vercel_integration(**MockFactory.successful_sso_flow(sso_setup["installation_id"])),
+            mock_jwt_validation(create_user_claims(sso_setup["installation_id"])),
+        ):
+            response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"], resource_id="99999")
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "eu.posthog.com" not in response.url
+
+    def test_no_resource_id_processes_normally(self, sso_setup):
+        with (
+            self.settings(SITE_URL=US_SITE_URL, DEBUG=False),
+            mock_vercel_integration(**MockFactory.successful_sso_flow(sso_setup["installation_id"])),
+            mock_jwt_validation(create_user_claims(sso_setup["installation_id"])),
+        ):
+            response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"])
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "eu.posthog.com" not in response.url
+
+    def test_redirect_preserves_all_query_params(self, sso_setup):
+        with self.settings(SITE_URL=US_SITE_URL, DEBUG=False):
+            response = SSOTestHelper.make_sso_request(
+                sso_setup["client"],
+                sso_setup["url"],
+                resource_id="99999",
+                path="billing",
+            )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        parsed = urlparse(response.url)
+        qs = parse_qs(parsed.query)
+        assert qs["path"] == ["billing"]
+        assert qs["resource_id"] == ["99999"]
+        assert qs["mode"] == ["sso"]
+        assert qs["code"] == [TestConstants.AUTH_CODE]
+        assert qs["state"] == [TestConstants.STATE]
+
+    @staticmethod
+    def settings(**kwargs):
+        from django.test import override_settings
+
+        return override_settings(**kwargs)
