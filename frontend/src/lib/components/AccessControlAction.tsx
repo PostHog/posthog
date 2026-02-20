@@ -38,7 +38,8 @@ export const AccessControlAction = React.forwardRef(function AccessControlAction
         const componentProps = {
             disabled: !!disabledReason,
             disabledReason: disabledReason,
-        } as P
+            ref,
+        } as P & { ref: React.ForwardedRef<unknown> }
 
         return <Component {...componentProps} />
     }
