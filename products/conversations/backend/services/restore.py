@@ -123,16 +123,15 @@ class RestoreService:
         Redeem a restore token and migrate tickets.
 
         The order of checks is intentional to avoid information leakage:
-        1. Lookup token (invalid if not found)
+        1. Lookup token scoped to team (invalid if not found)
         2. Check consumed (used if already consumed - before expiry to avoid leaking token existence)
         3. Check expired
-        4. Validate team
-        5. Consume and migrate atomically
+        4. Consume and migrate atomically
         """
         token_hash_value = hash_token(raw_token)
 
         try:
-            token = ConversationRestoreToken.objects.get(token_hash=token_hash_value)
+            token = ConversationRestoreToken.objects.get(token_hash=token_hash_value, team=team)
         except ConversationRestoreToken.DoesNotExist:
             logger.warning(f"Invalid restore token attempted: {token_hash_value[:8]}...")
             return RestoreResult(status="invalid", code="token_invalid")
@@ -145,11 +144,6 @@ class RestoreService:
         if token.is_expired:
             logger.warning(f"Restore token {token.id} expired")
             return RestoreResult(status="expired", code="token_expired")
-
-        # Validate team matches
-        if token.team_id != team.id:
-            logger.warning(f"Restore token {token.id} team mismatch: {token.team_id} != {team.id}")
-            return RestoreResult(status="invalid", code="token_invalid")
 
         # Atomic transaction: consume token and migrate tickets
         with transaction.atomic():
