@@ -82,29 +82,6 @@ describe('vercel log drain template', () => {
         expect(response.capturedPostHogEvents[0].properties.logs[0].id).toBe('ndjson1')
         expect(response.capturedPostHogEvents[0].properties.logs[1].id).toBe('ndjson2')
     })
-
-    it.skip('should filter by allowed sources', async () => {
-        const logs = [
-            { ...vercelLogDrain, id: 'log1', source: 'lambda' },
-            { ...vercelLogDrain, id: 'log2', source: 'edge' },
-            { ...vercelLogDrain, id: 'log3', source: 'build' },
-        ]
-
-        const response = await tester.invoke(
-            {
-                allowed_sources: ['lambda', 'edge'],
-            },
-            {
-                request: createVercelRequest(logs),
-            }
-        )
-
-        expect(response.error).toBeUndefined()
-        expect(response.capturedPostHogEvents).toHaveLength(1)
-        expect(response.capturedPostHogEvents[0].properties.log_count).toBe(2)
-        expect(response.capturedPostHogEvents[0].properties.logs.map((l: any) => l.source)).toEqual(['lambda', 'edge'])
-    })
-
     it('should return 405 for non-POST methods', async () => {
         const response = await tester.invoke(
             {},

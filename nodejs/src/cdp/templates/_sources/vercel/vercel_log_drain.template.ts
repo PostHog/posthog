@@ -104,7 +104,6 @@ fun truncateIfNeeded(s) {
 // ├────────────────────┼──────────────────────────────────┼────────────────────────────┤
 // │ Request-level      │ deploymentId:requestId           │ Each request is unique     │
 // │ User-level         │ projectId:clientIp:userAgent     │ Same user across requests  │
-// │ Cookieless-like    │ salt:teamId:ip:host:userAgent    │ Daily rotating, reversible │
 // └────────────────────┴──────────────────────────────────┴────────────────────────────┘
 // Using: User-level grouping
 let clientIp := logs[1].proxy.clientIp ?? ''
