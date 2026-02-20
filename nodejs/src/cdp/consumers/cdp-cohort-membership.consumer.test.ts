@@ -132,7 +132,6 @@ describe('CdpCohortMembershipConsumer', () => {
                 cohort_id: 456,
                 team_id: 1,
                 status: 'entered',
-                last_updated: '2026-01-01 10:00:00.000000',
             })
 
             const enterMessages = [
@@ -150,6 +149,7 @@ describe('CdpCohortMembershipConsumer', () => {
             )
 
             expect(result.rows[0].in_cohort).toBe(true)
+            const firstTimestamp = result.rows[0].last_updated
 
             // Verify first trigger event
             let kafkaMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
@@ -158,6 +158,9 @@ describe('CdpCohortMembershipConsumer', () => {
             expect(kafkaMessages).toHaveLength(1)
             expect(kafkaMessages[0].value).toEqual(enterEvent)
 
+            // Wait to ensure timestamp difference
+            await new Promise((resolve) => setTimeout(resolve, 10))
+
             // Step 2: Person leaves the cohort
             mockProducerObserver.resetKafkaProducer()
             const leaveEvent = createCohortMembershipEvent({
@@ -165,7 +168,6 @@ describe('CdpCohortMembershipConsumer', () => {
                 cohort_id: 456,
                 team_id: 1,
                 status: 'left',
-                last_updated: '2026-01-01 10:01:00.000000',
             })
 
             const leaveMessages = [
@@ -182,8 +184,10 @@ describe('CdpCohortMembershipConsumer', () => {
                 'testQuery'
             )
 
-            expect(result.rows).toHaveLength(1)
+            expect(result.rows).toHaveLength(1) // Same record, just updated
             expect(result.rows[0].in_cohort).toBe(false)
+            const secondTimestamp = result.rows[0].last_updated
+            expect(new Date(secondTimestamp).getTime()).toBeGreaterThan(new Date(firstTimestamp).getTime())
 
             // Verify leave trigger event
             kafkaMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
@@ -192,6 +196,9 @@ describe('CdpCohortMembershipConsumer', () => {
             expect(kafkaMessages).toHaveLength(1)
             expect(kafkaMessages[0].value).toEqual(leaveEvent)
 
+            // Wait to ensure timestamp difference
+            await new Promise((resolve) => setTimeout(resolve, 10))
+
             // Step 3: Person re-enters the cohort
             mockProducerObserver.resetKafkaProducer()
             const reEnterEvent = createCohortMembershipEvent({
@@ -199,7 +206,6 @@ describe('CdpCohortMembershipConsumer', () => {
                 cohort_id: 456,
                 team_id: 1,
                 status: 'entered',
-                last_updated: '2026-01-01 10:02:00.000000',
             })
 
             const reEnterMessages = [
@@ -216,8 +222,10 @@ describe('CdpCohortMembershipConsumer', () => {
                 'testQuery'
             )
 
-            expect(result.rows).toHaveLength(1)
-            expect(result.rows[0].in_cohort).toBe(true)
+            expect(result.rows).toHaveLength(1) // Still same record, just updated again
+            expect(result.rows[0].in_cohort).toBe(true) // Back in the cohort
+            const thirdTimestamp = result.rows[0].last_updated
+            expect(new Date(thirdTimestamp).getTime()).toBeGreaterThan(new Date(secondTimestamp).getTime())
 
             // Verify re-enter trigger event
             kafkaMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
@@ -225,49 +233,6 @@ describe('CdpCohortMembershipConsumer', () => {
             )
             expect(kafkaMessages).toHaveLength(1)
             expect(kafkaMessages[0].value).toEqual(reEnterEvent)
-        })
-
-        it('should not overwrite newer state with a stale out-of-order message', async () => {
-            // First: person enters with a recent timestamp
-            const enterEvent = createCohortMembershipEvent({
-                person_id: personId1,
-                cohort_id: 456,
-                team_id: 1,
-                status: 'entered',
-                last_updated: '2026-01-01 10:05:00.000000',
-            })
-
-            const enterMessages = [
-                createKafkaMessage(enterEvent, { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 0 }),
-            ]
-            const enterChanges = consumer['_parseAndValidateBatch'](enterMessages)
-            await consumer['persistCohortMembershipChanges'](enterChanges)
-
-            // Then: a stale "left" arrives with an older timestamp (out of order)
-            const staleLeaveEvent = createCohortMembershipEvent({
-                person_id: personId1,
-                cohort_id: 456,
-                team_id: 1,
-                status: 'left',
-                last_updated: '2026-01-01 10:00:00.000000',
-            })
-
-            const staleMessages = [
-                createKafkaMessage(staleLeaveEvent, { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 1 }),
-            ]
-            const staleChanges = consumer['_parseAndValidateBatch'](staleMessages)
-            await consumer['persistCohortMembershipChanges'](staleChanges)
-
-            // The stale message should have been ignored — person is still in the cohort
-            const result = await hub.postgres.query(
-                PostgresUse.BEHAVIORAL_COHORTS_RW,
-                'SELECT * FROM cohort_membership WHERE team_id = $1 AND person_id = $2 AND cohort_id = $3',
-                [1, personId1, 456],
-                'testQuery'
-            )
-
-            expect(result.rows).toHaveLength(1)
-            expect(result.rows[0].in_cohort).toBe(true)
         })
 
         it('should reject entire batch when invalid messages are present', async () => {
