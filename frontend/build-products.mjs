@@ -19,6 +19,7 @@ function buildProductManifests() {
     const sourceFiles = products
         .map((p) => path.resolve(productsDir, `${p}/manifest.tsx`))
         .filter((p) => fse.existsSync(p))
+        .sort()
 
     // Also include the schema file so we can resolve some enum values
     const enumFile = path.resolve(__dirname, '../frontend/src/queries/schema/schema-general.ts')
