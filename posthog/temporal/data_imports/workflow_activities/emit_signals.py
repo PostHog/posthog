@@ -38,7 +38,7 @@ TEMPORAL_PAYLOAD_MAX_BYTES = 2 * 1024 * 1024
 # Maximum number of attempts to summarize a description, if it exceeds the threshold
 SUMMARIZATION_MAX_ATTEMPTS = 3
 # Per-call timeout for LLM requests (seconds)
-LLM_CALL_TIMEOUT_SECONDS = 300
+LLM_CALL_TIMEOUT_SECONDS = 120
 # Thinking budget for LLM calls (summarization & actionability are judgment tasks)
 LLM_THINKING_BUDGET_TOKENS = 1024
 
