@@ -1,7 +1,6 @@
 import random
 
 from django.core.management.base import BaseCommand, CommandError
-from django.core.paginator import Paginator
 from django.db.models import Q
 
 from posthog.models.team import Team
@@ -74,28 +73,26 @@ class Command(BaseCommand):
             else:
                 queryset = queryset.filter(session_recording_encryption=True)
 
+            target_ids = list(queryset.values_list("id", flat=True))
+
             if percentage is not None:
-                all_ids = list(queryset.values_list("id", flat=True))
-                sample_size = min(int(len(all_ids) * percentage / 100), len(all_ids))
+                sample_size = min(int(len(target_ids) * percentage / 100), len(target_ids))
                 if seed is not None:
                     random.seed(seed)
-                sampled_ids = random.sample(all_ids, sample_size)
-                queryset = queryset.filter(id__in=sampled_ids)
+                target_ids = random.sample(target_ids, sample_size)
 
             total_teams_migrated = 0
 
-            for batch in Paginator(queryset, batch_size):
-                teams_to_update = []
-                for team in batch.object_list:
-                    team.session_recording_encryption = target_value
-                    teams_to_update.append(team)
-                    self.stdout.write(self.style.SUCCESS(f"{'Would update' if dry_run else 'Updating'} team {team.id}"))
+            for i in range(0, len(target_ids), batch_size):
+                batch_ids = target_ids[i : i + batch_size]
+                for team_id in batch_ids:
+                    self.stdout.write(self.style.SUCCESS(f"{'Would update' if dry_run else 'Updating'} team {team_id}"))
 
-                if not dry_run and teams_to_update:
+                if not dry_run and batch_ids:
                     self.stdout.write(self.style.SUCCESS("Writing batch..."))
-                    Team.objects.bulk_update(teams_to_update, ["session_recording_encryption"])
+                    Team.objects.filter(id__in=batch_ids).update(session_recording_encryption=target_value)
 
-                total_teams_migrated += len(teams_to_update)
+                total_teams_migrated += len(batch_ids)
 
             self.stdout.write(
                 self.style.SUCCESS(
