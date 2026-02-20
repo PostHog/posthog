@@ -37,7 +37,7 @@ A ticket is NOT_ACTIONABLE if it is:
 - An auto-generated or bot message
 - An internal test message
 
-When in doubt, classify as ACTIONABLE. It is much worse to miss real feedback than to let some noise through.
+When in doubt, classify as ACTIONABLE. It is worse to miss real feedback than to let some noise through.
 
 <ticket>
 {description}
