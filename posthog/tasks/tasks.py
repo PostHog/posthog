@@ -173,16 +173,16 @@ def pg_plugin_server_query_timing() -> None:
                 """
                 SELECT
                     substring(query from 'plugin-server:(\\w+)') AS query_type,
-                    total_time as total_time,
-                    (total_time / calls) as avg_time,
-                    min_time,
-                    max_time,
-                    stddev_time,
+                    total_exec_time as total_time,
+                    (total_exec_time / calls) as avg_time,
+                    min_exec_time as min_time,
+                    max_exec_time as max_time,
+                    stddev_exec_time as stddev_time,
                     calls,
                     rows as rows_read_or_affected
                 FROM pg_stat_statements
                 WHERE query LIKE '%%plugin-server%%'
-                ORDER BY total_time DESC
+                ORDER BY total_exec_time DESC
                 LIMIT 50
                 """
             )
