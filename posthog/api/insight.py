@@ -309,22 +309,7 @@ class InsightBasicSerializer(
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
 
-@extend_schema_field(
-    {
-        "type": "object",
-        "example": {
-            "kind": "InsightVizNode",
-            "source": {
-                "kind": "TrendsQuery",
-                "series": [
-                    {"kind": "EventsNode", "math": "total", "name": "$pageview", "event": "$pageview", "version": 1}
-                ],
-                "version": 1,
-            },
-            "version": 1,
-        },
-    }
-)
+@extend_schema_field(schema.InsightVizNode)  # type: ignore[arg-type]
 class QueryFieldSerializer(serializers.Serializer):
     def to_representation(self, value):
         return self.parent._query_variables_mapping(value)  # type: ignore
