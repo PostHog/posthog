@@ -137,7 +137,6 @@ export function loadPostHogJS(): void {
                 blockSelector: '.ph-replay-block',
             },
             person_profiles: 'always',
-            __preview_remote_config: true,
             __preview_flags_v2: true,
             __add_tracing_headers: ['eu.posthog.com', 'us.posthog.com'],
             __preview_disable_xhr_credentials: true,
