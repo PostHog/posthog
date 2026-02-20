@@ -523,10 +523,8 @@ async def materialize_model(
                 )
 
             mode: typing.Literal["error", "append", "overwrite", "ignore"] = "append"
-            schema_mode: typing.Literal["merge", "overwrite"] | None = None
             if index == 0:
                 mode = "overwrite"
-                schema_mode = "overwrite"
 
             await logger.adebug(
                 f"Writing batch to delta table. index={index}. mode={mode}. batch_row_count={batch.num_rows}"
@@ -538,7 +536,6 @@ async def materialize_model(
                 storage_options=storage_options,
                 data=batch,
                 mode=mode,
-                schema_mode=schema_mode,
             )
             write_duration = (dt.datetime.now() - write_start).total_seconds()
 
