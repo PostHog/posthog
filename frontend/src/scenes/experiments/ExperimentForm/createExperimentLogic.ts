@@ -161,7 +161,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
     actions(() => ({
         setExperiment: (experiment: Experiment) => ({ experiment }),
         setExperimentValue: (name: string, value: any) => ({ name, value }),
-        resetExperiment: (experiment?: Experiment) => ({ experiment }),
+        resetExperiment: true,
         clearDraft: true,
         setExposureCriteria: (criteria: ExperimentExposureCriteria) => ({ criteria }),
         setFeatureFlagConfig: (config: {
@@ -211,7 +211,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     },
                 }),
                 updateFeatureFlagKey: (state, { key }) => ({ ...state, feature_flag_key: key }),
-                resetExperiment: (_, { experiment }) => experiment ?? props.experiment ?? { ...NEW_EXPERIMENT },
+                resetExperiment: () => props.experiment ?? { ...NEW_EXPERIMENT },
             },
         ],
         sharedMetrics: [
