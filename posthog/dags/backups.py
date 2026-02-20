@@ -307,14 +307,10 @@ def get_latest_backups(
     shard: Optional[int] = None,
 ) -> list[Backup]:
     """
-    Get the latest 15 backups metadata for a ClickHouse database / table from S3.
+    Get all backups metadata for a ClickHouse database / table from S3.
 
     They are sorted from most recent to oldest.
     """
-    if not config.incremental:
-        context.log.info("Full backup requested, skipping latest backups retrieval.")
-        return []
-
     shard_path = shard if shard else NO_SHARD_PATH
 
     base_prefix = f"{config.database}/"
@@ -339,13 +335,13 @@ def get_latest_backups(
         else:
             parsed_backups.append(parsed)
 
-    latest_backups = sorted(
+    all_backups = sorted(
         parsed_backups,
         key=lambda x: x.date,
         reverse=True,
     )
-    context.log.info(f"Found {len(latest_backups)} latest backups: {latest_backups}")
-    return latest_backups[:15]
+    context.log.info(f"Found {len(all_backups)} backups: {all_backups}")
+    return all_backups
 
 
 @dagster.op
@@ -446,7 +442,7 @@ def wait_for_backup(
     config: BackupConfig,
     backup: Backup,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-):
+) -> Backup:
     """
     Wait for a backup to finish.
     """
@@ -486,6 +482,80 @@ def wait_for_backup(
             "date": dagster.MetadataValue.text(backup.date),
         }
     )
+    return backup
+
+
+@dagster.op
+def cleanup_old_backups(
+    context: dagster.OpExecutionContext,
+    config: BackupConfig,
+    s3: S3Resource,
+    backup: Backup,
+    all_backups: list[Backup],
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> None:
+    """
+    Delete old backups from S3, keeping only the latest full backup and all
+    incrementals created after it. Skips cleanup if the latest full backup
+    cannot be confirmed as successfully created.
+    """
+    sorted_backups = sorted(all_backups, key=lambda x: x.date, reverse=True)
+    full_backups = [b for b in sorted_backups if not b.incremental]
+
+    def map_hosts(func: Callable[[Client], Any]):
+        if backup.shard:
+            return cluster.map_hosts_in_shard_by_role(
+                fn=func, shard_num=backup.shard, node_role=NodeRole.DATA, workload=config.workload
+            )
+        return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=config.workload)
+
+    if not backup.incremental:
+        # backup is the full we just created — wait_for_backup already confirmed success,
+        # and it won't appear in all_backups (which was fetched before run_backup).
+        latest_full = backup
+        context.log.info(f"Just created full backup {latest_full.path}, proceeding with cleanup.")
+    else:
+        # Walk full backups newest-first until we find one that is confirmed successful.
+        latest_full = None
+        for b in full_backups:
+            b_status = get_most_recent_status(map_hosts(b.status).result().values())
+            if b_status and b_status.created():
+                latest_full = b
+                context.log.info(f"Latest verified full backup {latest_full.path} (status: {b_status.status}).")
+                break
+        if latest_full is None:
+            context.log.info("No verified successful full backup found, skipping cleanup.")
+            return
+
+    # Delete everything older than the latest successful full backup.
+    backups_to_delete = [b for b in sorted_backups if b.date < latest_full.date]
+
+    # Also delete any failed backups that are newer than latest_full (e.g. failed incrementals).
+    # The current backup is excluded — wait_for_backup already confirmed it succeeded.
+    for b in sorted_backups:
+        if b.date <= latest_full.date:
+            continue
+        b_status = get_most_recent_status(map_hosts(b.status).result().values())
+        if b_status is not None and not b_status.created():
+            context.log.info(f"Marking failed backup {b.path} (status: {b_status.status}) for deletion.")
+            backups_to_delete.append(b)
+
+    if not backups_to_delete:
+        context.log.info("No old backups to delete.")
+        context.add_output_metadata({"deleted_backups": dagster.MetadataValue.int(0)})
+        return
+
+    s3_client = s3.get_client()
+    for old_backup in backups_to_delete:
+        paginator = s3_client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Prefix=f"{old_backup.path}/"):
+            objects = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
+            if objects:
+                s3_client.delete_objects(Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Delete={"Objects": objects})
+        context.log.info(f"Deleted backup {old_backup.path}.")
+
+    context.log.info(f"Cleanup complete: deleted {len(backups_to_delete)} old backups.")
+    context.add_output_metadata({"deleted_backups": dagster.MetadataValue.int(len(backups_to_delete))})
 
 
 @dagster.job(
@@ -501,10 +571,11 @@ def sharded_backup():
     """
 
     def run_backup_for_shard(shard: int):
-        latest_backups = get_latest_backups(check_running_backup_for_table(), shard=shard)
-        checked_backup = get_latest_successful_backup(latest_backups=latest_backups)
+        all_backups = get_latest_backups(check_running_backup_for_table(), shard=shard)
+        checked_backup = get_latest_successful_backup(latest_backups=all_backups)
         new_backup = run_backup(latest_backup=checked_backup, shard=shard)
-        wait_for_backup(backup=new_backup)
+        completed_backup = wait_for_backup(backup=new_backup)
+        cleanup_old_backups(backup=completed_backup, all_backups=all_backups)
 
     shards: dagster.DynamicOutput = get_shards()
     shards.map(run_backup_for_shard)
@@ -530,9 +601,10 @@ def non_sharded_backup():
     Since we don't want to keep the state about which host was selected to run the backup, we always search backups by their name in every node.
     When we find it in one of the nodes, we keep waiting on it only in that node. This is handy when we retry the job and a backup is in progress in any node, as we'll always wait for it to finish.
     """
-    latest_backups = get_latest_backups(check_running_backup_for_table())
-    new_backup = run_backup(get_latest_successful_backup(latest_backups=latest_backups))
-    wait_for_backup(new_backup)
+    all_backups = get_latest_backups(check_running_backup_for_table())
+    new_backup = run_backup(get_latest_successful_backup(latest_backups=all_backups))
+    completed_backup = wait_for_backup(new_backup)
+    cleanup_old_backups(backup=completed_backup, all_backups=all_backups)
 
 
 def prepare_run_config(config: BackupConfig) -> dagster.RunConfig:
@@ -545,6 +617,7 @@ def prepare_run_config(config: BackupConfig) -> dagster.RunConfig:
                 run_backup,
                 get_latest_successful_backup,
                 wait_for_backup,
+                cleanup_old_backups,
             ]
         }
     )
@@ -584,7 +657,7 @@ def run_backup_request(
 @dagster.schedule(
     job=sharded_backup,
     cron_schedule=settings.CLICKHOUSE_FULL_BACKUP_SCHEDULE,
-    # should_execute=lambda context: 1 <= context.scheduled_execution_time.day <= 7,
+    should_execute=lambda context: 1 <= context.scheduled_execution_time.day <= 7,
     default_status=dagster.DefaultScheduleStatus.RUNNING,
 )
 def full_sharded_backup_schedule(context: dagster.ScheduleEvaluationContext):
