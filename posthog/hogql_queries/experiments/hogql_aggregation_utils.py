@@ -74,6 +74,29 @@ def extract_aggregation_and_inner_expr(
         return None, expr, None
 
 
+_NON_NUMERIC_AGGREGATIONS = frozenset(
+    {
+        "uniq",
+        "uniqexact",
+        "uniqcombined",
+        "uniqcombined64",
+        "uniqhll12",
+        "count",
+        "any",
+        "anylast",
+        "anyheavy",
+        "grouparray",
+        "groupuniqarray",
+        "topk",
+    }
+)
+
+
+def aggregation_needs_numeric_input(function_name: str) -> bool:
+    """Check if an aggregation function requires numeric input (i.e. needs toFloat wrapping)."""
+    return function_name.lower() not in _NON_NUMERIC_AGGREGATIONS
+
+
 def build_aggregation_call(
     aggregation_function: str,
     inner_expr: ast.Expr,

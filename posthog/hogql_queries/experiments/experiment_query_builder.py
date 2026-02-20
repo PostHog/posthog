@@ -36,6 +36,7 @@ from posthog.hogql_queries.experiments.base_query_utils import (
 from posthog.hogql_queries.experiments.breakdown_injector import BreakdownInjector
 from posthog.hogql_queries.experiments.exposure_query_logic import normalize_to_exposure_criteria
 from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
+    aggregation_needs_numeric_input,
     build_aggregation_call,
     extract_aggregation_and_inner_expr,
 )
@@ -948,12 +949,13 @@ class ExperimentQueryBuilder:
         if not apply_coalesce:
             return base_expr
 
-        # Check if this is a count distinct math type - don't coalesce IDs
+        # Don't coalesce values for count distinct types (IDs) or HOGQL (user controls the expression)
         math_type = getattr(source, "math", ExperimentMetricMathType.TOTAL)
         if math_type in [
             ExperimentMetricMathType.UNIQUE_SESSION,
             ExperimentMetricMathType.DAU,
             ExperimentMetricMathType.UNIQUE_GROUP,
+            ExperimentMetricMathType.HOGQL,
         ]:
             return base_expr
 
@@ -1019,7 +1021,9 @@ class ExperimentQueryBuilder:
             if math_hogql is not None:
                 aggregation_function, _, params = extract_aggregation_and_inner_expr(math_hogql)
                 if aggregation_function:
-                    inner_value_expr = parse_expr(f"toFloat({column_ref})")
+                    inner_value_expr = parse_expr(column_ref)
+                    if aggregation_needs_numeric_input(aggregation_function):
+                        inner_value_expr = ast.Call(name="toFloat", args=[inner_value_expr])
                     agg_call = build_aggregation_call(aggregation_function, inner_value_expr, params=params)
                     return ast.Call(name="coalesce", args=[agg_call, ast.Constant(value=0)])
             # Fallback to SUM

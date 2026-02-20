@@ -799,3 +799,90 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.number_of_samples, 10)
         self.assertEqual(control_variant.sum, 2300)
         self.assertEqual(test_variant.sum, 4450)
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_count_unique_property_values_via_hogql(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        def _create_events_for_user(variant: str, categories: list[str]) -> list[dict]:
+            purchase_events = [
+                {
+                    "event": "purchase",
+                    "timestamp": f"2024-01-02T12:01:{i:02d}",
+                    "properties": {
+                        ff_property: variant,
+                        "category": category,
+                    },
+                }
+                for i, category in enumerate(categories)
+            ]
+            return [
+                {
+                    "event": "$feature_flag_called",
+                    "timestamp": "2024-01-02T12:00:00",
+                    "properties": {
+                        "$feature_flag_response": variant,
+                        ff_property: variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                },
+                *purchase_events,
+            ]
+
+        journeys_for(
+            {
+                # control_1: 3 events, 2 unique categories
+                "control_1": _create_events_for_user("control", ["electronics", "clothing", "electronics"]),
+                # control_2: 2 events, 2 unique categories
+                "control_2": _create_events_for_user("control", ["food", "clothing"]),
+                # control_3: exposed but no purchases → 0 unique categories
+                "control_3": _create_events_for_user("control", []),
+                # test_1: 4 events, 3 unique categories
+                "test_1": _create_events_for_user("test", ["electronics", "clothing", "food", "electronics"]),
+                # test_2: 3 events, 1 unique category
+                "test_2": _create_events_for_user("test", ["food", "food", "food"]),
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.HOGQL,
+                math_hogql="uniqExact(properties.category)",
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        # control_1: 2 unique, control_2: 2 unique, control_3: 0 unique → sum = 4
+        self.assertEqual(control_variant.sum, 4)
+        self.assertEqual(control_variant.number_of_samples, 3)
+        # test_1: 3 unique, test_2: 1 unique → sum = 4
+        self.assertEqual(test_variant.sum, 4)
+        self.assertEqual(test_variant.number_of_samples, 2)
