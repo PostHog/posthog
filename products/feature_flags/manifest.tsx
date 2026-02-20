@@ -6,9 +6,21 @@ import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Feature Flags',
+    scenes: {
+        FeatureFlagTemplates: {
+            import: () => import('./frontend/FeatureFlagTemplatesScene'),
+            projectBased: true,
+            name: 'Feature flag templates',
+            defaultDocsPath: '/docs/feature-flags/creating-feature-flags',
+        },
+    },
+    routes: {
+        '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
+    },
     urls: {
         featureFlag: (id: string | number): string => `/feature_flags/${id}`,
         featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
+        featureFlagTemplates: (): string => '/feature_flags/templates',
         featureFlagNew: ({
             type,
             sourceId,

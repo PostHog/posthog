@@ -15525,7 +15525,8 @@
                 "Omnisend",
                 "Brevo",
                 "Postmark",
-                "Granola"
+                "Granola",
+                "BuildBetter"
             ],
             "type": "string"
         },
@@ -16696,7 +16697,14 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/AnyEntityNode"
+                            },
+                            {
+                                "$ref": "#/definitions/GroupNode"
+                            }
+                        ]
                     },
                     "type": "array"
                 },
@@ -19763,8 +19771,8 @@
             },
             "type": "object"
         },
-        "MarketingAnalyticsHelperForColumnNames": {
-            "enum": ["Goal", "Cost per"],
+        "MarketingAnalyticsConstants": {
+            "enum": ["Goal", "Cost per", "const:"],
             "type": "string"
         },
         "MarketingAnalyticsItem": {
@@ -31910,7 +31918,11 @@
                 "numerical_event_properties",
                 "person_properties",
                 "pageview_urls",
+                "pageview_events",
                 "screens",
+                "screen_events",
+                "email_addresses",
+                "autocapture_events",
                 "custom_events",
                 "wildcard",
                 "groups",

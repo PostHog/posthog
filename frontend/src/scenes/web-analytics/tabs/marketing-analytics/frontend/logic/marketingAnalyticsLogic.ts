@@ -199,7 +199,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
 
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
-        setInterval: (interval: IntervalType) => ({ interval }),
+        setDateInterval: (interval: IntervalType) => ({ interval }),
         setDatesAndInterval: (dateFrom: string | null, dateTo: string | null, interval: IntervalType) => ({
             dateFrom,
             dateTo,
@@ -295,7 +295,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         interval: getDefaultInterval(dateFrom, dateTo),
                     }
                 },
-                setInterval: (state, { interval }) => {
+                setDateInterval: (state, { interval }) => {
                     const { dateFrom, dateTo } = updateDatesWithInterval(interval, state.dateFrom, state.dateTo)
                     return {
                         dateFrom,
@@ -722,7 +722,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
 
         return {
             setDates: buildUrl,
-            setInterval: buildUrl,
+            setDateInterval: buildUrl,
             setDatesAndInterval: buildUrl,
             setCompareFilter: buildUrl,
             setIntegrationFilter: buildUrl,
@@ -748,7 +748,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         return {
             // Track dashboard interactions for filters and chart controls
             setDates: trackDashboardInteraction,
-            setInterval: trackDashboardInteraction,
+            setDateInterval: trackDashboardInteraction,
             setCompareFilter: trackDashboardInteraction,
             setIntegrationFilter: trackDashboardInteraction,
             setChartDisplayType: trackDashboardInteraction,

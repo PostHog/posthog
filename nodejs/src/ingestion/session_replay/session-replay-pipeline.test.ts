@@ -2,6 +2,8 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
+import { TeamForReplay } from '../../session-recording/teams/types'
+import { TeamService } from '../../session-replay/shared/teams/team-service'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '../event-preprocessing'
@@ -21,7 +23,13 @@ type MockKafkaProducer = Pick<KafkaProducerWrapper, 'produce' | 'flush' | 'disco
 describe('session-replay-pipeline', () => {
     let mockKafkaProducer: jest.Mocked<MockKafkaProducer>
     let mockRestrictionManager: EventIngestionRestrictionManager
+    let mockTeamService: TeamService
     let promiseScheduler: PromiseScheduler
+
+    const defaultTeam: TeamForReplay = {
+        teamId: 1,
+        consoleLogIngestionEnabled: false,
+    }
 
     const now = DateTime.now()
 
@@ -56,6 +64,12 @@ describe('session-replay-pipeline', () => {
         // The restriction manager is not actually used since we mock createApplyEventRestrictionsStep
         mockRestrictionManager = {} as unknown as EventIngestionRestrictionManager
 
+        // Default: team service validates all messages
+        mockTeamService = {
+            getTeamByToken: jest.fn().mockResolvedValue(defaultTeam),
+            getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
+        } as unknown as TeamService
+
         promiseScheduler = new PromiseScheduler()
 
         // Default: parse headers step passes through with parsed headers
@@ -84,9 +98,11 @@ describe('session-replay-pipeline', () => {
         sessionId?: string,
         headers?: Record<string, string>
     ): Message {
-        const kafkaHeaders = headers
-            ? Object.entries(headers).map(([key, value]) => ({ [key]: Buffer.from(value) }))
-            : []
+        // Default to including a token header since team filtering requires it
+        const headersWithDefaults = headers ?? { token: 'test-token' }
+        const kafkaHeaders = Object.entries(headersWithDefaults).map(([key, value]) => ({
+            [key]: Buffer.from(value),
+        }))
 
         const payload = sessionId
             ? createValidSnapshotPayload(sessionId)
@@ -111,7 +127,9 @@ describe('session-replay-pipeline', () => {
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
                 promiseScheduler,
+                teamService: mockTeamService,
             })
 
             const messages = [createMessage(0, 1, 'session-1'), createMessage(0, 2, 'session-2')]
@@ -120,7 +138,9 @@ describe('session-replay-pipeline', () => {
 
             expect(result).toHaveLength(2)
             expect(result[0].parsedMessage.session_id).toBe('session-1')
+            expect(result[0].team.teamId).toBe(1)
             expect(result[1].parsedMessage.session_id).toBe('session-2')
+            expect(result[1].team.teamId).toBe(1)
         })
 
         it('filters out dropped messages from restrictions', async () => {
@@ -138,7 +158,9 @@ describe('session-replay-pipeline', () => {
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
                 promiseScheduler,
+                teamService: mockTeamService,
             })
 
             const messages = [
@@ -160,7 +182,9 @@ describe('session-replay-pipeline', () => {
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
                 promiseScheduler,
+                teamService: mockTeamService,
             })
 
             // Create a message with invalid payload
@@ -184,6 +208,45 @@ describe('session-replay-pipeline', () => {
             expect(result[1].parsedMessage.session_id).toBe('session-3')
         })
 
+        it('sends messages that fail to parse to the DLQ topic', async () => {
+            const pipeline = createSessionReplayPipeline({
+                kafkaProducer: mockKafkaProducer as unknown as KafkaProducerWrapper,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowEnabled: true,
+                overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
+                promiseScheduler,
+                teamService: mockTeamService,
+            })
+
+            // Create a message with invalid payload
+            const invalidMessage: Message = {
+                partition: 0,
+                offset: 2,
+                topic: 'test-topic',
+                value: Buffer.from('invalid json'),
+                key: Buffer.from('test-key'),
+                timestamp: Date.now(),
+                headers: [],
+                size: 12,
+            }
+
+            const messages = [invalidMessage]
+
+            await runSessionReplayPipeline(pipeline, messages)
+
+            // Wait for side effects to complete
+            await promiseScheduler.waitForAll()
+
+            // Verify the message was sent to the DLQ topic
+            expect(mockKafkaProducer.produce).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    topic: 'dlq-topic',
+                    value: invalidMessage.value,
+                })
+            )
+        })
+
         it('redirects overflow messages and filters them out', async () => {
             mockCreateApplyEventRestrictionsStep.mockReturnValue(
                 (input: { message: Message; headers: Record<string, string> }) => {
@@ -199,7 +262,9 @@ describe('session-replay-pipeline', () => {
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
                 promiseScheduler,
+                teamService: mockTeamService,
             })
 
             const messages = [
@@ -231,7 +296,9 @@ describe('session-replay-pipeline', () => {
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
                 promiseScheduler,
+                teamService: mockTeamService,
             })
 
             const result = await runSessionReplayPipeline(pipeline, [])
@@ -255,7 +322,9 @@ describe('session-replay-pipeline', () => {
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
                 promiseScheduler,
+                teamService: mockTeamService,
             })
 
             // Create 1000 messages
@@ -296,7 +365,9 @@ describe('session-replay-pipeline', () => {
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
                 promiseScheduler,
+                teamService: mockTeamService,
             })
 
             const messages = [
@@ -319,7 +390,9 @@ describe('session-replay-pipeline', () => {
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
                 promiseScheduler,
+                teamService: mockTeamService,
             })
 
             // Create 500 messages
@@ -338,30 +411,58 @@ describe('session-replay-pipeline', () => {
             }
         })
 
-        it('handles messages with no headers', async () => {
-            const capturedHeaders: Record<string, string>[] = []
-            mockCreateApplyEventRestrictionsStep.mockReturnValue(
-                (input: { message: Message; headers: Record<string, string> }) => {
-                    capturedHeaders.push(input.headers)
-                    return Promise.resolve(ok(input))
-                }
-            )
+        it('filters out messages with invalid team', async () => {
+            const teamServiceThatDropsSecond = {
+                getTeamByToken: jest.fn().mockImplementation((token: string) => {
+                    if (token === 'invalid-token') {
+                        return Promise.resolve(null)
+                    }
+                    return Promise.resolve(defaultTeam)
+                }),
+                getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
+            } as unknown as TeamService
 
             const pipeline = createSessionReplayPipeline({
                 kafkaProducer: mockKafkaProducer as unknown as KafkaProducerWrapper,
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
                 promiseScheduler,
+                teamService: teamServiceThatDropsSecond,
             })
 
-            const messages = [createMessage(0, 1, 'session-1')] // No headers
+            const messages = [
+                createMessage(0, 1, 'session-1', { token: 'valid-token' }),
+                createMessage(0, 2, 'session-2', { token: 'invalid-token' }),
+                createMessage(0, 3, 'session-3', { token: 'valid-token' }),
+            ]
 
             const result = await runSessionReplayPipeline(pipeline, messages)
 
-            expect(result).toHaveLength(1)
-            expect(capturedHeaders).toHaveLength(1)
-            expect(capturedHeaders[0]).toEqual({})
+            expect(result).toHaveLength(2)
+            expect(result[0].parsedMessage.session_id).toBe('session-1')
+            expect(result[1].parsedMessage.session_id).toBe('session-3')
+        })
+
+        it('sends messages with no token header to DLQ', async () => {
+            const pipeline = createSessionReplayPipeline({
+                kafkaProducer: mockKafkaProducer as unknown as KafkaProducerWrapper,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowEnabled: true,
+                overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
+                promiseScheduler,
+                teamService: mockTeamService,
+            })
+
+            // Explicitly pass empty headers (no token)
+            const messages = [createMessage(0, 1, 'session-1', {})]
+
+            const result = await runSessionReplayPipeline(pipeline, messages)
+
+            // Message should be dropped by team filter due to missing token
+            expect(result).toHaveLength(0)
         })
     })
 })

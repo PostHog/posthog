@@ -21,7 +21,7 @@ import { EventData, useAIData } from './hooks/useAIData'
 import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { CompatMessage } from './types'
-import { normalizeMessages } from './utils'
+import { normalizeMessages, parseJSONPreview } from './utils'
 
 const truncateValue = (value: string): string => {
     if (value.length > 8) {
@@ -199,7 +199,7 @@ function AIInputCell({ eventData }: { eventData: EventData }): JSX.Element {
 
     let inputNormalized: CompatMessage[] | undefined
     try {
-        const parsed = typeof input === 'string' ? JSON.parse(input) : input
+        const parsed = parseJSONPreview(input)
         inputNormalized = normalizeMessages(parsed, 'user')
     } catch (e) {
         console.warn('Error normalizing properties.$ai_input', e)
@@ -221,7 +221,7 @@ function AIOutputCell({ eventData }: { eventData: EventData }): JSX.Element {
 
     let outputNormalized: CompatMessage[] | undefined
     try {
-        const parsed = typeof output === 'string' ? JSON.parse(output) : output
+        const parsed = parseJSONPreview(output)
         outputNormalized = normalizeMessages(parsed, 'assistant')
     } catch (e) {
         console.warn('Error normalizing properties.$ai_output_choices', e)
