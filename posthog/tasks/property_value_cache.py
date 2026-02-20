@@ -132,14 +132,15 @@ def run_event_property_query_and_cache(
         span.set_attribute("result_count", len(values))
         formatted_values = [{"name": convert_property_value(v)} for v in flatten(values)]
 
-        cache_property_values(
-            team_id=team_id,
-            property_type="event",
-            property_key=property_key,
-            values=formatted_values,
-            search_value=search_value,
-            event_names=event_names,
-        )
+        if not property_filters:
+            cache_property_values(
+                team_id=team_id,
+                property_type="event",
+                property_key=property_key,
+                values=formatted_values,
+                search_value=search_value,
+                event_names=event_names,
+            )
 
         return formatted_values
 

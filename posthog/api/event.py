@@ -465,39 +465,40 @@ class EventViewSet(
             if param_key.startswith("properties_")
         ]
 
-        cached = get_cached_property_values(
-            team_id=query_params.team.pk,
-            property_type="event",
-            property_key=query_params.key,
-            search_value=query_params.value,
-            event_names=query_params.event_names,
-        )
-
-        if cached is not None:
-            on_cooldown = is_refresh_on_cooldown(
+        if not property_filters:
+            cached = get_cached_property_values(
                 team_id=query_params.team.pk,
                 property_type="event",
                 property_key=query_params.key,
                 search_value=query_params.value,
                 event_names=query_params.event_names,
             )
-            if not on_cooldown:
-                set_refresh_cooldown(
+
+            if cached is not None:
+                on_cooldown = is_refresh_on_cooldown(
                     team_id=query_params.team.pk,
                     property_type="event",
                     property_key=query_params.key,
                     search_value=query_params.value,
                     event_names=query_params.event_names,
                 )
-                refresh_event_property_values_cache.delay(  # type: ignore[operator]
-                    query_params.team.pk,
-                    query_params.key,
-                    query_params.is_column,
-                    query_params.value,
-                    query_params.event_names,
-                    property_filters,
-                )
-            return self._return_with_short_cache({"results": cached, "refreshing": not on_cooldown})
+                if not on_cooldown:
+                    set_refresh_cooldown(
+                        team_id=query_params.team.pk,
+                        property_type="event",
+                        property_key=query_params.key,
+                        search_value=query_params.value,
+                        event_names=query_params.event_names,
+                    )
+                    refresh_event_property_values_cache.delay(  # type: ignore[operator]
+                        query_params.team.pk,
+                        query_params.key,
+                        query_params.is_column,
+                        query_params.value,
+                        query_params.event_names,
+                        property_filters,
+                    )
+                return self._return_with_short_cache({"results": cached, "refreshing": not on_cooldown})
 
         result = run_event_property_query_and_cache(
             query_params.team.pk,
