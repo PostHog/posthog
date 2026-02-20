@@ -32,7 +32,7 @@ A ticket is ACTIONABLE if it describes:
 
 A ticket is NOT_ACTIONABLE if it is:
 - Spam, abuse, or profanity with no real feedback
-- A routine billing/account question that does NOT indicate a product bug (e.g. requesting a refund, updating payment info, asking about pricing)
+- A routine billing/account question that does NOT indicate a product bug or feature request (e.g. requesting a refund, updating payment info, asking about pricing)
 - A generic "thank you"
 - An auto-generated or bot message
 - An internal test message
