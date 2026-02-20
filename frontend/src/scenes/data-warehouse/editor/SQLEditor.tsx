@@ -78,7 +78,7 @@ export function SQLEditor({ tabId, mode = SQLEditorMode.FullScene, showDatabaseT
                 marginTop: mode === SQLEditorMode.FullScene ? 8 : 0,
             },
         }),
-        []
+        [mode]
     )
 
     const [monacoAndEditor, setMonacoAndEditor] = useState(
@@ -160,23 +160,25 @@ export function SQLEditor({ tabId, mode = SQLEditorMode.FullScene, showDatabaseT
                                 <BindLogic logic={outputPaneLogic} props={{ tabId }}>
                                     <BindLogic logic={sqlEditorLogic} props={{ tabId, mode, monaco, editor }}>
                                         <VariablesQuerySync />
-                                        <SQLEditorSceneTitle />
-                                        <div className="flex grow h-full">
-                                            {shouldShowDatabaseTree && (
-                                                <DatabaseTree databaseTreeRef={databaseTreeRef} />
-                                            )}
-                                            <div
-                                                data-attr="editor-scene"
-                                                className="EditorScene grow flex flex-row overflow-hidden"
-                                                ref={ref}
-                                            >
-                                                <QueryWindow
-                                                    mode={mode}
-                                                    tabId={tabId || ''}
-                                                    onSetMonacoAndEditor={(nextMonaco, nextEditor) =>
-                                                        setMonacoAndEditor([nextMonaco, nextEditor])
-                                                    }
-                                                />
+                                        <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                                            <SQLEditorSceneTitle />
+                                            <div className="flex min-h-0 flex-1">
+                                                {shouldShowDatabaseTree && (
+                                                    <DatabaseTree databaseTreeRef={databaseTreeRef} />
+                                                )}
+                                                <div
+                                                    data-attr="editor-scene"
+                                                    className="EditorScene flex min-h-0 grow flex-row overflow-hidden"
+                                                    ref={ref}
+                                                >
+                                                    <QueryWindow
+                                                        mode={mode}
+                                                        tabId={tabId || ''}
+                                                        onSetMonacoAndEditor={(nextMonaco, nextEditor) =>
+                                                            setMonacoAndEditor([nextMonaco, nextEditor])
+                                                        }
+                                                    />
+                                                </div>
                                             </div>
                                         </div>
                                         {!mode || mode === SQLEditorMode.FullScene ? <ViewLinkModal /> : null}
