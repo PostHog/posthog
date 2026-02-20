@@ -171,6 +171,8 @@ export type LemonInputSelectProps<T = string> = Pick<
     virtualized?: boolean
     /** Enable drag-and-drop reordering of values */
     sortable?: boolean
+    /** Render single-mode values as snack pills (matching multi-mode appearance) */
+    singleValueAsSnack?: boolean
 }
 
 export function LemonInputSelect<T = string>({
@@ -208,6 +210,7 @@ export function LemonInputSelect<T = string>({
     virtualized = false,
     sortable = false,
     status = 'default',
+    singleValueAsSnack = false,
 }: LemonInputSelectProps<T>): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
     const [inputValue, _setInputValue] = useState('')
@@ -580,11 +583,30 @@ export function LemonInputSelect<T = string>({
         // For single mode with a selected value and no active input, show the value as prefix since
         // showing the entered value as placeholder was unintuitive
         if (mode === 'single' && values.length > 0 && !inputValue) {
+            const label = allOptionsMap.get(getStringKey(values[0]))?.label ?? getDisplayLabel(values[0])
+            if (singleValueAsSnack) {
+                const canClear = allowCustomValues && !disableEditing
+                return (
+                    <PopoverReferenceContext.Provider value={null}>
+                        <LemonSnack
+                            title={String(label)}
+                            onClose={
+                                canClear
+                                    ? () => {
+                                          setInputValue('')
+                                          onChange?.([])
+                                      }
+                                    : undefined
+                            }
+                        >
+                            {label}
+                        </LemonSnack>
+                    </PopoverReferenceContext.Provider>
+                )
+            }
             return (
                 <PopoverReferenceContext.Provider value={null}>
-                    <span className="font-medium truncate">
-                        {allOptionsMap.get(getStringKey(values[0]))?.label ?? getDisplayLabel(values[0])}
-                    </span>
+                    <span className="font-medium truncate">{label}</span>
                 </PopoverReferenceContext.Provider>
             )
         }
@@ -626,12 +648,21 @@ export function LemonInputSelect<T = string>({
         _onActionItem,
         sortable,
         handleDragEnd,
+        singleValueAsSnack,
+        onChange,
+        setInputValue,
     ])
 
     const valuesAndClearButtonSuffix = useMemo(() => {
         // In single-select mode with custom values, show a clear button when a value is selected and not in edit mode
+        // When singleValueAsSnack is enabled, the snack's own close button handles clearing
         const isClearButtonVisible =
-            mode !== 'multiple' && allowCustomValues && !disableEditing && values.length && !inputValue
+            !singleValueAsSnack &&
+            mode !== 'multiple' &&
+            allowCustomValues &&
+            !disableEditing &&
+            values.length &&
+            !inputValue
 
         const postInputValues =
             displayMode === 'snacks' && itemBeingEditedIndex !== null ? values.slice(itemBeingEditedIndex) : []
@@ -691,6 +722,7 @@ export function LemonInputSelect<T = string>({
         handleDragEnd,
         size,
         onChange,
+        singleValueAsSnack,
     ])
 
     // Positioned like a placeholder but rendered via the suffix since the actual placeholder has to be a string
