@@ -12,7 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { isExperimentMetricValid } from '~/queries/schema-guards'
+import { isExperimentMetric } from '~/queries/schema-guards'
 import {
     ExperimentExposureCriteria,
     ExperimentMetric,
@@ -323,16 +323,20 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
 
                 const parsedMetric = typeof metric === 'string' ? JSON.parse(metric) : metric
 
-                if (name && isExperimentMetricValid(parsedMetric)) {
+                if (name && isExperimentMetric(parsedMetric)) {
                     actions.setExperiment({
                         ...NEW_EXPERIMENT,
                         metrics: parsedMetric ? [parsedMetric] : [],
                         name: name ?? '',
                     })
+
+                    lemonToast.success('Metric added successfully!')
+
                     return
                 }
             } catch (error) {
                 console.error('Error parsing metric from URL', error)
+                lemonToast.error('Error parsing metric from URL')
                 // Continue to draft fallback
             }
 
