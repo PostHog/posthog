@@ -1,5 +1,6 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -119,6 +120,11 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
         setDestinationKey: (destinationKey: WizardDestinationKey) => ({ destinationKey }),
         setTriggerKey: (triggerKey: WizardTriggerKey) => ({ triggerKey }),
         setInputValue: (key: string, value: CyclotronJobInputType) => ({ key, value }),
+        restoreWizardState: (state: {
+            step: WizardStep
+            destinationKey: WizardDestinationKey | null
+            triggerKey: WizardTriggerKey | null
+        }) => ({ state }),
         resetWizard: true,
         createAlertSuccess: true,
         submitConfiguration: true,
@@ -129,6 +135,7 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
             'none' as AlertCreationView,
             {
                 setAlertCreationView: (_, { view }) => view,
+                restoreWizardState: () => 'wizard' as AlertCreationView,
                 createAlertSuccess: () => 'none' as AlertCreationView,
             },
         ],
@@ -137,6 +144,7 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
             {
                 setStep: (_, { step }) => step,
                 setDestinationKey: () => 'trigger' as WizardStep,
+                restoreWizardState: (_, { state }) => state.step,
                 resetWizard: () => 'destination' as WizardStep,
             },
         ],
@@ -144,6 +152,7 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
             null as WizardDestinationKey | null,
             {
                 setDestinationKey: (_, { destinationKey }) => destinationKey,
+                restoreWizardState: (_, { state }) => state.destinationKey,
                 resetWizard: () => null,
             },
         ],
@@ -151,6 +160,7 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
             null as WizardTriggerKey | null,
             {
                 setTriggerKey: (_, { triggerKey }) => triggerKey,
+                restoreWizardState: (_, { state }) => state.triggerKey,
                 resetWizard: () => null,
             },
         ],
@@ -293,6 +303,16 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
             }
         },
 
+        restoreWizardState: ({ state }) => {
+            if (state.destinationKey && state.triggerKey) {
+                const destination = ALL_DESTINATIONS.find((d) => d.key === state.destinationKey)
+                if (destination) {
+                    actions.loadTemplate(destination.templateId)
+                }
+            }
+            actions.loadExistingAlerts()
+        },
+
         setTriggerKey: () => {
             const destinationKey = values.selectedDestinationKey
             if (destinationKey) {
@@ -339,6 +359,58 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
                 actions.createAlertSuccess()
             } catch (e: any) {
                 lemonToast.error(e.detail || 'Failed to create alert')
+            }
+        },
+    })),
+
+    actionToUrl(({ values }) => {
+        const buildURL = (): [string, Record<string, any>, Record<string, any>] => {
+            const { currentLocation } = router.values
+            const searchParams = { ...currentLocation.searchParams }
+
+            if (values.alertCreationView === 'wizard') {
+                searchParams.wizard_step = values.currentStep
+                if (values.selectedDestinationKey) {
+                    searchParams.wizard_dest = values.selectedDestinationKey
+                } else {
+                    delete searchParams.wizard_dest
+                }
+                if (values.selectedTriggerKey) {
+                    searchParams.wizard_trigger = values.selectedTriggerKey
+                } else {
+                    delete searchParams.wizard_trigger
+                }
+            } else {
+                delete searchParams.wizard_step
+                delete searchParams.wizard_dest
+                delete searchParams.wizard_trigger
+            }
+
+            return [currentLocation.pathname, searchParams, currentLocation.hashParams]
+        }
+
+        return {
+            setAlertCreationView: buildURL,
+            setStep: buildURL,
+            setDestinationKey: buildURL,
+            setTriggerKey: buildURL,
+            resetWizard: buildURL,
+            createAlertSuccess: buildURL,
+        }
+    }),
+
+    urlToAction(({ actions, values }) => ({
+        '**/error_tracking/configuration': (_, searchParams) => {
+            const wizardStep = searchParams.wizard_step as WizardStep | undefined
+            const wizardDest = searchParams.wizard_dest as WizardDestinationKey | undefined
+            const wizardTrigger = searchParams.wizard_trigger as WizardTriggerKey | undefined
+
+            if (wizardStep && values.alertCreationView !== 'wizard') {
+                actions.restoreWizardState({
+                    step: wizardStep,
+                    destinationKey: wizardDest ?? null,
+                    triggerKey: wizardTrigger ?? null,
+                })
             }
         },
     })),
