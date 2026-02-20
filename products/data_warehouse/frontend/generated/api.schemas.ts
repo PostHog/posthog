@@ -286,6 +286,7 @@ export interface PaginatedExternalDataSchemaListApi {
  * `Brevo` - Brevo
  * `Postmark` - Postmark
  * `Granola` - Granola
+ * `BuildBetter` - BuildBetter
  */
 export type SourceTypeEnumApi = (typeof SourceTypeEnumApi)[keyof typeof SourceTypeEnumApi]
 
@@ -429,6 +430,7 @@ export const SourceTypeEnumApi = {
     Brevo: 'Brevo',
     Postmark: 'Postmark',
     Granola: 'Granola',
+    BuildBetter: 'BuildBetter',
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
