@@ -237,12 +237,12 @@ jobs:
             - name: Kea typegen
               run: pnpm --filter=@posthog/frontend typegen:write
 
-            - name: Save .typegen cache
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
-              with:
-                  path: .typegen
-                  key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
+            # - name: Save .typegen cache
+            #   if: github.ref == 'refs/heads/master'
+            #   uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+            #   with:
+            #       path: .typegen
+            #       key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Run typescript with strict
               run: pnpm --filter=@posthog/frontend typescript:check
