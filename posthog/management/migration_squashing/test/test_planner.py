@@ -348,6 +348,191 @@ class TestMigrationSquashPlanner:
         assert prepared_operations[1].__class__.__name__ == "RenameModel"
         assert prepared_operations[0].options["indexes"][0].name == "new_idx"
 
+    def test_prepare_operations_for_write_folds_ephemeral_create_model_lifecycle(self):
+        planner = MigrationSquashPlanner(loader=MagicMock(), app_label="posthog")
+        create_model = migrations.CreateModel(
+            name="TeamCoreEventsConfig",
+            fields=[("id", models.AutoField(primary_key=True))],
+        )
+        state_only_delete = migrations.SeparateDatabaseAndState(
+            database_operations=[],
+            state_operations=[migrations.DeleteModel(name="TeamCoreEventsConfig")],
+        )
+        drop_table = migrations.RunSQL(
+            sql="DROP TABLE IF EXISTS posthog_teamcoreeventsconfig;",
+            reverse_sql="",
+        )
+
+        prepared_operations = planner._prepare_operations_for_write(
+            [create_model, state_only_delete, drop_table],
+            rewrite_concurrent_indexes=False,
+        )
+
+        assert prepared_operations == []
+
+    def test_prepare_operations_for_write_folds_ephemeral_lifecycle_with_table_specific_db_ops(self):
+        planner = MigrationSquashPlanner(loader=MagicMock(), app_label="posthog")
+        create_model = migrations.CreateModel(
+            name="NamedQuery",
+            fields=[("id", models.AutoField(primary_key=True))],
+        )
+        add_constraint = migrations.AddConstraint(
+            model_name="namedquery",
+            constraint=models.UniqueConstraint(fields=("id",), name="uq_namedquery_id"),
+        )
+        delete_with_table_db_ops = migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunSQL(
+                    sql="ALTER TABLE posthog_namedquery DROP CONSTRAINT IF EXISTS uq_namedquery_id",
+                    reverse_sql="",
+                )
+            ],
+            state_operations=[migrations.DeleteModel(name="NamedQuery")],
+        )
+        drop_table = migrations.RunSQL(
+            sql="DROP TABLE IF EXISTS posthog_namedquery;",
+            reverse_sql=(
+                "CREATE TABLE IF NOT EXISTS posthog_namedquery (id integer); "
+                "ALTER TABLE posthog_namedquery DROP CONSTRAINT IF EXISTS uq_namedquery_id;"
+            ),
+        )
+
+        prepared_operations = planner._prepare_operations_for_write(
+            [create_model, add_constraint, delete_with_table_db_ops, drop_table],
+            rewrite_concurrent_indexes=False,
+        )
+
+        assert prepared_operations == []
+
+    def test_prepare_operations_for_write_folds_fk_index_drops_for_created_model(self):
+        planner = MigrationSquashPlanner(loader=MagicMock(), app_label="posthog")
+        create_model = migrations.CreateModel(
+            name="CohortCalculationHistory",
+            fields=[
+                ("id", models.AutoField(primary_key=True)),
+                ("cohort", models.ForeignKey(on_delete=models.CASCADE, to="posthog.cohort")),
+                ("team", models.ForeignKey(on_delete=models.CASCADE, to="posthog.team")),
+            ],
+            options={"db_table": "posthog_cohortcalculationhistory"},
+        )
+        drop_cohort_fk_index = migrations.RunSQL(
+            sql="DROP INDEX CONCURRENTLY IF EXISTS posthog_cohortcalculationhistory_cohort_id_e7c02b55",
+            reverse_sql=(
+                "CREATE INDEX CONCURRENTLY IF NOT EXISTS posthog_cohortcalculationhistory_cohort_id_e7c02b55 "
+                "ON posthog_cohortcalculationhistory (cohort_id)"
+            ),
+        )
+        drop_team_fk_index = migrations.RunSQL(
+            sql="DROP INDEX CONCURRENTLY IF EXISTS posthog_cohortcalculationhistory_team_id_beba9c96",
+            reverse_sql=(
+                "CREATE INDEX CONCURRENTLY IF NOT EXISTS posthog_cohortcalculationhistory_team_id_beba9c96 "
+                "ON posthog_cohortcalculationhistory (team_id)"
+            ),
+        )
+
+        prepared_operations = planner._prepare_operations_for_write(
+            [create_model, drop_cohort_fk_index, drop_team_fk_index],
+            rewrite_concurrent_indexes=False,
+        )
+
+        assert len(prepared_operations) == 1
+        assert prepared_operations[0].__class__.__name__ == "CreateModel"
+        field_by_name = dict(prepared_operations[0].fields)
+        assert field_by_name["cohort"].db_index is False
+        assert field_by_name["team"].db_index is False
+
+    def test_prepare_operations_for_write_folds_fk_to_plain_alterfield_on_created_model(self):
+        planner = MigrationSquashPlanner(loader=MagicMock(), app_label="posthog")
+        create_model = migrations.CreateModel(
+            name="ResourceNotebook",
+            fields=[
+                ("id", models.AutoField(primary_key=True)),
+                ("group", models.ForeignKey(blank=True, null=True, on_delete=models.CASCADE, to="posthog.group")),
+            ],
+        )
+        alter_group_to_integer = migrations.AlterField(
+            model_name="resourcenotebook",
+            name="group",
+            field=models.IntegerField(blank=True, db_column="group_id", null=True),
+        )
+
+        prepared_operations = planner._prepare_operations_for_write(
+            [create_model, alter_group_to_integer],
+            rewrite_concurrent_indexes=False,
+        )
+
+        assert len(prepared_operations) == 1
+        assert prepared_operations[0].__class__.__name__ == "CreateModel"
+        field_by_name = dict(prepared_operations[0].fields)
+        assert field_by_name["group"].__class__.__name__ == "IntegerField"
+        assert getattr(field_by_name["group"], "remote_field", None) is None
+
+    def test_prepare_operations_for_write_keeps_non_fk_alterfield_on_created_model(self):
+        planner = MigrationSquashPlanner(loader=MagicMock(), app_label="posthog")
+        create_model = migrations.CreateModel(
+            name="SimpleModel",
+            fields=[
+                ("id", models.AutoField(primary_key=True)),
+                ("name", models.CharField(max_length=64, null=True)),
+            ],
+        )
+        alter_name = migrations.AlterField(
+            model_name="simplemodel",
+            name="name",
+            field=models.CharField(max_length=128, null=True),
+        )
+
+        prepared_operations = planner._prepare_operations_for_write(
+            [create_model, alter_name],
+            rewrite_concurrent_indexes=False,
+        )
+
+        assert len(prepared_operations) == 2
+        assert prepared_operations[0].__class__.__name__ == "CreateModel"
+        assert prepared_operations[1].__class__.__name__ == "AlterField"
+
+    def test_prepare_operations_for_write_normalizes_alterfield_subclasses(self):
+        planner = MigrationSquashPlanner(loader=MagicMock(), app_label="posthog")
+
+        class AlterFieldNullSafe(migrations.AlterField):
+            pass
+
+        custom_alter = AlterFieldNullSafe(
+            model_name="dashboardtemplate",
+            name="dashboard_description",
+            field=models.CharField(blank=True, max_length=400, null=True),
+        )
+
+        prepared_operations = planner._prepare_operations_for_write(
+            [custom_alter],
+            rewrite_concurrent_indexes=False,
+        )
+
+        assert len(prepared_operations) == 1
+        assert prepared_operations[0].__class__ is migrations.AlterField
+        assert prepared_operations[0].model_name == "dashboardtemplate"
+        assert prepared_operations[0].name == "dashboard_description"
+
+    def test_prepare_operations_for_write_keeps_state_only_delete_without_drop_table(self):
+        planner = MigrationSquashPlanner(loader=MagicMock(), app_label="posthog")
+        create_model = migrations.CreateModel(
+            name="TeamCoreEventsConfig",
+            fields=[("id", models.AutoField(primary_key=True))],
+        )
+        state_only_delete = migrations.SeparateDatabaseAndState(
+            database_operations=[],
+            state_operations=[migrations.DeleteModel(name="TeamCoreEventsConfig")],
+        )
+
+        prepared_operations = planner._prepare_operations_for_write(
+            [create_model, state_only_delete],
+            rewrite_concurrent_indexes=False,
+        )
+
+        assert len(prepared_operations) == 2
+        assert prepared_operations[0].__class__.__name__ == "CreateModel"
+        assert prepared_operations[1].__class__.__name__ == "SeparateDatabaseAndState"
+
     @parameterized.expand(
         [
             (

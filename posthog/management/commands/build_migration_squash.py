@@ -7,6 +7,8 @@ from django.db.migrations.loader import MigrationLoader
 from posthog.management.migration_squashing.planner import MigrationSquashPlanner
 from posthog.management.migration_squashing.policy import BootstrapPolicy
 
+DEFAULT_BOOTSTRAP_POLICY_PATH = Path("posthog/management/migration_squashing/bootstrap_policy.yaml")
+
 
 class Command(BaseCommand):
     help = "Build a deterministic, state-verified squash migration"
@@ -55,6 +57,11 @@ class Command(BaseCommand):
             ),
         )
         parser.add_argument(
+            "--overwrite-existing",
+            action="store_true",
+            help="When writing, overwrite an existing generated migration file with different content.",
+        )
+        parser.add_argument(
             "--write",
             action="store_true",
             help="Write the generated squash migration. Without this flag the command is dry-run only.",
@@ -64,7 +71,12 @@ class Command(BaseCommand):
         app_label: str = options["app"]
         allow_operation_types = set(options["allow_operation"])
         bootstrap_policy_arg: str | None = options.get("bootstrap_policy")
-        bootstrap_policy_path = Path(bootstrap_policy_arg) if bootstrap_policy_arg else None
+        if bootstrap_policy_arg:
+            bootstrap_policy_path = Path(bootstrap_policy_arg)
+        elif DEFAULT_BOOTSTRAP_POLICY_PATH.exists():
+            bootstrap_policy_path = DEFAULT_BOOTSTRAP_POLICY_PATH
+        else:
+            bootstrap_policy_path = None
         bootstrap_policy = BootstrapPolicy.from_path(bootstrap_policy_path)
 
         loader = MigrationLoader(None, ignore_no_migrations=True)
@@ -97,6 +109,7 @@ class Command(BaseCommand):
             migration_path = planner.write_migration(
                 analysis,
                 rewrite_concurrent_indexes=options["rewrite_concurrent_indexes"],
+                overwrite_existing=options["overwrite_existing"],
             )
             self.stdout.write(self.style.SUCCESS(f"Wrote squash migration: {migration_path}"))
         else:

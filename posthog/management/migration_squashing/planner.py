@@ -20,6 +20,23 @@ _SQUASH_SUFFIX_RE = re.compile(r"[^a-zA-Z0-9_]+")
 _SQL_COMMENT_RE = re.compile(r"--.*?$", re.MULTILINE)
 _MIGRATION_MODULE_CALLABLE_RE = re.compile(r"\.migrations\.\d+_")
 _SQL_CONCURRENTLY_RE = re.compile(r"\bCONCURRENTLY\b", re.IGNORECASE)
+_SQL_DROP_TABLE_IF_EXISTS_RE = re.compile(r"^DROP TABLE IF EXISTS (?P<table>[A-Za-z_][A-Za-z0-9_\.]*)$", re.IGNORECASE)
+_SQL_DROP_TABLE_RE = re.compile(
+    r"^DROP TABLE(?: IF EXISTS)? (?P<table>[A-Za-z_][A-Za-z0-9_\.]*)$",
+    re.IGNORECASE,
+)
+_SQL_CREATE_TABLE_RE = re.compile(
+    r"^CREATE TABLE(?: IF NOT EXISTS)? (?P<table>[A-Za-z_][A-Za-z0-9_\.]*)\b",
+    re.IGNORECASE,
+)
+_SQL_ALTER_TABLE_RE = re.compile(
+    r"^ALTER TABLE(?: ONLY)? (?P<table>[A-Za-z_][A-Za-z0-9_\.]*)\b",
+    re.IGNORECASE,
+)
+_SQL_DROP_INDEX_IF_EXISTS_RE = re.compile(
+    r"^DROP INDEX(?: CONCURRENTLY)? IF EXISTS (?P<index>[A-Za-z_][A-Za-z0-9_]*)$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -237,7 +254,12 @@ class MigrationSquashPlanner:
             suffix = self._normalize_suffix(end_name.split("_", 1)[-1] if "_" in end_name else end_name)
         return f"{start_prefix}_squashed_{end_prefix}_{suffix}"
 
-    def write_migration(self, analysis: SquashAnalysis, rewrite_concurrent_indexes: bool = False) -> Path:
+    def write_migration(
+        self,
+        analysis: SquashAnalysis,
+        rewrite_concurrent_indexes: bool = False,
+        overwrite_existing: bool = False,
+    ) -> Path:
         if not analysis.included_span:
             raise ValueError("Cannot write a squash migration with an empty included span.")
         if not analysis.state_equivalent:
@@ -275,7 +297,8 @@ class MigrationSquashPlanner:
             existing_migration = path.read_text()
             if existing_migration == rendered_migration:
                 return path
-            raise ValueError(f"Migration file already exists with different content: {path}")
+            if not overwrite_existing:
+                raise ValueError(f"Migration file already exists with different content: {path}")
         path.write_text(rendered_migration)
         return path
 
@@ -283,7 +306,32 @@ class MigrationSquashPlanner:
         prepared_operations = operations
         if rewrite_concurrent_indexes:
             prepared_operations = [self._rewrite_operation_for_bootstrap(operation) for operation in operations]
-        return self._fold_create_model_index_renames(prepared_operations)
+        prepared_operations = [self._normalize_custom_write_operations(operation) for operation in prepared_operations]
+        prepared_operations = self._fold_create_model_index_renames(prepared_operations)
+        prepared_operations = self._fold_create_model_fk_to_plain_field_alters(prepared_operations)
+        prepared_operations = self._fold_create_model_fk_index_drops(prepared_operations)
+        return self._fold_ephemeral_create_model_lifecycle(prepared_operations)
+
+    def _normalize_custom_write_operations(self, operation: Any) -> Any:
+        if isinstance(operation, migrations.SeparateDatabaseAndState):
+            return migrations.SeparateDatabaseAndState(
+                database_operations=[
+                    self._normalize_custom_write_operations(nested)
+                    for nested in getattr(operation, "database_operations", [])
+                ],
+                state_operations=[
+                    self._normalize_custom_write_operations(nested)
+                    for nested in getattr(operation, "state_operations", [])
+                ],
+            )
+        if isinstance(operation, migrations.AlterField) and operation.__class__ is not migrations.AlterField:
+            return migrations.AlterField(
+                model_name=operation.model_name,
+                name=operation.name,
+                field=operation.field,
+                preserve_default=getattr(operation, "preserve_default", True),
+            )
+        return operation
 
     def _rewrite_operation_for_policy(
         self,
@@ -515,6 +563,336 @@ class MigrationSquashPlanner:
             prepared_operations.append(operation)
 
         return prepared_operations
+
+    def _fold_create_model_fk_to_plain_field_alters(self, operations: list[Any]) -> list[Any]:
+        prepared_operations: list[Any] = []
+        create_model_by_name: dict[str, int] = {}
+
+        for operation in operations:
+            op_type = operation.__class__.__name__
+
+            if op_type == "CreateModel":
+                create_model_by_name[operation.name.lower()] = len(prepared_operations)
+                prepared_operations.append(operation)
+                continue
+
+            if op_type == "RenameModel":
+                old_name = operation.old_name.lower()
+                new_name = operation.new_name.lower()
+                if old_name in create_model_by_name:
+                    create_model_by_name[new_name] = create_model_by_name.pop(old_name)
+                prepared_operations.append(operation)
+                continue
+
+            if op_type == "DeleteModel":
+                create_model_by_name.pop(operation.name.lower(), None)
+                prepared_operations.append(operation)
+                continue
+
+            if op_type == "AlterField":
+                model_name = str(getattr(operation, "model_name", "")).lower()
+                create_model_idx = create_model_by_name.get(model_name)
+                if create_model_idx is None:
+                    prepared_operations.append(operation)
+                    continue
+
+                create_model_operation = prepared_operations[create_model_idx]
+                if self._replace_create_model_field_for_fk_drop(
+                    create_model_operation=create_model_operation,
+                    field_name=str(getattr(operation, "name", "")),
+                    replacement_field=getattr(operation, "field", None),
+                ):
+                    continue
+
+            prepared_operations.append(operation)
+
+        return prepared_operations
+
+    def _replace_create_model_field_for_fk_drop(
+        self,
+        create_model_operation: Any,
+        field_name: str,
+        replacement_field: Any,
+    ) -> bool:
+        fields = list(getattr(create_model_operation, "fields", []))
+        for idx, (existing_field_name, existing_field) in enumerate(fields):
+            if str(existing_field_name) != field_name:
+                continue
+            if getattr(existing_field, "remote_field", None) is None:
+                return False
+            if getattr(replacement_field, "remote_field", None) is not None:
+                return False
+            fields[idx] = (existing_field_name, replacement_field)
+            create_model_operation.fields = fields
+            return True
+        return False
+
+    def _fold_create_model_fk_index_drops(self, operations: list[Any]) -> list[Any]:
+        create_models_by_table: dict[str, Any] = {}
+        removable_indices: set[int] = set()
+
+        for idx, operation in enumerate(operations):
+            op_type = operation.__class__.__name__
+            if op_type == "CreateModel":
+                create_models_by_table[self._model_db_table_name(operation)] = operation
+                continue
+            if op_type == "DeleteModel":
+                model_name = getattr(operation, "name", "")
+                create_model_operation = create_models_by_table.pop(
+                    self._normalize_db_table_name(f"{self.app_label}_{str(model_name).lower()}"),
+                    None,
+                )
+                if create_model_operation is not None:
+                    continue
+            if op_type == "RunSQL":
+                drop_index_name = self._runsql_drop_index_if_exists_target(operation)
+                if not drop_index_name:
+                    continue
+                matched = False
+                for table_name, create_model_operation in create_models_by_table.items():
+                    fk_field_name = self._fk_field_name_from_auto_index(
+                        index_name=drop_index_name,
+                        table_name=table_name,
+                    )
+                    if not fk_field_name:
+                        continue
+                    if self._set_create_model_field_db_index_false(create_model_operation, fk_field_name):
+                        removable_indices.add(idx)
+                        matched = True
+                        break
+                if matched:
+                    continue
+
+        if not removable_indices:
+            return operations
+
+        return [operation for idx, operation in enumerate(operations) if idx not in removable_indices]
+
+    def _fold_ephemeral_create_model_lifecycle(self, operations: list[Any]) -> list[Any]:
+        create_models: dict[str, tuple[int, str]] = {}
+        for idx, operation in enumerate(operations):
+            if operation.__class__.__name__ != "CreateModel":
+                continue
+            model_name = getattr(operation, "name", "")
+            if not model_name:
+                continue
+            db_table = self._model_db_table_name(operation)
+            create_models[model_name.lower()] = (idx, db_table)
+
+        drop_tables: dict[int, str] = {}
+        for idx, operation in enumerate(operations):
+            drop_table = self._runsql_drop_table_if_exists_target(operation)
+            if drop_table is not None:
+                drop_tables[idx] = drop_table
+
+        removable_indices: set[int] = set()
+        lifecycle_candidates: list[tuple[str, str, int, int, int]] = []
+        for idx, operation in enumerate(operations):
+            deleted_model_name = self._state_deleted_model_name(operation)
+            if not deleted_model_name:
+                continue
+
+            normalized_model_name = deleted_model_name.lower()
+            create_info = create_models.get(normalized_model_name)
+            if create_info is None:
+                continue
+
+            create_idx, create_table = create_info
+            if create_idx >= idx:
+                continue
+
+            matching_drop_idx = None
+            for drop_idx, drop_table in drop_tables.items():
+                if drop_idx <= idx:
+                    continue
+                if drop_table == create_table:
+                    matching_drop_idx = drop_idx
+                    break
+
+            if matching_drop_idx is None:
+                continue
+
+            lifecycle_candidates.append((normalized_model_name, create_table, create_idx, idx, matching_drop_idx))
+
+        for model_name, table_name, create_idx, delete_idx, drop_idx in lifecycle_candidates:
+            removable_indices.update({create_idx, delete_idx, drop_idx})
+            for operation_idx in range(create_idx + 1, drop_idx):
+                operation = operations[operation_idx]
+                if self._operation_targets_model_or_table_exclusively(
+                    operation=operation,
+                    model_name=model_name,
+                    table_name=table_name,
+                ):
+                    removable_indices.add(operation_idx)
+
+        if not removable_indices:
+            return operations
+
+        return [operation for idx, operation in enumerate(operations) if idx not in removable_indices]
+
+    def _state_deleted_model_name(self, operation: Any) -> str | None:
+        if operation.__class__.__name__ != "SeparateDatabaseAndState":
+            return None
+
+        state_operations = getattr(operation, "state_operations", [])
+        if len(state_operations) != 1:
+            return None
+
+        state_operation = state_operations[0]
+        if state_operation.__class__.__name__ != "DeleteModel":
+            return None
+
+        model_name = getattr(state_operation, "name", None)
+        return str(model_name) if model_name else None
+
+    def _operation_targets_model_or_table_exclusively(self, operation: Any, model_name: str, table_name: str) -> bool:
+        op_type = operation.__class__.__name__
+        model_operation_types = {
+            "AddField",
+            "RemoveField",
+            "AlterField",
+            "RenameField",
+            "AddConstraint",
+            "RemoveConstraint",
+            "AddConstraintNotValid",
+            "ValidateConstraint",
+            "AddIndex",
+            "RemoveIndex",
+            "RenameIndex",
+        }
+
+        if op_type in {"CreateModel", "DeleteModel"}:
+            operation_model_name = str(getattr(operation, "name", "")).lower()
+            return operation_model_name == model_name
+
+        if op_type in model_operation_types:
+            operation_model_name = str(getattr(operation, "model_name", "")).lower()
+            return operation_model_name == model_name
+
+        if op_type == "SeparateDatabaseAndState":
+            nested_operations = list(getattr(operation, "database_operations", [])) + list(
+                getattr(operation, "state_operations", [])
+            )
+            if not nested_operations:
+                return False
+            return all(
+                self._operation_targets_model_or_table_exclusively(
+                    operation=nested_operation,
+                    model_name=model_name,
+                    table_name=table_name,
+                )
+                for nested_operation in nested_operations
+            )
+
+        if op_type == "RunSQL":
+            return self._runsql_targets_only_table(operation=operation, table_name=table_name)
+
+        return False
+
+    def _runsql_targets_only_table(self, operation: Any, table_name: str) -> bool:
+        sql_statements = list(self._iter_sql_statements(getattr(operation, "sql", None)))
+        if not sql_statements:
+            return False
+        if any(self._sql_statement_target_table(statement) != table_name for statement in sql_statements):
+            return False
+
+        reverse_sql_statements = list(self._iter_sql_statements(getattr(operation, "reverse_sql", None)))
+        if reverse_sql_statements and any(
+            self._sql_statement_target_table(statement) != table_name for statement in reverse_sql_statements
+        ):
+            return False
+        return True
+
+    def _sql_statement_target_table(self, statement: str) -> str | None:
+        normalized_statement = statement.replace('"', "").strip()
+
+        for table_regex in (_SQL_DROP_TABLE_RE, _SQL_CREATE_TABLE_RE, _SQL_ALTER_TABLE_RE):
+            match = table_regex.match(normalized_statement)
+            if match is not None:
+                return self._normalize_db_table_name(match.group("table"))
+
+        return None
+
+    def _runsql_drop_table_if_exists_target(self, operation: Any) -> str | None:
+        if operation.__class__.__name__ != "RunSQL":
+            return None
+
+        statements = list(self._iter_sql_statements(getattr(operation, "sql", None)))
+        if len(statements) != 1:
+            return None
+
+        statement = statements[0].replace('"', "")
+        match = _SQL_DROP_TABLE_IF_EXISTS_RE.match(statement)
+        if match is None:
+            return None
+
+        return self._normalize_db_table_name(match.group("table"))
+
+    def _runsql_drop_index_if_exists_target(self, operation: Any) -> str | None:
+        if operation.__class__.__name__ != "RunSQL":
+            return None
+
+        statements = list(self._iter_sql_statements(getattr(operation, "sql", None)))
+        if len(statements) != 1:
+            return None
+
+        statement = statements[0].replace('"', "")
+        match = _SQL_DROP_INDEX_IF_EXISTS_RE.match(statement)
+        if match is None:
+            return None
+        return str(match.group("index")).strip()
+
+    def _fk_field_name_from_auto_index(self, index_name: str, table_name: str) -> str | None:
+        normalized_index = index_name.strip()
+        normalized_table = self._normalize_db_table_name(table_name)
+        table_prefix = f"{normalized_table}_"
+        if not normalized_index.startswith(table_prefix):
+            return None
+
+        tail = normalized_index[len(table_prefix) :]
+        if "_" not in tail:
+            return None
+
+        column_name, _hash = tail.rsplit("_", 1)
+        if not column_name.endswith("_id"):
+            return None
+
+        return column_name[:-3]
+
+    def _set_create_model_field_db_index_false(self, create_model_operation: Any, field_name: str) -> bool:
+        fields = getattr(create_model_operation, "fields", [])
+        for existing_field_name, field in fields:
+            if existing_field_name != field_name:
+                continue
+            if not hasattr(field, "remote_field"):
+                return False
+            remote_field = getattr(field, "remote_field", None)
+            if remote_field is None:
+                return False
+            if getattr(field, "db_index", None) is False:
+                return True
+            field.db_index = False
+            return True
+        return False
+
+    def _model_db_table_name(self, create_model_operation: Any) -> str:
+        options = getattr(create_model_operation, "options", None)
+        db_table = None
+        if isinstance(options, dict):
+            db_table = options.get("db_table")
+
+        if db_table:
+            return self._normalize_db_table_name(str(db_table))
+
+        model_name = getattr(create_model_operation, "name", "")
+        return self._normalize_db_table_name(f"{self.app_label}_{str(model_name).lower()}")
+
+    @staticmethod
+    def _normalize_db_table_name(table_name: str) -> str:
+        normalized = table_name.strip().replace('"', "")
+        if "." in normalized:
+            normalized = normalized.split(".")[-1]
+        return normalized.lower()
 
     def _rename_index_in_create_model(self, create_model_operation: Any, old_name: str, new_name: str) -> bool:
         options = getattr(create_model_operation, "options", None)

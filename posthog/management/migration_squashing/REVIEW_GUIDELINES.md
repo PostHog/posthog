@@ -3,6 +3,15 @@
 This guide defines how to review entries in `--bootstrap-policy-template` files for migration squashing.
 Use it for both human review and LLM-assisted review.
 
+Canonical policy file in this repo:
+`posthog/management/migration_squashing/bootstrap_policy.yaml`
+
+Deterministic regeneration path:
+
+- update only the canonical policy file
+- run `plan_migration_squash --rebuild-from-raw-history --write --overwrite-existing --prune-stale-squashed`
+- do not hand-edit generated `*_squashed_*.py` files
+
 ## Goal
 
 Choose a deterministic action per blocker entry so bootstrap squashes are shorter without silent schema drift.

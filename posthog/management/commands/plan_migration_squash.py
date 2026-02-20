@@ -5,6 +5,7 @@ import shlex
 from dataclasses import dataclass
 from pathlib import Path
 
+from django.apps import apps
 from django.core.management.base import BaseCommand, CommandError
 from django.db.migrations.loader import MigrationLoader
 
@@ -12,6 +13,7 @@ from posthog.management.migration_squashing.planner import MigrationSquashPlanne
 from posthog.management.migration_squashing.policy import BootstrapPolicy, write_bootstrap_policy_template
 
 REVIEW_GUIDELINES_PATH = "posthog/management/migration_squashing/REVIEW_GUIDELINES.md"
+DEFAULT_BOOTSTRAP_POLICY_PATH = Path("posthog/management/migration_squashing/bootstrap_policy.yaml")
 
 
 @dataclass
@@ -90,6 +92,25 @@ class Command(BaseCommand):
             ),
         )
         parser.add_argument(
+            "--overwrite-existing",
+            action="store_true",
+            help="When writing, overwrite existing generated chunk files if content changed.",
+        )
+        parser.add_argument(
+            "--prune-stale-squashed",
+            action="store_true",
+            help=(
+                "When writing, remove stale *_squashed_*.py files in scope that are not part of the current plan."
+            ),
+        )
+        parser.add_argument(
+            "--rebuild-from-raw-history",
+            action="store_true",
+            help=(
+                "Delete in-scope squashed migration files before planning so the graph is built from raw migration history."
+            ),
+        )
+        parser.add_argument(
             "--bootstrap-policy-template",
             help=(
                 "Optional path to write/update a policy template YAML with blocker operation identities. "
@@ -121,10 +142,33 @@ class Command(BaseCommand):
         min_chunk_size: int = options["min_chunk_size"]
         rewrite_concurrent_indexes: bool = options["rewrite_concurrent_indexes"]
         bootstrap_policy_arg: str | None = options.get("bootstrap_policy")
-        bootstrap_policy_path = Path(bootstrap_policy_arg) if bootstrap_policy_arg else None
+        start_option: str | None = options.get("start")
+        end_option: str | None = options.get("end")
+        overwrite_existing: bool = options["overwrite_existing"]
+        prune_stale_squashed: bool = options["prune_stale_squashed"]
+        rebuild_from_raw_history: bool = options["rebuild_from_raw_history"]
+        if bootstrap_policy_arg:
+            bootstrap_policy_path = Path(bootstrap_policy_arg)
+        elif DEFAULT_BOOTSTRAP_POLICY_PATH.exists():
+            bootstrap_policy_path = DEFAULT_BOOTSTRAP_POLICY_PATH
+        else:
+            bootstrap_policy_path = None
         bootstrap_policy = BootstrapPolicy.from_path(bootstrap_policy_path)
         if min_chunk_size < 1:
             raise CommandError("--min-chunk-size must be at least 1.")
+        if rebuild_from_raw_history and (not start_option or not end_option):
+            raise CommandError("--rebuild-from-raw-history requires explicit --start and --end.")
+
+        if rebuild_from_raw_history:
+            removed_before_plan = self._prune_squashed_files_in_scope(
+                app_label=app_label,
+                scope_start=start_option,
+                scope_end=end_option,
+                keep_file_names=set(),
+            )
+            self.stdout.write(f"Pruned squashed files before planning: {len(removed_before_plan)}")
+            for removed_file in removed_before_plan:
+                self.stdout.write(f"  - {removed_file}")
 
         loader = MigrationLoader(None, ignore_no_migrations=True)
         planner = MigrationSquashPlanner(
@@ -134,8 +178,8 @@ class Command(BaseCommand):
             bootstrap_policy=bootstrap_policy,
         )
 
-        start_name = options["start"] or planner.infer_default_start()
-        end_name = options["end"] or planner.infer_default_end()
+        start_name = start_option or planner.infer_default_start()
+        end_name = end_option or planner.infer_default_end()
 
         plan = self._build_incremental_plan(
             planner=planner,
@@ -189,11 +233,22 @@ class Command(BaseCommand):
             raise CommandError("Operation coverage mismatch detected. Refusing to continue.")
 
         if options["write"]:
+            if prune_stale_squashed:
+                removed_files = self._prune_squashed_files_in_scope(
+                    app_label=app_label,
+                    scope_start=plan.start,
+                    scope_end=plan.end,
+                    keep_file_names={f"{chunk.analysis.generated_migration_name}.py" for chunk in plan.chunks},
+                )
+                self.stdout.write(f"Pruned stale squashed files: {len(removed_files)}")
+                for removed_file in removed_files:
+                    self.stdout.write(f"  - {removed_file}")
             written_paths: list[Path] = []
             for chunk in plan.chunks:
                 migration_path = planner.write_migration(
                     chunk.analysis,
                     rewrite_concurrent_indexes=plan.rewrite_concurrent_indexes,
+                    overwrite_existing=overwrite_existing,
                 )
                 written_paths.append(migration_path)
             self.stdout.write(self.style.SUCCESS(f"Wrote or reused {len(written_paths)} squash migration files."))
@@ -519,3 +574,30 @@ class Command(BaseCommand):
             )
             lines.append("")
         return "\n".join(lines)
+
+    def _prune_squashed_files_in_scope(
+        self,
+        app_label: str,
+        scope_start: str,
+        scope_end: str,
+        keep_file_names: set[str],
+    ) -> list[str]:
+        start_prefix = int(MigrationSquashPlanner._migration_prefix(scope_start))
+        end_prefix = int(MigrationSquashPlanner._migration_prefix(scope_end))
+
+        migrations_dir = Path(apps.get_app_config(app_label).path) / "migrations"
+        removed_files: list[str] = []
+        for migration_file in sorted(migrations_dir.glob("*_squashed_*.py")):
+            file_name = migration_file.name
+            file_prefix_raw = MigrationSquashPlanner._migration_prefix(file_name)
+            try:
+                file_prefix = int(file_prefix_raw)
+            except ValueError:
+                continue
+            if file_prefix < start_prefix or file_prefix > end_prefix:
+                continue
+            if file_name in keep_file_names:
+                continue
+            migration_file.unlink()
+            removed_files.append(file_name)
+        return removed_files
