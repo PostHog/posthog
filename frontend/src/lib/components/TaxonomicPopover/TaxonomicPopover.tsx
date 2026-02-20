@@ -104,7 +104,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     if (!buttonPropsFinal.type) {
         buttonPropsFinal.type = 'secondary'
     }
-    if (localValue && !visible) {
+    if (localValue && !visible && !renderValue) {
         buttonPropsFinal.tooltip = String(localValue)
     }
 
