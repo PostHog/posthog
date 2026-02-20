@@ -71,7 +71,7 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
     serializer_class = SignalReportSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "task"  # Using task scope as signal_report doesn't have its own scope yet
+    scope_object = "signal_report"
     queryset = SignalReport.objects.all()
 
     def safely_get_queryset(self, queryset):
@@ -90,7 +90,7 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         return {**super().get_serializer_context(), "team": self.team}
 
     @extend_schema(exclude=True)
-    @action(detail=False, methods=["post"], url_path="analyze_sessions", required_scopes=["task:write"])
+    @action(detail=False, methods=["post"], url_path="analyze_sessions", required_scopes=["signal_report:write"])
     def analyze_sessions(self, request, **kwargs):
         if not settings.DEBUG:
             return Response(

@@ -4990,6 +4990,7 @@ export type APIScopeObject =
     | 'session_recording'
     | 'session_recording_playlist'
     | 'sharing_configuration'
+    | 'signal_report'
     | 'subscription'
     | 'survey'
     | 'task'
