@@ -190,7 +190,7 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
                         limit: 100,
                     })
 
-                    await new Promise((resolve) => setTimeout(resolve, 5_000))
+                    await new Promise((resolve) => setTimeout(resolve, 1_000))
 
                     return response.results
                 },

@@ -61,10 +61,19 @@ function DestinationStep({ onBack }: { onBack: () => void }): JSX.Element {
                 <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} onClick={onBack}>
                     Alerts list
                 </LemonButton>
-                <h2 className="text-xl font-semibold">Where should we send alerts?</h2>
+                <h2 className="text-xl font-semibold mb-1 mt-2">Where should we send alerts?</h2>
+                <p className="text-secondary text-sm">Choose your preferred notification channel</p>
                 <div className="space-y-3">
                     {[1, 2, 3].map((i) => (
-                        <div key={i} className="h-20 rounded-lg border border-border bg-bg-light animate-pulse" />
+                        <div key={i} className="rounded-lg border border-border bg-bg-light animate-pulse p-5 w-full">
+                            <div className="flex items-center gap-4">
+                                <div className="shrink-0 w-10 h-10 rounded bg-border" />
+                                <div className="flex-1 space-y-2">
+                                    <div className="h-4 w-24 rounded bg-border" />
+                                    <div className="h-3 w-48 rounded bg-border" />
+                                </div>
+                            </div>
+                        </div>
                     ))}
                 </div>
             </div>
