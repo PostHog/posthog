@@ -129,6 +129,7 @@ export type InspectorListItemComment = InspectorListItemBase & {
 export type InspectorListItemConsole = InspectorListItemBase & {
     type: 'console'
     data: RecordingConsoleLogV2
+    groupedConsoleLogs?: InspectorListItemConsole[]
 }
 
 export type InspectorListOfflineStatusChange = InspectorListItemBase & {
@@ -190,9 +191,9 @@ export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicPr
     matchingEventsMatchType?: MatchingEventsMatchType
 }
 
-/** Merges runs of identical adjacent events and inactivity into grouped items.
- *  Inactivity is always collapsed. Event grouping is controlled by `groupEvents`. */
-export function collapseAdjacentItems(items: InspectorListItem[], groupEvents = true): InspectorListItem[] {
+/** Merges runs of identical adjacent items into grouped items.
+ *  Inactivity is always collapsed. Event and console log grouping is controlled by `groupSimilar`. */
+export function collapseAdjacentItems(items: InspectorListItem[], groupSimilar = true): InspectorListItem[] {
     const collapsed = items.reduce((acc, item) => {
         const previousItem = acc[acc.length - 1]
 
@@ -203,7 +204,7 @@ export function collapseAdjacentItems(items: InspectorListItem[], groupEvents = 
         }
 
         if (
-            groupEvents &&
+            groupSimilar &&
             item.type === 'events' &&
             previousItem?.type === 'events' &&
             item.data.event === previousItem.data.event &&
@@ -217,14 +218,30 @@ export function collapseAdjacentItems(items: InspectorListItem[], groupEvents = 
             return acc
         }
 
+        if (
+            groupSimilar &&
+            item.type === 'console' &&
+            previousItem?.type === 'console' &&
+            item.data.content === previousItem.data.content &&
+            !item.highlightColor &&
+            !previousItem.highlightColor
+        ) {
+            const existingGroup = previousItem.groupedConsoleLogs ?? [{ ...previousItem }]
+            acc[acc.length - 1] = { ...previousItem, groupedConsoleLogs: [...existingGroup, item] }
+            return acc
+        }
+
         acc.push(item)
         return acc
     }, [] as InspectorListItem[])
 
-    // Only keep event groups with 2+ items; un-group singletons
+    // Only keep groups with 2+ items; un-group singletons
     return collapsed.flatMap((item) => {
         if (item.type === 'events' && item.groupedEvents && item.groupedEvents.length <= 1) {
             return item.groupedEvents.map((e) => ({ ...e, groupedEvents: undefined }))
+        }
+        if (item.type === 'console' && item.groupedConsoleLogs && item.groupedConsoleLogs.length <= 1) {
+            return item.groupedConsoleLogs.map((e) => ({ ...e, groupedConsoleLogs: undefined }))
         }
         return item
     })
@@ -641,45 +658,34 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             if (!consoleLogSeenCache.has(cacheKey)) {
                                 consoleLogSeenCache.add(cacheKey)
 
-                                const lastLogLine = consoleLogs[consoleLogs.length - 1]
-                                if (lastLogLine?.content === content) {
-                                    lastLogLine.count = (lastLogLine.count ?? 1) + 1
-                                    if (!lastLogLine.occurrences) {
-                                        lastLogLine.occurrences = [lastLogLine.timestamp]
-                                    }
-                                    lastLogLine.occurrences.push(snapshot.timestamp)
-                                } else {
-                                    const consoleLog = {
-                                        timestamp: snapshot.timestamp,
-                                        windowId: windowId,
-                                        windowNumber: windowNumberForID(windowId),
-                                        content,
-                                        lines,
-                                        level,
-                                        trace,
-                                        count: 1,
-                                        occurrences: [snapshot.timestamp],
-                                    }
-                                    consoleLogs.push(consoleLog)
-
-                                    // Also create the inspector list item
-                                    const { timestamp: itemTimestamp, timeInRecording } = timeRelativeToStart(
-                                        consoleLog,
-                                        start || dayjs()
-                                    )
-                                    consoleItems.push({
-                                        type: 'console',
-                                        timestamp: itemTimestamp,
-                                        timeInRecording,
-                                        search: content,
-                                        data: consoleLog,
-                                        highlightColor:
-                                            level === 'error' ? 'danger' : level === 'warn' ? 'warning' : undefined,
-                                        windowId: windowId,
-                                        windowNumber: windowNumberForID(windowId),
-                                        key: `${itemTimestamp.valueOf()}-console-${level}-${consoleLogs.length - 1}`,
-                                    })
+                                const consoleLog = {
+                                    timestamp: snapshot.timestamp,
+                                    windowId: windowId,
+                                    windowNumber: windowNumberForID(windowId),
+                                    content,
+                                    lines,
+                                    level,
+                                    trace,
                                 }
+                                consoleLogs.push(consoleLog)
+
+                                // Also create the inspector list item
+                                const { timestamp: itemTimestamp, timeInRecording } = timeRelativeToStart(
+                                    consoleLog,
+                                    start || dayjs()
+                                )
+                                consoleItems.push({
+                                    type: 'console',
+                                    timestamp: itemTimestamp,
+                                    timeInRecording,
+                                    search: content,
+                                    data: consoleLog,
+                                    highlightColor:
+                                        level === 'error' ? 'danger' : level === 'warn' ? 'warning' : undefined,
+                                    windowId: windowId,
+                                    windowNumber: windowNumberForID(windowId),
+                                    key: `${itemTimestamp.valueOf()}-console-${level}-${consoleLogs.length - 1}`,
+                                })
                             }
                         }
                     })

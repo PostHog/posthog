@@ -1,4 +1,5 @@
 import {
+    InspectorListItemConsole,
     InspectorListItemEvent,
     InspectorListItemInactivity,
     collapseAdjacentItems,
@@ -12,6 +13,18 @@ function makeEvent(overrides: Partial<InspectorListItemEvent> = {}): InspectorLi
         search: 'Pageview /',
         key: `event-${Math.random()}`,
         data: { event: '$pageview' } as any,
+        ...overrides,
+    }
+}
+
+function makeConsoleLog(overrides: Partial<InspectorListItemConsole> = {}): InspectorListItemConsole {
+    return {
+        type: 'console',
+        timestamp: {} as any,
+        timeInRecording: 1000,
+        search: 'retry failed',
+        key: `console-${Math.random()}`,
+        data: { content: 'retry failed', level: 'warn', timestamp: 1000, windowId: undefined } as any,
         ...overrides,
     }
 }
@@ -139,12 +152,64 @@ describe('collapseAdjacentItems', () => {
         expect((result[2] as InspectorListItemEvent).groupedEvents).toBeUndefined()
     })
 
-    it('skips event grouping when groupEvents is false', () => {
+    it('skips event grouping when groupSimilar is false', () => {
         const items = Array.from({ length: 5 }, () => makeEvent())
         const result = collapseAdjacentItems(items, false)
         expect(result).toHaveLength(5)
         result.forEach((item) => {
             expect((item as InspectorListItemEvent).groupedEvents).toBeUndefined()
         })
+    })
+
+    // Console log grouping
+    it('leaves a single console log alone', () => {
+        const result = collapseAdjacentItems([makeConsoleLog()])
+        expect(result).toHaveLength(1)
+        expect((result[0] as InspectorListItemConsole).groupedConsoleLogs).toBeUndefined()
+    })
+
+    it.each([2, 3, 5])('collapses %i identical console logs into one group', (n) => {
+        const result = collapseAdjacentItems(Array.from({ length: n }, () => makeConsoleLog()))
+        expect(result).toHaveLength(1)
+        expect((result[0] as InspectorListItemConsole).groupedConsoleLogs).toHaveLength(n)
+    })
+
+    it('breaks the console log run when content changes', () => {
+        const items = [
+            makeConsoleLog({ data: { content: 'foo' } as any, search: 'foo' }),
+            makeConsoleLog({ data: { content: 'bar' } as any, search: 'bar' }),
+            makeConsoleLog({ data: { content: 'foo' } as any, search: 'foo' }),
+        ]
+        expect(collapseAdjacentItems(items)).toHaveLength(3)
+    })
+
+    it('never groups highlighted console logs', () => {
+        const items = Array.from({ length: 4 }, () => makeConsoleLog({ highlightColor: 'danger' }))
+        expect(collapseAdjacentItems(items)).toHaveLength(4)
+    })
+
+    it('an event in between breaks the console log run', () => {
+        const items = [makeConsoleLog(), makeConsoleLog(), makeEvent(), makeConsoleLog(), makeConsoleLog()]
+        const result = collapseAdjacentItems(items)
+        // 2 logs grouped + 1 event + 2 logs grouped = 3 items
+        expect(result).toHaveLength(3)
+    })
+
+    it('skips console log grouping when groupSimilar is false', () => {
+        const items = Array.from({ length: 5 }, () => makeConsoleLog())
+        const result = collapseAdjacentItems(items, false)
+        expect(result).toHaveLength(5)
+        result.forEach((item) => {
+            expect((item as InspectorListItemConsole).groupedConsoleLogs).toBeUndefined()
+        })
+    })
+
+    it('keeps individual timestamps inside groupedConsoleLogs', () => {
+        const logs = Array.from({ length: 4 }, (_, i) =>
+            makeConsoleLog({ timeInRecording: i * 1000, key: `console-${i}` })
+        )
+        const result = collapseAdjacentItems(logs)
+        const grouped = (result[0] as InspectorListItemConsole).groupedConsoleLogs!
+        expect(grouped.map((e) => e.timeInRecording)).toEqual([0, 1000, 2000, 3000])
     })
 })

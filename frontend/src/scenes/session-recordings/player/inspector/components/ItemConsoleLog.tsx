@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
 
 import { LemonDivider } from '@posthog/lemon-ui'
 
@@ -8,7 +7,6 @@ import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { colonDelimitedDuration } from 'lib/utils'
 
-import { miniFiltersLogic } from '../miniFiltersLogic'
 import { InspectorListItemAppState, InspectorListItemConsole } from '../playerInspectorLogic'
 
 export interface ItemConsoleLogProps {
@@ -20,8 +18,8 @@ export interface ItemAppStateProps {
 }
 
 export function ItemConsoleLog({ item }: ItemConsoleLogProps): JSX.Element {
-    const { groupRepeatedItems } = useValues(miniFiltersLogic)
-    const showBadge = groupRepeatedItems && (item.data.count || 1) > 1
+    const groupCount = item.groupedConsoleLogs?.length
+    const showBadge = groupCount && groupCount > 1
 
     return (
         <div className="w-full font-light flex items-center" data-attr="item-console-log">
@@ -37,7 +35,7 @@ export function ItemConsoleLog({ item }: ItemConsoleLogProps): JSX.Element {
                               : 'bg-secondary-3000-hover'
                     )}
                 >
-                    {item.data.count}
+                    {groupCount}
                 </span>
             ) : null}
         </div>
@@ -45,46 +43,32 @@ export function ItemConsoleLog({ item }: ItemConsoleLogProps): JSX.Element {
 }
 
 export function ItemConsoleLogDetail({ item }: ItemConsoleLogProps): JSX.Element {
-    const count = item.data.count || 1
-    const occurrences = item.data.occurrences
-    const firstTimestamp = occurrences?.[0] ?? item.data.timestamp
+    const grouped = item.groupedConsoleLogs
 
     return (
         <div className="w-full font-light" data-attr="item-console-log">
             <div className="px-2 py-1 text-xs border-t">
-                {count > 1 && occurrences?.length ? (
+                {grouped && grouped.length > 1 ? (
                     <>
                         <div className="italic mb-1">
-                            This log occurred <b>{count}</b> times:
+                            This log occurred <b>{grouped.length}</b> times:
                         </div>
                         <div className="flex flex-col border rounded bg-surface-primary mb-2 max-h-40 overflow-y-auto">
-                            {occurrences.map((ts, i) => {
-                                // Show each occurrence's time relative to the recording
-                                const offsetFromFirst = ts - firstTimestamp
-                                const timeInRecording = item.timeInRecording + offsetFromFirst
-                                return (
-                                    <div
-                                        key={i}
-                                        className={clsx(
-                                            'flex items-center gap-2 px-2 py-0.5 font-mono',
-                                            i > 0 && 'border-t'
-                                        )}
-                                    >
-                                        <span className="text-secondary shrink-0">
-                                            {colonDelimitedDuration(timeInRecording / 1000, 2)}
-                                        </span>
-                                        <span className="truncate">{item.data.content}</span>
-                                    </div>
-                                )
-                            })}
+                            {grouped.map((entry, i) => (
+                                <div
+                                    key={entry.key}
+                                    className={clsx(
+                                        'flex items-center gap-2 px-2 py-0.5 font-mono',
+                                        i > 0 && 'border-t'
+                                    )}
+                                >
+                                    <span className="text-secondary shrink-0">
+                                        {colonDelimitedDuration(entry.timeInRecording / 1000, 2)}
+                                    </span>
+                                    <span className="truncate">{entry.data.content}</span>
+                                </div>
+                            ))}
                         </div>
-                    </>
-                ) : count > 1 ? (
-                    <>
-                        <div className="italic">
-                            This log occurred <b>{count}</b> times in a row.
-                        </div>
-                        <LemonDivider dashed />
                     </>
                 ) : null}
                 {item.data.lines?.length && (
