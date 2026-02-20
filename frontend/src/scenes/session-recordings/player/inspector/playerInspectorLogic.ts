@@ -223,8 +223,7 @@ export function collapseAdjacentItems(items: InspectorListItem[], groupSimilar =
             item.type === 'console' &&
             previousItem?.type === 'console' &&
             item.data.content === previousItem.data.content &&
-            !item.highlightColor &&
-            !previousItem.highlightColor
+            item.highlightColor === previousItem.highlightColor
         ) {
             const existingGroup = previousItem.groupedConsoleLogs ?? [{ ...previousItem }]
             acc[acc.length - 1] = { ...previousItem, groupedConsoleLogs: [...existingGroup, item] }

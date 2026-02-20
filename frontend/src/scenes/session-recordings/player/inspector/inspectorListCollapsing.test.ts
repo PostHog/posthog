@@ -183,9 +183,23 @@ describe('collapseAdjacentItems', () => {
         expect(collapseAdjacentItems(items)).toHaveLength(3)
     })
 
-    it('never groups highlighted console logs', () => {
+    it('groups console logs with the same highlight color', () => {
         const items = Array.from({ length: 4 }, () => makeConsoleLog({ highlightColor: 'danger' }))
-        expect(collapseAdjacentItems(items)).toHaveLength(4)
+        const result = collapseAdjacentItems(items)
+        expect(result).toHaveLength(1)
+        expect((result[0] as InspectorListItemConsole).groupedConsoleLogs).toHaveLength(4)
+    })
+
+    it('breaks the console log run when highlight color differs', () => {
+        const items = [
+            makeConsoleLog({ highlightColor: 'danger' }),
+            makeConsoleLog({ highlightColor: 'danger' }),
+            makeConsoleLog({ highlightColor: 'warning' }),
+            makeConsoleLog({ highlightColor: 'danger' }),
+        ]
+        const result = collapseAdjacentItems(items)
+        expect(result).toHaveLength(3)
+        expect((result[0] as InspectorListItemConsole).groupedConsoleLogs).toHaveLength(2)
     })
 
     it('an event in between breaks the console log run', () => {
