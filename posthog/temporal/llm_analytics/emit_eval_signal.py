@@ -19,7 +19,9 @@ logger = structlog.get_logger(__name__)
 class EvalSignalSummary(BaseModel):
     title: str = Field(
         description="Short title describing what this evaluation detected (max 100 chars)", max_length=100
+    )
     description: str = Field(description="4-8 sentence description of the evaluation goal and why it passed")
+    significance: float = Field(ge=0.0, le=1.0)
 
 
 SUMMARIZE_EVAL_SYSTEM_PROMPT = """You are a concise technical writer. Your job is to produce a short signal description from an LLM trace evaluation result.
