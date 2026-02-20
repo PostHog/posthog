@@ -134,21 +134,24 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                     errors.about.push(featureFlagKeyValidation.error)
                 }
 
-                const variants = experiment.parameters?.feature_flag_variants ?? []
-                const variantKeys = variants.map((v) => v.key)
-                const hasDuplicateKeys = variantKeys.length !== new Set(variantKeys).size
-                const hasEmptyKeys = variants.some((v) => !v.key || v.key.trim().length === 0)
+                // Linked feature flags show variants read-only so we skip validations
+                if (!linkedFeatureFlag) {
+                    const variants = experiment.parameters?.feature_flag_variants ?? []
+                    const variantKeys = variants.map((v) => v.key)
+                    const hasDuplicateKeys = variantKeys.length !== new Set(variantKeys).size
+                    const hasEmptyKeys = variants.some((v) => !v.key || v.key.trim().length === 0)
 
-                if (hasEmptyKeys) {
-                    errors.variants.push('All variants must have a key')
-                }
-                if (hasDuplicateKeys) {
-                    errors.variants.push('Variant keys must be unique')
-                }
+                    if (hasEmptyKeys) {
+                        errors.variants.push('All variants must have a key')
+                    }
+                    if (hasDuplicateKeys) {
+                        errors.variants.push('Variant keys must be unique')
+                    }
 
-                const totalRollout = variants.reduce((sum, v) => sum + (v.rollout_percentage ?? 0), 0)
-                if (variants.length >= 2 && totalRollout !== 100) {
-                    errors.variants.push('Variant percentages must sum to 100%')
+                    const totalRollout = variants.reduce((sum, v) => sum + (v.rollout_percentage ?? 0), 0)
+                    if (variants.length >= 2 && totalRollout !== 100) {
+                        errors.variants.push('Variant percentages must sum to 100%')
+                    }
                 }
 
                 return errors

@@ -81,7 +81,11 @@ interface TrafficPreviewProps {
 }
 
 // Visualizes the bucketing logic performed by the backend
-const TrafficPreview = ({ variants, rolloutPercentage, areVariantRolloutsValid }: TrafficPreviewProps): JSX.Element => {
+export const TrafficPreview = ({
+    variants,
+    rolloutPercentage,
+    areVariantRolloutsValid,
+}: TrafficPreviewProps): JSX.Element => {
     const excludedPercentage = Math.max(0, 100 - rolloutPercentage)
 
     let cumulativeStart = 0
