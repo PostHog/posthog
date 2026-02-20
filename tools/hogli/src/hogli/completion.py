@@ -1,6 +1,7 @@
 """Generate shell completion scripts for hogli."""
 
 import click
+
 from hogli.manifest import get_manifest
 
 

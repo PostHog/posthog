@@ -5,14 +5,18 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHON_CMD="python"
 
 if [ -z "${VIRTUAL_ENV:-}" ]; then
     for venv in "$REPO_ROOT/.flox/cache/venv" "$REPO_ROOT/.venv" "$REPO_ROOT/env"; do
         if [ -d "$venv" ]; then
             source "$venv/bin/activate"
+            PYTHON_CMD="$venv/bin/python"
             break
         fi
     done
+else
+    PYTHON_CMD="$VIRTUAL_ENV/bin/python"
 fi
 
-exec hogli "$@"
+exec "$PYTHON_CMD" -m hogli "$@"
