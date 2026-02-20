@@ -4,10 +4,11 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
 
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { SessionEventType } from '~/types'
+import { PropertyFilterType, PropertyOperator, SessionEventType } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { sessionProfileLogicType } from './sessionProfileLogicType'
@@ -56,8 +57,12 @@ export interface SessionData {
 
 export const SESSION_EVENTS_CONTEXT_KEY = 'session-profile-events'
 
+export function createSessionEventsDataNodeLogicKey(sessionId: string): string {
+    return `session_profile_${sessionId}_events`
+}
+
 function createSessionEventsQuery(sessionId: string): DataTableNode {
-    const { startDate } = getTimestampFromUUIDv7(sessionId)
+    const { startDate, endDate } = getTimestampFromUUIDv7(sessionId)
     return {
         kind: NodeKind.DataTableNode,
         full: true,
@@ -68,8 +73,16 @@ function createSessionEventsQuery(sessionId: string): DataTableNode {
         source: {
             kind: NodeKind.EventsQuery,
             select: defaultDataTableColumns(NodeKind.EventsQuery),
-            where: [`\`$session_id\` = '${sessionId}'`],
+            properties: [
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$session_id',
+                    value: sessionId,
+                    operator: PropertyOperator.Exact,
+                },
+            ],
             after: startDate.toISOString(),
+            before: endDate.toISOString(),
             orderBy: ['timestamp ASC'],
         },
     }
@@ -402,11 +415,15 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadSessionData: () => {
             actions.loadTotalEventCount()
             actions.loadRecordingAvailability()
             actions.loadSupportTicketEvents()
+
+            // Refresh the events DataTable
+            const dataNodeLogicKey = createSessionEventsDataNodeLogicKey(values.sessionId)
+            dataNodeLogic.findMounted({ key: dataNodeLogicKey })?.actions.loadData('force_blocking')
         },
     })),
     events(({ actions }) => ({

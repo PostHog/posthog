@@ -21,7 +21,11 @@ import { ActivityTab } from '~/types'
 import { SessionDetailsCard } from './components/SessionDetailsCard'
 import { SessionMetricsCard } from './components/SessionMetricsCard'
 import { SessionRecordingSection } from './components/SessionRecordingSection'
-import { SessionProfileLogicProps, sessionProfileLogic } from './sessionProfileLogic'
+import {
+    SessionProfileLogicProps,
+    createSessionEventsDataNodeLogicKey,
+    sessionProfileLogic,
+} from './sessionProfileLogic'
 
 export const scene: SceneExport<SessionProfileLogicProps> = {
     component: SessionProfileScene,
@@ -117,6 +121,7 @@ export function SessionProfileScene(): JSX.Element {
                         context={{
                             showOpenEditorButton: true,
                             extraDataTableQueryFeatures: [QueryFeature.highlightExceptionEventRows],
+                            dataNodeLogicKey: createSessionEventsDataNodeLogicKey(sessionId),
                         }}
                     />
                 </div>
