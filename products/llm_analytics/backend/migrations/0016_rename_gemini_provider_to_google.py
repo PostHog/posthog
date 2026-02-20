@@ -1,4 +1,4 @@
-from django.db import migrations, models
+from django.db import migrations
 
 
 def forward_rename_gemini_to_google(apps, schema_editor):
@@ -24,32 +24,4 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunPython(forward_rename_gemini_to_google, backward_rename_google_to_gemini),
-        migrations.AlterField(
-            model_name="llmproviderkey",
-            name="provider",
-            field=models.CharField(
-                choices=[
-                    ("openai", "Openai"),
-                    ("anthropic", "Anthropic"),
-                    ("google", "Google"),
-                    ("openrouter", "Openrouter"),
-                    ("fireworks", "Fireworks"),
-                ],
-                max_length=50,
-            ),
-        ),
-        migrations.AlterField(
-            model_name="llmmodelconfiguration",
-            name="provider",
-            field=models.CharField(
-                choices=[
-                    ("openai", "Openai"),
-                    ("anthropic", "Anthropic"),
-                    ("google", "Google"),
-                    ("openrouter", "Openrouter"),
-                    ("fireworks", "Fireworks"),
-                ],
-                max_length=50,
-            ),
-        ),
     ]
