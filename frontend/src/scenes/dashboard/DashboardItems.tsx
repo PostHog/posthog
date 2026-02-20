@@ -86,6 +86,7 @@ export function DashboardItems(): JSX.Element {
 
     const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver()
     const isMobileView = gridWrapperWidth != null && gridWrapperWidth <= BREAKPOINTS['sm']
+    const canEditLayout = dashboardMode === DashboardMode.Edit && !isMobileView
 
     return (
         <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
@@ -94,8 +95,8 @@ export function DashboardItems(): JSX.Element {
                     width={gridWrapperWidth}
                     className={className}
                     draggableHandle=".CardMeta,.TextCard__body"
-                    isDraggable={dashboardMode === DashboardMode.Edit && !isMobileView}
-                    isResizable={dashboardMode === DashboardMode.Edit && !isMobileView}
+                    isDraggable={canEditLayout}
+                    isResizable={canEditLayout}
                     layouts={layouts}
                     rowHeight={80}
                     margin={[16, 16]}
@@ -188,7 +189,7 @@ export function DashboardItems(): JSX.Element {
 
                         const commonTileProps = {
                             dashboardId: dashboard?.id,
-                            showResizeHandles: dashboardMode === DashboardMode.Edit && !isMobileView,
+                            showResizeHandles: canEditLayout,
                             canResizeWidth: !isMobileView,
                             showEditingControls: [
                                 DashboardPlacement.Dashboard,
