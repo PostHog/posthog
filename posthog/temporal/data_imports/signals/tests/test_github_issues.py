@@ -21,19 +21,12 @@ class TestGithubIssueEmitter:
         assert result is not None
         assert "blank white area" in result.description
 
-    def test_omits_body_when_absent(self, github_issue_record):
-        github_issue_record["body"] = None
+    @pytest.mark.parametrize("body", [None, ""])
+    def test_skips_issue_with_no_body(self, github_issue_record, body):
+        github_issue_record["body"] = body
         result = github_issue_emitter(team_id=1, record=github_issue_record)
 
-        assert result is not None
-        assert result.description == "Charts fail to render when filter contains special characters"
-
-    def test_omits_body_when_empty(self, github_issue_record):
-        github_issue_record["body"] = ""
-        result = github_issue_emitter(team_id=1, record=github_issue_record)
-
-        assert result is not None
-        assert result.description == "Charts fail to render when filter contains special characters"
+        assert result is None
 
     @pytest.mark.parametrize("missing_field", ["id", "title"])
     def test_raises_when_required_field_falsy(self, github_issue_record, missing_field):

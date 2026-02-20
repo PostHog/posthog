@@ -64,15 +64,13 @@ def github_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterO
         msg = f"GitHub issue record has empty required field: id={issue_id!r}, title={title!r}"
         logger.exception(msg, record=record, team_id=team_id)
         raise ValueError(msg)
-    signal_description = title
-    if body:
-        # Issues could have empty bodies, it's not a validation error
-        signal_description += f"\n{body}"
+    if not body:
+        return None
     return SignalEmitterOutput(
         source_product="github",
         source_type="issue",
         source_id=str(issue_id),
-        description=signal_description,
+        description=f"{title}\n{body}",
         weight=1.0,
         extra={k: v for k, v in record.items() if k in EXTRA_FIELDS},
     )
