@@ -92,12 +92,16 @@ async def emit_signals_from_clusters_activity(inputs: EmitSignalsActivityInputs)
     segment_lookup = {s.document_id: s for s in inputs.segments}
     genai_client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
 
+    # Count total active users across all segments in the lookback window (for team-relative impact)
+    all_distinct_ids = list({s.distinct_id for s in inputs.segments if s.distinct_id})
+    active_users_in_period = await sync_to_async(count_distinct_persons)(team, all_distinct_ids)
+
     # 1. Label all clusters concurrently
     label_tasks = []
     for cluster in inputs.clusters:
         cluster_segments = [segment_lookup[sid] for sid in cluster.segment_ids if sid in segment_lookup]
         label_tasks.append(
-            generate_label_for_cluster(
+            _generate_label_for_cluster(
                 team=team,
                 cluster_id=cluster.cluster_id,
                 cluster_segments=cluster_segments,
@@ -132,11 +136,12 @@ async def emit_signals_from_clusters_activity(inputs: EmitSignalsActivityInputs)
         metrics = await calculate_task_metrics(team, cluster_segments)
         relevant_user_count = metrics["relevant_user_count"]
 
-        # Weight: not-actionable = 0.1, actionable scales with user count
-        if not cluster_label.actionable:
-            weight = 0.1
-        else:
-            weight = min(0.5, 0.1 * math.log2(1 + relevant_user_count))
+        # Decide weight based on team-relative impact
+        weight = _determine_cluster_weight_as_signal(
+            actionable=cluster_label.actionable,
+            relevant_user_count=relevant_user_count,
+            active_users_in_period=active_users_in_period,
+        )
 
         # Build segment metadata for extra field
         segment_extras = []
@@ -168,6 +173,7 @@ async def emit_signals_from_clusters_activity(inputs: EmitSignalsActivityInputs)
                     "segments": segment_extras,
                     "metrics": {
                         "relevant_user_count": relevant_user_count,
+                        "active_users_in_period": active_users_in_period,
                         "occurrence_count": metrics["occurrence_count"],
                     },
                 },
@@ -191,7 +197,7 @@ async def emit_signals_from_clusters_activity(inputs: EmitSignalsActivityInputs)
     return EmitSignalsResult(signals_emitted=signals_emitted, clusters_skipped=clusters_skipped)
 
 
-async def generate_label_for_cluster(
+async def _generate_label_for_cluster(
     *, team: Team, cluster_id: int, cluster_segments: list[VideoSegmentMetadata], genai_client
 ) -> tuple[int, ClusterLabel]:
     if not cluster_segments:
@@ -273,3 +279,23 @@ async def _call_llm_to_label_cluster(
             )
     # Should never reach here, but satisfy type checker
     raise RuntimeError("Unreachable")
+
+
+def _determine_cluster_weight_as_signal(
+    *, actionable: bool, relevant_user_count: int, active_users_in_period: int
+) -> float:
+    """Calculate signal weight based on team-relative impact.
+
+    Uses the ratio of affected users to total active users, so that
+    small teams (where each user is a large fraction) promote signals
+    faster, while large teams need broader impact to reach significance.
+
+    Actionable signals range from 0.1 (no users) to 1.0 (all users affected).
+    sqrt scaling gives meaningful weight to moderate impact ratios.
+    """
+    if not actionable:
+        return 0.1
+    if active_users_in_period <= 0:
+        return 0.1
+    impact_ratio = min(1.0, relevant_user_count / active_users_in_period)
+    return 0.1 + 0.9 * math.sqrt(impact_ratio)
