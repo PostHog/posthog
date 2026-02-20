@@ -65,7 +65,6 @@ import {
     PendingApproval,
 } from '~/types'
 
-import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
 import { ToolRegistration } from './max-constants'
 import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -73,6 +72,7 @@ import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { MaxUIContext } from './maxTypes'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
+import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
 import {
     getAgentModeForScene,
     isAssistantMessage,

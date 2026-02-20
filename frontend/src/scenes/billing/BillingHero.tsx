@@ -15,10 +15,10 @@ import planStartup from 'public/plan_startup.svg'
 import planTeams from 'public/plan_teams.png'
 import planYc from 'public/plan_yc.svg'
 
-import { PlanComparisonModal } from './PlanComparison'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 import { paymentEntryLogic } from './paymentEntryLogic'
+import { PlanComparisonModal } from './PlanComparison'
 
 const PLAN_BADGES: Record<BillingPlan, string> = {
     [BillingPlan.Free]: planFree,

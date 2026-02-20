@@ -63,11 +63,7 @@ export const getHonoSteps = (ctx: OnboardingComponentsContext): StepDefinition[]
         ),
     }
 
-    return [
-        ...installSteps,
-        exceptionHandlingStep,
-        verifyStep,
-    ]
+    return [...installSteps, exceptionHandlingStep, verifyStep]
 }
 
 export const HonoInstallation = createInstallation(getHonoSteps)

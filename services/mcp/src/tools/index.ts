@@ -43,8 +43,8 @@ import queryInsight from './insights/query'
 import updateInsight from './insights/update'
 // LLM Observability
 import getLLMCosts from './llmAnalytics/getLLMCosts'
-import logsListAttributeValues from './logs/listAttributeValues'
 import logsListAttributes from './logs/listAttributes'
+import logsListAttributeValues from './logs/listAttributeValues'
 // Logs
 import logsQuery from './logs/query'
 // Organizations

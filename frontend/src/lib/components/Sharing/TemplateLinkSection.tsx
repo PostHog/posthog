@@ -8,8 +8,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconLink } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 interface TemplateLinkSectionProps {

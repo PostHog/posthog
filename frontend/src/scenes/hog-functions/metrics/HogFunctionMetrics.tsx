@@ -1,10 +1,10 @@
 import { useValues } from 'kea'
 
 import { getColorVar } from 'lib/colors'
-import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
-import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
+import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
+import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 
 const HOGFUNCTION_METRIC_KEYS = ['succeeded', 'failed', 'filtered', 'disabled_permanently', 'quota_limited'] as const
 

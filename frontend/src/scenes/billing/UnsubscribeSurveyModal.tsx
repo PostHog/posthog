@@ -16,9 +16,9 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { HeartHog } from 'lib/components/hedgehogs'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { HeartHog } from 'lib/components/hedgehogs'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 

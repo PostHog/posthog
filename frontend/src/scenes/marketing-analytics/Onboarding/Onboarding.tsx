@@ -4,8 +4,8 @@ import { useEffect } from 'react'
 import { IconArrowRight } from '@posthog/icons'
 import { LemonButton, LemonCard, Link } from '@posthog/lemon-ui'
 
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FilmCameraHog } from 'lib/components/hedgehogs'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -16,8 +16,8 @@ import { ConversionGoalsConfiguration } from '../../web-analytics/tabs/marketing
 import { marketingAnalyticsLogic } from '../../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
 import { AddSourceStep } from './AddSourceStep'
-import { MarketingWizardStepper } from './MarketingWizardStepper'
 import { MarketingOnboardingStep, marketingOnboardingLogic } from './marketingOnboardingLogic'
+import { MarketingWizardStepper } from './MarketingWizardStepper'
 
 interface OnboardingProps {
     completeOnboarding: () => void

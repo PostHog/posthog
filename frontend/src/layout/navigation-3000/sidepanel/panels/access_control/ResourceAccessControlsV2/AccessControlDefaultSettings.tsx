@@ -8,8 +8,8 @@ import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
 
 import { APIScopeObject, AccessControlLevel, AvailableFeature } from '~/types'
 
-import { ScopeIcon } from './ScopeIcon'
 import { accessControlsLogic } from './accessControlsLogic'
+import { ScopeIcon } from './ScopeIcon'
 
 export function AccessControlDefaultSettings({ projectId }: { projectId: string }): JSX.Element {
     const logic = accessControlsLogic({ projectId })

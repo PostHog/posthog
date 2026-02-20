@@ -218,20 +218,8 @@ export namespace Schemas {
         | 'unique_session'
         | 'first_time_for_user'
         | 'first_matching_event_for_user'
-    export type FunnelMathType =
-        | 'total'
-        | 'first_time_for_user'
-        | 'first_time_for_user_with_filters'
-    export type PropertyMathType =
-        | 'avg'
-        | 'sum'
-        | 'min'
-        | 'max'
-        | 'median'
-        | 'p75'
-        | 'p90'
-        | 'p95'
-        | 'p99'
+    export type FunnelMathType = 'total' | 'first_time_for_user' | 'first_time_for_user_with_filters'
+    export type PropertyMathType = 'avg' | 'sum' | 'min' | 'max' | 'median' | 'p75' | 'p90' | 'p95' | 'p99'
     export type CountPerActorMathType =
         | 'avg_count_per_actor'
         | 'min_count_per_actor'
@@ -498,10 +486,7 @@ export namespace Schemas {
         detail?: (unknown | null) | undefined
         created_at?: string | undefined
     }
-    export type BounceRatePageViewMode =
-        | 'count_pageviews'
-        | 'uniq_urls'
-        | 'uniq_page_screen_autocaptures'
+    export type BounceRatePageViewMode = 'count_pageviews' | 'uniq_urls' | 'uniq_page_screen_autocaptures'
     export type FilterLogicalOperator = 'AND' | 'OR'
     export type CustomChannelField =
         | 'utm_source'
@@ -539,11 +524,7 @@ export namespace Schemas {
         timestamp_field: string
     }
     export type InCohortVia = 'auto' | 'leftjoin' | 'subquery' | 'leftjoin_conjoined'
-    export type MaterializationMode =
-        | 'auto'
-        | 'legacy_null_as_string'
-        | 'legacy_null_as_null'
-        | 'disabled'
+    export type MaterializationMode = 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
     export type PersonsArgMaxVersion = 'auto' | 'v1' | 'v2'
     export type PersonsJoinMode = 'inner' | 'left'
     export type PersonsOnEventsMode =
@@ -870,12 +851,7 @@ export namespace Schemas {
         timestamp_field: string
         version?: (number | null) | undefined
     }
-    export type AggregationAxisFormat =
-        | 'numeric'
-        | 'duration'
-        | 'duration_ms'
-        | 'percentage'
-        | 'percentage_scaled'
+    export type AggregationAxisFormat = 'numeric' | 'duration' | 'duration_ms' | 'percentage' | 'percentage_scaled'
     export type ChartDisplayType =
         | 'ActionsLineGraph'
         | 'ActionsBar'
@@ -1149,13 +1125,7 @@ export namespace Schemas {
     export type StepOrderValue = 'strict' | 'unordered' | 'ordered'
     export type FunnelStepReference = 'total' | 'previous'
     export type FunnelVizType = 'steps' | 'time_to_convert' | 'trends'
-    export type FunnelConversionWindowTimeUnit =
-        | 'second'
-        | 'minute'
-        | 'hour'
-        | 'day'
-        | 'week'
-        | 'month'
+    export type FunnelConversionWindowTimeUnit = 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month'
     export type FunnelLayout = 'horizontal' | 'vertical'
     export type FunnelsFilter = Partial<{
         binCount: number | null
@@ -1249,10 +1219,7 @@ export namespace Schemas {
     export type MeanRetentionCalculation = 'simple' | 'weighted' | 'none'
     export type RetentionPeriod = 'Hour' | 'Day' | 'Week' | 'Month'
     export type RetentionReference = 'total' | 'previous'
-    export type RetentionType =
-        | 'retention_recurring'
-        | 'retention_first_time'
-        | 'retention_first_ever_occurrence'
+    export type RetentionType = 'retention_recurring' | 'retention_first_time' | 'retention_first_ever_occurrence'
     export type RetentionEntityKind = 'ActionsNode' | 'EventsNode'
     export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'new_entity'
     export type RetentionEntity = Partial<{
@@ -1338,10 +1305,7 @@ export namespace Schemas {
         tags?: (QueryLogTags | null) | undefined
         version?: (number | null) | undefined
     }
-    export type FunnelPathType =
-        | 'funnel_path_before_step'
-        | 'funnel_path_between_steps'
-        | 'funnel_path_after_step'
+    export type FunnelPathType = 'funnel_path_before_step' | 'funnel_path_between_steps' | 'funnel_path_after_step'
     export type FunnelPathsFilter = {
         funnelPathType?: (FunnelPathType | null) | undefined
         funnelSource: FunnelsQuery
@@ -1557,13 +1521,7 @@ export namespace Schemas {
         modifiers?: (HogQLQueryModifiers | null) | undefined
         response?: (ActorsQueryResponse | null) | undefined
         series?: (number | null) | undefined
-        source:
-            | TrendsQuery
-            | FunnelsQuery
-            | RetentionQuery
-            | PathsQuery
-            | StickinessQuery
-            | LifecycleQuery
+        source: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery
         status?: (string | null) | undefined
         tags?: (QueryLogTags | null) | undefined
         version?: (number | null) | undefined
@@ -1571,9 +1529,7 @@ export namespace Schemas {
     export type FunnelsActorsQuery = {
         funnelCustomSteps?: (Array<number> | null) | undefined
         funnelStep?: (number | null) | undefined
-        funnelStepBreakdown?:
-            | (number | string | number | Array<number | string | number> | null)
-            | undefined
+        funnelStepBreakdown?: (number | string | number | Array<number | string | number> | null) | undefined
         funnelTrendsDropOff?: (boolean | null) | undefined
         funnelTrendsEntrancePeriodStart?: (string | null) | undefined
         includeRecordings?: (boolean | null) | undefined
@@ -1630,9 +1586,7 @@ export namespace Schemas {
     }
     export type FunnelCorrelationActorsQuery = {
         funnelCorrelationPersonConverted?: (boolean | null) | undefined
-        funnelCorrelationPersonEntity?:
-            | (EventsNode | ActionsNode | DataWarehouseNode | null)
-            | undefined
+        funnelCorrelationPersonEntity?: (EventsNode | ActionsNode | DataWarehouseNode | null) | undefined
         funnelCorrelationPropertyValues?:
             | (Array<
                   | EventPropertyFilter
@@ -1763,12 +1717,7 @@ export namespace Schemas {
         offset: number | null
         orderBy: Array<string> | null
         properties:
-            | Array<
-                  | PersonPropertyFilter
-                  | CohortPropertyFilter
-                  | HogQLPropertyFilter
-                  | EmptyPropertyFilter
-              >
+            | Array<PersonPropertyFilter | CohortPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter>
             | PropertyGroupFilterValue
             | null
         response: ActorsQueryResponse | null
@@ -1785,12 +1734,7 @@ export namespace Schemas {
         version: number | null
     }>
     export type CreationTypeEnum = 'USR' | 'GIT'
-    export type AnnotationScopeEnum =
-        | 'dashboard_item'
-        | 'dashboard'
-        | 'project'
-        | 'organization'
-        | 'recording'
+    export type AnnotationScopeEnum = 'dashboard_item' | 'dashboard' | 'project' | 'organization' | 'recording'
     export type Annotation = {
         id: number
         content?: (string | null) | undefined
@@ -2079,14 +2023,7 @@ export namespace Schemas {
         batch_export: string
     }
     export type BreakdownItem = { label: string; value: string | number }
-    export type ByweekdayEnum =
-        | 'monday'
-        | 'tuesday'
-        | 'wednesday'
-        | 'thursday'
-        | 'friday'
-        | 'saturday'
-        | 'sunday'
+    export type ByweekdayEnum = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
     export type CalendarHeatmapFilter = Partial<{ dummy: string | null }>
     export type EventsHeatMapColumnAggregationResult = { column: number; value: number }
     export type EventsHeatMapDataResult = { column: number; row: number; value: number }
@@ -2780,10 +2717,7 @@ export namespace Schemas {
         results: Array<RevenueAnalyticsMRRQueryResultItem>
         timings?: (Array<QueryTiming> | null) | undefined
     }
-    export type RevenueAnalyticsOverviewItemKey =
-        | 'revenue'
-        | 'paying_customer_count'
-        | 'avg_revenue_per_customer'
+    export type RevenueAnalyticsOverviewItemKey = 'revenue' | 'paying_customer_count' | 'avg_revenue_per_customer'
     export type RevenueAnalyticsOverviewItem = {
         key: RevenueAnalyticsOverviewItemKey
         value: number
@@ -3271,9 +3205,7 @@ export namespace Schemas {
         includeRevenue?: (boolean | null) | undefined
         kind?: string | undefined
         modifiers?: (HogQLQueryModifiers | null) | undefined
-        orderBy?:
-            | (Array<WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection> | null)
-            | undefined
+        orderBy?: (Array<WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection> | null) | undefined
         properties: Array<EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter>
         response?: (WebOverviewQueryResponse | null) | undefined
         sampling?: (WebAnalyticsSampling | null) | undefined
@@ -3336,9 +3268,7 @@ export namespace Schemas {
         limit?: (number | null) | undefined
         modifiers?: (HogQLQueryModifiers | null) | undefined
         offset?: (number | null) | undefined
-        orderBy?:
-            | (Array<WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection> | null)
-            | undefined
+        orderBy?: (Array<WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection> | null) | undefined
         properties: Array<EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter>
         response?: (WebStatsTableQueryResponse | null) | undefined
         sampling?: (WebAnalyticsSampling | null) | undefined
@@ -3371,9 +3301,7 @@ export namespace Schemas {
         kind?: string | undefined
         limit?: (number | null) | undefined
         modifiers?: (HogQLQueryModifiers | null) | undefined
-        orderBy?:
-            | (Array<WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection> | null)
-            | undefined
+        orderBy?: (Array<WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection> | null) | undefined
         properties: Array<EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter>
         response?: (WebExternalClicksTableQueryResponse | null) | undefined
         sampling?: (WebAnalyticsSampling | null) | undefined
@@ -3407,9 +3335,7 @@ export namespace Schemas {
         kind?: string | undefined
         limit?: (number | null) | undefined
         modifiers?: (HogQLQueryModifiers | null) | undefined
-        orderBy?:
-            | (Array<WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection> | null)
-            | undefined
+        orderBy?: (Array<WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection> | null) | undefined
         properties: Array<EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter>
         response?: (WebGoalsQueryResponse | null) | undefined
         sampling?: (WebAnalyticsSampling | null) | undefined
@@ -3426,19 +3352,11 @@ export namespace Schemas {
         includeRevenue?: (boolean | null) | undefined
         kind?: string | undefined
         modifiers?: (HogQLQueryModifiers | null) | undefined
-        orderBy?:
-            | (Array<WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection> | null)
-            | undefined
+        orderBy?: (Array<WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection> | null) | undefined
         properties: Array<EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter>
         response?: (WebGoalsQueryResponse | null) | undefined
         sampling?: (WebAnalyticsSampling | null) | undefined
-        source:
-            | TrendsQuery
-            | FunnelsQuery
-            | RetentionQuery
-            | PathsQuery
-            | StickinessQuery
-            | LifecycleQuery
+        source: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery
         tags?: (QueryLogTags | null) | undefined
         useSessionsTable?: (boolean | null) | undefined
         version?: (number | null) | undefined
@@ -3464,9 +3382,7 @@ export namespace Schemas {
         kind?: string | undefined
         metric: WebVitalsMetric
         modifiers?: (HogQLQueryModifiers | null) | undefined
-        orderBy?:
-            | (Array<WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection> | null)
-            | undefined
+        orderBy?: (Array<WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection> | null) | undefined
         percentile: WebVitalsPercentile
         properties: Array<EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter>
         response?: (WebVitalsPathBreakdownQueryResponse | null) | undefined
@@ -3684,9 +3600,7 @@ export namespace Schemas {
         conversionGoal?: (ActionConversionGoal | CustomEventConversionGoal | null) | undefined
         dateRange?: (DateRange | null) | undefined
         doPathCleaning?: (boolean | null) | undefined
-        draftConversionGoal?:
-            | (ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | null)
-            | undefined
+        draftConversionGoal?: (ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | null) | undefined
         filterTestAccounts?: (boolean | null) | undefined
         includeRevenue?: (boolean | null) | undefined
         kind?: string | undefined
@@ -3717,13 +3631,7 @@ export namespace Schemas {
         results: Array<ErrorTrackingIssue>
         timings?: (Array<QueryTiming> | null) | undefined
     }
-    export type Status2 =
-        | 'archived'
-        | 'active'
-        | 'resolved'
-        | 'pending_release'
-        | 'suppressed'
-        | 'all'
+    export type Status2 = 'archived' | 'active' | 'resolved' | 'pending_release' | 'suppressed' | 'all'
     export type ErrorTrackingQuery = {
         assignee?: (ErrorTrackingIssueAssignee | null) | undefined
         dateRange: DateRange
@@ -3957,12 +3865,7 @@ export namespace Schemas {
         tableSettings?: (TableSettings | null) | undefined
         version?: (number | null) | undefined
     }
-    export type DataWarehouseSavedQueryStatusEnum =
-        | 'Cancelled'
-        | 'Modified'
-        | 'Completed'
-        | 'Failed'
-        | 'Running'
+    export type DataWarehouseSavedQueryStatusEnum = 'Cancelled' | 'Modified' | 'Completed' | 'Failed' | 'Running'
     export type DataWarehouseSavedQuery = {
         id: string
         deleted?: (boolean | null) | undefined
@@ -4150,13 +4053,7 @@ export namespace Schemas {
         version?: (number | null) | undefined
         evaluation_runtime?: ((EvaluationRuntimeEnum | BlankEnum | NullEnum) | null) | undefined
     }
-    export type StageEnum =
-        | 'draft'
-        | 'concept'
-        | 'alpha'
-        | 'beta'
-        | 'general-availability'
-        | 'archived'
+    export type StageEnum = 'draft' | 'concept' | 'alpha' | 'beta' | 'general-availability' | 'archived'
     export type EarlyAccessFeature = {
         id: string
         feature_flag: MinimalFeatureFlag & unknown
@@ -4550,14 +4447,8 @@ export namespace Schemas {
         significance_code: ExperimentSignificanceCode | null
         significant: boolean | null
         stats_version: number | null
-        variant_results:
-            | Array<ExperimentVariantResultFrequentist>
-            | Array<ExperimentVariantResultBayesian>
-            | null
-        variants:
-            | Array<ExperimentVariantTrendsBaseStats>
-            | Array<ExperimentVariantFunnelsBaseStats>
-            | null
+        variant_results: Array<ExperimentVariantResultFrequentist> | Array<ExperimentVariantResultBayesian> | null
+        variants: Array<ExperimentVariantTrendsBaseStats> | Array<ExperimentVariantFunnelsBaseStats> | null
     }>
     export type ExperimentQuery = {
         experiment_id?: (number | null) | undefined
@@ -4878,11 +4769,7 @@ export namespace Schemas {
     export type InsightActorsQueryOptions = {
         kind?: string | undefined
         response?: (InsightActorsQueryOptionsResponse | null) | undefined
-        source:
-            | InsightActorsQuery
-            | FunnelsActorsQuery
-            | FunnelCorrelationActorsQuery
-            | StickinessActorsQuery
+        source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery
         version?: (number | null) | undefined
     }
     export type TimelineEntry = {
@@ -4946,9 +4833,7 @@ export namespace Schemas {
         kind?: string | undefined
         limit?: (number | null) | undefined
         modifiers?: (HogQLQueryModifiers | null) | undefined
-        orderBy?:
-            | (Array<WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection> | null)
-            | undefined
+        orderBy?: (Array<WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection> | null) | undefined
         properties: Array<EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter>
         response?: (WebPageURLSearchQueryResponse | null) | undefined
         sampling?: (WebAnalyticsSampling | null) | undefined
@@ -5007,9 +4892,7 @@ export namespace Schemas {
         metrics: Array<WebTrendsMetric>
         modifiers?: (HogQLQueryModifiers | null) | undefined
         offset?: (number | null) | undefined
-        orderBy?:
-            | (Array<WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection> | null)
-            | undefined
+        orderBy?: (Array<WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection> | null) | undefined
         properties: Array<EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter>
         response?: (WebTrendsQueryResponse | null) | undefined
         sampling?: (WebAnalyticsSampling | null) | undefined
@@ -5374,13 +5257,7 @@ export namespace Schemas {
         showLastComputationRefresh?: (boolean | null) | undefined
         showResults?: (boolean | null) | undefined
         showTable?: (boolean | null) | undefined
-        source:
-            | TrendsQuery
-            | FunnelsQuery
-            | RetentionQuery
-            | PathsQuery
-            | StickinessQuery
-            | LifecycleQuery
+        source: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery
         suppressSessionAnalysisWarning?: (boolean | null) | undefined
         version?: (number | null) | undefined
         vizSpecificOptions?: (VizSpecificOptions | null) | undefined
@@ -5460,9 +5337,7 @@ export namespace Schemas {
         allow_publicly_shared_resources?: boolean | undefined
         member_count: string
         is_ai_data_processing_approved?: (boolean | null) | undefined
-        default_experiment_stats_method?:
-            | ((DefaultExperimentStatsMethodEnum | BlankEnum | NullEnum) | null)
-            | undefined
+        default_experiment_stats_method?: ((DefaultExperimentStatsMethodEnum | BlankEnum | NullEnum) | null) | undefined
         default_role_id?: (string | null) | undefined
     }
     export type OrganizationBasic = {
@@ -6532,9 +6407,7 @@ export namespace Schemas {
         current_iteration?: (number | null) | undefined
         current_iteration_start_date?: (string | null) | undefined
         response_sampling_start_date?: (string | null) | undefined
-        response_sampling_interval_type?:
-            | ((ResponseSamplingIntervalTypeEnum | BlankEnum | NullEnum) | null)
-            | undefined
+        response_sampling_interval_type?: ((ResponseSamplingIntervalTypeEnum | BlankEnum | NullEnum) | null) | undefined
         response_sampling_interval?: (number | null) | undefined
         response_sampling_limit?: (number | null) | undefined
         response_sampling_daily_limits?: (unknown | null) | undefined
@@ -6546,13 +6419,7 @@ export namespace Schemas {
         previous?: (string | null) | undefined
         results: Array<Survey>
     }
-    export type TableFormatEnum =
-        | 'CSV'
-        | 'CSVWithNames'
-        | 'Parquet'
-        | 'JSONEachRow'
-        | 'Delta'
-        | 'DeltaS3Wrapper'
+    export type TableFormatEnum = 'CSV' | 'CSVWithNames' | 'Parquet' | 'JSONEachRow' | 'Delta' | 'DeltaS3Wrapper'
     export type SourceTypeEnum =
         | 'Stripe'
         | 'Hubspot'
@@ -7110,9 +6977,7 @@ export namespace Schemas {
         allow_publicly_shared_resources: boolean
         member_count: string
         is_ai_data_processing_approved: boolean | null
-        default_experiment_stats_method:
-            | (DefaultExperimentStatsMethodEnum | BlankEnum | NullEnum)
-            | null
+        default_experiment_stats_method: (DefaultExperimentStatsMethodEnum | BlankEnum | NullEnum) | null
         default_role_id: string | null
     }>
     export type PatchedOrganizationDomain = Partial<{
@@ -7331,9 +7196,7 @@ export namespace Schemas {
         current_iteration: number | null
         current_iteration_start_date: string | null
         response_sampling_start_date: string | null
-        response_sampling_interval_type:
-            | (ResponseSamplingIntervalTypeEnum | BlankEnum | NullEnum)
-            | null
+        response_sampling_interval_type: (ResponseSamplingIntervalTypeEnum | BlankEnum | NullEnum) | null
         response_sampling_interval: number | null
         response_sampling_limit: number | null
         response_sampling_daily_limits: unknown | null
@@ -7895,14 +7758,8 @@ export namespace Schemas {
         significance_code: ExperimentSignificanceCode | null
         significant: boolean | null
         stats_version: number | null
-        variant_results:
-            | Array<ExperimentVariantResultFrequentist>
-            | Array<ExperimentVariantResultBayesian>
-            | null
-        variants:
-            | Array<ExperimentVariantTrendsBaseStats>
-            | Array<ExperimentVariantFunnelsBaseStats>
-            | null
+        variant_results: Array<ExperimentVariantResultFrequentist> | Array<ExperimentVariantResultBayesian> | null
+        variants: Array<ExperimentVariantTrendsBaseStats> | Array<ExperimentVariantFunnelsBaseStats> | null
     }>
     export type QueryResponseAlternative18 = {
         date_range: DateRange
@@ -8652,9 +8509,7 @@ export namespace Schemas {
         current_iteration?: (number | null) | undefined
         current_iteration_start_date?: (string | null) | undefined
         response_sampling_start_date?: (string | null) | undefined
-        response_sampling_interval_type?:
-            | ((ResponseSamplingIntervalTypeEnum | BlankEnum | NullEnum) | null)
-            | undefined
+        response_sampling_interval_type?: ((ResponseSamplingIntervalTypeEnum | BlankEnum | NullEnum) | null) | undefined
         response_sampling_interval?: (number | null) | undefined
         response_sampling_limit?: (number | null) | undefined
         response_sampling_daily_limits?: (unknown | null) | undefined
@@ -16513,49 +16368,35 @@ export const successStatusCodes = [
 export type SuccessStatusCode = (typeof successStatusCodes)[number]
 
 export const errorStatusCodes = [
-    400, 401, 402, 403, 404, 405, 406, 407, 408, 409, 410, 411, 412, 413, 414, 415, 416, 417, 418,
-    421, 422, 423, 424, 425, 426, 428, 429, 431, 451, 500, 501, 502, 503, 504, 505, 506, 507, 508,
-    510, 511,
+    400, 401, 402, 403, 404, 405, 406, 407, 408, 409, 410, 411, 412, 413, 414, 415, 416, 417, 418, 421, 422, 423, 424,
+    425, 426, 428, 429, 431, 451, 500, 501, 502, 503, 504, 505, 506, 507, 508, 510, 511,
 ] as const
 export type ErrorStatusCode = (typeof errorStatusCodes)[number]
 
 // Taken from https://github.com/unjs/fetchdts/blob/ec4eaeab5d287116171fc1efd61f4a1ad34e4609/src/fetch.ts#L3
-export interface TypedHeaders<TypedHeaderValues extends Record<string, string> | unknown>
-    extends Omit<
-        Headers,
-        'append' | 'delete' | 'get' | 'getSetCookie' | 'has' | 'set' | 'forEach'
-    > {
+export interface TypedHeaders<TypedHeaderValues extends Record<string, string> | unknown> extends Omit<
+    Headers,
+    'append' | 'delete' | 'get' | 'getSetCookie' | 'has' | 'set' | 'forEach'
+> {
     /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/Headers/append) */
     append: <Name extends Extract<keyof TypedHeaderValues, string> | (string & {})>(
         name: Name,
-        value: Lowercase<Name> extends keyof TypedHeaderValues
-            ? TypedHeaderValues[Lowercase<Name>]
-            : string
+        value: Lowercase<Name> extends keyof TypedHeaderValues ? TypedHeaderValues[Lowercase<Name>] : string
     ) => void
     /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/Headers/delete) */
-    delete: <Name extends Extract<keyof TypedHeaderValues, string> | (string & {})>(
-        name: Name
-    ) => void
+    delete: <Name extends Extract<keyof TypedHeaderValues, string> | (string & {})>(name: Name) => void
     /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/Headers/get) */
     get: <Name extends Extract<keyof TypedHeaderValues, string> | (string & {})>(
         name: Name
-    ) =>
-        | (Lowercase<Name> extends keyof TypedHeaderValues
-              ? TypedHeaderValues[Lowercase<Name>]
-              : string)
-        | null
+    ) => (Lowercase<Name> extends keyof TypedHeaderValues ? TypedHeaderValues[Lowercase<Name>] : string) | null
     /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/Headers/getSetCookie) */
     getSetCookie: () => string[]
     /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/Headers/has) */
-    has: <Name extends Extract<keyof TypedHeaderValues, string> | (string & {})>(
-        name: Name
-    ) => boolean
+    has: <Name extends Extract<keyof TypedHeaderValues, string> | (string & {})>(name: Name) => boolean
     /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/Headers/set) */
     set: <Name extends Extract<keyof TypedHeaderValues, string> | (string & {})>(
         name: Name,
-        value: Lowercase<Name> extends keyof TypedHeaderValues
-            ? TypedHeaderValues[Lowercase<Name>]
-            : string
+        value: Lowercase<Name> extends keyof TypedHeaderValues ? TypedHeaderValues[Lowercase<Name>] : string
     ) => void
     forEach: (
         callbackfn: (
@@ -16568,8 +16409,10 @@ export interface TypedHeaders<TypedHeaderValues extends Record<string, string> |
 }
 
 /** @see https://developer.mozilla.org/en-US/docs/Web/API/Response */
-export interface TypedSuccessResponse<TSuccess, TStatusCode, THeaders>
-    extends Omit<Response, 'ok' | 'status' | 'json' | 'headers'> {
+export interface TypedSuccessResponse<TSuccess, TStatusCode, THeaders> extends Omit<
+    Response,
+    'ok' | 'status' | 'json' | 'headers'
+> {
     ok: true
     status: TStatusCode
     headers: never extends THeaders ? Headers : TypedHeaders<THeaders>
@@ -16579,8 +16422,10 @@ export interface TypedSuccessResponse<TSuccess, TStatusCode, THeaders>
 }
 
 /** @see https://developer.mozilla.org/en-US/docs/Web/API/Response */
-export interface TypedErrorResponse<TData, TStatusCode, THeaders>
-    extends Omit<Response, 'ok' | 'status' | 'json' | 'headers'> {
+export interface TypedErrorResponse<TData, TStatusCode, THeaders> extends Omit<
+    Response,
+    'ok' | 'status' | 'json' | 'headers'
+> {
     ok: false
     status: TStatusCode
     headers: never extends THeaders ? Headers : TypedHeaders<THeaders>
@@ -16589,52 +16434,27 @@ export interface TypedErrorResponse<TData, TStatusCode, THeaders>
     json: () => Promise<TData>
 }
 
-export type TypedApiResponse<
-    TAllResponses extends Record<string | number, unknown> = {},
-    THeaders = {},
-> = {
+export type TypedApiResponse<TAllResponses extends Record<string | number, unknown> = {}, THeaders = {}> = {
     [K in keyof TAllResponses]: K extends string
         ? K extends `${infer TStatusCode extends number}`
             ? TStatusCode extends SuccessStatusCode
-                ? TypedSuccessResponse<
-                      TAllResponses[K],
-                      TStatusCode,
-                      K extends keyof THeaders ? THeaders[K] : never
-                  >
-                : TypedErrorResponse<
-                      TAllResponses[K],
-                      TStatusCode,
-                      K extends keyof THeaders ? THeaders[K] : never
-                  >
+                ? TypedSuccessResponse<TAllResponses[K], TStatusCode, K extends keyof THeaders ? THeaders[K] : never>
+                : TypedErrorResponse<TAllResponses[K], TStatusCode, K extends keyof THeaders ? THeaders[K] : never>
             : never
         : K extends number
           ? K extends SuccessStatusCode
-              ? TypedSuccessResponse<
-                    TAllResponses[K],
-                    K,
-                    K extends keyof THeaders ? THeaders[K] : never
-                >
-              : TypedErrorResponse<
-                    TAllResponses[K],
-                    K,
-                    K extends keyof THeaders ? THeaders[K] : never
-                >
+              ? TypedSuccessResponse<TAllResponses[K], K, K extends keyof THeaders ? THeaders[K] : never>
+              : TypedErrorResponse<TAllResponses[K], K, K extends keyof THeaders ? THeaders[K] : never>
           : never
 }[keyof TAllResponses]
 
 export type SafeApiResponse<TEndpoint> = TEndpoint extends { responses: infer TResponses }
     ? TResponses extends Record<string, unknown>
-        ? TypedApiResponse<
-              TResponses,
-              TEndpoint extends { responseHeaders: infer THeaders } ? THeaders : never
-          >
+        ? TypedApiResponse<TResponses, TEndpoint extends { responseHeaders: infer THeaders } ? THeaders : never>
         : never
     : never
 
-export type InferResponseByStatus<TEndpoint, TStatusCode> = Extract<
-    SafeApiResponse<TEndpoint>,
-    { status: TStatusCode }
->
+export type InferResponseByStatus<TEndpoint, TStatusCode> = Extract<SafeApiResponse<TEndpoint>, { status: TStatusCode }>
 
 type RequiredKeys<T> = {
     [P in keyof T]-?: undefined extends T[P] ? never : P
@@ -16682,9 +16502,7 @@ export class ApiClient {
     }
 
     /** Uses URLSearchParams, skips null/undefined values */
-    defaultEncodeSearchParams = (
-        queryParams: Record<string, unknown> | undefined
-    ): URLSearchParams | undefined => {
+    defaultEncodeSearchParams = (queryParams: Record<string, unknown> | undefined): URLSearchParams | undefined => {
         if (!queryParams) {
             return
         }
@@ -17040,9 +16858,7 @@ export class ApiClient {
                 throwOnStatusError,
             })
             .then(async (response) => {
-                const data = await (
-                    this.fetcher.parseResponseData ?? this.defaultParseResponseData
-                )(response)
+                const data = await (this.fetcher.parseResponseData ?? this.defaultParseResponseData)(response)
                 const typedResponse = Object.assign(response, {
                     data: data,
                     json: () => Promise.resolve(data),
@@ -17055,10 +16871,7 @@ export class ApiClient {
                 return withResponse ? typedResponse : data
             })
 
-        return promise as Extract<
-            InferResponseByStatus<TEndpoint, SuccessStatusCode>,
-            { data: {} }
-        >['data']
+        return promise as Extract<InferResponseByStatus<TEndpoint, SuccessStatusCode>, { data: {} }>['data']
     }
     // </ApiClient.request>
 }

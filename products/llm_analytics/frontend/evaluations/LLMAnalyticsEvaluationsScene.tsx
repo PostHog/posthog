@@ -29,13 +29,13 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LLMProviderKeysSettings } from '../settings/LLMProviderKeysSettings'
 import { TrialUsageMeter } from '../settings/TrialUsageMeter'
-import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
 import {
     EvaluationMetrics,
     PASS_RATE_SUCCESS_THRESHOLD,
     PASS_RATE_WARNING_THRESHOLD,
 } from './components/EvaluationMetrics'
 import { EvaluationStats, evaluationMetricsLogic } from './evaluationMetricsLogic'
+import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { EvaluationConfig } from './types'
 

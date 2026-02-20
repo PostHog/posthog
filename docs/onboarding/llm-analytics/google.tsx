@@ -13,7 +13,8 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        Setting up analytics starts with installing the PostHog SDK for your language. LLM analytics works best with our Python and Node SDKs.
+                        Setting up analytics starts with installing the PostHog SDK for your language. LLM analytics
+                        works best with our Python and Node SDKs.
                     </Markdown>
 
                     <CodeBlock
@@ -43,8 +44,8 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        Install the Google Gen AI SDK. The PostHog SDK instruments your LLM calls by wrapping the Google Gen
-                        AI client. The PostHog SDK **does not** proxy your calls.
+                        Install the Google Gen AI SDK. The PostHog SDK instruments your LLM calls by wrapping the Google
+                        Gen AI client. The PostHog SDK **does not** proxy your calls.
                     </Markdown>
 
                     <CodeBlock
@@ -68,9 +69,11 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
 
                     <CalloutBox type="fyi" icon="IconInfo" title="Proxy note">
                         <Markdown>
-                            These SDKs **do not** proxy your calls. They only fire off an async call to PostHog in the background to send the data.
-
-                            You can also use LLM analytics with other SDKs or our API, but you will need to capture the data in the right format. See the schema in the [manual capture section](https://posthog.com/docs/llm-analytics/installation/manual-capture) for more details.
+                            These SDKs **do not** proxy your calls. They only fire off an async call to PostHog in the
+                            background to send the data. You can also use LLM analytics with other SDKs or our API, but
+                            you will need to capture the data in the right format. See the schema in the [manual capture
+                            section](https://posthog.com/docs/llm-analytics/installation/manual-capture) for more
+                            details.
                         </Markdown>
                     </CalloutBox>
                 </>
@@ -82,7 +85,8 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        Initialize PostHog with your project API key and host from [your project settings](https://app.posthog.com/settings/project), then pass it to our Google Gen AI wrapper.
+                        Initialize PostHog with your project API key and host from [your project
+                        settings](https://app.posthog.com/settings/project), then pass it to our Google Gen AI wrapper.
                     </Markdown>
 
                     <CodeBlock
@@ -128,13 +132,12 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
 
                     <Blockquote>
                         <Markdown>
-                            **Note:** This integration also works with Vertex AI via Google Cloud Platform. You can use the Google Gen AI SDK's Vertex AI client with PostHog analytics.
+                            **Note:** This integration also works with Vertex AI via Google Cloud Platform. You can use
+                            the Google Gen AI SDK's Vertex AI client with PostHog analytics.
                         </Markdown>
                     </Blockquote>
 
-                    <Markdown>
-                        **Vertex AI code example:**
-                    </Markdown>
+                    <Markdown>**Vertex AI code example:**</Markdown>
 
                     <CodeBlock
                         blocks={[
@@ -211,9 +214,9 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        Now, when you use the Google Gen AI SDK to call LLMs, PostHog automatically captures an `$ai_generation` event.
-
-                        You can enrich the event with additional data such as the trace ID, distinct ID, custom properties, groups, and privacy mode options.
+                        Now, when you use the Google Gen AI SDK to call LLMs, PostHog automatically captures an
+                        `$ai_generation` event. You can enrich the event with additional data such as the trace ID,
+                        distinct ID, custom properties, groups, and privacy mode options.
                     </Markdown>
 
                     <CodeBlock
@@ -258,7 +261,9 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
 
                     <Blockquote>
                         <Markdown>
-                            **Note:** If you want to capture LLM events anonymously, **don't** pass a distinct ID to the request. See our docs on [anonymous vs identified events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
+                            **Note:** If you want to capture LLM events anonymously, **don't** pass a distinct ID to the
+                            request. See our docs on [anonymous vs identified
+                            events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                         </Markdown>
                     </Blockquote>
 

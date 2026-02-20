@@ -11,9 +11,9 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 
 import { InsightQueryNode } from '~/queries/schema/schema-general'
 
-import { InsightSuggestions } from './InsightSuggestions'
 import { insightAIAnalysisLogic } from './insightAIAnalysisLogic'
 import { insightLogic } from './insightLogic'
+import { InsightSuggestions } from './InsightSuggestions'
 import { insightVizDataLogic } from './insightVizDataLogic'
 
 export interface InsightAIAnalysisProps {

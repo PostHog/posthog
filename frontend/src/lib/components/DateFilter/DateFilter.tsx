@@ -25,10 +25,10 @@ import { ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
 import { DateMappingOption, PropertyOperator } from '~/types'
 
 import { PropertyFilterDatePicker } from '../PropertyFilters/components/PropertyFilterDatePicker'
+import { dateFilterLogic } from './dateFilterLogic'
 import { FixedRangeWithTimePicker } from './FixedRangeWithTimePicker'
 import { JumpToTimestampPicker } from './JumpToTimestampPicker'
 import { RollingDateRangeFilter } from './RollingDateRangeFilter'
-import { dateFilterLogic } from './dateFilterLogic'
 import { DateOption } from './rollingDateRangeFilterLogic'
 
 export interface DateFilterProps {

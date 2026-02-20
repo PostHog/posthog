@@ -18,7 +18,6 @@ import { userLogic } from 'scenes/userLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { Survey } from '~/types'
 
-import { FeaturedTemplateCard, TemplateCard } from '../../SurveyTemplates'
 import {
     QuickSurveyFromTemplate,
     SURVEY_CREATED_SOURCE,
@@ -28,6 +27,7 @@ import {
     defaultSurveyTemplates,
 } from '../../constants'
 import { surveysLogic } from '../../surveysLogic'
+import { FeaturedTemplateCard, TemplateCard } from '../../SurveyTemplates'
 
 interface Props {
     numOfSurveys: number

@@ -7,8 +7,8 @@ import { dayjs } from 'lib/dayjs'
 import { DateRange, LogSeverityLevel, LogsQuery } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, UniversalFiltersGroup, UniversalFiltersGroupValue } from '~/types'
 
-import { zoomDateRange } from 'products/logs/frontend/components/LogsViewer/Filters/zoom-utils'
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
+import { zoomDateRange } from 'products/logs/frontend/components/LogsViewer/Filters/zoom-utils'
 
 import type { logsViewerFiltersLogicType } from './logsViewerFiltersLogicType'
 

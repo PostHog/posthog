@@ -6,8 +6,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { isObject } from 'lib/utils'
 
 import { LLMInputOutput } from '../LLMInputOutput'

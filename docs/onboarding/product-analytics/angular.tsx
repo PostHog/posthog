@@ -161,9 +161,9 @@ export const getAngularSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                               bootstrapApplication(AppComponent, appConfig)
                                                 .catch((err) => console.error(err));
                                             `,
-                                            },
-                                        ]}
-                                    />
+                                        },
+                                    ]}
+                                />
                             </Tab.Panel>
                         </Tab.Panels>
                     </Tab.Group>

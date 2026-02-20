@@ -7,8 +7,8 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { buildFunnelEventsFromPathNode } from 'scenes/paths/pathsDataLogic'
-import { OpenPersonsModalProps, openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
+import { OpenPersonsModalProps, openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
@@ -16,8 +16,8 @@ import { InsightActorsQuery, InsightVizNode, NodeKind, PathsLink, PathsQuery } f
 import { isPathsQuery } from '~/queries/utils'
 import { InsightLogicProps, PathType } from '~/types'
 
-import { PathNodeData } from './pathUtils'
 import type { pathsDataLogicType } from './pathsDataLogicType'
+import { PathNodeData } from './pathUtils'
 import { Paths, PathsNode } from './types'
 
 export const DEFAULT_STEP_LIMIT = 5

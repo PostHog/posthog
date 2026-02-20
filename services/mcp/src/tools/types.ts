@@ -1,9 +1,9 @@
 import type { z } from 'zod'
 
 import type { ApiClient } from '@/api/client'
+import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import type { SessionManager } from '@/lib/SessionManager'
 import type { StateManager } from '@/lib/StateManager'
-import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import type { PrefixedString } from '@/lib/types'
 import type { ApiRedactedPersonalApiKey } from '@/schema/api'
 

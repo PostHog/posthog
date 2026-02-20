@@ -6,8 +6,8 @@ import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -15,8 +15,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
-import { DataPipelinesHogFunctions } from './DataPipelinesHogFunctions'
 import { appsSceneLogic } from './appsSceneLogic'
+import { DataPipelinesHogFunctions } from './DataPipelinesHogFunctions'
 
 export const scene: SceneExport = {
     component: AppsScene,

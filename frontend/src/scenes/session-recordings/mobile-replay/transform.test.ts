@@ -1,8 +1,8 @@
-import { transformEventToWeb, transformToWeb } from '.'
 import Ajv, { ErrorObject } from 'ajv'
 
 import { EventType, eventWithTime } from '@posthog/rrweb-types'
 
+import { transformEventToWeb, transformToWeb } from '.'
 import * as incrementalSnapshotJson from './__mocks__/increment-with-child-duplication.json'
 import { wireframe, wireframeText } from './mobile.types'
 import mobileSchema from './schema/mobile/rr-mobile-schema.json'

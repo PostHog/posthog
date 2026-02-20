@@ -164,8 +164,8 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
         title: 'Future features',
         badge: 'optional',
         content: (
-          <Markdown>
-                  {dedent`
+            <Markdown>
+                {dedent`
                       We currently don't support the following features:
 
                       - No de-obfuscating stacktraces from obfuscated builds ([\\--obfuscate](https://docs.flutter.dev/deployment/obfuscate) and [\\--split-debug-info](https://docs.flutter.dev/deployment/obfuscate)) for Dart code
@@ -178,17 +178,11 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                       These features will be added in future releases. We recommend you stay 
                       up to date with the latest version of the PostHog Flutter SDK.
                   `}
-              </Markdown>
+            </Markdown>
         ),
     }
 
-    return [
-        ...installSteps,
-        exceptionAutocaptureStep,
-        manualCaptureStep,
-        verifyStep,
-        futureFeaturesStep,
-    ]
+    return [...installSteps, exceptionAutocaptureStep, manualCaptureStep, verifyStep, futureFeaturesStep]
 }
 
 export const FlutterInstallation = createInstallation(getFlutterSteps)

@@ -8,9 +8,9 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 
+import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { WebExperimentTransformField } from '~/toolbar/experiments/WebExperimentTransformField'
 import { WebExperimentTransformHeader } from '~/toolbar/experiments/WebExperimentTransformHeader'
-import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 
 interface WebExperimentVariantProps {
     variant: string

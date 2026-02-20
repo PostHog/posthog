@@ -12,9 +12,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
-import { commonActionFilterProps } from '../Metrics/Selectors'
 import { SelectableCard } from '../components/SelectableCard'
 import { experimentLogic } from '../experimentLogic'
+import { commonActionFilterProps } from '../Metrics/Selectors'
 import { modalsLogic } from '../modalsLogic'
 import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
 

@@ -7,22 +7,18 @@
     "name": "mcp1",
     "main": "src/index.ts",
     "compatibility_date": "2025-03-10",
-    "compatibility_flags": [
-        "nodejs_compat"
-    ],
+    "compatibility_flags": ["nodejs_compat"],
     "migrations": [
         {
-            "new_sqlite_classes": [
-                "MyMCP"
-            ],
+            "new_sqlite_classes": ["MyMCP"],
             "tag": "v1",
         },
         {
             "renamed_classes": [
                 {
                     "from": "MyMCP",
-                    "to": "MCP"
-                }
+                    "to": "MCP",
+                },
             ],
             "tag": "v2",
         },
@@ -39,27 +35,20 @@
         "enabled": true,
         "logs": {
             "enabled": true,
-            "destinations": [
-                "posthog"
-            ],
+            "destinations": ["posthog"],
             "head_sampling_rate": 1.0, // Collect all logs for now
-            "persist": true // Keep showing logs in Cloudflare dashboard
-        }
+            "persist": true, // Keep showing logs in Cloudflare dashboard
+        },
     },
     "rules": [
         {
             "type": "Text",
-            "globs": [
-                "**/*.md"
-            ],
+            "globs": ["**/*.md"],
             "fallthrough": true,
         },
         {
             "type": "Text",
-            "globs": [
-                "ui-apps-dist/**/*.html",
-                "src/static/**/*.html"
-            ],
+            "globs": ["ui-apps-dist/**/*.html", "src/static/**/*.html"],
             "fallthrough": true,
         },
     ],

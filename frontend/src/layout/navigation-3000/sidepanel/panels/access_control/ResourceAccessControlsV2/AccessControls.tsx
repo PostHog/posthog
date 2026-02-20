@@ -8,9 +8,9 @@ import { AvailableFeature } from '~/types'
 
 import { AccessControlDefaultSettings } from './AccessControlDefaultSettings'
 import { AccessControlFilters } from './AccessControlFilters'
+import { accessControlsLogic } from './accessControlsLogic'
 import { AccessControlTable } from './AccessControlTable'
 import { GroupedAccessControlRuleModal } from './GroupedAccessControlRuleModal'
-import { accessControlsLogic } from './accessControlsLogic'
 import type { AccessControlsTab } from './types'
 
 export function AccessControls({ projectId }: { projectId: string }): JSX.Element {

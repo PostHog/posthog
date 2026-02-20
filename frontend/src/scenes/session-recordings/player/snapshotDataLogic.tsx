@@ -1,3 +1,5 @@
+import '~/queries/utils'
+
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
@@ -10,7 +12,6 @@ import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot
 import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { windowIdRegistryLogic } from 'scenes/session-recordings/player/windowIdRegistryLogic'
 
-import '~/queries/utils'
 import {
     RecordingSnapshot,
     SessionRecordingId,

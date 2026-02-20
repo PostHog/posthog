@@ -9,8 +9,8 @@ import { Noun } from '~/models/groupsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { FunnelStepWithConversionMetrics } from '~/types'
 
-import { FunnelTooltip } from '../FunnelTooltip'
 import { funnelDataLogic } from '../funnelDataLogic'
+import { FunnelTooltip } from '../FunnelTooltip'
 import { getSeriesPositionName } from '../funnelUtils'
 
 interface BarProps {

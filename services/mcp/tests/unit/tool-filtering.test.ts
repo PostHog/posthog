@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { SessionManager } from '@/lib/SessionManager'
 import { OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
+import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import { getToolDefinitions, getToolsForFeatures } from '@/tools/toolDefinitions'
 import type { Context } from '@/tools/types'

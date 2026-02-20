@@ -4,16 +4,16 @@ import { useEffect, useMemo, useState } from 'react'
 import { IconDownload, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonDialog, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
+import { customerIOImportLogic } from './customerIOImportLogic'
 import { CustomerIOImportModal } from './CustomerIOImportModal'
 import { NewCategoryModal } from './NewCategoryModal'
-import { OptOutList } from './OptOutList'
-import { customerIOImportLogic } from './customerIOImportLogic'
 import { optOutCategoriesLogic } from './optOutCategoriesLogic'
+import { OptOutList } from './OptOutList'
 
 interface MessageCategory {
     id: string

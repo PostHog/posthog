@@ -6,8 +6,8 @@ import { FilmCameraHog } from 'lib/components/hedgehogs'
 
 import { OnboardingStepKey } from '~/types'
 
-import { OnboardingStep } from './OnboardingStep'
 import { OnboardingStepComponentType, onboardingLogic } from './onboardingLogic'
+import { OnboardingStep } from './OnboardingStep'
 
 export const OnboardingSessionReplayConfiguration: OnboardingStepComponentType = () => {
     const { goToNextStep, updateCurrentTeam } = useActions(onboardingLogic)

@@ -11,9 +11,9 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { Query } from '~/queries/Query/Query'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { Query } from '~/queries/Query/Query'
 import { AnyEntityNode, ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
 

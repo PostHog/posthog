@@ -23,8 +23,8 @@ import {
     isQuickFilterItem,
 } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
-import { Link } from 'lib/lemon-ui/Link'
 import { IconCohort } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, isString, pluralize, toParams } from 'lib/utils'
 import {

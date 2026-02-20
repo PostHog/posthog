@@ -1,4 +1,5 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+
 import { StepDefinition } from '../steps'
 
 export const getVercelAIGatewaySteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
@@ -14,13 +15,14 @@ export const getVercelAIGatewaySteps = (ctx: OnboardingComponentsContext): StepD
                 <>
                     <CalloutBox type="fyi" icon="IconInfo" title="About Vercel AI Gateway">
                         <Markdown>
-                            Vercel AI Gateway provides a unified OpenAI-compatible API for accessing multiple LLM providers. It handles routing, caching, and rate limiting for your AI requests.
+                            Vercel AI Gateway provides a unified OpenAI-compatible API for accessing multiple LLM
+                            providers. It handles routing, caching, and rate limiting for your AI requests.
                         </Markdown>
                     </CalloutBox>
 
                     <Markdown>
-                        Setting up analytics starts with installing the PostHog SDK for your language. LLM analytics works
-                        best with our Python and Node SDKs.
+                        Setting up analytics starts with installing the PostHog SDK for your language. LLM analytics
+                        works best with our Python and Node SDKs.
                     </Markdown>
 
                     <CodeBlock
@@ -49,7 +51,10 @@ export const getVercelAIGatewaySteps = (ctx: OnboardingComponentsContext): StepD
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Install the OpenAI SDK. The PostHog SDK instruments your LLM calls by wrapping the OpenAI client. The PostHog SDK **does not** proxy your calls.</Markdown>
+                    <Markdown>
+                        Install the OpenAI SDK. The PostHog SDK instruments your LLM calls by wrapping the OpenAI
+                        client. The PostHog SDK **does not** proxy your calls.
+                    </Markdown>
 
                     <CodeBlock
                         blocks={[
@@ -78,10 +83,10 @@ export const getVercelAIGatewaySteps = (ctx: OnboardingComponentsContext): StepD
             content: (
                 <>
                     <Markdown>
-                        We call Vercel AI Gateway through the OpenAI client and generate a response. We'll use PostHog's OpenAI
-                        provider to capture all the details of the call. Initialize PostHog with your PostHog project API
-                        key and host from [your project settings](https://app.posthog.com/settings/project), then pass the
-                        PostHog client along with the Vercel AI Gateway base URL to our OpenAI wrapper.
+                        We call Vercel AI Gateway through the OpenAI client and generate a response. We'll use PostHog's
+                        OpenAI provider to capture all the details of the call. Initialize PostHog with your PostHog
+                        project API key and host from [your project settings](https://app.posthog.com/settings/project),
+                        then pass the PostHog client along with the Vercel AI Gateway base URL to our OpenAI wrapper.
                     </Markdown>
 
                     <CodeBlock
@@ -139,9 +144,10 @@ export const getVercelAIGatewaySteps = (ctx: OnboardingComponentsContext): StepD
                     <CalloutBox type="fyi" icon="IconInfo" title="Proxy note">
                         <Markdown>
                             These SDKs **do not** proxy your calls. They only fire off an async call to PostHog in the
-                            background to send the data. You can also use LLM analytics with other SDKs or our API, but you
-                            will need to capture the data in the right format. See the schema in the [manual capture
-                            section](https://posthog.com/docs/llm-analytics/installation/manual-capture) for more details.
+                            background to send the data. You can also use LLM analytics with other SDKs or our API, but
+                            you will need to capture the data in the right format. See the schema in the [manual capture
+                            section](https://posthog.com/docs/llm-analytics/installation/manual-capture) for more
+                            details.
                         </Markdown>
                     </CalloutBox>
                 </>
@@ -154,8 +160,8 @@ export const getVercelAIGatewaySteps = (ctx: OnboardingComponentsContext): StepD
                 <>
                     <Markdown>
                         Now, when you call Vercel AI Gateway with the OpenAI SDK, PostHog automatically captures an
-                        `$ai_generation` event. You can also capture or modify additional properties with the distinct ID,
-                        trace ID, properties, groups, and privacy mode parameters.
+                        `$ai_generation` event. You can also capture or modify additional properties with the distinct
+                        ID, trace ID, properties, groups, and privacy mode parameters.
                     </Markdown>
 
                     <CodeBlock

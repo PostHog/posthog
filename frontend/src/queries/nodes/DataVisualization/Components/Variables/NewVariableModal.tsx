@@ -5,8 +5,8 @@ import { LemonButton, LemonDialog, LemonModal, LemonTable } from '@posthog/lemon
 import { VARIABLE_INSIGHT_COLUMNS } from 'scenes/data-management/variables/insightColumns'
 
 import { VariableType } from '../../types'
-import { VariableForm } from './VariableForm'
 import { variableDataLogic } from './variableDataLogic'
+import { VariableForm } from './VariableForm'
 import { variableModalLogic } from './variableModalLogic'
 
 export const NewVariableModal = (): JSX.Element => {

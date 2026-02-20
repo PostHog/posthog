@@ -16,9 +16,9 @@ import { LogMessage, LogsQuery, LogsSparklineBreakdownBy } from '~/queries/schem
 import { integer } from '~/queries/schema/type-utils'
 import { JsonType, PropertyGroupFilter } from '~/types'
 
-import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
+import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 // TODO: Move to ./types.ts
 import { ParsedLogMessage } from '../../../types'

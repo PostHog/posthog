@@ -13,7 +13,10 @@ export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Install [`posthog-js`](https://github.com/posthog/posthog-js) and `@posthog/react` using your package manager:</Markdown>
+                    <Markdown>
+                        Install [`posthog-js`](https://github.com/posthog/posthog-js) and `@posthog/react` using your
+                        package manager:
+                    </Markdown>
                     <CodeBlock
                         blocks={[
                             {

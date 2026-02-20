@@ -14,8 +14,8 @@ import {
     TabsPrimitiveTrigger,
 } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -26,8 +26,8 @@ import { ErrorTrackingIssueFilteringTool } from '../../components/IssueFiltering
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { ErrorTrackingIssueImpactTool } from '../../components/IssueImpactTool'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
-import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { exceptionIngestionLogic } from '../../components/SetupPrompt/exceptionIngestionLogic'
+import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
 import {
     ERROR_TRACKING_SCENE_LOGIC_KEY,

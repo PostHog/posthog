@@ -4,13 +4,13 @@ import { EventType, eventWithTime, fullSnapshotEvent } from '@posthog/rrweb-type
 
 import { isEmptyObject, isObject } from 'lib/utils'
 import { transformEventToWeb } from 'scenes/session-recordings/mobile-replay'
-import { getDecompressionWorkerManager } from 'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
 import {
     CHROME_EXTENSION_DENY_LIST,
     stripChromeExtensionDataFromNode,
 } from 'scenes/session-recordings/player/snapshot-processing/chrome-extension-stripping'
 import { chunkMutationSnapshot } from 'scenes/session-recordings/player/snapshot-processing/chunk-large-mutations'
 import { decompressEvent } from 'scenes/session-recordings/player/snapshot-processing/decompress'
+import { getDecompressionWorkerManager } from 'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
 import {
     ViewportResolution,
     extractDimensionsFromMobileSnapshot,

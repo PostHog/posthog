@@ -6,7 +6,7 @@ export function initPostHog(): void {
         if (!demoApiToken) {
             console.warn(
                 'NEXT_PUBLIC_POSTHOG_KEY is not set, skipping PostHog initialization.\n' +
-                'Run "npm run fetch-key" to automatically fetch the key from the database.'
+                    'Run "npm run fetch-key" to automatically fetch the key from the database.'
             )
             return
         }

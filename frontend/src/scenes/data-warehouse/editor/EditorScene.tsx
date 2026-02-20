@@ -23,9 +23,9 @@ import {
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 
 import { ViewLinkModal } from '../ViewLinkModal'
-import { QueryWindow } from './QueryWindow'
 import { editorSizingLogic } from './editorSizingLogic'
 import { outputPaneLogic } from './outputPaneLogic'
+import { QueryWindow } from './QueryWindow'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
 export const scene: SceneExport = {

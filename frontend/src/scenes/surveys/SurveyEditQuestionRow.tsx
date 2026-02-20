@@ -20,9 +20,9 @@ import {
     SurveyType,
 } from '~/types'
 
+import { NewSurvey, SCALE_OPTIONS, SURVEY_RATING_SCALE, SurveyQuestionLabel } from './constants'
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { SurveyDragHandle } from './SurveyDragHandle'
-import { NewSurvey, SCALE_OPTIONS, SURVEY_RATING_SCALE, SurveyQuestionLabel } from './constants'
 import { surveyLogic } from './surveyLogic'
 import { isThumbQuestion } from './utils'
 

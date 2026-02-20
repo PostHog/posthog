@@ -17,6 +17,7 @@ import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBread
 
 import { Notebook } from './Notebook/Notebook'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
+import { notebookLogic } from './Notebook/notebookLogic'
 import {
     NotebookExpandButton,
     NotebookKernelInfoButton,
@@ -24,11 +25,10 @@ import {
     NotebookTableOfContentsButton,
 } from './Notebook/NotebookMeta'
 import { NotebookShareModal } from './Notebook/NotebookShareModal'
-import { notebookLogic } from './Notebook/notebookLogic'
 import { NotebookMenu } from './NotebookMenu'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
-import { LOCAL_NOTEBOOK_TEMPLATES } from './NotebookTemplates/notebookTemplates'
 import { NotebookSceneLogicProps, notebookSceneLogic } from './notebookSceneLogic'
+import { LOCAL_NOTEBOOK_TEMPLATES } from './NotebookTemplates/notebookTemplates'
 import { NotebookTarget } from './types'
 
 interface NotebookSceneProps {

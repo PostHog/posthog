@@ -2,9 +2,9 @@ import { useActions } from 'kea'
 
 import { IconCopy } from '@posthog/icons'
 
+import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { IconLink } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { ParsedLogMessage } from 'products/logs/frontend/types'

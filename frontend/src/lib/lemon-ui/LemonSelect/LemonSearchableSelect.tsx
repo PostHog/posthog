@@ -20,12 +20,10 @@ export interface LemonSearchableSelectPropsBase<T> extends LemonSelectPropsBase<
 }
 
 export interface LemonSearchableSelectPropsClearable<T>
-    extends LemonSearchableSelectPropsBase<T>,
-        LemonSelectPropsClearable<T> {}
+    extends LemonSearchableSelectPropsBase<T>, LemonSelectPropsClearable<T> {}
 
 export interface LemonSearchableSelectPropsNonClearable<T>
-    extends LemonSearchableSelectPropsBase<T>,
-        LemonSelectPropsNonClearable<T> {}
+    extends LemonSearchableSelectPropsBase<T>, LemonSelectPropsNonClearable<T> {}
 
 export type LemonSearchableSelectProps<T> =
     | LemonSearchableSelectPropsClearable<T>

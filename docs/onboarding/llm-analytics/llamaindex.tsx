@@ -86,10 +86,9 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                         <Markdown>
                             PostHog's `OpenAI` wrapper is a proper subclass of `openai.OpenAI`, so it can replace the
                             internal client used by LlamaIndex's OpenAI LLM. PostHog captures `$ai_generation` events
-                            automatically without proxying your calls.
-
-                            **Note:** This approach accesses an internal attribute (`_client`) which may change in future
-                            LlamaIndex versions. Check for updates if you encounter issues after upgrading LlamaIndex.
+                            automatically without proxying your calls. **Note:** This approach accesses an internal
+                            attribute (`_client`) which may change in future LlamaIndex versions. Check for updates if
+                            you encounter issues after upgrading LlamaIndex.
                         </Markdown>
                     </CalloutBox>
                 </>

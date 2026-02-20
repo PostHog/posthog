@@ -5,10 +5,10 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { userLogic } from 'scenes/userLogic'
 
+import { customerIOImportLogic } from './customerIOImportLogic'
 import { CustomerIOImportModal } from './CustomerIOImportModal'
 import { OptOutCategories } from './OptOutCategories'
 import { OptOutList } from './OptOutList'
-import { customerIOImportLogic } from './customerIOImportLogic'
 import { optOutSceneLogic } from './optOutSceneLogic'
 
 export function OptOutScene(): JSX.Element {

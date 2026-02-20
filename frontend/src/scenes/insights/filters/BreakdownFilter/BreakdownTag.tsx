@@ -19,10 +19,10 @@ import { groupsModel } from '~/models/groupsModel'
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 import { BreakdownType, GroupTypeIndex } from '~/types'
 
-import { BreakdownTagMenu } from './BreakdownTagMenu'
-import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
 import { breakdownTagLogic } from './breakdownTagLogic'
+import { BreakdownTagMenu } from './BreakdownTagMenu'
 import { isAllCohort, isCohort } from './taxonomicBreakdownFilterUtils'
+import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
 
 type EditableBreakdownTagProps = {
     breakdown: string | number

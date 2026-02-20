@@ -3,9 +3,9 @@ import { useEffect } from 'react'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { humanizeHogFunctionType } from 'scenes/hog-functions/hog-function-utils'
-import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
 import { hogFunctionsListLogic } from 'scenes/hog-functions/list/hogFunctionsListLogic'
+import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
@@ -13,8 +13,8 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { HogFunctionTypeType } from '~/types'
 
-import { nonHogFunctionTemplatesLogic } from './utils/nonHogFunctionTemplatesLogic'
 import { nonHogFunctionsLogic } from './utils/nonHogFunctionsLogic'
+import { nonHogFunctionTemplatesLogic } from './utils/nonHogFunctionTemplatesLogic'
 
 export type DataPipelinesHogFunctionsProps = {
     kind: HogFunctionTypeType

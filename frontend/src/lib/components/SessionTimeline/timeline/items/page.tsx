@@ -1,5 +1,3 @@
-import { ItemCategory, ItemRenderer, TimelineItem } from '..'
-
 import { IconEye } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
@@ -9,6 +7,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
 
+import { ItemCategory, ItemRenderer, TimelineItem } from '..'
 import { BasePreview, EventLoader } from './base'
 
 export interface PageItem extends TimelineItem {

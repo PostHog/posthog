@@ -32,7 +32,7 @@ catalog:
     '@parcel/packager-ts': 2.13.3
     '@parcel/transformer-typescript-types': 2.13.3
     typescript: 5.4.5
-    prettier: ^3.6.2
+    oxfmt: ^0.33.0
     # Testing
     jest: ^29.7.0
     '@types/jest': ^29.5.12
@@ -66,3 +66,5 @@ minimumReleaseAgeExclude:
     - '@modelcontextprotocol/sdk' # Security update for GHSA-345p-7cg4-v4c7
     - kea@4.0.0-pre.3
     - torph@0.0.5
+    - oxfmt@0.33.0
+    - '@oxfmt/*'

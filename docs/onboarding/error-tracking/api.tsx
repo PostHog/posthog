@@ -36,7 +36,10 @@ export const getAPISteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                         <code>$exception_list</code>
                                     </td>
                                     <td>
-                                        A list of exception objects with detailed information about each error. Each exception can include a type, value, mechanism, module, and a stacktrace with frames and type. You can find the expected schema as types for both exception and stack frames in our Rust repo
+                                        A list of exception objects with detailed information about each error. Each
+                                        exception can include a type, value, mechanism, module, and a stacktrace with
+                                        frames and type. You can find the expected schema as types for both exception
+                                        and stack frames in our Rust repo
                                     </td>
                                 </tr>
                                 <tr>
@@ -44,7 +47,8 @@ export const getAPISteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                         <code>$exception_fingerprint</code>
                                     </td>
                                     <td>
-                                        (Optional) The identifier used to group issues. If not set, a unique hash based on the exception pattern will be generated during ingestion
+                                        (Optional) The identifier used to group issues. If not set, a unique hash based
+                                        on the exception pattern will be generated during ingestion
                                     </td>
                                 </tr>
                             </tbody>

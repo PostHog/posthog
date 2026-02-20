@@ -23,8 +23,8 @@ import { isValidRegexp } from 'lib/utils/regexp'
 import { PathCleaningFilter } from '~/types'
 
 import { parseAliasToReadable } from './PathCleanFilterItem'
-import { PathRegexModal } from './PathRegexModal'
 import { ensureFilterOrder, updateFilterOrder } from './pathCleaningUtils'
+import { PathRegexModal } from './PathRegexModal'
 
 export interface PathCleanFiltersTableProps {
     filters?: PathCleaningFilter[]

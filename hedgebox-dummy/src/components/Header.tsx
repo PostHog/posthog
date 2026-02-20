@@ -1,8 +1,9 @@
 'use client'
 
-import { useAuth } from '@/lib/auth'
 import Link from 'next/link'
 import { useState } from 'react'
+
+import { useAuth } from '@/lib/auth'
 
 export default function Header(): JSX.Element {
     const { user, logout } = useAuth()

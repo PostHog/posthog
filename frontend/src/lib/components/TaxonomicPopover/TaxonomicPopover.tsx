@@ -18,8 +18,10 @@ import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
 
-export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>
-    extends Omit<LemonButtonProps, 'children' | 'onClick' | 'sideAction'> {
+export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue> extends Omit<
+    LemonButtonProps,
+    'children' | 'onClick' | 'sideAction'
+> {
     groupType: TaxonomicFilterGroupType
     value?: ValueType | null
     onChange: (value: ValueType, groupType: TaxonomicFilterGroupType, item: any) => void

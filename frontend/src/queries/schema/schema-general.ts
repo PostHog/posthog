@@ -913,7 +913,8 @@ export interface PersonsNode extends DataNode {
 export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
 
 export interface DataTableNode
-    extends Node<
+    extends
+        Node<
             NonNullable<
                 (
                     | EventsNode
@@ -1680,8 +1681,10 @@ export interface StickinessQueryResponse extends AnalyticsQueryResponseBase {
 
 export type CachedStickinessQueryResponse = CachedQueryResponse<StickinessQueryResponse>
 
-export interface StickinessQuery
-    extends Omit<InsightsQueryBase<StickinessQueryResponse>, 'aggregation_group_type_index'> {
+export interface StickinessQuery extends Omit<
+    InsightsQueryBase<StickinessQueryResponse>,
+    'aggregation_group_type_index'
+> {
     kind: NodeKind.StickinessQuery
     /**
      * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
@@ -2320,8 +2323,7 @@ export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extend
     properties: RevenueAnalyticsPropertyFilters
 }
 
-export interface RevenueAnalyticsGrossRevenueQuery
-    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsGrossRevenueQueryResponse> {
+export interface RevenueAnalyticsGrossRevenueQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsGrossRevenueQueryResponse> {
     kind: NodeKind.RevenueAnalyticsGrossRevenueQuery
     breakdown: RevenueAnalyticsBreakdown[]
     interval: SimpleIntervalType
@@ -2354,8 +2356,7 @@ export interface RevenueAnalyticsMRRQueryResponse extends AnalyticsQueryResponse
 }
 export type CachedRevenueAnalyticsMRRQueryResponse = CachedQueryResponse<RevenueAnalyticsMRRQueryResponse>
 
-export interface RevenueAnalyticsOverviewQuery
-    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse> {
+export interface RevenueAnalyticsOverviewQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse> {
     kind: NodeKind.RevenueAnalyticsOverviewQuery
 }
 
@@ -2383,8 +2384,7 @@ export interface RevenueAnalyticsMetricsQueryResponse extends AnalyticsQueryResp
 export type CachedRevenueAnalyticsMetricsQueryResponse = CachedQueryResponse<RevenueAnalyticsMetricsQueryResponse>
 
 export type RevenueAnalyticsTopCustomersGroupBy = 'month' | 'all'
-export interface RevenueAnalyticsTopCustomersQuery
-    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsTopCustomersQueryResponse> {
+export interface RevenueAnalyticsTopCustomersQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsTopCustomersQueryResponse> {
     kind: NodeKind.RevenueAnalyticsTopCustomersQuery
     groupBy: RevenueAnalyticsTopCustomersGroupBy
 }
@@ -2412,8 +2412,7 @@ export interface RevenueExampleEventsQueryResponse extends AnalyticsQueryRespons
 }
 export type CachedRevenueExampleEventsQueryResponse = CachedQueryResponse<RevenueExampleEventsQueryResponse>
 
-export interface RevenueExampleDataWarehouseTablesQuery
-    extends DataNode<RevenueExampleDataWarehouseTablesQueryResponse> {
+export interface RevenueExampleDataWarehouseTablesQuery extends DataNode<RevenueExampleDataWarehouseTablesQueryResponse> {
     kind: NodeKind.RevenueExampleDataWarehouseTablesQuery
     limit?: integer
     offset?: integer
@@ -2490,8 +2489,10 @@ export interface ErrorTrackingIssueCorrelationQueryResponse extends AnalyticsQue
 export type CachedErrorTrackingIssueCorrelationQueryResponse =
     CachedQueryResponse<ErrorTrackingIssueCorrelationQueryResponse>
 
-export interface ErrorTrackingIssueFilteringToolOutput
-    extends Pick<ErrorTrackingQuery, 'orderBy' | 'orderDirection' | 'status' | 'searchQuery'> {
+export interface ErrorTrackingIssueFilteringToolOutput extends Pick<
+    ErrorTrackingQuery,
+    'orderBy' | 'orderDirection' | 'status' | 'searchQuery'
+> {
     newFilters?: AnyPropertyFilter[]
     removedFilterIndexes?: integer[]
     dateRange?: DateRange
@@ -2787,8 +2788,7 @@ export interface SessionEventsItem {
 }
 
 export interface SessionBatchEventsQuery
-    extends Omit<EventsQuery, 'kind' | 'response'>,
-        DataNode<SessionBatchEventsQueryResponse> {
+    extends Omit<EventsQuery, 'kind' | 'response'>, DataNode<SessionBatchEventsQueryResponse> {
     kind: NodeKind.SessionBatchEventsQuery
     /** Whether to group results by session_id in the response */
     group_by_session?: boolean
@@ -3417,8 +3417,9 @@ export interface InsightActorsQueryBase extends DataNode<ActorsQueryResponse> {
     modifiers?: HogQLQueryModifiers
 }
 
-export interface InsightActorsQuery<S extends InsightsQueryBase<AnalyticsQueryResponseBase> = InsightQuerySource>
-    extends InsightActorsQueryBase {
+export interface InsightActorsQuery<
+    S extends InsightsQueryBase<AnalyticsQueryResponseBase> = InsightQuerySource,
+> extends InsightActorsQueryBase {
     kind: NodeKind.InsightActorsQuery
     source: S
     day?: string | Day
@@ -4412,8 +4413,10 @@ export type CachedWebTrendsQueryResponse = CachedQueryResponse<WebTrendsQueryRes
 
 export type MarketingAnalyticsOrderBy = [string, 'ASC' | 'DESC']
 
-export interface MarketingAnalyticsTableQuery
-    extends Omit<WebAnalyticsQueryBase<MarketingAnalyticsTableQueryResponse>, 'orderBy'> {
+export interface MarketingAnalyticsTableQuery extends Omit<
+    WebAnalyticsQueryBase<MarketingAnalyticsTableQueryResponse>,
+    'orderBy'
+> {
     kind: NodeKind.MarketingAnalyticsTableQuery
     /** Return a limited set of data. Will use default columns if empty. */
     select?: HogQLExpression[]
@@ -4459,8 +4462,10 @@ export interface MarketingAnalyticsAggregatedQueryResponse extends AnalyticsQuer
 export type CachedMarketingAnalyticsAggregatedQueryResponse =
     CachedQueryResponse<MarketingAnalyticsAggregatedQueryResponse>
 
-export interface MarketingAnalyticsAggregatedQuery
-    extends Omit<WebAnalyticsQueryBase<MarketingAnalyticsAggregatedQueryResponse>, 'orderBy' | 'limit' | 'offset'> {
+export interface MarketingAnalyticsAggregatedQuery extends Omit<
+    WebAnalyticsQueryBase<MarketingAnalyticsAggregatedQueryResponse>,
+    'orderBy' | 'limit' | 'offset'
+> {
     kind: NodeKind.MarketingAnalyticsAggregatedQuery
     /** Return a limited set of data. Will use default columns if empty. */
     select?: HogQLExpression[]
@@ -4476,8 +4481,10 @@ export enum NonIntegratedConversionsColumnsSchemaNames {
     Campaign = 'Campaign',
 }
 
-export interface NonIntegratedConversionsTableQuery
-    extends Omit<WebAnalyticsQueryBase<NonIntegratedConversionsTableQueryResponse>, 'orderBy'> {
+export interface NonIntegratedConversionsTableQuery extends Omit<
+    WebAnalyticsQueryBase<NonIntegratedConversionsTableQueryResponse>,
+    'orderBy'
+> {
     kind: NodeKind.NonIntegratedConversionsTableQuery
     /** Return a limited set of data. Will use default columns if empty. */
     select?: HogQLExpression[]
@@ -4530,11 +4537,10 @@ export interface WebAnalyticsExternalSummaryQueryResponse {
     error?: ExternalQueryError
 }
 
-export interface WebAnalyticsExternalSummaryQuery
-    extends Pick<
-        WebAnalyticsQueryBase<WebAnalyticsExternalSummaryQueryResponse>,
-        'dateRange' | 'properties' | 'version'
-    > {
+export interface WebAnalyticsExternalSummaryQuery extends Pick<
+    WebAnalyticsQueryBase<WebAnalyticsExternalSummaryQueryResponse>,
+    'dateRange' | 'properties' | 'version'
+> {
     kind: NodeKind.WebAnalyticsExternalSummaryQuery
     dateRange: DateRange
     properties: WebAnalyticsPropertyFilters

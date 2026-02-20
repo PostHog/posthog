@@ -14,7 +14,6 @@ import {
 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { Thread } from 'scenes/max/Thread'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
 import { ThreadAutoScroller } from 'scenes/max/components/ThreadAutoScroller'
 import { TOOL_DEFINITIONS, ToolRegistration } from 'scenes/max/max-constants'
@@ -22,6 +21,7 @@ import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { MessageTemplate } from 'scenes/max/messages/MessageTemplate'
+import { Thread } from 'scenes/max/Thread'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'

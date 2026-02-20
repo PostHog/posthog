@@ -12,8 +12,8 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
 import { DashboardEditBar } from 'scenes/dashboard/DashboardEditBar'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
-import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
 import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -25,11 +25,11 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
 import { teamLogic } from '../teamLogic'
+import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
+import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
-import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
-import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 
 interface DashboardProps {
     id?: string

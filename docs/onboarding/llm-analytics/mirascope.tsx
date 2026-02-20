@@ -33,8 +33,8 @@ export const getMirascopeSteps = (ctx: OnboardingComponentsContext): StepDefinit
             content: (
                 <>
                     <Markdown>
-                        Install Mirascope with OpenAI support. PostHog instruments your LLM calls by wrapping the
-                        OpenAI client that Mirascope uses under the hood.
+                        Install Mirascope with OpenAI support. PostHog instruments your LLM calls by wrapping the OpenAI
+                        client that Mirascope uses under the hood.
                     </Markdown>
 
                     <CodeBlock
@@ -78,9 +78,10 @@ export const getMirascopeSteps = (ctx: OnboardingComponentsContext): StepDefinit
 
                     <CalloutBox type="fyi" icon="IconInfo" title="How this works">
                         <Markdown>
-                            Mirascope's `@call` decorator accepts a `client` parameter for passing a custom OpenAI client.
-                            PostHog's `OpenAI` wrapper is a proper subclass of `openai.OpenAI`, so it works directly.
-                            PostHog captures `$ai_generation` events automatically without proxying your calls.
+                            Mirascope's `@call` decorator accepts a `client` parameter for passing a custom OpenAI
+                            client. PostHog's `OpenAI` wrapper is a proper subclass of `openai.OpenAI`, so it works
+                            directly. PostHog captures `$ai_generation` events automatically without proxying your
+                            calls.
                         </Markdown>
                     </CalloutBox>
                 </>

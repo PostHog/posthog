@@ -3,14 +3,14 @@ import { useEffect } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
 
-import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { SupermanHog } from 'lib/components/hedgehogs'
+import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { billingLogic } from 'scenes/billing/billingLogic'
 
 import { type BillingProductV2Type, OnboardingStepKey } from '~/types'
 
-import { OnboardingStep } from '../OnboardingStep'
 import { OnboardingStepComponentType } from '../onboardingLogic'
+import { OnboardingStep } from '../OnboardingStep'
 import PlanCards from './PlanCards'
 
 type OnboardingUpgradeStepProps = {

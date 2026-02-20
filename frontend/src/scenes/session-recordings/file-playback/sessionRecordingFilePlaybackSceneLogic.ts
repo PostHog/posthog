@@ -11,9 +11,9 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { SessionRecordingPlayerProps } from '../player/SessionRecordingPlayer'
 import { sessionRecordingDataCoordinatorLogic } from '../player/sessionRecordingDataCoordinatorLogic'
 import type { sessionRecordingDataCoordinatorLogicType } from '../player/sessionRecordingDataCoordinatorLogicType'
+import { SessionRecordingPlayerProps } from '../player/SessionRecordingPlayer'
 import { createWindowIdRegistry } from '../player/snapshot-processing/process-all-snapshots'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingFilePlaybackSceneLogicType } from './sessionRecordingFilePlaybackSceneLogicType'

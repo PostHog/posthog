@@ -19,22 +19,22 @@ import { getProductIcon } from 'scenes/onboarding/productSelection/ProductSelect
 import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType } from '~/types'
 
-import { BillingGauge } from './BillingGauge'
-import { BillingLimit } from './BillingLimit'
-import { BillingProductAddon } from './BillingProductAddon'
-import { BillingProductPricingTable } from './BillingProductPricingTable'
-import { ProductPricingModal } from './ProductPricingModal'
-import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 import {
     createGaugeItems,
     createProductValueFormatter,
     getProductUnitLabel,
     isProductVariantPrimary,
 } from './billing-utils'
+import { BillingGauge } from './BillingGauge'
+import { BillingLimit } from './BillingLimit'
 import { billingLogic } from './billingLogic'
+import { BillingProductAddon } from './BillingProductAddon'
 import { billingProductLogic } from './billingProductLogic'
+import { BillingProductPricingTable } from './BillingProductPricingTable'
 import { REALTIME_DESTINATIONS_BILLING_START_DATE } from './constants'
 import { paymentEntryLogic } from './paymentEntryLogic'
+import { ProductPricingModal } from './ProductPricingModal'
+import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 export const getTierDescription = (
     tiers: BillingTierType[],

@@ -13,8 +13,8 @@ import { IconDragHandle } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { userLogic } from 'scenes/userLogic'
 
-import { ImpersonationReasonModal } from './ImpersonationReasonModal'
 import { impersonationNoticeLogic } from './impersonationNoticeLogic'
+import { ImpersonationReasonModal } from './ImpersonationReasonModal'
 
 function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: () => void }): JSX.Element {
     const [now, setNow] = useState(() => dayjs())

@@ -5,13 +5,13 @@ import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
 import { isExperimentMetric } from '~/queries/utils'
 import { ExperimentMetricModal } from '~/scenes/experiments/Metrics/ExperimentMetricModal'
-import { MetricSourceModal } from '~/scenes/experiments/Metrics/MetricSourceModal'
-import { SharedMetricModal } from '~/scenes/experiments/Metrics/SharedMetricModal'
 import {
     METRIC_CONTEXTS,
     MetricContext,
     experimentMetricModalLogic,
 } from '~/scenes/experiments/Metrics/experimentMetricModalLogic'
+import { MetricSourceModal } from '~/scenes/experiments/Metrics/MetricSourceModal'
+import { SharedMetricModal } from '~/scenes/experiments/Metrics/SharedMetricModal'
 import { sharedMetricModalLogic } from '~/scenes/experiments/Metrics/sharedMetricModalLogic'
 import type { Experiment } from '~/types'
 

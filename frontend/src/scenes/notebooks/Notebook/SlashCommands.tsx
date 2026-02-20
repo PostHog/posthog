@@ -26,8 +26,8 @@ import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
 
 import { EditorCommands, EditorRange } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Popover } from 'lib/lemon-ui/Popover'
 import { IconBold, IconItalic, IconTableChart } from 'lib/lemon-ui/icons'
+import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { selectFiles } from 'lib/utils/file-utils'
 

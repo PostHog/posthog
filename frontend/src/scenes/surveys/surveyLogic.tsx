@@ -86,8 +86,8 @@ import {
     defaultSurveyFieldValues,
 } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
-import { SurveyFeatureWarning, getSurveyWarnings } from './surveyVersionRequirements'
 import { getSurveyStatus, surveysLogic } from './surveysLogic'
+import { SurveyFeatureWarning, getSurveyWarnings } from './surveyVersionRequirements'
 import {
     DATE_FORMAT,
     buildPartialResponsesFilter,

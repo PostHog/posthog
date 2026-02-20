@@ -3,8 +3,8 @@ import { useMemo, useState } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
 
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
@@ -21,9 +21,9 @@ import {
 import { QueryContext } from '~/queries/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
+import { getMetric } from './definitions'
 import { WebVitalsContent } from './WebVitalsContent'
 import { WebVitalsTab } from './WebVitalsTab'
-import { getMetric } from './definitions'
 
 let uniqueNode = 0
 export function WebVitals(props: {

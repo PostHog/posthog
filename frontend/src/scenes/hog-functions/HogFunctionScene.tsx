@@ -35,13 +35,13 @@ import {
     HogFunctionTypeType,
 } from '~/types'
 
-import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
 import { HogFunctionBackfills } from './backfills/HogFunctionBackfills'
-import { HogFunctionIconEditable } from './configuration/HogFunctionIcon'
 import {
     HogFunctionConfigurationClearChangesButton,
     HogFunctionConfigurationSaveButton,
 } from './configuration/components/HogFunctionConfigurationButtons'
+import { HogFunctionIconEditable } from './configuration/HogFunctionIcon'
+import type { hogFunctionSceneLogicType } from './HogFunctionSceneType'
 import { HogFunctionMetrics } from './metrics/HogFunctionMetrics'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
 

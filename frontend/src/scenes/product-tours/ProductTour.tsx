@@ -15,8 +15,8 @@ import { Error404 } from '~/layout/Error404'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ProductTourEdit } from './ProductTourEdit'
-import { ProductTourView } from './ProductTourView'
 import { ProductTourLogicProps, productTourLogic } from './productTourLogic'
+import { ProductTourView } from './ProductTourView'
 
 export const scene: SceneExport<ProductTourLogicProps> = {
     component: ProductTourComponent,

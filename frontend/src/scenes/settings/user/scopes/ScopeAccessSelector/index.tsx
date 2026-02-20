@@ -1,7 +1,7 @@
 import { RequiredOrganizationAccessSelector } from './RequiredOrganizationAccessSelector'
 import { RequiredTeamAccessSelector } from './RequiredTeamAccessSelector'
-import { UserDefinedAccessSelector } from './UserDefinedAccessSelector'
 import type { ScopeAccessSelectorProps } from './types'
+import { UserDefinedAccessSelector } from './UserDefinedAccessSelector'
 
 const ScopeAccessSelector = ({
     accessType,

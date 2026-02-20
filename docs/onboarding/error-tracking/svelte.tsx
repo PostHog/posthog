@@ -93,12 +93,7 @@ export const getSvelteSteps = (ctx: OnboardingComponentsContext): StepDefinition
         ),
     }
 
-    return [
-        ...installSteps,
-        clientExceptionCaptureStep,
-        serverExceptionCaptureStep,
-        verifyStep,
-    ]
+    return [...installSteps, clientExceptionCaptureStep, serverExceptionCaptureStep, verifyStep]
 }
 
 export const SvelteInstallation = createInstallation(getSvelteSteps)

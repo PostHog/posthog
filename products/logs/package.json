@@ -10,6 +10,9 @@
         "kea-subscriptions": "catalog:",
         "posthog-js": "catalog:"
     },
+    "devDependencies": {
+        "kea-test-utils": "catalog:"
+    },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@posthog/products-error-tracking": "workspace:*",
@@ -26,14 +29,10 @@
         "fast-deep-equal": "*",
         "jest": "*",
         "papaparse": "*",
-        "prettier": "*",
         "react": "*",
         "react-window": "*",
         "stylelint": "*",
         "typescript": "*",
         "use-debounce": "*"
-    },
-    "devDependencies": {
-        "kea-test-utils": "catalog:"
     }
 }

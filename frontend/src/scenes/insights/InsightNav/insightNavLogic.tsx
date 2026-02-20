@@ -69,7 +69,8 @@ export interface Tab {
 type OmitConflictingProperties<T> = Omit<T, 'resultCustomizations'>
 
 export interface CommonInsightFilter
-    extends Partial<OmitConflictingProperties<TrendsFilter>>,
+    extends
+        Partial<OmitConflictingProperties<TrendsFilter>>,
         Partial<OmitConflictingProperties<FunnelsFilter>>,
         Partial<RetentionFilter>,
         Partial<PathsFilter>,
@@ -77,7 +78,8 @@ export interface CommonInsightFilter
         Partial<LifecycleFilter> {}
 
 export interface QueryPropertyCache
-    extends Omit<Partial<TrendsQuery>, 'kind' | 'response' | 'series'>,
+    extends
+        Omit<Partial<TrendsQuery>, 'kind' | 'response' | 'series'>,
         Omit<Partial<FunnelsQuery>, 'kind' | 'response' | 'series'>,
         Omit<Partial<RetentionQuery>, 'kind' | 'response' | 'series'>,
         Omit<Partial<PathsQuery>, 'kind' | 'response'>,

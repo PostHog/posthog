@@ -12,8 +12,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { BillingProductV2AddonType } from '~/types'
 
-import { formatFlatRate } from './BillingProductAddon'
 import { billingLogic } from './billingLogic'
+import { formatFlatRate } from './BillingProductAddon'
 import { billingProductLogic } from './billingProductLogic'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
 

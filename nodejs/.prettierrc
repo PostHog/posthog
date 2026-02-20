@@ -6,18 +6,13 @@
     "printWidth": 120,
     "plugins": ["@trivago/prettier-plugin-sort-imports"],
     "importOrder": [
-        "~/styles$",
-        "\\.s?css$",
         "\\.mocks?$",
         "\\.spy$",
         "<THIRD_PARTY_MODULES>",
         "^@posthog.*$",
-        "^lib/(.*)$|^scenes/(.*)$",
         "^~/(.*)$",
         "^@/(.*)$",
         "^public/(.*)$",
-        "^products/(.*)$",
-        "^storybook/(.*)$",
         "^\\.+/"
     ],
     "importOrderSeparation": true,

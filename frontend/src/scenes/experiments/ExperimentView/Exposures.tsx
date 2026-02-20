@@ -16,8 +16,8 @@ import {
     ExperimentExposureTimeSeries,
 } from '~/queries/schema/schema-general'
 
-import { useChartColors } from '../MetricsView/shared/colors'
 import { experimentLogic } from '../experimentLogic'
+import { useChartColors } from '../MetricsView/shared/colors'
 import { modalsLogic } from '../modalsLogic'
 import { filterLowMultipleVariant, getExposureConfigDisplayName } from '../utils'
 import { VariantTag } from './components'

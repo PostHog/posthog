@@ -9,8 +9,8 @@
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
-        "posthog-js": "catalog:",
         "partial-json": "^0.1.7",
+        "posthog-js": "catalog:",
         "torph": "^0.0.5"
     },
     "devDependencies": {
@@ -26,7 +26,6 @@
         "clsx": "*",
         "eslint": "*",
         "jest": "*",
-        "prettier": "*",
         "react": "*",
         "stylelint": "*",
         "typescript": "*",

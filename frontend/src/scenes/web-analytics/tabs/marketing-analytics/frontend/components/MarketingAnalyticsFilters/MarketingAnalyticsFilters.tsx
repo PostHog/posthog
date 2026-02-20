@@ -8,8 +8,8 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { Scene } from 'scenes/sceneTypes'
 
-import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../logic/marketingAnalyticsTilesLogic'

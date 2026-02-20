@@ -22,7 +22,6 @@ import { HogFunctionEventEstimates } from 'scenes/hog-functions/metrics/HogFunct
 import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
-import { HogFunctionTest } from './HogFunctionTest'
 import { HogFunctionCode } from './components/HogFunctionCode'
 import {
     HogFunctionConfigurationClearChangesButton,
@@ -32,6 +31,7 @@ import { HogFunctionInputs } from './components/HogFunctionInputs'
 import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
 import { HogFunctionSourceWebhookTest } from './components/HogFunctionSourceWebhookTest'
 import { HogFunctionTemplateOptions } from './components/HogFunctionTemplateOptions'
+import { HogFunctionTest } from './HogFunctionTest'
 
 export interface HogFunctionConfigurationProps {
     templateId?: string | null

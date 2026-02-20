@@ -26,8 +26,8 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { getNiceTickValues } from './MetricsView/shared/utils'
 import { filterToMetricConfig } from './metricQueryUtils'
+import { getNiceTickValues } from './MetricsView/shared/utils'
 import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,

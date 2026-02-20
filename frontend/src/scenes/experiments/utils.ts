@@ -44,8 +44,8 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
-import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { EXPERIMENT_VARIANT_MULTIPLE } from './constants'
+import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 
 const MULTIPLE_VARIANT_WARNING_THRESHOLD = 0.5
 

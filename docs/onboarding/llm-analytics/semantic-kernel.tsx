@@ -14,8 +14,8 @@ export const getSemanticKernelSteps = (ctx: OnboardingComponentsContext): StepDe
             content: (
                 <>
                     <Markdown>
-                        Setting up analytics starts with installing the PostHog SDK. The Semantic Kernel integration uses
-                        PostHog's OpenAI wrapper.
+                        Setting up analytics starts with installing the PostHog SDK. The Semantic Kernel integration
+                        uses PostHog's OpenAI wrapper.
                     </Markdown>
 
                     <CodeBlock
@@ -88,8 +88,8 @@ export const getSemanticKernelSteps = (ctx: OnboardingComponentsContext): StepDe
                     <CalloutBox type="fyi" icon="IconInfo" title="How this works">
                         <Markdown>
                             PostHog's `AsyncOpenAI` wrapper is a proper subclass of `openai.AsyncOpenAI`, so it works
-                            directly as the `async_client` parameter in Semantic Kernel's `OpenAIChatCompletion`. PostHog
-                            captures `$ai_generation` events automatically without proxying your calls.
+                            directly as the `async_client` parameter in Semantic Kernel's `OpenAIChatCompletion`.
+                            PostHog captures `$ai_generation` events automatically without proxying your calls.
                         </Markdown>
                     </CalloutBox>
                 </>

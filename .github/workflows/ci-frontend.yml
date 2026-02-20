@@ -51,7 +51,7 @@ jobs:
                         - .github/workflows/ci-frontend.yml
                         # various JS config files
                         - .oxlintrc.json
-                        - .prettier*
+                        - .oxfmtrc*
                         - babel.config.js
                         - package.json
                         - pnpm-lock.yaml
@@ -97,8 +97,8 @@ jobs:
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
-            - name: Check formatting with prettier
-              run: pnpm --filter=@posthog/frontend prettier:check
+            - name: Check formatting with oxfmt
+              run: pnpm run format:frontend:check
 
             - name: Lint with Stylelint
               run: pnpm run lint:css
@@ -106,11 +106,11 @@ jobs:
             - name: Lint with Oxlint
               run: pnpm run lint:js -f github
 
-            - name: Check markdown formatting with prettier
-              run: pnpm exec prettier --check "**/*.{md,mdx}"
+            - name: Check markdown formatting with oxfmt
+              run: pnpm exec oxfmt --check "**/*.{md,mdx}"
 
-            - name: Check YAML formatting with prettier
-              run: pnpm exec prettier --check "**/*.{yaml,yml}" --ignore-path .prettierignore
+            - name: Check YAML formatting with oxfmt
+              run: pnpm exec oxfmt --check "**/*.{yaml,yml}"
 
             - name: Lint markdown files
               run: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc "**/*.{md,mdx}"

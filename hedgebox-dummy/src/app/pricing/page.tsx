@@ -1,8 +1,9 @@
 'use client'
 
+import Link from 'next/link'
+
 import Header from '@/components/Header'
 import { pricingPlans } from '@/lib/data'
-import Link from 'next/link'
 
 export default function PricingPage(): React.JSX.Element {
     return (

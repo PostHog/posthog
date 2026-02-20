@@ -15,9 +15,9 @@ import { LogDetailsTabContent } from 'products/logs/frontend/components/LogsView
 
 import { logsViewerLogic } from '../logsViewerLogic'
 import { LogComments } from './LogComments'
+import { LogDetailsTab, logDetailsModalLogic } from './logDetailsModalLogic'
 import { LogExploreAI } from './Tabs/ExploreWithAI'
 import { RelatedErrorsTab } from './Tabs/RelatedErrors'
-import { LogDetailsTab, logDetailsModalLogic } from './logDetailsModalLogic'
 
 const SEVERITY_COLORS: Record<string, string> = {
     trace: 'bg-muted-alt',

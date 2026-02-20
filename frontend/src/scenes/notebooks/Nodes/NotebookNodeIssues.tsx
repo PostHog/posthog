@@ -5,8 +5,8 @@ import { IconX } from '@posthog/icons'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
-import { Query } from '~/queries/Query/Query'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { Query } from '~/queries/Query/Query'
 import { InsightLogicProps } from '~/types'
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'

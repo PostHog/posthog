@@ -25,9 +25,9 @@ import {
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
-import { QuickSurveyModal } from '../QuickSurveyModal'
 import { SURVEY_CREATED_SOURCE } from '../constants'
 import { QuickSurveyType } from '../quick-create/types'
+import { QuickSurveyModal } from '../QuickSurveyModal'
 import { captureMaxAISurveyCreationException } from '../utils'
 import { SurveyableFunnelInsight, extractFunnelContext } from '../utils/opportunityDetection'
 

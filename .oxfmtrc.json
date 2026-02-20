@@ -1,0 +1,125 @@
+{
+    "$schema": "./node_modules/oxfmt/configuration_schema.json",
+    "trailingComma": "es5",
+    "tabWidth": 4,
+    "semi": false,
+    "singleQuote": true,
+    "printWidth": 120,
+    "proseWrap": "preserve",
+    "experimentalSortImports": {
+        "newlinesBetween": true,
+        "internalPattern": ["~/", "@/"],
+        "groups": [
+            "global-styles",
+            "side_effect_style",
+            "style",
+            "mocks",
+            "spies",
+            "side_effect",
+            ["builtin", "external"],
+            "posthog-packages",
+            "lib-and-scenes",
+            "internal",
+            "public",
+            "products",
+            "storybook",
+            ["sibling", "parent", "index"]
+        ],
+        "customGroups": [
+            {
+                "groupName": "global-styles",
+                "elementNamePattern": ["~/styles"]
+            },
+            {
+                "groupName": "mocks",
+                "elementNamePattern": ["*.mock", "*.mocks", "**/*.mock", "**/*.mocks"]
+            },
+            {
+                "groupName": "spies",
+                "elementNamePattern": ["*.spy", "**/*.spy"]
+            },
+            {
+                "groupName": "posthog-packages",
+                "elementNamePattern": ["@posthog/*", "@posthog/**"]
+            },
+            {
+                "groupName": "lib-and-scenes",
+                "elementNamePattern": ["lib/*", "lib/**", "scenes/*", "scenes/**"]
+            },
+            {
+                "groupName": "public",
+                "elementNamePattern": ["public/*", "public/**"]
+            },
+            {
+                "groupName": "products",
+                "elementNamePattern": ["products/*", "products/**"]
+            },
+            {
+                "groupName": "storybook",
+                "elementNamePattern": ["storybook/*", "storybook/**"]
+            }
+        ]
+    },
+    "overrides": [
+        {
+            "files": ["*.md", "*.mdx"],
+            "options": {
+                "tabWidth": 2
+            }
+        },
+        {
+            "files": [
+                "products/workflows/frontend/Workflows/hogflows/panel/HogFlowEditorPanelBuild.tsx",
+                "frontend/src/lib/components/CyclotronJob/integrations/IntegrationChoice.tsx"
+            ],
+            "options": {
+                "experimentalSortImports": {
+                    "partitionByComment": true
+                }
+            }
+        }
+    ],
+    "ignorePatterns": [
+        "venv",
+        "env",
+        ".venv",
+        "__pycache__/",
+        "staticfiles",
+        ".env",
+        "*.code-workspace",
+        ".mypy_cache",
+        ".cache/",
+        "*Type.ts",
+        ".idea",
+        ".yalc",
+        ".python-version",
+        "storybook-static",
+        "common/storybook/dist/",
+        "dist/",
+        "node_modules/",
+        "pnpm-lock.yaml",
+        "posthog/templates/**/*",
+        "common/hogvm/typescript/src/stl/bytecode.ts",
+        "common/hogvm/__tests__/__snapshots__/*",
+        "common/hogql_parser/build_wasm/",
+        "common/hogql_parser/build/",
+        "common/hogql_parser/dist/",
+        "nodejs/",
+        "rust/",
+        "livestream/",
+        "cli/target/",
+        "cli/tests/_cases/**/*",
+        "frontend/src/products.tsx",
+        "frontend/src/products.json",
+        "frontend/src/layout.html",
+        "**/fixtures/**",
+        "frontend/src/products.tsx",
+        "services/mcp/worker-configuration.d.ts",
+        "frontend/src/taxonomy/core-filter-definitions-by-group.json",
+        "frontend/dist/",
+        "frontend/**/*LogicType.ts",
+        "bin/validate-setup-tasks.mjs",
+        "frontend/bin/docs/build-survey-sdk-docs.ts",
+        "frontend/src/scenes/notebooks/Nodes/NodeWrapper.tsx"
+    ]
+}
