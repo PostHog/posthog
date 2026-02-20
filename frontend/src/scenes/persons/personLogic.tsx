@@ -6,11 +6,11 @@ import api from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
-import { hogqlQuery } from '~/queries/query'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { Breadcrumb, PersonType } from '~/types'
 
+import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
 import { revenueAnalyticsLogic } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
 
 import { getHogqlQueryStringForPersonId } from './person-utils'
@@ -31,9 +31,9 @@ export const personLogic = kea<personLogicType>([
     props({} as PersonLogicProps),
     key((props) => props.distinctId ?? props.id ?? 'undefined'),
     path((key) => ['scenes', 'persons', 'personLogic', key]),
-    connect({
+    connect(() => ({
         values: [revenueAnalyticsLogic, ['isRevenueAnalyticsEnabled']],
-    }),
+    })),
     actions({
         loadPerson: true,
         loadInfo: true,
@@ -69,10 +69,14 @@ export const personLogic = kea<personLogicType>([
                     if (props.id == null) {
                         return null
                     }
-                    const queryResponse = await hogqlQuery(
-                        getHogqlQueryStringForPersonId(),
-                        { id: props.id },
-                        'blocking'
+                    const queryResponse = await api.query<HogQLQuery>(
+                        {
+                            kind: NodeKind.HogQLQuery,
+                            query: getHogqlQueryStringForPersonId(),
+                            values: { id: props.id },
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
+                        },
+                        { refresh: 'blocking' }
                     )
                     const row = queryResponse?.results?.[0]
                     if (row == null) {
@@ -108,7 +112,7 @@ export const personLogic = kea<personLogicType>([
                     AND timestamp >= now() - interval 30 day
                     `
                     try {
-                        const response = await api.queryHogQL(infoQuery, { scene: 'Person', productKey: 'persons' })
+                        const response = await api.queryHogQL(infoQuery, CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS)
                         const row = response.results?.[0]
                         if (!row) {
                             return {
@@ -142,6 +146,7 @@ export const personLogic = kea<personLogicType>([
                     try {
                         const result = await api.query({
                             kind: NodeKind.HogQLQuery,
+                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             query: `
                     SELECT mrr, revenue
                     FROM persons_revenue_analytics

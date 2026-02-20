@@ -51,10 +51,22 @@ impl FlagService {
         }
     }
 
-    /// Verifies the Project API token against HyperCache or the database.
+    /// Deprecated: use `verify_token_and_get_team` instead, which returns the Team
+    /// directly and avoids a redundant cache lookup.
+    #[allow(dead_code)]
     pub async fn verify_token(&self, token: &str) -> Result<String, FlagError> {
+        self.verify_token_and_get_team(token)
+            .await
+            .map(|_| token.to_string())
+    }
+
+    /// Verifies the Project API token and returns the Team.
+    ///
+    /// This combines token verification with team fetching to avoid a redundant
+    /// cache lookup — callers get the Team directly instead of re-fetching it.
+    pub async fn verify_token_and_get_team(&self, token: &str) -> Result<Team, FlagError> {
         match self.get_team_from_cache_or_pg(token).await {
-            Ok(_) => Ok(token.to_string()),
+            Ok(team) => Ok(team),
             Err(e) => {
                 tracing::warn!("Token validation failed for token '{}': {:?}", token, e);
                 inc(
@@ -169,9 +181,9 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_verify_token() {
+    async fn test_verify_token_and_get_team() {
         let redis_client = setup_redis_client(None).await;
-        let pg_client = setup_pg_reader_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
         let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
         let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
         let team = insert_new_team_in_redis(redis_client.clone())
@@ -185,20 +197,24 @@ mod tests {
             hypercache_reader,
         );
 
-        // Test valid token in HyperCache
-        let result = flag_service.verify_token(&team.api_token).await;
+        // Test valid token returns the team
+        let result = flag_service
+            .verify_token_and_get_team(&team.api_token)
+            .await;
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), team.api_token);
+        assert_eq!(result.unwrap().api_token, team.api_token);
 
         // Test invalid token
-        let result = flag_service.verify_token("invalid_token").await;
+        let result = flag_service
+            .verify_token_and_get_team("invalid_token")
+            .await;
         assert!(matches!(result, Err(FlagError::TokenValidationError)));
     }
 
     #[tokio::test]
     async fn test_get_team_from_cache_or_pg() {
         let redis_client = setup_redis_client(None).await;
-        let pg_client = setup_pg_reader_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
         let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
         let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
         let team = insert_new_team_in_redis(redis_client.clone())
@@ -251,7 +267,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_flags_from_hypercache() {
         let redis_client = setup_redis_client(None).await;
-        let pg_client = setup_pg_reader_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
             .expect("Failed to insert new team in Redis");
@@ -423,7 +439,7 @@ mod tests {
         use common_compression::compress_zstd;
 
         let redis_client = setup_redis_client(None).await;
-        let pg_client = setup_pg_reader_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
             .expect("Failed to insert team in Redis");
@@ -540,7 +556,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_flags_falls_back_to_pg_on_hypercache_miss() {
         let redis_client = setup_redis_client(None).await;
-        let pg_client = setup_pg_reader_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
         let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
         let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
         let context = TestContext::new(None).await;

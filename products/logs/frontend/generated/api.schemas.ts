@@ -24,9 +24,9 @@ export interface ExplainRequestApi {
 export type PluginLogEntrySourceEnumApi = (typeof PluginLogEntrySourceEnumApi)[keyof typeof PluginLogEntrySourceEnumApi]
 
 export const PluginLogEntrySourceEnumApi = {
-    SYSTEM: 'SYSTEM',
-    PLUGIN: 'PLUGIN',
-    CONSOLE: 'CONSOLE',
+    System: 'SYSTEM',
+    Plugin: 'PLUGIN',
+    Console: 'CONSOLE',
 } as const
 
 /**
@@ -39,11 +39,11 @@ export const PluginLogEntrySourceEnumApi = {
 export type PluginLogEntryTypeEnumApi = (typeof PluginLogEntryTypeEnumApi)[keyof typeof PluginLogEntryTypeEnumApi]
 
 export const PluginLogEntryTypeEnumApi = {
-    DEBUG: 'DEBUG',
-    LOG: 'LOG',
-    INFO: 'INFO',
-    WARN: 'WARN',
-    ERROR: 'ERROR',
+    Debug: 'DEBUG',
+    Log: 'LOG',
+    Info: 'INFO',
+    Warn: 'WARN',
+    Error: 'ERROR',
 } as const
 
 export interface PluginLogEntryApi {
@@ -68,17 +68,6 @@ export interface PaginatedPluginLogEntryListApi {
 }
 
 export type PluginConfigsLogsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type PluginConfigsLogsList2Params = {
     /**
      * Number of results to return per page.
      */

@@ -200,7 +200,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             direction,
         }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
-        setInterval: (interval: IntervalType) => ({ interval }),
+        setDateInterval: (interval: IntervalType) => ({ interval }),
         setDatesAndInterval: (dateFrom: string | null, dateTo: string | null, interval: IntervalType) => ({
             dateFrom,
             dateTo,
@@ -366,7 +366,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         isIntervalManuallySet,
                     }
                 },
-                setInterval: ({ dateFrom, dateTo }, { interval }) => ({
+                setDateInterval: ({ dateFrom, dateTo }, { interval }) => ({
                     dateTo,
                     dateFrom,
                     interval,
@@ -493,6 +493,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
 
                 return rawWebAnalyticsFilters.filter((filter) => {
+                    if (filter.type === PropertyFilterType.Cohort) {
+                        return true
+                    }
+
                     if (hasURLSearchParams(filter)) {
                         return true
                     }
@@ -616,6 +620,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 // Translate exact path filters to cleaned path filters
                 if (isPathCleaningEnabled) {
                     filters = filters.map((filter) => {
+                        if (filter.type === PropertyFilterType.Cohort) {
+                            return filter
+                        }
                         if (filter.operator !== PropertyOperator.Exact) {
                             return filter
                         }
@@ -1093,8 +1100,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             kind: 'query',
                             tileId: TileId.WEB_VITALS,
                             layout: {
-                                colSpanClassName: 'md:col-span-full',
-                                orderWhenLargeClassName: 'xxl:order-0',
+                                colSpanClassName: '@4xl/main-content:col-span-full',
+                                orderWhenLargeClassName: '@7xl/main-content:order-0',
                             },
                             query: {
                                 kind: NodeKind.WebVitalsQuery,
@@ -1123,8 +1130,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             kind: 'query',
                             tileId: TileId.WEB_VITALS_PATH_BREAKDOWN,
                             layout: {
-                                colSpanClassName: 'md:col-span-full',
-                                orderWhenLargeClassName: 'xxl:order-0',
+                                colSpanClassName: '@4xl/main-content:col-span-full',
+                                orderWhenLargeClassName: '@7xl/main-content:order-0',
                             },
                             query: {
                                 kind: NodeKind.WebVitalsPathBreakdownQuery,
@@ -1157,8 +1164,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'query',
                         tileId: TileId.OVERVIEW,
                         layout: {
-                            colSpanClassName: 'md:col-span-full',
-                            orderWhenLargeClassName: 'xxl:order-0',
+                            colSpanClassName: '@4xl/main-content:col-span-full',
+                            orderWhenLargeClassName: '@7xl/main-content:order-0',
                             className: '-mt-2',
                         },
                         query: {
@@ -1179,8 +1186,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.GRAPHS,
                         layout: {
-                            colSpanClassName: `md:col-span-2`,
-                            orderWhenLargeClassName: 'xxl:order-1',
+                            colSpanClassName: `@4xl/main-content:col-span-2`,
+                            orderWhenLargeClassName: '@7xl/main-content:order-1',
                         },
                         activeTabId: graphsTab,
                         setTabId: actions.setGraphsTab,
@@ -1253,8 +1260,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.PATHS,
                         layout: {
-                            colSpanClassName: `md:col-span-2`,
-                            orderWhenLargeClassName: 'xxl:order-4',
+                            colSpanClassName: `@4xl/main-content:col-span-2`,
+                            orderWhenLargeClassName: '@7xl/main-content:order-4',
                         },
                         activeTabId: pathTab,
                         setTabId: actions.setPathTab,
@@ -1419,8 +1426,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.SOURCES,
                         layout: {
-                            colSpanClassName: `md:col-span-1`,
-                            orderWhenLargeClassName: 'xxl:order-2',
+                            colSpanClassName: `@4xl/main-content:col-span-1`,
+                            orderWhenLargeClassName: '@7xl/main-content:order-2',
                         },
                         activeTabId: sourceTab,
                         setTabId: actions.setSourceTab,
@@ -1618,8 +1625,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.DEVICES,
                         layout: {
-                            colSpanClassName: `md:col-span-1`,
-                            orderWhenLargeClassName: 'xxl:order-3',
+                            colSpanClassName: `@4xl/main-content:col-span-1`,
+                            orderWhenLargeClassName: '@7xl/main-content:order-3',
                         },
                         activeTabId: deviceTab,
                         setTabId: actions.setDeviceTab,
@@ -1653,7 +1660,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.GEOGRAPHY,
                         layout: {
-                            colSpanClassName: 'md:col-span-full',
+                            colSpanClassName: '@4xl/main-content:col-span-full',
                         },
                         activeTabId:
                             geographyTab || (shouldShowGeoIPQueries ? GeographyTab.MAP : GeographyTab.LANGUAGES),
@@ -1695,6 +1702,45 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               embedded: true,
                                           },
                                           insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.MAP),
+                                          canOpenInsight: true,
+                                      }
+                                    : null,
+                                shouldShowGeoIPQueries && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REGIONS_MAP]
+                                    ? {
+                                          id: GeographyTab.REGIONS_MAP,
+                                          title: 'Regions Map',
+                                          linkText: 'Regions Map',
+                                          query: {
+                                              kind: NodeKind.InsightVizNode,
+                                              source: {
+                                                  kind: NodeKind.TrendsQuery,
+                                                  breakdownFilter: {
+                                                      breakdowns: [
+                                                          { property: '$geoip_country_code', type: 'event' },
+                                                          { property: '$geoip_subdivision_1_code', type: 'event' },
+                                                      ],
+                                                  },
+                                                  dateRange,
+                                                  series: [
+                                                      {
+                                                          event: '$pageview',
+                                                          name: 'Pageview',
+                                                          kind: NodeKind.EventsNode,
+                                                          math: BaseMathType.UniqueUsers,
+                                                      },
+                                                  ],
+                                                  trendsFilter: {
+                                                      display: ChartDisplayType.WorldMap,
+                                                  },
+                                                  conversionGoal,
+                                                  filterTestAccounts,
+                                                  properties: webAnalyticsFilters,
+                                                  tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                              },
+                                              hidePersonsModal: true,
+                                              embedded: true,
+                                          },
+                                          insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.REGIONS_MAP),
                                           canOpenInsight: true,
                                       }
                                     : null,
@@ -1748,7 +1794,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               tileId: TileId.RETENTION,
                               title: 'Retention',
                               layout: {
-                                  colSpanClassName: 'md:col-span-2',
+                                  colSpanClassName: '@4xl/main-content:col-span-2',
                               },
                               query: {
                                   kind: NodeKind.InsightVizNode,
@@ -1805,7 +1851,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.ACTIVE_HOURS,
                         layout: {
-                            colSpanClassName: 'md:col-span-full',
+                            colSpanClassName: '@4xl/main-content:col-span-full',
                         },
                         activeTabId: activeHoursTab,
                         setTabId: actions.setActiveHoursTab,
@@ -1855,7 +1901,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                     bottom-right cell shows the grand total. The displayed time is based
                                                     on your project's date and time settings (UTC by default,
                                                     configurable in{' '}
-                                                    <Link to={urls.settings('project', 'date-and-time')}>
+                                                    <Link
+                                                        to={urls.settings('environment-customization', 'date-and-time')}
+                                                    >
                                                         project settings
                                                     </Link>
                                                     ).
@@ -1916,7 +1964,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                     bottom-right cell shows the grand total. The displayed time is based
                                                     on your project's date and time settings (UTC by default,
                                                     configurable in{' '}
-                                                    <Link to={urls.settings('project', 'date-and-time')}>
+                                                    <Link
+                                                        to={urls.settings('environment-customization', 'date-and-time')}
+                                                    >
                                                         project settings
                                                     </Link>
                                                     ).
@@ -1942,7 +1992,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               tileId: TileId.GOALS,
                               title: 'Goals',
                               layout: {
-                                  colSpanClassName: 'md:col-span-2',
+                                  colSpanClassName: '@4xl/main-content:col-span-2',
                               },
                               query: {
                                   full: true,
@@ -1990,7 +2040,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               kind: 'replay',
                               tileId: TileId.REPLAY,
                               layout: {
-                                  colSpanClassName: conversionGoal ? 'md:col-span-full' : 'md:col-span-1',
+                                  colSpanClassName: conversionGoal
+                                      ? '@4xl/main-content:col-span-full'
+                                      : '@4xl/main-content:col-span-1',
                               },
                               docs: {
                                   url: 'https://posthog.com/docs/session-replay',
@@ -2005,7 +2057,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               kind: 'error_tracking',
                               tileId: TileId.ERROR_TRACKING,
                               layout: {
-                                  colSpanClassName: 'md:col-span-1',
+                                  colSpanClassName: '@4xl/main-content:col-span-1',
                               },
                               query: errorTrackingQ,
                               docs: {
@@ -2035,7 +2087,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               title: 'Frustrating Pages',
                               tileId: TileId.FRUSTRATING_PAGES,
                               layout: {
-                                  colSpanClassName: 'md:col-span-2',
+                                  colSpanClassName: '@4xl/main-content:col-span-2',
                               },
                               query: {
                                   full: true,
@@ -2219,7 +2271,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             togglePropertyFilter: stateToUrl,
             setConversionGoal: stateToUrl,
             setDates: stateToUrl,
-            setInterval: stateToUrl,
+            setDateInterval: stateToUrl,
             setDeviceTab: stateToUrl,
             setSourceTab: stateToUrl,
             setGraphsTab: stateToUrl,
@@ -2274,7 +2326,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
 
             const parsedFilters = filters ? (isWebAnalyticsPropertyFilters(filters) ? filters : []) : undefined
-            if (parsedFilters && !objectsEqual(parsedFilters, values.webAnalyticsFilters)) {
+            if (parsedFilters && !objectsEqual(parsedFilters, values.rawWebAnalyticsFilters)) {
                 actions.setWebAnalyticsFilters(parsedFilters)
             }
             if (

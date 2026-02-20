@@ -29,6 +29,8 @@ import { SessionReplayMenuItems } from '~/layout/panel-layout/ProjectTree/menus/
 import { getTreeItemsProducts } from '~/products'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
+import { CATEGORY_ORDER } from '../ProjectTree/utils'
+
 const menuItemStyles =
     'flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-fill-button-tertiary-hover outline-none data-[highlighted]:bg-fill-button-tertiary-hover'
 
@@ -36,8 +38,6 @@ interface ProductGroup {
     value: string
     items: FileSystemImport[]
 }
-
-const CATEGORY_ORDER = ['Analytics', 'Behavior', 'Features', 'Tools', 'Unreleased']
 
 function ProductContextMenu({
     product,
@@ -96,7 +96,7 @@ export function AppsMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Element
         intent: 'Open all apps menu',
         interaction: 'function',
         callback: () => {
-            setOpen(!open)
+            setOpen((open) => !open)
         },
     })
 

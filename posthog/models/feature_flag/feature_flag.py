@@ -556,6 +556,7 @@ class FeatureFlagOverride(models.Model):
 def get_feature_flags(
     team: Optional["Team"] = None,
     project_id: Optional[int] = None,
+    exclude_encrypted_remote_config: bool = False,
 ) -> list[FeatureFlag]:
     """
     Fetch FeatureFlag objects for a team or project.
@@ -566,6 +567,9 @@ def get_feature_flags(
     Args:
         team: Team to get flags for (mutually exclusive with project_id)
         project_id: Project ID to get flags for (mutually exclusive with team)
+        exclude_encrypted_remote_config: If True, exclude flags where both
+            is_remote_configuration=True AND has_encrypted_payloads=True.
+            These flags can only be accessed via the /remote_config endpoint.
 
     Returns:
         List of FeatureFlag model instances with evaluation tags pre-loaded
@@ -590,6 +594,11 @@ def get_feature_flags(
     # many flags. The evaluation tags are stored as a many-to-many relationship
     # through FeatureFlagEvaluationTag, but we aggregate them here for efficiency.
     qs = FeatureFlag.objects.filter(**filter_kwargs)
+
+    # Exclude encrypted remote config flags at the database level if requested
+    if exclude_encrypted_remote_config:
+        qs = qs.filter(~Q(is_remote_configuration=True, has_encrypted_payloads=True))
+
     qs = qs.annotate(
         evaluation_tag_names_agg=ArrayAgg(
             "evaluation_tags__tag__name",

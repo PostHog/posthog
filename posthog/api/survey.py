@@ -394,6 +394,41 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     if not parsed_url.netloc:
                         raise serializers.ValidationError("Invalid HTTPS URL. Please enter a valid HTTPS link.")
 
+            # Validate validation rules for open text questions
+            validation_rules = raw_question.get("validation")
+            if validation_rules is not None:
+                if not isinstance(validation_rules, list):
+                    raise serializers.ValidationError("Question validation must be a list of validation rules")
+
+                valid_types = ["min_length", "max_length", "email"]
+                for rule in validation_rules:
+                    if not isinstance(rule, dict):
+                        raise serializers.ValidationError("Each validation rule must be an object")
+
+                    rule_type = rule.get("type")
+                    if rule_type not in valid_types:
+                        raise serializers.ValidationError(
+                            f"Validation rule type must be one of: {', '.join(valid_types)}"
+                        )
+
+                    # Validate value for length rules
+                    if rule_type in ["min_length", "max_length"]:
+                        rule_value = rule.get("value")
+                        if rule_value is not None:
+                            if not isinstance(rule_value, int) or rule_value <= 0:
+                                raise serializers.ValidationError(
+                                    f"Validation rule value for {rule_type} must be a positive integer"
+                                )
+
+                # Cross-validate min_length <= max_length
+                min_rule = next((r for r in validation_rules if r.get("type") == "min_length"), None)
+                max_rule = next((r for r in validation_rules if r.get("type") == "max_length"), None)
+                if min_rule and max_rule:
+                    min_val = min_rule.get("value")
+                    max_val = max_rule.get("value")
+                    if min_val is not None and max_val is not None and min_val > max_val:
+                        raise serializers.ValidationError("Minimum length cannot be greater than maximum length")
+
             cleaned_questions.append(cleaned_question)
 
         return cleaned_questions
@@ -411,6 +446,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 linked_flag = FeatureFlag.objects.get(pk=linked_flag_id, team_id=self.context["team_id"])
             except FeatureFlag.DoesNotExist:
                 raise serializers.ValidationError("Feature Flag with this ID does not exist")
+
+        targeting_flag_id = data.get("targeting_flag_id")
+        if targeting_flag_id:
+            try:
+                FeatureFlag.objects.get(pk=targeting_flag_id, team_id=self.context["team_id"])
+            except FeatureFlag.DoesNotExist:
+                raise serializers.ValidationError("Targeting Feature Flag with this ID does not exist")
 
         # Validate linkedFlagVariant if provided
         conditions = data.get("conditions") or {}
@@ -2070,6 +2112,7 @@ def public_survey_page(request, survey_id: str):
 
     # Database query with minimal fields and timeout protection
     try:
+        # nosemgrep: idor-lookup-without-team (public survey page, intentionally unauthenticated)
         survey = Survey.objects.select_related("team").get(id=survey_id)
     except Survey.DoesNotExist:
         logger.info("survey_page_not_found", survey_id=survey_id)

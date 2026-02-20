@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import {
     IconCode2,
+    IconCopy,
     IconGraph,
     IconGridMasonry,
     IconNotebook,
@@ -36,12 +37,14 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { slugify } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -103,6 +106,10 @@ export function DashboardHeader(): JSX.Element | null {
 
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
+    const interProjectTransfersEnabled = useFeatureFlag('INTER_PROJECT_TRANSFERS')
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     const { tags } = useValues(tagsModel)
 
@@ -111,7 +118,6 @@ export function DashboardHeader(): JSX.Element | null {
     const [isPinned, setIsPinned] = useState(dashboard?.pinned)
 
     const [terraformModalOpen, setTerraformModalOpen] = useState(false)
-    const terraformFeatureEnabled = useFeatureFlag('MANAGE_INSIGHTS_THROUGH_TERRAFORM')
 
     const isNewDashboard = useMemo(() => {
         if (!dashboard || dashboardLoading) {
@@ -161,8 +167,6 @@ export function DashboardHeader(): JSX.Element | null {
         setIsPinned(dashboard?.pinned)
     }, [dashboard?.pinned])
 
-    const hasUpsertDashboardFeatureFlag = useFeatureFlag('POSTHOG_AI_UPSERT_DASHBOARD')
-
     return dashboard || dashboardLoading ? (
         <>
             {dashboardMode === DashboardMode.Fullscreen && (
@@ -193,15 +197,14 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
                     {canEditDashboard && <DeleteDashboardModal />}
                     {canEditDashboard && <DuplicateDashboardModal />}
+
                     {canEditDashboard && <DashboardInsightColorsModal />}
                     {user?.is_staff && <DashboardTemplateEditor />}
-                    {terraformFeatureEnabled && (
-                        <TerraformExportModal
-                            isOpen={terraformModalOpen}
-                            onClose={() => setTerraformModalOpen(false)}
-                            resource={{ type: 'dashboard', data: dashboard }}
-                        />
-                    )}
+                    <TerraformExportModal
+                        isOpen={terraformModalOpen}
+                        onClose={() => setTerraformModalOpen(false)}
+                        resource={{ type: 'dashboard', data: dashboard }}
+                    />
                 </>
             )}
 
@@ -231,6 +234,17 @@ export function DashboardHeader(): JSX.Element | null {
                                 dataAttrKey={RESOURCE_TYPE}
                                 onClick={() => showDuplicateDashboardModal(dashboard.id, dashboard.name)}
                             />
+                            {hasMultipleProjects && interProjectTransfersEnabled && (
+                                <ButtonPrimitive
+                                    menuItem
+                                    onClick={() => push(urls.resourceTransfer('Dashboard', dashboard.id))}
+                                    data-attr="dashboard-copy-to-project"
+                                    tooltip="Copy this dashboard to another project"
+                                >
+                                    <IconCopy />
+                                    Copy to another project
+                                </ButtonPrimitive>
+                            )}
                             <ScenePin
                                 dataAttrKey={RESOURCE_TYPE}
                                 onClick={() => {
@@ -344,7 +358,7 @@ export function DashboardHeader(): JSX.Element | null {
                         />
                     )}
 
-                    {dashboard && terraformFeatureEnabled && (
+                    {dashboard && (
                         <ButtonPrimitive
                             onClick={() => setTerraformModalOpen(true)}
                             menuItem
@@ -443,6 +457,26 @@ export function DashboardHeader(): JSX.Element | null {
                 isLoading={dashboardLoading}
                 forceEdit={dashboardMode === DashboardMode.Edit || isNewDashboard}
                 renameDebounceMs={1000}
+                maxToolProps={
+                    dashboard && canEditDashboard && isRemovingSidePanelFlag
+                        ? {
+                              identifier: 'upsert_dashboard',
+                              context: {
+                                  current_dashboard: {
+                                      id: dashboard.id,
+                                      name: dashboard.name,
+                                      description: dashboard.description,
+                                      tags: dashboard.tags,
+                                  },
+                              },
+                              contextDescription: {
+                                  text: dashboard.name,
+                                  icon: iconForType('dashboard'),
+                              },
+                              callback: () => loadDashboard({ action: DashboardLoadAction.Update }),
+                          }
+                        : undefined
+                }
                 actions={
                     <>
                         {dashboardMode === DashboardMode.Edit ? (
@@ -454,7 +488,6 @@ export function DashboardHeader(): JSX.Element | null {
                                         setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
                                     }
                                     size="small"
-                                    tabIndex={9}
                                 >
                                     Cancel
                                 </LemonButton>
@@ -472,7 +505,6 @@ export function DashboardHeader(): JSX.Element | null {
                                             setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)
                                         }
                                         size="small"
-                                        tabIndex={10}
                                         disabledReason={
                                             dashboardLoading
                                                 ? 'Wait for dashboard to finish loading'
@@ -542,11 +574,7 @@ export function DashboardHeader(): JSX.Element | null {
                                             </AppShortcut>
                                         </AccessControlAction>
                                         <MaxTool
-                                            identifier={
-                                                hasUpsertDashboardFeatureFlag
-                                                    ? 'upsert_dashboard'
-                                                    : 'edit_current_dashboard'
-                                            }
+                                            identifier="upsert_dashboard"
                                             context={{
                                                 current_dashboard: dashboard
                                                     ? {
@@ -565,7 +593,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                       }
                                                     : undefined
                                             }
-                                            active={!!dashboard && canEditDashboard}
+                                            active={!isRemovingSidePanelFlag && !!dashboard && canEditDashboard}
                                             callback={() => loadDashboard({ action: DashboardLoadAction.Update })}
                                             position="top-right"
                                         >
@@ -580,7 +608,9 @@ export function DashboardHeader(): JSX.Element | null {
                                                     data-attr="dashboard-add-graph-header"
                                                     size="small"
                                                 >
-                                                    <span className="pr-3">Add insight</span>
+                                                    <span className={cn('pr-3', isRemovingSidePanelFlag && 'pr-0')}>
+                                                        Add insight
+                                                    </span>
                                                 </LemonButton>
                                             </AccessControlAction>
                                         </MaxTool>

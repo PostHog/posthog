@@ -1,22 +1,32 @@
 import re
 from typing import cast
 
+from django.conf import settings
+
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.capture import capture_internal
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.auth import JwtAuthentication, SessionAuthentication
 from posthog.event_usage import report_team_action, report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.llm_prompt import LLMPrompt
-from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.permissions import AccessControlPermission, PostHogFeatureFlagPermission
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+
+from products.llm_analytics.backend.api.metrics import llma_track_latency
 
 RESERVED_PROMPT_NAMES = {"new"}
+PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
+PROMPT_FETCHED_EVENT_SOURCE = "llm_prompt_management"
 
 
 class LLMPromptSerializer(serializers.ModelSerializer):
@@ -100,21 +110,31 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         )
 
 
-class LLMPromptViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "llm_prompt"
     queryset = LLMPrompt.objects.all()
     serializer_class = LLMPromptSerializer
-    permission_classes = [PostHogFeatureFlagPermission]
+    permission_classes = [PostHogFeatureFlagPermission, AccessControlPermission]
     posthog_feature_flag = "llm-analytics-prompts"
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(deleted=False)
 
     def get_throttles(self):
-        if self.action == "get_by_name":
+        if self.action in ["get_by_name", "resolve_by_name"]:
             return [BurstRateThrottle(), SustainedRateThrottle()]
 
         return super().get_throttles()
+
+    def _get_prompt_by_name(self, prompt_name: str) -> LLMPrompt | None:
+        try:
+            return LLMPrompt.objects.get(
+                team=self.team,
+                name=prompt_name,
+                deleted=False,
+            )
+        except LLMPrompt.DoesNotExist:
+            return None
 
     def perform_create(self, serializer):
         instance = serializer.save()
@@ -165,19 +185,31 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mode
         url_path=r"name/(?P<prompt_name>[^/]+)",
         required_scopes=["llm_prompt:read"],
     )
+    @llma_track_latency("llma_prompts_get_by_name")
     @monitor(feature=None, endpoint="llma_prompts_get_by_name", method="GET")
     def get_by_name(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
-        try:
-            prompt = LLMPrompt.objects.get(
-                team=self.team,
-                name=prompt_name,
-                deleted=False,
-            )
-        except LLMPrompt.DoesNotExist:
+        prompt = self._get_prompt_by_name(prompt_name)
+        if prompt is None:
             return Response(
                 {"detail": f"Prompt with name '{prompt_name}' not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+
+        if not settings.TEST:
+            try:
+                capture_internal(
+                    token=self.team.api_token,
+                    event_name=PROMPT_FETCHED_EVENT,
+                    event_source=PROMPT_FETCHED_EVENT_SOURCE,
+                    distinct_id=str(self.team.uuid),
+                    timestamp=None,
+                    properties={
+                        "prompt_id": str(prompt.id),
+                        "prompt_name": prompt.name,
+                    },
+                )
+            except Exception as err:
+                capture_exception(err)
 
         report_team_action(
             self.team,
@@ -191,22 +223,52 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mode
         serializer = self.get_serializer(prompt)
         return Response(serializer.data)
 
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path=r"resolve/name/(?P<prompt_name>[^/]+)",
+        required_scopes=["llm_prompt:read"],
+    )
+    @llma_track_latency("llma_prompts_resolve_by_name")
+    @monitor(feature=None, endpoint="llma_prompts_resolve_by_name", method="GET")
+    def resolve_by_name(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
+        if not isinstance(request.successful_authenticator, SessionAuthentication | JwtAuthentication):
+            return Response(
+                {"detail": "This endpoint is only available to web-authenticated users."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        prompt = self._get_prompt_by_name(prompt_name)
+        if prompt is None:
+            return Response(
+                {"detail": f"Prompt with name '{prompt_name}' not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = self.get_serializer(prompt)
+        return Response(serializer.data)
+
+    @llma_track_latency("llma_prompts_list")
     @monitor(feature=None, endpoint="llma_prompts_list", method="GET")
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
 
+    @llma_track_latency("llma_prompts_retrieve")
     @monitor(feature=None, endpoint="llma_prompts_retrieve", method="GET")
     def retrieve(self, request, *args, **kwargs):
         return super().retrieve(request, *args, **kwargs)
 
+    @llma_track_latency("llma_prompts_create")
     @monitor(feature=None, endpoint="llma_prompts_create", method="POST")
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
 
+    @llma_track_latency("llma_prompts_update")
     @monitor(feature=None, endpoint="llma_prompts_update", method="PUT")
     def update(self, request, *args, **kwargs):
         return super().update(request, *args, **kwargs)
 
+    @llma_track_latency("llma_prompts_partial_update")
     @monitor(feature=None, endpoint="llma_prompts_partial_update", method="PATCH")
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)

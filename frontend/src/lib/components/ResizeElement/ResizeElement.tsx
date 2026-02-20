@@ -51,6 +51,16 @@ export function ResizableElement({
         currentWidthRef.current = newWidth
     }, [])
 
+    useEffect(() => {
+        if (!isResizing.current && defaultWidth !== currentWidthRef.current) {
+            setWidth(defaultWidth)
+            if (containerRef.current) {
+                containerRef.current.style.width = `${defaultWidth}px`
+            }
+            currentWidthRef.current = defaultWidth
+        }
+    }, [defaultWidth])
+
     const handleMouseDown = useCallback(
         (e: React.MouseEvent | React.TouchEvent) => {
             document.body.classList.add('is-resizing')
@@ -129,7 +139,7 @@ export function ResizableElement({
     useEffect(() => {
         document.addEventListener('mousemove', handleMouseMove)
         document.addEventListener('mouseup', handleEnd)
-        document.addEventListener('touchmove', handleTouchMove)
+        document.addEventListener('touchmove', handleTouchMove, { passive: true })
         document.addEventListener('touchend', handleEnd)
 
         return () => {

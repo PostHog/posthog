@@ -6,7 +6,7 @@ from django.conf import settings
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -23,7 +23,7 @@ from posthog.api.team import (
     validate_team_attrs,
 )
 from posthog.api.utils import raise_if_user_provided_url_unsafe
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
@@ -46,6 +46,7 @@ from posthog.models.product_intent.product_intent import (
     calculate_product_activation,
 )
 from posthog.models.project import Project
+from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
@@ -80,6 +81,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     group_types = serializers.SerializerMethodField()  # Compat with TeamSerializer
     live_events_token = serializers.SerializerMethodField()  # Compat with TeamSerializer
     product_intents = serializers.SerializerMethodField()  # Compat with TeamSerializer
+    available_setup_task_ids = serializers.SerializerMethodField()  # Compat with TeamSerializer
 
     def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
@@ -176,6 +178,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "conversations_enabled",  # Compat with TeamSerializer
             "conversations_settings",  # Compat with TeamSerializer
             "logs_settings",  # Compat with TeamSerializer
+            "available_setup_task_ids",  # Compat with TeamSerializer
         )
         read_only_fields = (
             "id",
@@ -194,6 +197,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "product_intents",
             "secret_api_token",
             "secret_api_token_backup",
+            "available_setup_task_ids",
         )
 
         team_passthrough_fields = {
@@ -279,6 +283,12 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "product_type", "created_at", "onboarding_completed_at", "updated_at"
         )
 
+    @extend_schema_field(
+        serializers.ListField(child=serializers.ChoiceField(choices=[(e.value, e.value) for e in SetupTaskId]))
+    )
+    def get_available_setup_task_ids(self, obj) -> list[str]:
+        return [e.value for e in SetupTaskId]
+
     def validate_access_control(self, value) -> None:
         return TeamSerializer.validate_access_control(cast(TeamSerializer, self), value)
 
@@ -307,6 +317,10 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
 
     def validate_logs_settings(self, value: dict | None) -> dict | None:
         return TeamSerializer.validate_logs_settings(cast(TeamSerializer, self), value)
+
+    @staticmethod
+    def validate_modifiers(value: dict | None) -> dict | None:
+        return TeamSerializer.validate_modifiers(value)
 
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
@@ -534,11 +548,16 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
 
         # If the request only contains config fields, require read:team scope
         # Otherwise, require write:team scope (handled by APIScopePermission)
+        # NOTE: This downgrade only applies to session-based auth (browser users).
+        # All other auth methods (API keys, OAuth tokens, etc.) must have project:write
+        # to modify any fields, preserving the semantic meaning of read-only API keys.
         if self.action == "partial_update":
-            request_fields = set(request.data.keys())
-            non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
-            if not non_team_config_fields:
-                return ["project:read"]
+            is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
+            if is_session_auth:
+                request_fields = set(request.data.keys())
+                non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
+                if not non_team_config_fields:
+                    return ["project:read"]
 
         # Fall back to the default behavior
         return None

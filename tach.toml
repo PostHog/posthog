@@ -1,33 +1,4 @@
-# ============================================================================
-# NOTE: Tach is currently NOT enforced in CI
-# ============================================================================
-# This config documents existing coupling and provides infrastructure for future isolation.
-#
-# Current state:
-# - All existing products in 'non_isolated' layer (can import from each other)
-# - Core (posthog/ee) explicitly coupled to products (legacy mess, we accept this)
-# - Zero violations = current code is blessed as-is
-#
-# For new isolated products:
-# - Add with layer="products" to prevent coupling
-# - See commented example at bottom of file
-#
-# Local development usage:
-#   tach check        # Verify you haven't violated boundaries
-#   tach test         # Run only tests affected by your changes
-#   tach sync         # Update dependencies from actual imports
-#
-# To enforce in CI: Add to GitHub Actions workflow after team alignment
-# ============================================================================
-
 interfaces = []
-
-# Two-tier layer system for products only:
-# Layers listed from highest to lowest
-# - products: NEW products (isolated from each other, can import from non_isolated and core)
-# - non_isolated: Existing products (can import from each other)
-# Note: core (posthog/ee/<root>) is NOT in a layer - uses explicit depends_on
-# This allows core to be bidirectionally coupled with products (legacy mess)
 layers = [
     "products",
     "non_isolated",
@@ -47,17 +18,14 @@ path = "<root>"
 depends_on = [
     "ee",
     "posthog",
-    "products.data_warehouse",
     "products.error_tracking",
-    "products.experiments",
     "products.llm_analytics",
+    "products.logs",
 ]
-# layer intentionally omitted - core is coupled to everything
 
 [[modules]]
 path = "common.hogql_parser"
 depends_on = []
-# layer intentionally omitted - utility module
 utility = true
 
 [[modules]]
@@ -65,7 +33,6 @@ path = "common.hogvm.python"
 depends_on = [
     "posthog",
 ]
-# layer intentionally omitted - utility module
 utility = true
 
 [[modules]]
@@ -73,7 +40,6 @@ path = "ee"
 depends_on = [
     "<root>",
     "posthog",
-    "products.dashboards",
     "products.data_warehouse",
     "products.error_tracking",
     "products.experiments",
@@ -83,8 +49,8 @@ depends_on = [
     "products.replay",
     "products.revenue_analytics",
     "products.surveys",
+    "products.tasks",
 ]
-# layer intentionally omitted - core is coupled to everything
 
 [[modules]]
 path = "posthog"
@@ -93,6 +59,7 @@ depends_on = [
     "ee",
     "products.batch_exports",
     "products.customer_analytics",
+    "products.data_modeling",
     "products.data_warehouse",
     "products.desktop_recordings",
     "products.early_access_features",
@@ -106,11 +73,14 @@ depends_on = [
     "products.marketing_analytics",
     "products.notebooks",
     "products.revenue_analytics",
+    "products.signals",
+    "products.slack_app",
+    "products.surveys",
     "products.tasks",
     "products.user_interviews",
+    "products.web_analytics",
     "products.workflows",
 ]
-# layer intentionally omitted - core is coupled to everything
 
 [[modules]]
 path = "products.batch_exports"
@@ -137,9 +107,14 @@ layer = "non_isolated"
 
 [[modules]]
 path = "products.dashboards"
+depends_on = []
+layer = "non_isolated"
+
+[[modules]]
+path = "products.data_modeling"
 depends_on = [
-    "ee",
     "posthog",
+    "products.data_warehouse",
 ]
 layer = "non_isolated"
 
@@ -148,6 +123,7 @@ path = "products.data_warehouse"
 depends_on = [
     "ee",
     "posthog",
+    "products.data_modeling",
     "products.revenue_analytics",
 ]
 layer = "non_isolated"
@@ -169,7 +145,6 @@ layer = "non_isolated"
 [[modules]]
 path = "products.endpoints"
 depends_on = [
-    "common.hogvm.python",
     "posthog",
     "products.data_warehouse",
 ]
@@ -178,7 +153,6 @@ layer = "non_isolated"
 [[modules]]
 path = "products.error_tracking"
 depends_on = [
-    "common.hogvm.python",
     "ee",
     "posthog",
 ]
@@ -232,9 +206,7 @@ layer = "non_isolated"
 
 [[modules]]
 path = "products.managed_migrations"
-depends_on = [
-    "posthog",
-]
+depends_on = []
 layer = "non_isolated"
 
 [[modules]]
@@ -248,16 +220,15 @@ layer = "non_isolated"
 [[modules]]
 path = "products.notebooks"
 depends_on = [
+    "ee",
     "posthog",
+    "products.tasks",
 ]
 layer = "non_isolated"
 
 [[modules]]
 path = "products.product_analytics"
-depends_on = [
-    "ee",
-    "posthog",
-]
+depends_on = []
 layer = "non_isolated"
 
 [[modules]]
@@ -278,6 +249,23 @@ depends_on = [
 layer = "non_isolated"
 
 [[modules]]
+path = "products.signals"
+depends_on = [
+    "posthog",
+    "products.error_tracking",
+    "products.tasks",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.slack_app"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
 path = "products.surveys"
 depends_on = [
     "ee",
@@ -288,8 +276,11 @@ layer = "non_isolated"
 [[modules]]
 path = "products.tasks"
 depends_on = [
+    "ee",
     "posthog",
+    "products.error_tracking",
     "products.llm_analytics",
+    "products.slack_app",
 ]
 layer = "non_isolated"
 
@@ -316,24 +307,3 @@ depends_on = [
     "posthog",
 ]
 layer = "non_isolated"
-
-# ============================================================================
-# Template for New Isolated Products
-# ============================================================================
-# When creating a new product that should be isolated from existing products,
-# add it with the "products" layer. This prevents it from importing from
-# other products in the same layer, while allowing imports from non_isolated
-# products and core infrastructure.
-#
-# Example:
-# [[modules]]
-# path = "products.new_feature"
-# depends_on = ["posthog"]  # Can only depend on core infrastructure
-# layer = "products"        # Isolated from other new products
-#
-# This enables:
-# - ✅ Import from posthog/ee (core infrastructure)
-# - ✅ Import from non_isolated products (existing legacy products)
-# - ❌ Import from other "products" layer modules (enforced isolation)
-# - ✅ Isolated testing with 'tach test' (only runs affected tests)
-# ============================================================================

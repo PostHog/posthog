@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { combineUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -10,9 +10,11 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 import { LLMProvider, LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
 import { queryEvaluationRuns } from '../utils'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
+import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
 import {
     EvaluationConditionSet,
@@ -38,10 +40,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     props({} as LLMEvaluationLogicProps),
     key((props) => `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}`),
 
-    connect({
+    connect(() => ({
         values: [llmProviderKeysLogic, ['providerKeys', 'providerKeysLoading']],
         actions: [llmProviderKeysLogic, ['loadProviderKeys', 'loadProviderKeysSuccess']],
-    }),
+    })),
 
     actions({
         // Evaluation configuration actions
@@ -315,8 +317,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 const provider = evaluation.model_configuration?.provider || 'openai'
                 let keyId = evaluation.model_configuration?.provider_key_id || null
 
-                // For new evals without a key, auto-select user's first key if available
-                if (!keyId && !evaluation.id) {
+                // Auto-select user's first key if none set (for new OR existing evals)
+                if (!keyId) {
                     const keysForProvider = values.providerKeysByProvider[provider] || []
                     if (keysForProvider.length > 0) {
                         keyId = keysForProvider[0].id
@@ -329,14 +331,24 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         },
 
         loadProviderKeysSuccess: () => {
-            // When provider keys finish loading after evaluation, auto-select key for new evals
             const evaluation = values.evaluation
+
+            // For new evals without a key, auto-select first key
             if (evaluation && !evaluation.id && !values.selectedKeyId) {
                 const keysForProvider = values.providerKeysByProvider[values.selectedProvider] || []
                 if (keysForProvider.length > 0) {
                     const keyId = keysForProvider[0].id
                     actions.setSelectedKeyId(keyId)
                     actions.loadAvailableModels({ provider: values.selectedProvider, keyId })
+                }
+            }
+
+            // For existing evals, if selected key no longer exists, reload evaluation to get fresh data
+            if (evaluation && evaluation.id && values.selectedKeyId) {
+                const keysForProvider = values.providerKeysByProvider[values.selectedProvider] || []
+                const keyExists = keysForProvider.some((key) => key.id === values.selectedKeyId)
+                if (!keyExists) {
+                    actions.loadEvaluation()
                 }
             }
         },
@@ -415,6 +427,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (props.evaluationId === 'new') {
                     const response = await api.create(`/api/environments/${teamId}/evaluations/`, values.evaluation!)
                     actions.saveEvaluationSuccess(response)
+                    llmEvaluationsLogic.findMounted()?.actions.loadEvaluations()
                 } else {
                     const response = await api.update(
                         `/api/environments/${teamId}/evaluations/${props.evaluationId}/`,
@@ -422,7 +435,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     )
                     actions.saveEvaluationSuccess(response)
                 }
-                router.actions.push(urls.llmAnalyticsEvaluations())
+                router.actions.push(urls.llmAnalyticsEvaluations(), router.values.searchParams)
             } catch (error) {
                 console.error('Failed to save evaluation:', error)
             }
@@ -503,6 +516,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     openai: [],
                     anthropic: [],
                     gemini: [],
+                    openrouter: [],
+                    fireworks: [],
                 }
                 for (const key of providerKeys) {
                     if (key.provider in byProvider) {
@@ -517,6 +532,23 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             (s) => [s.providerKeysByProvider, s.selectedProvider],
             (providerKeysByProvider: Record<LLMProvider, LLMProviderKey[]>, selectedProvider: LLMProvider) =>
                 providerKeysByProvider[selectedProvider] || [],
+        ],
+
+        evaluationProviderKeyIssue: [
+            (s) => [s.evaluation, s.providerKeys],
+            (evaluation: EvaluationConfig | null, providerKeys: LLMProviderKey[]): LLMProviderKey | null => {
+                const providerKeyId = evaluation?.model_configuration?.provider_key_id
+                if (!providerKeyId) {
+                    return null
+                }
+
+                const providerKey = providerKeys.find((key) => key.id === providerKeyId)
+                if (!providerKey || !isUnhealthyProviderKeyState(providerKey.state)) {
+                    return null
+                }
+
+                return providerKey
+            },
         ],
 
         runsLookup: [
@@ -555,40 +587,48 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             },
         ],
 
-        runsToSummarizeCount: [
+        filteredEvaluationRuns: [
             (s) => [s.evaluationRuns, s.evaluationSummaryFilter],
-            (runs, filter) => {
-                // This is for UI display only - actual filtering happens server-side
-                let filteredRuns = runs.filter((r) => r.status === 'completed')
-                if (filter === 'pass') {
-                    filteredRuns = filteredRuns.filter((r) => r.result === true)
-                } else if (filter === 'fail') {
-                    filteredRuns = filteredRuns.filter((r) => r.result === false)
-                } else if (filter === 'na') {
-                    filteredRuns = filteredRuns.filter((r) => r.result === null)
+            (runs: EvaluationRun[], filter: EvaluationSummaryFilter): EvaluationRun[] => {
+                if (filter === 'all') {
+                    return runs
                 }
-                return Math.min(filteredRuns.length, EVALUATION_SUMMARY_MAX_RUNS)
+                // Only consider completed runs for filtering
+                const completedRuns = runs.filter((r) => r.status === 'completed')
+                if (filter === 'pass') {
+                    return completedRuns.filter((r) => r.result === true)
+                }
+                if (filter === 'fail') {
+                    return completedRuns.filter((r) => r.result === false)
+                }
+                // na
+                return completedRuns.filter((r) => r.result === null)
+            },
+        ],
+
+        runsToSummarizeCount: [
+            (s) => [s.filteredEvaluationRuns, s.evaluationSummaryFilter],
+            (filteredRuns: EvaluationRun[], filter: EvaluationSummaryFilter): number => {
+                // When 'all', filteredEvaluationRuns includes non-completed runs, but summarization only uses completed
+                const count =
+                    filter === 'all' ? filteredRuns.filter((r) => r.status === 'completed').length : filteredRuns.length
+                return Math.min(count, EVALUATION_SUMMARY_MAX_RUNS)
             },
         ],
 
         breadcrumbs: [
-            (s) => [s.evaluation],
-            (evaluation): Breadcrumb[] => [
-                {
-                    name: 'LLM Analytics',
-                    path: urls.llmAnalyticsDashboard(),
-                    key: 'LLMAnalytics',
-                    iconType: 'llm_analytics',
-                },
+            (s) => [s.evaluation, router.selectors.searchParams],
+            (evaluation: EvaluationConfig | null, searchParams: Record<string, any>): Breadcrumb[] => [
                 {
                     name: 'Evaluations',
-                    path: urls.llmAnalyticsEvaluations(),
+                    path: combineUrl(urls.llmAnalyticsEvaluations(), searchParams).url,
                     key: 'LLMAnalyticsEvaluations',
-                    iconType: 'llm_analytics',
+                    iconType: 'llm_evaluations',
                 },
                 {
                     name: evaluation?.name || 'New Evaluation',
                     key: 'LLMAnalyticsEvaluationEdit',
+                    iconType: 'llm_evaluations',
                 },
             ],
         ],

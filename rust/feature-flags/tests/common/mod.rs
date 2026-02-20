@@ -107,9 +107,7 @@ impl ServerHandle {
                 let persons_reader = match get_pool(
                     &config.get_persons_read_database_url(),
                     config.max_pg_connections,
-                )
-                .await
-                {
+                ) {
                     Ok(client) => Arc::new(client),
                     Err(e) => {
                         tracing::error!("Failed to create persons read Postgres client: {}", e);
@@ -119,9 +117,7 @@ impl ServerHandle {
                 let persons_writer = match get_pool(
                     &config.get_persons_write_database_url(),
                     config.max_pg_connections,
-                )
-                .await
-                {
+                ) {
                     Ok(client) => Arc::new(client),
                     Err(e) => {
                         tracing::error!("Failed to create persons write Postgres client: {}", e);
@@ -129,7 +125,7 @@ impl ServerHandle {
                     }
                 };
                 let non_persons_reader =
-                    match get_pool(&config.read_database_url, config.max_pg_connections).await {
+                    match get_pool(&config.read_database_url, config.max_pg_connections) {
                         Ok(client) => Arc::new(client),
                         Err(e) => {
                             tracing::error!(
@@ -140,7 +136,7 @@ impl ServerHandle {
                         }
                     };
                 let non_persons_writer =
-                    match get_pool(&config.write_database_url, config.max_pg_connections).await {
+                    match get_pool(&config.write_database_url, config.max_pg_connections) {
                         Ok(client) => Arc::new(client),
                         Err(e) => {
                             tracing::error!(
@@ -158,22 +154,20 @@ impl ServerHandle {
                 )
             } else {
                 // Same database for both persons and non-persons tables
-                let reader =
-                    match get_pool(&config.read_database_url, config.max_pg_connections).await {
-                        Ok(client) => Arc::new(client),
-                        Err(e) => {
-                            tracing::error!("Failed to create read Postgres client: {}", e);
-                            return;
-                        }
-                    };
-                let writer =
-                    match get_pool(&config.write_database_url, config.max_pg_connections).await {
-                        Ok(client) => Arc::new(client),
-                        Err(e) => {
-                            tracing::error!("Failed to create write Postgres client: {}", e);
-                            return;
-                        }
-                    };
+                let reader = match get_pool(&config.read_database_url, config.max_pg_connections) {
+                    Ok(client) => Arc::new(client),
+                    Err(e) => {
+                        tracing::error!("Failed to create read Postgres client: {}", e);
+                        return;
+                    }
+                };
+                let writer = match get_pool(&config.write_database_url, config.max_pg_connections) {
+                    Ok(client) => Arc::new(client),
+                    Err(e) => {
+                        tracing::error!("Failed to create write Postgres client: {}", e);
+                        return;
+                    }
+                };
                 (
                     reader.clone(),
                     writer.clone(),

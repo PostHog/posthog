@@ -14,11 +14,14 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import User
+from posthog.permissions import AccessControlPermission
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from ..models.evaluation_configs import validate_evaluation_configs
 from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
+from .metrics import llma_track_latency
 
 logger = structlog.get_logger(__name__)
 
@@ -169,9 +172,9 @@ class EvaluationFilter(django_filters.FilterSet):
         return queryset
 
 
-class EvaluationViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "evaluation"
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccessControlPermission]
     serializer_class = EvaluationSerializer
     queryset = Evaluation.objects.all()
     filter_backends = [DjangoFilterBackend]
@@ -302,22 +305,27 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mod
                 self.team,
             )
 
+    @llma_track_latency("llma_evaluations_list")
     @monitor(feature=None, endpoint="llma_evaluations_list", method="GET")
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
 
+    @llma_track_latency("llma_evaluations_retrieve")
     @monitor(feature=None, endpoint="llma_evaluations_retrieve", method="GET")
     def retrieve(self, request, *args, **kwargs):
         return super().retrieve(request, *args, **kwargs)
 
+    @llma_track_latency("llma_evaluations_create")
     @monitor(feature=None, endpoint="llma_evaluations_create", method="POST")
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
 
+    @llma_track_latency("llma_evaluations_update")
     @monitor(feature=None, endpoint="llma_evaluations_update", method="PUT")
     def update(self, request, *args, **kwargs):
         return super().update(request, *args, **kwargs)
 
+    @llma_track_latency("llma_evaluations_partial_update")
     @monitor(feature=None, endpoint="llma_evaluations_partial_update", method="PATCH")
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)

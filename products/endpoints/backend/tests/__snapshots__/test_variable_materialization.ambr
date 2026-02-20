@@ -1,0 +1,253 @@
+# serializer version: 1
+# name: TestTransformQuerySnapshots.test_all_where_conditions_are_variables
+  '''
+  SELECT
+      count(),
+      event AS event_name,
+      distinct_id AS user_id
+  FROM
+      events
+  GROUP BY
+      event,
+      distinct_id
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_duplicate_placeholder_produces_single_alias
+  '''
+  SELECT
+      count(),
+      event AS event_name
+  FROM
+      events
+  GROUP BY
+      event
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_existing_group_by_preserved
+  '''
+  SELECT
+      toStartOfDay(timestamp) AS day,
+      count(),
+      event AS event_name
+  FROM
+      events
+  GROUP BY
+      day,
+      event
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_function_call_toDate
+  '''
+  SELECT
+      count(),
+      toDate(timestamp) AS from_date
+  FROM
+      events
+  GROUP BY
+      toDate(timestamp)
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_like_operator
+  '''
+  SELECT
+      count(),
+      event AS pattern
+  FROM
+      events
+  GROUP BY
+      event
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_mixed_equality_and_range
+  '''
+  SELECT
+      count(),
+      event AS name,
+      hour AS start_hour
+  FROM
+      events
+  GROUP BY
+      event,
+      hour
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_mixed_field_and_function_call
+  '''
+  SELECT
+      count(),
+      event AS event_name,
+      toDate(timestamp) AS from_date
+  FROM
+      events
+  GROUP BY
+      event,
+      toDate(timestamp)
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_nested_and_variable_removed
+  '''
+  SELECT
+      count(),
+      event AS event_name
+  FROM
+      events
+  WHERE
+      equals(distinct_id, 'u1')
+  GROUP BY
+      event
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_order_by_having_limit_preserved
+  '''
+  SELECT
+      event,
+      count() AS c,
+      event AS event_name
+  FROM
+      events
+  GROUP BY
+      event
+  HAVING
+      greater(c, 10)
+  ORDER BY
+      c DESC
+  LIMIT 50
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_person_property_variable
+  '''
+  SELECT
+      count(),
+      JSONExtractString(person.properties, 'city') AS city
+  FROM
+      events
+  GROUP BY
+      JSONExtractString(person.properties, 'city')
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_preserves_non_variable_where
+  '''
+  SELECT
+      count(),
+      event AS event_name
+  FROM
+      events
+  WHERE
+      and(greater(timestamp, '2024-01-01'), equals(distinct_id, 'user1'))
+  GROUP BY
+      event
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_property_variable_json_extract
+  '''
+  SELECT
+      count(),
+      JSONExtractString(properties, 'os') AS os_name
+  FROM
+      events
+  GROUP BY
+      JSONExtractString(properties, 'os')
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_range_on_same_function_call_deduped
+  '''
+  SELECT
+      count(),
+      toDate(timestamp) AS from_date,
+      toDate(timestamp) AS to_date
+  FROM
+      events
+  GROUP BY
+      toDate(timestamp)
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_range_same_column_deduped
+  '''
+  SELECT
+      count(),
+      hour AS start_hour,
+      hour AS end_hour
+  FROM
+      events
+  GROUP BY
+      hour
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_single_equality
+  '''
+  SELECT
+      count(),
+      event AS event_name
+  FROM
+      events
+  GROUP BY
+      event
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_single_equality_with_alias
+  '''
+  SELECT
+      count() AS total,
+      event AS event_name
+  FROM
+      events
+  GROUP BY
+      event
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_three_variables_range_deduped
+  '''
+  SELECT
+      count(),
+      event AS name,
+      hour AS start_hour,
+      hour AS end_hour
+  FROM
+      events
+  GROUP BY
+      event,
+      hour
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_two_equality_different_columns
+  '''
+  SELECT
+      count(),
+      event AS event_name,
+      distinct_id AS user_id
+  FROM
+      events
+  GROUP BY
+      event,
+      distinct_id
+  LIMIT 50000
+  '''
+# ---
+# name: TestTransformQuerySnapshots.test_variable_on_left_side
+  '''
+  SELECT
+      count(),
+      event AS event_name
+  FROM
+      events
+  GROUP BY
+      event
+  LIMIT 50000
+  '''
+# ---

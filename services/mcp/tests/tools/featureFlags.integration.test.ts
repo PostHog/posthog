@@ -62,13 +62,14 @@ describe('Feature Flags', { concurrent: false }, () => {
             const result = await createTool.handler(context, params)
 
             const flagData = parseToolResponse(result)
+            createdResources.featureFlags.push(flagData.id)
+
             expect(flagData.id).toBeTruthy()
             expect(flagData.key).toBe(params.key)
             expect(flagData.name).toBe(params.name)
             expect(flagData.active).toBe(params.active)
             expect(flagData.url).toContain('/feature_flags/')
-
-            createdResources.featureFlags.push(flagData.id)
+            expect(flagData.updated_at).toBeTruthy()
         })
 
         it('should create a feature flag with tags', async () => {
@@ -90,12 +91,11 @@ describe('Feature Flags', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params)
             const flagData = parseToolResponse(result)
+            createdResources.featureFlags.push(flagData.id)
 
             expect(flagData.id).toBeTruthy()
             expect(flagData.key).toBe(params.key)
             expect(flagData.name).toBe(params.name)
-
-            createdResources.featureFlags.push(flagData.id)
         })
 
         it('should create a feature flag with complex filters', async () => {
@@ -124,12 +124,11 @@ describe('Feature Flags', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params)
             const flagData = parseToolResponse(result)
+            createdResources.featureFlags.push(flagData.id)
 
             expect(flagData.id).toBeTruthy()
             expect(flagData.key).toBe(params.key)
             expect(flagData.name).toBe(params.name)
-
-            createdResources.featureFlags.push(flagData.id)
         })
 
         it('should create a multivariate feature flag', async () => {
@@ -156,6 +155,7 @@ describe('Feature Flags', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params)
             const flagData = parseToolResponse(result)
+            createdResources.featureFlags.push(flagData.id)
 
             expect(flagData.id).toBeTruthy()
             expect(flagData.key).toBe(params.key)
@@ -164,8 +164,6 @@ describe('Feature Flags', { concurrent: false }, () => {
             expect(flagData.filters.multivariate.variants).toHaveLength(2)
             expect(flagData.filters.multivariate.variants[0].key).toBe('control')
             expect(flagData.filters.multivariate.variants[1].key).toBe('test')
-
-            createdResources.featureFlags.push(flagData.id)
         })
 
         it('should create a multivariate flag with variant-specific targeting', async () => {
@@ -204,13 +202,12 @@ describe('Feature Flags', { concurrent: false }, () => {
 
             const result = await createTool.handler(context, params)
             const flagData = parseToolResponse(result)
+            createdResources.featureFlags.push(flagData.id)
 
             expect(flagData.id).toBeTruthy()
             expect(flagData.key).toBe(params.key)
             expect(flagData.filters.multivariate.variants).toHaveLength(2)
             expect(flagData.filters.groups[0].variant).toBe('test')
-
-            createdResources.featureFlags.push(flagData.id)
         })
     })
 
@@ -255,6 +252,7 @@ describe('Feature Flags', { concurrent: false }, () => {
             expect(updatedFlag.name).toBe('Updated Name')
             expect(updatedFlag.active).toBe(false)
             expect(updatedFlag.key).toBe(createParams.key)
+            expect(updatedFlag.updated_at).toBeTruthy()
         })
 
         it('should update feature flag filters', async () => {
@@ -356,6 +354,7 @@ describe('Feature Flags', { concurrent: false }, () => {
                 expect(flag).toHaveProperty('key')
                 expect(flag).toHaveProperty('name')
                 expect(flag).toHaveProperty('active')
+                expect(flag).toHaveProperty('updated_at')
             }
         })
 
@@ -451,6 +450,7 @@ describe('Feature Flags', { concurrent: false }, () => {
             expect(definition.key).toBe(createParams.key)
             expect(definition.name).toBe(createParams.name)
             expect(definition.active).toBe(createParams.active)
+            expect(definition.updated_at).toBeTruthy()
         })
 
         it('should return error message for non-existent flag key', async () => {

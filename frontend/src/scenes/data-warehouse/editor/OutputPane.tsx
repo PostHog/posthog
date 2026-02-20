@@ -8,7 +8,6 @@ import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'reac
 
 import {
     IconBolt,
-    IconBrackets,
     IconCode,
     IconCode2,
     IconCopy,
@@ -58,11 +57,10 @@ import { ChartDisplayType, ExporterFormat } from '~/types'
 import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '../../../queries/nodes/DataTable/clipboardUtils'
 import TabScroller from './TabScroller'
 import { FixErrorButton } from './components/FixErrorButton'
-import { multitabEditorLogic } from './multitabEditorLogic'
 import { Endpoint } from './output-pane-tabs/Endpoint'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
-import { QueryVariables } from './output-pane-tabs/QueryVariables'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
+import { sqlEditorLogic } from './sqlEditorLogic'
 
 interface RowDetailsModalProps {
     isOpen: boolean
@@ -292,12 +290,18 @@ function RowDetailsModal({ isOpen, onClose, row, columns, columnKeys }: RowDetai
 export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
-    const { editingView } = useValues(multitabEditorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { sourceQuery, exportContext, editingInsight, updateInsightButtonEnabled, showLegacyFilters, queryInput } =
-        useValues(multitabEditorLogic)
-    const { saveAsInsight, updateInsight, setSourceQuery, runQuery, shareTab } = useActions(multitabEditorLogic)
+    const {
+        sourceQuery,
+        exportContext,
+        editingInsight,
+        insightLoading,
+        updateInsightButtonEnabled,
+        showLegacyFilters,
+        hasQueryInput,
+    } = useValues(sqlEditorLogic)
+    const { saveAsInsight, updateInsight, setSourceQuery, runQuery, shareTab } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
         response: dataNodeResponse,
@@ -474,16 +478,6 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                             icon: <IconGraph />,
                         },
                         {
-                            key: OutputTab.Variables,
-                            label: (
-                                <Tooltip title={editingView ? 'Variables are not allowed in views.' : undefined}>
-                                    Variables
-                                </Tooltip>
-                            ),
-                            disabled: editingView,
-                            icon: <IconBrackets />,
-                        },
-                        {
                             key: OutputTab.Materialization,
                             label: 'Materialization',
                             icon: <IconBolt />,
@@ -504,10 +498,9 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                     {
                                         'font-semibold !border-brand-yellow': tab.key === activeTab,
                                         'border-transparent': tab.key !== activeTab,
-                                        'opacity-50 cursor-not-allowed': tab.disabled,
                                     }
                                 )}
-                                onClick={() => !tab.disabled && setActiveTab(tab.key)}
+                                onClick={() => setActiveTab(tab.key)}
                             >
                                 <span className="mr-1">{tab.icon}</span>
                                 {tab.label}
@@ -545,9 +538,16 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                             onClick={() => toggleChartSettingsPanel()}
                                             tooltip="Visualization settings"
                                         />
-                                        {editingInsight && (
+                                        {editingInsight || insightLoading ? (
                                             <LemonButton
-                                                disabledReason={!updateInsightButtonEnabled && 'No updates to save'}
+                                                disabledReason={
+                                                    !updateInsightButtonEnabled
+                                                        ? 'No updates to save'
+                                                        : insightLoading
+                                                          ? 'Loading...'
+                                                          : undefined
+                                                }
+                                                loading={insightLoading}
                                                 type="primary"
                                                 onClick={() => updateInsight()}
                                                 id="sql-editor-update-insight"
@@ -569,8 +569,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                             >
                                                 Save insight
                                             </LemonButton>
-                                        )}
-                                        {!editingInsight && (
+                                        ) : (
                                             <LemonButton
                                                 disabledReason={!hasColumns ? 'No results to save' : undefined}
                                                 type="primary"
@@ -587,13 +586,19 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                     )}
                     {activeTab === OutputTab.Results && (
                         <LemonButton
-                            disabledReason={!hasColumns && !editingInsight ? 'No results to visualize' : undefined}
+                            disabledReason={
+                                insightLoading
+                                    ? 'Loading insight...'
+                                    : !hasColumns && !editingInsight
+                                      ? 'No results to visualize'
+                                      : undefined
+                            }
                             type="secondary"
                             onClick={() => setActiveTab(OutputTab.Visualization)}
-                            id={`sql-editor-${editingInsight ? 'view' : 'create'}-insight`}
+                            id={`sql-editor-${editingInsight || insightLoading ? 'view' : 'create'}-insight`}
                             icon={<IconGraph />}
                         >
-                            {editingInsight ? 'View insight' : 'Create insight'}
+                            {editingInsight || insightLoading ? 'View insight' : 'Create insight'}
                         </LemonButton>
                     )}
                     {activeTab === OutputTab.Results && (
@@ -644,7 +649,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                         <Tooltip title="Share your current query">
                             <LemonButton
                                 id="sql-editor-share"
-                                disabledReason={!queryInput && 'No query to share'}
+                                disabledReason={!hasQueryInput && 'No query to share'}
                                 type="secondary"
                                 icon={<IconShare />}
                                 onClick={() => shareTab()}
@@ -659,6 +664,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                     responseError={responseError}
                     responseLoading={responseLoading}
                     response={response}
+                    insightLoading={insightLoading}
                     sourceQuery={sourceQuery}
                     queryCancelled={queryCancelled}
                     columns={columns}
@@ -817,10 +823,9 @@ const Content = ({
     pollResponse,
     setProgress,
     progress,
+    insightLoading,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
-    const { editingView } = useValues(multitabEditorLogic)
-
     const { featureFlags } = useValues(featureFlagLogic)
 
     const sortedRows = useMemo(() => {
@@ -859,22 +864,6 @@ const Content = ({
         )
     }
 
-    if (activeTab === OutputTab.Variables) {
-        if (editingView) {
-            return (
-                <TabScroller>
-                    <div className="px-6 py-4 border-t text-secondary">Variables are not allowed in views.</div>
-                </TabScroller>
-            )
-        }
-        return (
-            <TabScroller>
-                <div className="px-6 py-4 border-t">
-                    <QueryVariables />
-                </div>
-            </TabScroller>
-        )
-    }
     if (featureFlags[FEATURE_FLAGS.ENDPOINTS] && activeTab === OutputTab.Endpoint) {
         return (
             <TabScroller>
@@ -885,7 +874,7 @@ const Content = ({
         )
     }
 
-    if (responseLoading) {
+    if (responseLoading || insightLoading) {
         return (
             <div className="flex flex-1 p-2 w-full justify-center items-center border-t">
                 <StatelessInsightLoadingState

@@ -20,7 +20,7 @@ export const TwilioSetupModal = (props: TwilioSetupModalLogicProps): JSX.Element
                     <span>Configure Twilio SMS channel</span>
                 </div>
             }
-            onClose={props.onComplete}
+            onClose={props.onClose}
         >
             <Form logic={twilioSetupModalLogic} formKey="twilioIntegration">
                 <div className="gap-4 flex flex-col">

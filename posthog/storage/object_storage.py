@@ -29,7 +29,14 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def get_presigned_url(self, bucket: str, file_key: str, expiration: int = 3600) -> Optional[str]:
+    def get_presigned_url(
+        self,
+        bucket: str,
+        file_key: str,
+        expiration: int = 3600,
+        content_type: Optional[str] = None,
+        content_disposition: Optional[str] = None,
+    ) -> Optional[str]:
         pass
 
     @abc.abstractmethod
@@ -81,7 +88,14 @@ class UnavailableStorage(ObjectStorageClient):
     def head_object(self, bucket: str, file_key: str):
         return None
 
-    def get_presigned_url(self, bucket: str, file_key: str, expiration: int = 3600) -> Optional[str]:
+    def get_presigned_url(
+        self,
+        bucket: str,
+        file_key: str,
+        expiration: int = 3600,
+        content_type: Optional[str] = None,
+        content_disposition: Optional[str] = None,
+    ) -> Optional[str]:
         pass
 
     def get_presigned_post(
@@ -132,11 +146,23 @@ class ObjectStorage(ObjectStorageClient):
             logger.warn("object_storage.head_object_failed", bucket=bucket, file_key=file_key, error=e)
             return None
 
-    def get_presigned_url(self, bucket: str, file_key: str, expiration: int = 3600) -> Optional[str]:
+    def get_presigned_url(
+        self,
+        bucket: str,
+        file_key: str,
+        expiration: int = 3600,
+        content_type: Optional[str] = None,
+        content_disposition: Optional[str] = None,
+    ) -> Optional[str]:
         try:
+            params: dict[str, str] = {"Bucket": bucket, "Key": file_key}
+            if content_type:
+                params["ResponseContentType"] = content_type
+            if content_disposition:
+                params["ResponseContentDisposition"] = content_disposition
             return self.aws_client.generate_presigned_url(
                 ClientMethod="get_object",
-                Params={"Bucket": bucket, "Key": file_key},
+                Params=params,
                 ExpiresIn=expiration,
                 HttpMethod="GET",
             )
@@ -365,9 +391,18 @@ def copy_objects(source_prefix: str, target_prefix: str) -> int:
     )
 
 
-def get_presigned_url(file_key: str, expiration: int = 3600) -> Optional[str]:
+def get_presigned_url(
+    file_key: str,
+    expiration: int = 3600,
+    content_type: Optional[str] = None,
+    content_disposition: Optional[str] = None,
+) -> Optional[str]:
     return object_storage_client().get_presigned_url(
-        bucket=settings.OBJECT_STORAGE_BUCKET, file_key=file_key, expiration=expiration
+        bucket=settings.OBJECT_STORAGE_BUCKET,
+        file_key=file_key,
+        expiration=expiration,
+        content_type=content_type,
+        content_disposition=content_disposition,
     )
 
 

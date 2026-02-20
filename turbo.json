@@ -2,6 +2,28 @@
     "$schema": "https://turbo.build/schema.json",
     "extends": ["//"],
     "tasks": {
+        "backend:test": {
+            "inputs": [
+                "backend/**/*.py",
+                "!backend/**/__pycache__/**",
+                "../../pyproject.toml",
+                "../../uv.lock",
+                "../../common/**/*.py"
+            ],
+            "outputs": [],
+            "cache": true,
+            "env": ["DATABASE_URL", "REDIS_URL", "CLICKHOUSE_HOST", "TEST"]
+        },
+        "backend:lint": {
+            "inputs": ["backend/**/*.py", "!backend/**/__pycache__/**"],
+            "outputs": [],
+            "cache": true
+        },
+        "backend:contract-check": {
+            "inputs": ["backend/**/*.py", "!backend/**/__pycache__/**"],
+            "outputs": [],
+            "cache": true
+        },
         "prepare": {
             "dependsOn": ["^build"]
         },
@@ -38,17 +60,6 @@
         "clean": {
             "dependsOn": ["^clean"],
             "cache": false
-        },
-        "openapi:types": {
-            "inputs": ["$TURBO_DEFAULT$", "tmp/openapi.json"],
-            "env": ["OPENAPI_SCHEMA_PATH"]
-        },
-        "schema:build:json": {
-            "inputs": ["$TURBO_DEFAULT$", "src/queries/schema/**"]
-        },
-        "schema:build:python": {
-            "dependsOn": ["schema:build:json"],
-            "inputs": ["$TURBO_DEFAULT$", "src/queries/schema.json"]
         }
     }
 }

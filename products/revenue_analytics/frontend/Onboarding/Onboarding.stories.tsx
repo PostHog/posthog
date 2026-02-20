@@ -24,6 +24,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-01',
         pageUrl: urls.revenueAnalytics(),
+        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS],
         testOptions: {
             waitForLoadersToDisappear: true,
         },

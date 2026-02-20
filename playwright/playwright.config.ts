@@ -42,6 +42,7 @@ export default defineConfig({
     reporter: [
         ['html', { open: 'never' }],
         ...(process.env.CI ? [['junit', { outputFile: 'junit-results.xml' }] as const] : []),
+        ...(process.env.CI ? [['json', { outputFile: 'results.json' }] as const] : []),
     ],
     /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
     use: {

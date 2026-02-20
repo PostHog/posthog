@@ -153,6 +153,7 @@ interface MetricLoadingConfig {
     metrics: any[]
     experimentId: Experiment['id']
     refresh?: boolean
+    teamId?: number | null
     onSetLegacyResults: (
         results: (
             | CachedLegacyExperimentQueryResponse
@@ -163,17 +164,49 @@ interface MetricLoadingConfig {
     ) => void
     onSetResults: (results: CachedNewExperimentQueryResponse[]) => void
     onSetErrors: (errors: any[]) => void
-    onTimeout: (experimentId: Experiment['id'], metric: any) => void
+}
+
+const OUT_OF_MEMORY_ERROR_CODES = new Set(['memory_limit_exceeded', 'query_memory_limit_exceeded'])
+
+function isOutOfMemoryError(errorCode: string | null, errorMessage: string | null): boolean {
+    if (errorCode && OUT_OF_MEMORY_ERROR_CODES.has(errorCode)) {
+        return true
+    }
+
+    return !!errorMessage && /(out of memory|memory limit exceeded|exceeded memory limit)/i.test(errorMessage)
+}
+
+function parseMetricErrorDetail(error: any): { detail: any; hasDiagnostics: boolean } {
+    const errorDetailText = typeof error.detail === 'string' ? error.detail : null
+    const errorDetailMatch = errorDetailText?.match(/\{.*\}/)
+
+    if (!errorDetailMatch) {
+        return { detail: error.detail || error.message, hasDiagnostics: false }
+    }
+
+    try {
+        return { detail: JSON.parse(errorDetailMatch[0]), hasDiagnostics: true }
+    } catch {
+        return { detail: error.detail || error.message, hasDiagnostics: false }
+    }
+}
+
+function isTimeoutError(errorDetail: unknown, errorMessage: string | null, statusCode: number | null): boolean {
+    if (statusCode === 504) {
+        return true
+    }
+
+    return errorDetail === QUERY_TIMEOUT_ERROR_MESSAGE || errorMessage === QUERY_TIMEOUT_ERROR_MESSAGE
 }
 
 const loadMetrics = async ({
     metrics,
     experimentId,
     refresh,
+    teamId,
     onSetLegacyResults,
     onSetResults,
     onSetErrors,
-    onTimeout,
 }: MetricLoadingConfig): Promise<void[]> => {
     const legacyResults: (
         | CachedLegacyExperimentQueryResponse
@@ -187,6 +220,7 @@ const loadMetrics = async ({
 
     return await Promise.all(
         metrics.map(async (metric, index) => {
+            let response: any = null
             try {
                 let queryWithExperimentId
                 if (metric.kind === NodeKind.ExperimentMetric) {
@@ -201,7 +235,7 @@ const loadMetrics = async ({
                         experiment_id: experimentId,
                     }
                 }
-                const response = await performQuery(
+                response = await performQuery(
                     setLatestVersionsOnQuery(queryWithExperimentId),
                     undefined,
                     refresh ? 'force_async' : 'async'
@@ -234,19 +268,46 @@ const loadMetrics = async ({
                 }
                 onSetLegacyResults([...legacyResults])
                 onSetResults([...results])
+
+                eventUsageLogic.actions.reportExperimentMetricFinished(
+                    experimentId,
+                    metric,
+                    teamId,
+                    response?.query_status?.id || null
+                )
             } catch (error: any) {
-                const errorDetailMatch = error.detail?.match(/\{.*\}/)
-                const errorDetail = errorDetailMatch ? JSON.parse(errorDetailMatch[0]) : error.detail || error.message
+                const errorCode = typeof error.code === 'string' ? error.code : null
+                const statusCode = typeof error.status === 'number' ? error.status : null
+                const errorMessage =
+                    typeof error.detail === 'string'
+                        ? error.detail
+                        : typeof error.message === 'string'
+                          ? error.message
+                          : null
+                const { detail: errorDetail, hasDiagnostics } = parseMetricErrorDetail(error)
+                const queryId = response?.query_status?.id || error.queryId || null
 
                 currentErrors[index] = {
                     detail: errorDetail,
-                    statusCode: error.status,
-                    hasDiagnostics: !!errorDetailMatch,
+                    statusCode,
+                    hasDiagnostics,
+                    code: errorCode,
+                    queryId,
+                    timestamp: Date.now(),
                 }
                 onSetErrors(currentErrors)
 
-                if (errorDetail === QUERY_TIMEOUT_ERROR_MESSAGE) {
-                    onTimeout(experimentId, metric)
+                if (isTimeoutError(errorDetail, errorMessage, statusCode)) {
+                    eventUsageLogic.actions.reportExperimentMetricTimeout(experimentId, metric, teamId, queryId)
+                } else if (isOutOfMemoryError(errorCode, errorMessage)) {
+                    eventUsageLogic.actions.reportExperimentMetricOutOfMemory(
+                        experimentId,
+                        metric,
+                        teamId,
+                        queryId,
+                        errorCode,
+                        errorMessage
+                    )
                 }
 
                 legacyResults[index] = null
@@ -287,6 +348,38 @@ function convertToTypedExperimentResponse(response: CachedExperimentQueryRespons
     return null
 }
 
+const sharedMetricsToExperimentMetrics = (
+    sharedMetrics: ExperimentSavedMetric[],
+    type: 'primary' | 'secondary'
+): ExperimentMetric[] =>
+    sharedMetrics
+        .filter(({ metadata }) => metadata.type === type)
+        .map(({ query, metadata }) => ({
+            ...query,
+            // Merge breakdowns from metadata into the query
+            breakdownFilter: {
+                ...query?.breakdownFilter,
+                breakdowns: metadata?.breakdowns || [],
+            },
+        }))
+
+/**
+ * We need a proper Saved Metric type. This is what comes back from the API.
+ * TODO: We should probably refactor this for more general use.
+ */
+export type ExperimentSavedMetric = {
+    id: number
+    experiment: number
+    saved_metric: number
+    metadata: {
+        type: 'primary' | 'secondary'
+        breakdowns?: Breakdown[]
+    }
+    created_at: string
+    query: ExperimentMetric
+    name: string
+}
+
 export const experimentLogic = kea<experimentLogicType>([
     props({} as ExperimentLogicProps),
     key((props) => {
@@ -298,6 +391,8 @@ export const experimentLogic = kea<experimentLogicType>([
         values: [
             projectLogic,
             ['currentProjectId'],
+            teamLogic,
+            ['currentTeamId'],
             groupsModel,
             ['aggregationLabel', 'groupTypes', 'showGroupsOptions'],
             featureFlagLogic,
@@ -343,6 +438,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentTimeseriesViewed',
                 'reportExperimentTimeseriesRecalculated',
                 'reportExperimentAiSummaryRequested',
+                'reportExperimentSessionReplaySummaryRequested',
                 'reportExperimentMetricsRefreshed',
                 'reportExperimentAutoRefreshToggled',
                 'reportExperimentMetricBreakdownAdded',
@@ -360,11 +456,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 'closeSecondaryMetricModal',
                 'openPrimarySharedMetricModal',
                 'openSecondarySharedMetricModal',
-                'openStopExperimentModal',
-                'closeStopExperimentModal',
                 'closePauseExperimentModal',
                 'closeResumeExperimentModal',
-                'closeShipVariantModal',
+                'closeFinishExperimentModal',
                 'openReleaseConditionsModal',
             ],
         ],
@@ -388,6 +482,7 @@ export const experimentLogic = kea<experimentLogicType>([
         changeExperimentEndDate: (endDate: string) => ({ endDate }),
         launchExperiment: true,
         endExperiment: true,
+        endExperimentWithoutShipping: true,
         pauseExperiment: true,
         resumeExperiment: true,
         archiveExperiment: true,
@@ -507,9 +602,11 @@ export const experimentLogic = kea<experimentLogicType>([
         setPrimaryMetricsResultsLoading: (loading: boolean) => ({ loading }),
         loadPrimaryMetricsResults: (refresh?: boolean) => ({ refresh }),
         setPrimaryMetricsResultsErrors: (errors: any[]) => ({ errors }),
+        retryPrimaryMetric: (index: number) => ({ index }),
         setSecondaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
         loadSecondaryMetricsResults: (refresh?: boolean) => ({ refresh }),
         setSecondaryMetricsResultsErrors: (errors: any[]) => ({ errors }),
+        retrySecondaryMetric: (index: number) => ({ index }),
         setSecondaryMetricsResultsLoading: (loading: boolean) => ({ loading }),
         setLegacySecondaryMetricsResults: (
             results: (
@@ -733,6 +830,34 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                 },
                 updateMetricBreakdown: (state, { uuid, breakdown }) => {
+                    /**
+                     * Check if the UUID belongs to a shared metric
+                     * Shared Metric types are confusing. The query property
+                     * is, for all practical purposes, an ExperimentMetric.
+                     */
+                    const savedMetrics: ExperimentSavedMetric[] = [...(state?.saved_metrics || [])]
+                    const savedMetricIndex = savedMetrics.findIndex(
+                        ({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid
+                    )
+
+                    if (savedMetricIndex !== -1) {
+                        // Handle shared metric - update saved_metrics metadata
+                        const savedMetric = savedMetrics[savedMetricIndex]
+                        savedMetrics[savedMetricIndex] = {
+                            ...savedMetric,
+                            metadata: {
+                                ...savedMetric.metadata,
+                                breakdowns: [...(savedMetric.metadata?.breakdowns || []), breakdown],
+                            },
+                        }
+
+                        return {
+                            ...state,
+                            saved_metrics: savedMetrics,
+                        }
+                    }
+
+                    // Handle inline metric
                     const metricsKey =
                         (state?.metrics || ([] as ExperimentMetric[])).findIndex((m) => m.uuid === uuid) > -1
                             ? 'metrics'
@@ -761,6 +886,34 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                 },
                 removeMetricBreakdown: (state, { uuid, index }) => {
+                    /**
+                     * Check if the UUID belongs to a shared metric
+                     * Shared Metric types are confusing. The query property
+                     * is, for all practical purposes, an ExperimentMetric.
+                     */
+                    const savedMetrics: ExperimentSavedMetric[] = [...(state?.saved_metrics || [])]
+                    const savedMetricIndex = savedMetrics.findIndex(
+                        ({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid
+                    )
+
+                    if (savedMetricIndex !== -1) {
+                        // Handle shared metric - update saved_metrics metadata
+                        const savedMetric = savedMetrics[savedMetricIndex]
+                        savedMetrics[savedMetricIndex] = {
+                            ...savedMetric,
+                            metadata: {
+                                ...savedMetric.metadata,
+                                breakdowns: (savedMetric.metadata?.breakdowns || []).filter((_, i) => i !== index),
+                            },
+                        }
+
+                        return {
+                            ...state,
+                            saved_metrics: savedMetrics,
+                        }
+                    }
+
+                    // Handle inline metric
                     const metricsKey =
                         (state?.metrics || ([] as ExperimentMetric[])).findIndex((m) => m.uuid === uuid) > -1
                             ? 'metrics'
@@ -1130,8 +1283,17 @@ export const experimentLogic = kea<experimentLogicType>([
                         ? values.isPrimaryMetricSignificant(values.experiment.metrics[0].uuid)
                         : false
                 )
-            actions.closeStopExperimentModal()
             values.experiment && eventUsageLogic.actions.reportExperimentStopped(values.experiment)
+        },
+        endExperimentWithoutShipping: async () => {
+            actions.endExperiment()
+            actions.closeFinishExperimentModal()
+            lemonToast.success('Experiment ended successfully')
+
+            const trigger = values.hogfettiTrigger
+            if (trigger) {
+                ;[0, 400, 800].forEach((delay) => setTimeout(trigger, delay))
+            }
         },
         pauseExperiment: async () => {
             await actions.setFeatureFlagActive(false)
@@ -1230,10 +1392,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
         },
-        shipVariantSuccess: ({ payload }) => {
-            lemonToast.success('The selected variant has been shipped')
-            actions.closeShipVariantModal()
-            if (payload.shouldStopExperiment && !values.isExperimentStopped) {
+        finishExperimentSuccess: () => {
+            lemonToast.success('Experiment ended. The selected variant has been rolled out to all users.')
+            actions.closeFinishExperimentModal()
+            if (!values.isExperimentStopped) {
                 actions.endExperiment()
             }
             actions.reportExperimentVariantShipped(values.experiment)
@@ -1244,9 +1406,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 ;[0, 400, 800].forEach((delay) => setTimeout(trigger, delay))
             }
         },
-        shipVariantFailure: ({ error }) => {
+        finishExperimentFailure: ({ error }) => {
             lemonToast.error(error)
-            actions.closeShipVariantModal()
+            actions.closeFinishExperimentModal()
         },
         updateExperimentVariantImages: async ({ variantPreviewMediaIds }) => {
             try {
@@ -1360,7 +1522,7 @@ export const experimentLogic = kea<experimentLogicType>([
                  * create a new dashboard
                  */
                 const dashboard: DashboardType = await api.create(
-                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/`,
+                    `api/environments/${values.currentTeamId}/dashboards/`,
                     {
                         name: 'Experiment: ' + values.experiment.name,
                         description: `Dashboard for [${experimentUrl}](${experimentUrl})`,
@@ -1482,22 +1644,21 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.setLegacyPrimaryMetricsResults([])
             actions.setPrimaryMetricsResults([])
 
-            let metrics = values.experiment?.metrics
-            const sharedMetrics = values.experiment?.saved_metrics
-                .filter((sharedMetric) => sharedMetric.metadata.type === 'primary')
-                .map((sharedMetric) => sharedMetric.query)
-            if (sharedMetrics) {
-                metrics = [...metrics, ...sharedMetrics]
-            }
+            const sharedMetrics: ExperimentMetric[] = sharedMetricsToExperimentMetrics(
+                values.experiment?.saved_metrics as ExperimentSavedMetric[],
+                'primary'
+            )
+
+            const metrics = [...(values.experiment?.metrics || []), ...sharedMetrics]
 
             await loadMetrics({
                 metrics,
                 experimentId: values.experimentId,
                 refresh,
+                teamId: values.currentTeamId,
                 onSetLegacyResults: actions.setLegacyPrimaryMetricsResults,
                 onSetResults: actions.setPrimaryMetricsResults,
                 onSetErrors: actions.setPrimaryMetricsResultsErrors,
-                onTimeout: actions.reportExperimentMetricTimeout,
             })
 
             actions.setPrimaryMetricsResultsLoading(false)
@@ -1512,25 +1673,112 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.setLegacySecondaryMetricsResults([])
             actions.setSecondaryMetricsResults([])
 
-            let secondaryMetrics = values.experiment?.metrics_secondary
-            const sharedMetrics = values.experiment?.saved_metrics
-                .filter((sharedMetric) => sharedMetric.metadata.type === 'secondary')
-                .map((sharedMetric) => sharedMetric.query)
-            if (sharedMetrics) {
-                secondaryMetrics = [...secondaryMetrics, ...sharedMetrics]
-            }
+            const sharedMetrics: ExperimentMetric[] = sharedMetricsToExperimentMetrics(
+                values.experiment?.saved_metrics as ExperimentSavedMetric[],
+                'secondary'
+            )
+            const secondaryMetrics = [...(values.experiment?.metrics_secondary || []), ...sharedMetrics]
 
             await loadMetrics({
                 metrics: secondaryMetrics,
                 experimentId: values.experimentId,
                 refresh,
+                teamId: values.currentTeamId,
                 onSetLegacyResults: actions.setLegacySecondaryMetricsResults,
                 onSetResults: actions.setSecondaryMetricsResults,
                 onSetErrors: actions.setSecondaryMetricsResultsErrors,
-                onTimeout: actions.reportExperimentMetricTimeout,
             })
 
             actions.setSecondaryMetricsResultsLoading(false)
+        },
+        retryPrimaryMetric: async ({ index }: { index: number }) => {
+            // Clear the error for this metric
+            const currentErrors = [...values.primaryMetricsResultsErrors]
+            currentErrors[index] = null
+            actions.setPrimaryMetricsResultsErrors(currentErrors)
+
+            // Get the metric to retry
+
+            const sharedMetrics: ExperimentMetric[] = sharedMetricsToExperimentMetrics(
+                values.experiment?.saved_metrics as ExperimentSavedMetric[],
+                'primary'
+            )
+
+            const metrics = [...(values.experiment?.metrics || []), ...sharedMetrics]
+
+            const metricToRetry = metrics[index]
+            if (!metricToRetry) {
+                return
+            }
+
+            // Create single-item arrays for this metric
+            const singleMetricArray = [metricToRetry]
+            const currentLegacyResults = [...values.legacyPrimaryMetricsResults]
+            const currentResults = [...values.primaryMetricsResults]
+
+            // Load just this one metric
+            await loadMetrics({
+                metrics: singleMetricArray,
+                experimentId: values.experimentId,
+                refresh: true,
+                teamId: values.currentTeamId,
+                onSetLegacyResults: (results) => {
+                    currentLegacyResults[index] = results[0]
+                    actions.setLegacyPrimaryMetricsResults(currentLegacyResults)
+                },
+                onSetResults: (results) => {
+                    currentResults[index] = results[0]
+                    actions.setPrimaryMetricsResults(currentResults)
+                },
+                onSetErrors: (errors) => {
+                    currentErrors[index] = errors[0]
+                    actions.setPrimaryMetricsResultsErrors(currentErrors)
+                },
+            })
+        },
+        retrySecondaryMetric: async ({ index }: { index: number }) => {
+            // Clear the error for this metric
+            const currentErrors = [...values.secondaryMetricsResultsErrors]
+            currentErrors[index] = null
+            actions.setSecondaryMetricsResultsErrors(currentErrors)
+
+            // Get the metric to retry
+            const sharedMetrics: ExperimentMetric[] = sharedMetricsToExperimentMetrics(
+                values.experiment?.saved_metrics as ExperimentSavedMetric[],
+                'secondary'
+            )
+
+            const secondaryMetrics = [...(values.experiment?.metrics_secondary || []), ...sharedMetrics]
+
+            const metricToRetry = secondaryMetrics[index]
+            if (!metricToRetry) {
+                return
+            }
+
+            // Create single-item arrays for this metric
+            const singleMetricArray = [metricToRetry]
+            const currentLegacyResults = [...values.legacySecondaryMetricsResults]
+            const currentResults = [...values.secondaryMetricsResults]
+
+            // Load just this one metric
+            await loadMetrics({
+                metrics: singleMetricArray,
+                experimentId: values.experimentId,
+                refresh: true,
+                teamId: values.currentTeamId,
+                onSetLegacyResults: (results) => {
+                    currentLegacyResults[index] = results[0]
+                    actions.setLegacySecondaryMetricsResults(currentLegacyResults)
+                },
+                onSetResults: (results) => {
+                    currentResults[index] = results[0]
+                    actions.setSecondaryMetricsResults(currentResults)
+                },
+                onSetErrors: (errors) => {
+                    currentErrors[index] = errors[0]
+                    actions.setSecondaryMetricsResultsErrors(currentErrors)
+                },
+            })
         },
         openReleaseConditionsModal: () => {
             const numericFlagId = values.experiment.feature_flag?.id
@@ -1546,10 +1794,24 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.reportExperimentMetricBreakdownAdded(values.experiment, uuid, breakdown, isPrimary)
 
-            actions.updateExperiment({
+            const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
+            // Check if this is a shared metric by looking in saved_metrics
+            const isSharedMetric = savedMetrics.some(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
+
+            const updatePayload: Partial<Experiment> = {
                 metrics: values.experiment.metrics,
                 metrics_secondary: values.experiment.metrics_secondary,
-            })
+            }
+
+            // Only include saved_metrics_ids if we modified a shared metric
+            if (isSharedMetric) {
+                updatePayload.saved_metrics_ids = savedMetrics.map(({ saved_metric, metadata }) => ({
+                    id: saved_metric,
+                    metadata,
+                }))
+            }
+
+            actions.updateExperiment(updatePayload)
 
             if (isPrimary) {
                 actions.loadPrimaryMetricsResults(true)
@@ -1562,10 +1824,24 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.reportExperimentMetricBreakdownRemoved(values.experiment, uuid, breakdown, index, isPrimary)
 
-            actions.updateExperiment({
+            const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
+            // Check if this is a shared metric by looking in saved_metrics
+            const isSharedMetric = savedMetrics.some(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
+
+            const updatePayload: Partial<Experiment> = {
                 metrics: values.experiment.metrics,
                 metrics_secondary: values.experiment.metrics_secondary,
-            })
+            }
+
+            // Only include saved_metrics_ids if we modified a shared metric
+            if (isSharedMetric) {
+                updatePayload.saved_metrics_ids = savedMetrics.map(({ saved_metric, metadata }) => ({
+                    id: saved_metric,
+                    metadata,
+                }))
+            }
+
+            actions.updateExperiment(updatePayload)
 
             if (isPrimary) {
                 actions.loadPrimaryMetricsResults(true)
@@ -1681,7 +1957,7 @@ export const experimentLogic = kea<experimentLogicType>([
         featureFlag: [
             null as FeatureFlagType | null,
             {
-                shipVariant: async ({ selectedVariantKey, shouldStopExperiment }) => {
+                finishExperiment: async ({ selectedVariantKey }) => {
                     if (!values.experiment.feature_flag) {
                         throw new Error('Experiment does not have a feature flag linked')
                     }
@@ -1694,7 +1970,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         { filters: newFilters }
                     )
 
-                    return shouldStopExperiment
+                    return null
                 },
             },
         ],

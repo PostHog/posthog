@@ -21,6 +21,7 @@ export enum Scene {
     BillingSection = 'BillingSection',
     Canvas = 'Canvas',
     CLIAuthorize = 'CLIAuthorize',
+    CLILive = 'CLILive',
     Cohort = 'Cohort',
     CohortCalculationHistory = 'CohortCalculationHistory',
     Cohorts = 'Cohorts',
@@ -54,6 +55,7 @@ export enum Scene {
     EventDefinitionEdit = 'EventDefinitionEdit',
     Experiment = 'Experiment',
     Experiments = 'Experiments',
+    Exports = 'Exports',
     ExperimentsSharedMetric = 'ExperimentsSharedMetric',
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
     ExploreEvents = 'ExploreEvents',
@@ -66,6 +68,7 @@ export enum Scene {
     GroupsNew = 'GroupsNew',
     Heatmaps = 'Heatmaps',
     Heatmap = 'Heatmap',
+    Inbox = 'Inbox',
     HeatmapNew = 'HeatmapNew',
     HeatmapRecording = 'HeatmapRecording',
     HogFunction = 'HogFunction',
@@ -118,6 +121,7 @@ export enum Scene {
     ReplaySettings = 'ReplaySettings',
     ReplaySingle = 'ReplaySingle',
     ReplayKiosk = 'ReplayKiosk',
+    ResourceTransfer = 'ResourceTransfer',
     RevenueAnalytics = 'RevenueAnalytics',
     SqlVariableEdit = 'SqlVariableEdit',
     SQLEditor = 'SQLEditor',
@@ -131,6 +135,7 @@ export enum Scene {
     SessionProfile = 'SessionProfile',
     Settings = 'Settings',
     Signup = 'Signup',
+    SignalsDebug = 'SignalsDebug',
     Site = 'Site',
     Coupons = 'Coupons',
     Sources = 'Sources',
@@ -328,6 +333,16 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Experiments
     [Scene.Experiment]: AccessControlResourceType.Experiment,
     [Scene.Experiments]: AccessControlResourceType.Experiment,
+
+    // LLM Analytics
+    [Scene.LLMAnalytics]: AccessControlResourceType.LlmAnalytics,
+    [Scene.LLMAnalyticsDataset]: AccessControlResourceType.LlmAnalytics,
+    [Scene.LLMAnalyticsDatasets]: AccessControlResourceType.LlmAnalytics,
+    [Scene.LLMAnalyticsEvaluation]: AccessControlResourceType.LlmAnalytics,
+    [Scene.LLMAnalyticsEvaluations]: AccessControlResourceType.LlmAnalytics,
+    [Scene.LLMAnalyticsPlayground]: AccessControlResourceType.LlmAnalytics,
+    [Scene.LLMAnalyticsTrace]: AccessControlResourceType.LlmAnalytics,
+    [Scene.LLMAnalyticsUsers]: AccessControlResourceType.LlmAnalytics,
 
     // Data warehouse sources - not included here because self-managed sources don't have access control.
     // Managed sources handle access control at the logic level via SIDE_PANEL_CONTEXT_KEY.

@@ -1,4 +1,4 @@
-import { formatErrorRate, formatTokens } from './ClusterCard'
+import { formatErrorRate, formatTokens } from '../utils'
 import { ItemMetrics, aggregateClusterMetrics } from './clusterMetricsLoader'
 import { Cluster } from './types'
 
@@ -69,7 +69,7 @@ describe('cluster metrics', () => {
             expect(result[0].totalCost).toBeCloseTo(0.1)
         })
 
-        it('aggregates error counts from multiple items', () => {
+        it('counts items with at least one error for error rate', () => {
             const cluster = makeCluster(0, ['t1', 't2', 't3'])
             const itemMetrics: Record<string, ItemMetrics> = {
                 t1: {
@@ -100,8 +100,9 @@ describe('cluster metrics', () => {
 
             const result = aggregateClusterMetrics([cluster], itemMetrics)
 
-            expect(result[0].errorCount).toBe(5)
-            expect(result[0].errorRate).toBeCloseTo(1.0)
+            // 2 of 3 items have at least one error
+            expect(result[0].errorCount).toBe(2)
+            expect(result[0].errorRate).toBeCloseTo(2 / 3)
         })
 
         it('handles multiple clusters independently', () => {

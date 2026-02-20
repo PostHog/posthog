@@ -19,7 +19,7 @@ import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
-import { LineGraphProps, onChartClick, onChartHover } from 'scenes/insights/views/LineGraph/LineGraph'
+import { LineGraphProps, onChartClick } from 'scenes/insights/views/LineGraph/LineGraph'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
@@ -67,7 +67,7 @@ export function PieChart({
 
     const { aggregationLabel } = useValues(groupsModel)
     const { highlightSeries } = useActions(insightLogic)
-    const { getTooltip, hideTooltip } = useInsightTooltip()
+    const { getTooltip, hideTooltip, positionTooltip } = useInsightTooltip()
 
     const { canvasRef } = useChart<'pie'>({
         getConfig: () => {
@@ -85,7 +85,8 @@ export function PieChart({
                     responsive: true,
                     maintainAspectRatio: false,
                     hover: {
-                        mode: 'index',
+                        mode: 'point',
+                        intersect: true,
                     },
                     layout: {
                         padding: {
@@ -99,10 +100,25 @@ export function PieChart({
                     borderRadius: 0,
                     hoverOffset: onlyOneValue || disableHoverOffset ? 0 : 16,
                     onHover(event: ChartEvent, _: ActiveElement[], chart: Chart) {
-                        onChartHover(event, chart, onClick)
+                        const nativeEvent = event.native
+                        if (!nativeEvent) {
+                            return
+                        }
+                        const target = nativeEvent.target as HTMLDivElement
+                        const hitsSlice =
+                            chart.getElementsAtEventForMode(nativeEvent, 'point', { intersect: true }, true).length > 0
+                        target.style.cursor = onClick && hitsSlice ? 'pointer' : 'default'
                     },
                     onClick: (event: ChartEvent, _: ActiveElement[], chart: Chart) => {
-                        onChartClick(event, chart, datasets, onClick)
+                        const nativeEvent = event.native
+                        if (!nativeEvent) {
+                            return
+                        }
+                        const hitsSlice =
+                            chart.getElementsAtEventForMode(nativeEvent, 'point', { intersect: true }, true).length > 0
+                        if (hitsSlice) {
+                            onChartClick(event, chart, datasets, onClick)
+                        }
                     },
                     plugins: {
                         datalabels: {
@@ -233,12 +249,8 @@ export function PieChart({
                                     )
                                 }
 
-                                const position = chart.canvas.getBoundingClientRect()
-                                tooltipEl.style.position = 'absolute'
-                                tooltipEl.style.left =
-                                    position.left + window.pageXOffset + (tooltip.caretX || 0) + 8 + 'px'
-                                tooltipEl.style.top =
-                                    position.top + window.pageYOffset + (tooltip.caretY || 0) + 8 + 'px'
+                                const bounds = chart.canvas.getBoundingClientRect()
+                                positionTooltip(tooltipEl, bounds, tooltip.caretX || 0, tooltip.caretY || 0)
                             },
                         },
                     },

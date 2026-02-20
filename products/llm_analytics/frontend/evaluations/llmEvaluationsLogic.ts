@@ -1,16 +1,30 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+
+import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
 import type { llmEvaluationsLogicType } from './llmEvaluationsLogicType'
 import { EvaluationConfig } from './types'
 
+const INITIAL_DATE_FROM = '-1h' as string | null
+const INITIAL_DATE_TO = null as string | null
+
 export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
     path(['products', 'llm_analytics', 'evaluations', 'llmEvaluationsLogic']),
+    connect(() => ({
+        values: [llmProviderKeysLogic, ['providerKeys']],
+        actions: [teamLogic, ['addProductIntent'], llmProviderKeysLogic, ['loadProviderKeys']],
+    })),
 
     actions({
+        setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         loadEvaluations: true,
         loadEvaluationsSuccess: (evaluations: EvaluationConfig[]) => ({ evaluations }),
         createEvaluation: (evaluation: Partial<EvaluationConfig>) => ({ evaluation }),
@@ -27,6 +41,16 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
     }),
 
     reducers({
+        dateFilter: [
+            {
+                dateFrom: INITIAL_DATE_FROM,
+                dateTo: INITIAL_DATE_TO,
+            },
+            {
+                setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+            },
+        ],
+
         evaluations: [
             [] as EvaluationConfig[],
             {
@@ -80,7 +104,13 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
 
                 const response = await api.create(`/api/environments/${teamId}/evaluations/`, evaluation)
                 actions.createEvaluationSuccess(response)
+
+                // Trigger global tracking stuff for quick start + intent
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpLlmEvaluation)
+                void actions.addProductIntent({
+                    product_type: ProductKey.LLM_EVALUATIONS,
+                    intent_context: ProductIntentContext.LLM_EVALUATION_CREATED,
+                })
             } catch (error) {
                 console.error('Failed to create evaluation:', error)
             }
@@ -180,9 +210,62 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 )
             },
         ],
+        unhealthyProviderKeysUsedByEvaluations: [
+            (s) => [s.evaluations, s.providerKeys],
+            (evaluations: EvaluationConfig[], providerKeys: LLMProviderKey[]): LLMProviderKey[] => {
+                const providerKeysById = new Map(providerKeys.map((key) => [key.id, key]))
+                const seenKeyIds = new Set<string>()
+                const unhealthyProviderKeys: LLMProviderKey[] = []
+
+                for (const evaluation of evaluations) {
+                    const providerKeyId = evaluation.model_configuration?.provider_key_id
+                    if (!providerKeyId || seenKeyIds.has(providerKeyId)) {
+                        continue
+                    }
+
+                    const providerKey = providerKeysById.get(providerKeyId)
+                    if (!providerKey || !isUnhealthyProviderKeyState(providerKey.state)) {
+                        continue
+                    }
+
+                    seenKeyIds.add(providerKeyId)
+                    unhealthyProviderKeys.push(providerKey)
+                }
+
+                return unhealthyProviderKeys
+            },
+        ],
     }),
 
+    urlToAction(({ actions, values }) => ({
+        [urls.llmAnalyticsEvaluations()]: (_, searchParams) => {
+            if (searchParams.tab === 'settings') {
+                router.actions.replace(urls.settings('environment-llm-analytics', 'llm-analytics-byok'))
+                return
+            }
+
+            const dateFrom = (searchParams.date_from as string | null) || INITIAL_DATE_FROM
+            const dateTo = (searchParams.date_to as string | null) || INITIAL_DATE_TO
+
+            if (dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo) {
+                actions.setDates(dateFrom, dateTo)
+            }
+        },
+    })),
+
+    actionToUrl(() => ({
+        setDates: ({ dateFrom, dateTo }) => [
+            urls.llmAnalyticsEvaluations(),
+            {
+                ...router.values.searchParams,
+                date_from: dateFrom === INITIAL_DATE_FROM ? undefined : dateFrom || undefined,
+                date_to: dateTo || undefined,
+            },
+        ],
+    })),
+
     afterMount(({ actions }) => {
+        actions.loadProviderKeys()
         actions.loadEvaluations()
     }),
 ])

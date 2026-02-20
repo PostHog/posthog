@@ -63,23 +63,25 @@ class SCIMBaseView(APIView):
     def dispatch(self, request, *args, **kwargs):
         response = super().dispatch(request, *args, **kwargs)
 
+        drf_request = self.request
         log_data: dict = {
-            "method": request.method,
-            "path": request.path,
-            "idp": detect_identity_provider(request).value,
+            "method": drf_request.method,
+            "path": drf_request.path,
+            "idp": detect_identity_provider(drf_request).value,
             "response_status": response.status_code,
         }
 
-        if hasattr(request, "auth") and request.auth:
-            organization_domain = cast(OrganizationDomain, request.auth)
+        if drf_request.auth:
+            organization_domain = cast(OrganizationDomain, drf_request.auth)
             log_data["organization_domain"] = organization_domain.domain
 
-        if request.method in ("POST", "PUT", "PATCH"):
-            payload = getattr(request, "data", None)
-            if payload:
+        if drf_request.method in ("POST", "PUT", "PATCH"):
+            payload = drf_request.data
+            if payload is not None:
                 log_data["payload"] = mask_scim_payload(payload)
-        if request.GET.get("filter"):
-            log_data["filter"] = mask_scim_filter(request.GET.get("filter"))
+        filter_param = drf_request.GET.get("filter")
+        if filter_param:
+            log_data["filter"] = mask_scim_filter(filter_param)
 
         logger.info("scim_request", **log_data)
 

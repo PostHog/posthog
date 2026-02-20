@@ -9,6 +9,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { formatCurrency } from 'lib/utils/geography/currency'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { groupLogic } from 'scenes/groups/groupLogic'
@@ -28,6 +29,11 @@ import { calculateMRRData, getPaidProducts } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes>): JSX.Element => {
     const { id, groupTypeIndex, tabId, title } = attributes
+    const mountedGroupLogic = groupLogic({
+        groupKey: id,
+        groupTypeIndex,
+        tabId,
+    })
     const {
         groupData,
         groupDataLoading,
@@ -35,14 +41,10 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes
         groupRevenueAnalyticsDataLoading,
         effectiveMRR,
         effectiveLifetimeValue,
-    } = useValues(
-        groupLogic({
-            groupKey: id,
-            groupTypeIndex,
-            tabId,
-        })
-    )
+    } = useValues(mountedGroupLogic)
     const { setActions, insertAfter, setTitlePlaceholder } = useActions(notebookNodeLogic)
+    const { notebookLogic } = useValues(notebookNodeLogic)
+    useAttachedLogic(mountedGroupLogic, notebookLogic)
 
     const groupDisplay = groupData ? groupDisplayId(groupData.group_key, groupData.group_properties) : 'Group'
     const inGroupFeed = title === 'Info'

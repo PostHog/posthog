@@ -11,7 +11,7 @@ import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { revenueAnalyticsLogic } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
 
-import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../constants'
+import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID, CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
 import { InsightDefinition, customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import { buildDashboardItemId, isPageviewWithoutFilters } from '../../utils'
 import { CustomerAnalyticsQueryCard } from '../CustomerAnalyticsQueryCard'
@@ -53,7 +53,8 @@ export function ActiveUsersInsights(): JSX.Element {
 }
 
 function PowerUsersTable(): JSX.Element {
-    const { businessType, customerLabel, dauSeries, selectedGroupType, tabId } = useValues(customerAnalyticsSceneLogic)
+    const { businessType, customerLabel, dauSeries, selectedGroupType, tabId, filterTestAccounts } =
+        useValues(customerAnalyticsSceneLogic)
     const { isRevenueAnalyticsEnabled, baseCurrency } = useValues(revenueAnalyticsLogic)
     const revenueFieldsEnabled = useFeatureFlag('REVENUE_FIELDS_IN_POWER_USERS_TABLE')
     const uniqueKey = `power-users-${tabId}`
@@ -88,12 +89,14 @@ function PowerUsersTable(): JSX.Element {
                     trendsFilter: {
                         display: ChartDisplayType.ActionsTable,
                     },
+                    filterTestAccounts,
                     ...(isB2c ? {} : { aggregation_group_type_index: selectedGroupType }),
                 },
                 series: 0,
             },
             orderBy: ['event_count DESC'],
             limit: 10,
+            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
         },
     }
 

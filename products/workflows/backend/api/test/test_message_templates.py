@@ -71,3 +71,40 @@ class TestMessageTemplatesAPI(APIBaseTest):
             f"/api/environments/{self.team.id}/messaging_templates/{self.message_template.id}/"
         )
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+
+    def test_create_email_template_without_subject_fails(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/messaging_templates/",
+            data={
+                "name": "No Subject Template",
+                "content": {"email": {"html": "<p>Hello</p>"}},
+                "type": "email",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_email_template_with_subject_succeeds(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/messaging_templates/",
+            data={
+                "name": "Valid Template",
+                "content": {"email": {"subject": "Hello", "html": "<p>Hello</p>"}},
+                "type": "email",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["name"] == "Valid Template"
+        assert response.json()["content"]["email"]["subject"] == "Hello"
+
+    def test_create_email_template_without_email_content_succeeds(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/messaging_templates/",
+            data={
+                "name": "No Email Content",
+                "type": "email",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED

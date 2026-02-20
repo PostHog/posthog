@@ -114,12 +114,13 @@ class Task(DeletedMetaFields, models.Model):
         max_task_number = Task.objects.filter(team=self.team).aggregate(models.Max("task_number"))["task_number__max"]
         self.task_number = (max_task_number if max_task_number is not None else -1) + 1
 
-    def create_run(self, environment: Optional["TaskRun.Environment"] = None) -> "TaskRun":
+    def create_run(self, environment: Optional["TaskRun.Environment"] = None, mode: str = "background") -> "TaskRun":
         return TaskRun.objects.create(
             task=self,
             team=self.team,
             status=TaskRun.Status.QUEUED,
             environment=environment or TaskRun.Environment.CLOUD,
+            state={"mode": mode},
         )
 
     def soft_delete(self):
@@ -140,6 +141,7 @@ class Task(DeletedMetaFields, models.Model):
         user_id: int,  # Will be used to validate the tasks feature flag and create a personal api key for interacting with PostHog.
         repository: str,  # Format: "organization/repository", e.g. "posthog/posthog-js"
         create_pr: bool = True,
+        mode: str = "background",
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -163,7 +165,7 @@ class Task(DeletedMetaFields, models.Model):
             repository=repository,
         )
 
-        task_run = task.create_run()
+        task_run = task.create_run(mode=mode)
 
         execute_task_processing_workflow(
             task_id=str(task.id),
@@ -195,7 +197,10 @@ class TaskRun(models.Model):
 
     branch = models.CharField(max_length=255, blank=True, null=True, help_text="Branch name for the run")
     environment = models.CharField(
-        max_length=10, choices=Environment.choices, default=Environment.CLOUD, help_text="Execution environment"
+        max_length=10,
+        choices=Environment.choices,
+        default=Environment.CLOUD,
+        help_text="Execution environment",
     )
 
     # Stage tracking
@@ -243,6 +248,11 @@ class TaskRun(models.Model):
         return f"Run for {self.task.title} - {self.get_status_display()}"
 
     @property
+    def mode(self) -> str:
+        """Get the execution mode from state. Defaults to 'background'."""
+        return (self.state or {}).get("mode", "background")
+
+    @property
     def log_url(self) -> str:
         """Generate S3 path for this run's logs"""
         tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
@@ -253,8 +263,24 @@ class TaskRun(models.Model):
         tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
         return f"{tasks_folder}/artifacts/team_{self.team_id}/task_{self.task_id}/run_{self.id}"
 
+    @staticmethod
+    def _is_agent_message_chunk(entry: dict) -> bool:
+        """Check if an entry is an agent_message_chunk event."""
+        notification = entry.get("notification", {})
+        if not isinstance(notification, dict):
+            return False
+        if notification.get("method") != "session/update":
+            return False
+        params = notification.get("params", {})
+        update = params.get("update", {}) if isinstance(params, dict) else {}
+        return update.get("sessionUpdate") == "agent_message_chunk" if isinstance(update, dict) else False
+
     def append_log(self, entries: list[dict]):
         """Append log entries to S3 storage."""
+        entries = [e for e in entries if not self._is_agent_message_chunk(e)]
+        if not entries:
+            return
+
         existing_content = object_storage.read(self.log_url, missing_ok=True) or ""
         is_new_file = not existing_content
 
@@ -349,7 +375,10 @@ class SandboxSnapshot(UUIDModel):
     )
 
     external_id = models.CharField(
-        max_length=255, blank=True, help_text="Snapshot ID from external provider.", unique=True
+        max_length=255,
+        blank=True,
+        help_text="Snapshot ID from external provider.",
+        unique=True,
     )
 
     repos = ArrayField(

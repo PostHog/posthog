@@ -1,4 +1,4 @@
-from .a1_export_session_video import export_session_video_activity
+from .a1_prep_session_video_asset import prep_session_video_asset_activity
 from .a2_upload_video_to_gemini import upload_video_to_gemini_activity
 from .a3_analyze_video_segment import analyze_video_segment_activity
 from .a4_consolidate_video_segments import consolidate_video_segments_activity
@@ -8,7 +8,7 @@ from .capture_timing import CaptureTimingInputs, capture_timing_activity
 
 __all__ = [
     "CaptureTimingInputs",
-    "export_session_video_activity",
+    "prep_session_video_asset_activity",
     "upload_video_to_gemini_activity",
     "analyze_video_segment_activity",
     "consolidate_video_segments_activity",

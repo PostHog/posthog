@@ -1,9 +1,18 @@
+from typing import Any
+
 import pytest
 from unittest.mock import MagicMock, patch
 
 from requests.exceptions import ConnectionError, Timeout
 
-from products.tasks.backend.services.modal_sandbox import SANDBOX_IMAGE, _get_sandbox_image_reference
+from products.tasks.backend.services.modal_sandbox import (
+    AGENT_SERVER_PORT,
+    SANDBOX_IMAGE,
+    ModalSandbox,
+    _get_sandbox_image_reference,
+)
+from products.tasks.backend.services.sandbox import AgentServerResult, ExecutionResult, SandboxConfig
+from products.tasks.backend.temporal.exceptions import SandboxExecutionError
 
 
 def _mock_token_response(status_code: int = 200, token: str | None = "test-token"):
@@ -112,3 +121,114 @@ class TestGetSandboxImageReferenceIntegration:
         digest_part = result.split("@")[1]
         assert digest_part.startswith("sha256:")
         assert len(digest_part) == 71  # "sha256:" + 64 hex chars
+
+
+class TestModalSandboxAgentServer:
+    @pytest.fixture
+    def mock_sandbox(self) -> Any:
+        mock_modal_sandbox = MagicMock()
+        mock_modal_sandbox.object_id = "test-sandbox-id"
+        mock_modal_sandbox.poll.return_value = None
+
+        mock_credentials = MagicMock()
+        mock_credentials.url = "https://test-sandbox.modal.run"
+        mock_credentials.token = "test-connect-token-abc123"
+        mock_modal_sandbox.create_connect_token.return_value = mock_credentials
+
+        config = SandboxConfig(name="test-sandbox")
+        with patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()):
+            return ModalSandbox(sandbox=mock_modal_sandbox, config=config)
+
+    def test_get_connect_credentials_success(self, mock_sandbox: Any):
+        result = mock_sandbox.get_connect_credentials()
+
+        assert isinstance(result, AgentServerResult)
+        assert result.url == "https://test-sandbox.modal.run"
+        assert result.token == "test-connect-token-abc123"
+        assert mock_sandbox.sandbox_url == "https://test-sandbox.modal.run"
+
+        mock_sandbox._sandbox.create_connect_token.assert_called_once_with()
+
+    def test_get_connect_credentials_raises_when_not_running(self, mock_sandbox: Any):
+        mock_sandbox._sandbox.poll.return_value = 0
+
+        with pytest.raises(RuntimeError, match="Sandbox not in running state"):
+            mock_sandbox.get_connect_credentials()
+
+    def test_start_agent_server_success(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(
+            side_effect=[
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="200", stderr="", exit_code=0, error=None),
+            ]
+        )
+
+        mock_sandbox.start_agent_server(
+            repository="posthog/posthog",
+            task_id="task-123",
+            run_id="run-456",
+            mode="background",
+        )
+
+        start_call = mock_sandbox.execute.call_args_list[0]
+        command = start_call[0][0]
+        assert f"--port {AGENT_SERVER_PORT}" in command
+        assert "--repositoryPath /tmp/workspace/repos/posthog/posthog" in command
+        assert "--taskId task-123" in command
+        assert "--runId run-456" in command
+        assert "--mode background" in command
+
+    def test_start_agent_server_raises_when_not_running(self, mock_sandbox: Any):
+        mock_sandbox._sandbox.poll.return_value = 0
+
+        with pytest.raises(RuntimeError, match="Sandbox not in running state"):
+            mock_sandbox.start_agent_server(
+                repository="posthog/posthog",
+                task_id="task-123",
+                run_id="run-456",
+            )
+
+    def test_start_agent_server_raises_on_start_failure(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout="", stderr="npx: command not found", exit_code=127, error=None)
+        )
+
+        with pytest.raises(SandboxExecutionError, match="Failed to start agent-server"):
+            mock_sandbox.start_agent_server(
+                repository="posthog/posthog",
+                task_id="task-123",
+                run_id="run-456",
+            )
+
+    def test_start_agent_server_raises_on_health_check_failure(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(
+            side_effect=[
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+            ]
+            + [ExecutionResult(stdout="502", stderr="", exit_code=0, error=None)] * 20
+            + [ExecutionResult(stdout="some log output", stderr="", exit_code=0, error=None)]
+        )
+
+        with patch("products.tasks.backend.services.modal_sandbox.time.sleep"):
+            with pytest.raises(SandboxExecutionError, match="Agent-server failed to start"):
+                mock_sandbox.start_agent_server(
+                    repository="posthog/posthog",
+                    task_id="task-123",
+                    run_id="run-456",
+                )
+
+    def test_wait_for_health_check_retries(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(
+            side_effect=[
+                ExecutionResult(stdout="502", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="502", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="200", stderr="", exit_code=0, error=None),
+            ]
+        )
+
+        with patch("products.tasks.backend.services.modal_sandbox.time.sleep") as mock_sleep:
+            result = mock_sandbox._wait_for_health_check()
+
+        assert result is True
+        assert mock_sandbox.execute.call_count == 3
+        assert mock_sleep.call_count == 2

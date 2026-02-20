@@ -18,11 +18,11 @@ import { InsightLogicProps, PropertyFilterType, PropertyMathType } from '~/types
 
 export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
-    colSpanClassName?: `md:col-span-${number}` | 'md:col-span-full'
+    colSpanClassName?: `@4xl/main-content:col-span-${number}` | '@4xl/main-content:col-span-full'
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
-    rowSpanClassName?: `md:row-span-${number}`
+    rowSpanClassName?: `@4xl/main-content:row-span-${number}`
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
-    orderWhenLargeClassName?: `xxl:order-${number}`
+    orderWhenLargeClassName?: `@7xl/main-content:order-${number}`
     className?: string
 }
 
@@ -318,6 +318,7 @@ export enum PathTab {
 
 export enum GeographyTab {
     MAP = 'MAP',
+    REGIONS_MAP = 'REGIONS_MAP',
     COUNTRIES = 'COUNTRIES',
     REGIONS = 'REGIONS',
     CITIES = 'CITIES',

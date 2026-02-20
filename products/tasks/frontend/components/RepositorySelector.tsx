@@ -6,6 +6,7 @@ import { LemonButton, LemonCard, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { integrationsLogicType } from 'lib/integrations/integrationsLogicType'
 
 import { repositorySelectorLogic } from './repositorySelectorLogic'
 
@@ -21,7 +22,7 @@ export interface RepositorySelectorProps {
 }
 
 export function RepositorySelector({ value, onChange }: RepositorySelectorProps): JSX.Element {
-    const { githubRepositoriesLoading } = useValues(integrationsLogic)
+    const { githubRepositoriesLoading } = useValues<integrationsLogicType>(integrationsLogic)
     const { availableRepos, githubIntegrations, integrationsLoading } = useValues(repositorySelectorLogic)
     const { setOnChangeCallback, setCurrentConfig } = useActions(repositorySelectorLogic)
 
