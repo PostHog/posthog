@@ -50,7 +50,7 @@ def fix_legacy_feature_flag_filters(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1014_increase_annotation_content_max_length"),
+        ("posthog", "1015_normalize_feature_flag_payloads_to_strings"),
     ]
 
     operations = [
