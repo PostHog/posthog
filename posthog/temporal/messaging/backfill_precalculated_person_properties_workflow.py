@@ -319,7 +319,7 @@ async def backfill_precalculated_person_properties_activity(
                                                 kafka_producer,
                                                 pending_kafka_messages,
                                                 inputs.team_id,
-                                                current_offset,
+                                                total_processed,
                                                 heartbeater,
                                                 logger,
                                             )
@@ -359,7 +359,7 @@ async def backfill_precalculated_person_properties_activity(
                 kafka_producer,
                 pending_kafka_messages,
                 inputs.team_id,
-                current_offset,
+                total_processed,
                 heartbeater,
                 logger,
                 is_final=True,
