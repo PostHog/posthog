@@ -1,7 +1,7 @@
 import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconBook, IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -21,6 +21,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { Endpoints } from './Endpoints'
 import { EndpointsUsage } from './EndpointsUsage'
+import { InsightPickerEndpointModal } from './InsightPickerEndpointModal'
 import { endpointsLogic } from './endpointsLogic'
 import { endpointsUsageLogic } from './endpointsUsageLogic'
 import { OverlayForNewEndpointMenu } from './newEndpointMenu'
@@ -80,7 +81,7 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                                                 placement: 'bottom-end',
                                                 className: 'new-endpoint-overlay',
                                                 actionable: true,
-                                                overlay: <OverlayForNewEndpointMenu dataAttr="new-endpoint-option" />,
+                                                overlay: <OverlayForNewEndpointMenu />,
                                             },
                                             'data-attr': 'new-endpoint-dropdown',
                                         }}
@@ -104,6 +105,19 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                                 like to see here and/or report any issues directly to us!
                             </p>
                         </LemonBanner>
+                        <LemonBanner
+                            type="success"
+                            dismissKey="endpoints-docs-upgrade-banner"
+                            action={{
+                                children: 'View docs',
+                                to: 'https://posthog.com/docs/endpoints',
+                                targetBlank: true,
+                            }}
+                            icon={<IconBook />}
+                        >
+                            We've leveled up our endpoints documentation. Check out the new docs for detailed guides and
+                            examples.
+                        </LemonBanner>
                         <ProductIntroduction
                             productName="endpoints"
                             productKey={ProductKey.ENDPOINTS}
@@ -119,6 +133,7 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                             action={() => router.actions.push(urls.sqlEditor({ outputTab: OutputTab.Endpoint }))}
                         />
                         <LemonTabs activeKey={activeTab} data-attr="endpoints-tabs" tabs={tabs} sceneInset />
+                        <InsightPickerEndpointModal tabId={tabId || ''} />
                     </SceneContent>
                 </BindLogic>
             </BindLogic>

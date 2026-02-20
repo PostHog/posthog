@@ -82,6 +82,28 @@ async function waitForPageReady(page, urlToRender, waitForCssSelector) {
     }
 }
 
+// Verify the recording rendered properly by checking inactivity periods availability
+// This data is set by the frontend useEffect as soon as segments load, before playback starts
+// If the page failed to render (e.g., server error), this data will never be set
+async function verifyInactivityPeriodsAvailable(page) {
+    log('Verifying inactivity periods are available...')
+    try {
+        await page.waitForFunction(
+            () => {
+                const periods = window.__POSTHOG_INACTIVITY_PERIODS__
+                return Array.isArray(periods) && periods.length > 0
+            },
+            { timeout: 20000 }
+        )
+        log('Inactivity periods verified')
+    } catch (e) {
+        throw new Error(
+            'Inactivity periods were not available within 20s after page load. ' +
+                'The session recording may not have rendered properly.'
+        )
+    }
+}
+
 // Wait for recording to complete while tracking segments to get real-world video timestamps
 async function waitForRecordingWithSegments(page, maxWaitMs, playbackStarted) {
     const segmentStartTimestamps = {}
@@ -286,6 +308,7 @@ async function main() {
         await waitForPageReady(page, urlWithSpeed, waitForCssSelector)
         const readyAt = Date.now()
         await new Promise((r) => setTimeout(r, 500))
+        await verifyInactivityPeriodsAvailable(page)
         // Wait for recording to complete while tracking segments, with buffer for rendering
         const maxWaitMs = Math.floor((recordingDuration / playbackSpeed) * 1000) + RECORDING_BUFFER_SECONDS * 1000
         const segmentStartTimestamps = await waitForRecordingWithSegments(page, maxWaitMs, readyAt)
@@ -353,6 +376,7 @@ module.exports = {
     scaleDimensionsIfNeeded,
     setupUrlForPlaybackSpeed,
     waitForPageReady,
+    verifyInactivityPeriodsAvailable,
     waitForRecordingWithSegments,
     detectInactivityPeriods,
     // Constants

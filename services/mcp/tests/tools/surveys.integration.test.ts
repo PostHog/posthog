@@ -744,7 +744,7 @@ describe('Surveys', { concurrent: false }, () => {
                                     type: 'person',
                                     key: 'plan',
                                     value: ['premium', 'enterprise'],
-                                    operator: 'in' as const,
+                                    operator: 'exact' as const,
                                 },
                             ],
                             rollout_percentage: 75,
@@ -927,7 +927,7 @@ describe('Surveys', { concurrent: false }, () => {
                                 {
                                     key: 'email',
                                     value: ['test@example.com'],
-                                    operator: 'in' as const,
+                                    operator: 'exact' as const,
                                     type: 'person',
                                 },
                             ],

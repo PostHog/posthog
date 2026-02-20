@@ -14,7 +14,16 @@ import {
     useMergeRefs,
 } from '@floating-ui/react'
 import clsx from 'clsx'
-import React, { MouseEventHandler, ReactElement, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import React, {
+    MouseEventHandler,
+    ReactElement,
+    useCallback,
+    useContext,
+    useEffect,
+    useLayoutEffect,
+    useRef,
+    useState,
+} from 'react'
 import { CSSTransition } from 'react-transition-group'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -223,11 +232,14 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         [visible]
     )
 
+    const additionalRefsRef = useRef(additionalRefs)
+    additionalRefsRef.current = additionalRefs
+
     useEffect(() => {
         if (visible && referenceRef?.current && floatingElement) {
             return autoUpdate(referenceRef.current, floatingElement, update)
         }
-    }, [visible, placement, referenceRef?.current, floatingElement, ...additionalRefs]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [visible, placement, referenceRef?.current, floatingElement]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const floatingContainer = useFloatingContainer()
 
@@ -255,6 +267,17 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     }
 
     const clonedChildren = children ? React.cloneElement(children as ReactElement, { ref: mergedReferenceRef }) : null
+
+    const floatingCallbackRef = useCallback(
+        (el: HTMLDivElement | null) => {
+            setFloatingElement(el)
+            floatingRef.current = el
+            if (extraFloatingRef) {
+                extraFloatingRef.current = el
+            }
+        },
+        [setFloatingElement, floatingRef, extraFloatingRef]
+    )
 
     const isAttached = clonedChildren || referenceElement
     const top = isAttached ? (y ?? 0) : undefined
@@ -292,13 +315,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                         className
                                     )}
                                     data-placement={effectivePlacement}
-                                    ref={(el) => {
-                                        setFloatingElement(el)
-                                        floatingRef.current = el
-                                        if (extraFloatingRef) {
-                                            extraFloatingRef.current = el
-                                        }
-                                    }}
+                                    ref={floatingCallbackRef}
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{
                                         display: middlewareData.hide?.referenceHidden ? 'none' : undefined,

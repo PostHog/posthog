@@ -174,7 +174,7 @@ WithExpandableRows.args = {
     expandable: {
         rowExpandable: (record) => record.occupation !== 'Retired',
         expandedRowRender: function RenderCow() {
-            return <img src="https://c.tenor.com/WAFH6TX2VIYAAAAC/polish-cow.gif" />
+            return <img src="https://c.tenor.com/WAFH6TX2VIYAAAAC/polish-cow.gif" alt="Dancing cow" />
         },
     },
 }

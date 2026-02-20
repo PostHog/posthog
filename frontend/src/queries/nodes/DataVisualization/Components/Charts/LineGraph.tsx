@@ -138,7 +138,7 @@ export const LineGraph = ({
         if (!isShiftPressed) {
             setHoveredDatasetIndex(null)
         }
-    }, [isShiftPressed])
+    }, [isShiftPressed, setHoveredDatasetIndex])
 
     const isBarChart =
         visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar
@@ -407,6 +407,13 @@ export const LineGraph = ({
                                 const filteredSeriesData = isHighlightBarMode
                                     ? ySeriesData.filter((_, index) => index === referenceDataPoint.datasetIndex)
                                     : ySeriesData
+                                const stackedSeriesTotalAtIndex =
+                                    isStackedBarChart && chartSettings.stackBars100
+                                        ? ySeriesData.reduce(
+                                              (acc, series) => acc + series.data[referenceDataPoint.dataIndex],
+                                              0
+                                          )
+                                        : null
 
                                 const tooltipData = filteredSeriesData.map((series, index) => {
                                     const seriesName =
@@ -423,6 +430,7 @@ export const LineGraph = ({
                                         dataIndex: referenceDataPoint.dataIndex,
                                         isTotalRow: false,
                                         seriesIndex: seriesIndex,
+                                        stackedSeriesTotalAtIndex,
                                     }
                                 })
 
@@ -441,13 +449,16 @@ export const LineGraph = ({
                                         return acc
                                     }, 0)
 
+                                    const firstSeriesSettings = tooltipTotalData[0]?.settings
+
                                     tooltipData.push({
                                         series: '',
-                                        data: totalRawData.toLocaleString(),
+                                        data: formatDataWithSettings(totalRawData, firstSeriesSettings),
                                         rawData: totalRawData,
                                         dataIndex: referenceDataPoint.dataIndex,
                                         isTotalRow: true,
                                         seriesIndex: -1,
+                                        stackedSeriesTotalAtIndex,
                                     })
                                 }
 
@@ -487,9 +498,14 @@ export const LineGraph = ({
                                                     dataIndex: 'data',
                                                     render: (value, record) => {
                                                         if (isStackedBarChart && chartSettings.stackBars100) {
-                                                            const total = ySeriesData
-                                                                .map((n) => n.data[record.dataIndex])
-                                                                .reduce((acc, cur) => acc + cur, 0)
+                                                            const total = record.stackedSeriesTotalAtIndex
+                                                            if (!total) {
+                                                                return (
+                                                                    <div className="series-data-cell">
+                                                                        {String(value)}
+                                                                    </div>
+                                                                )
+                                                            }
                                                             const percentageLabel: number = parseFloat(
                                                                 ((record.rawData / total) * 100).toFixed(1)
                                                             )

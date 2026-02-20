@@ -18,6 +18,7 @@ import {
     ExperimentMetricSource,
     ExperimentMetricType,
     ExperimentTrendsQuery,
+    GroupNode,
     NodeKind,
     TrendsQuery,
     isExperimentFunnelMetric,
@@ -44,6 +45,15 @@ import {
 } from '~/types'
 
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
+import { EXPERIMENT_VARIANT_MULTIPLE } from './constants'
+
+const MULTIPLE_VARIANT_WARNING_THRESHOLD = 0.5
+
+export function filterLowMultipleVariant<T extends { variant: string; percentage: number }>(variants: T[]): T[] {
+    return variants.filter(
+        (v) => v.variant !== EXPERIMENT_VARIANT_MULTIPLE || v.percentage > MULTIPLE_VARIANT_WARNING_THRESHOLD
+    )
+}
 
 export function isEventExposureConfig(config: ExperimentExposureConfig): config is ExperimentEventExposureConfig {
     return config.kind === NodeKind.ExperimentEventExposureConfig || 'event' in config
@@ -60,6 +70,12 @@ export function getVariantColor(variantKey: string, featureFlagVariants: Multiva
 
 export function formatUnitByQuantity(value: number, unit: string): string {
     return value === 1 ? unit : unit + 's'
+}
+
+export function ensureIsPercent(value: string | number | undefined): number {
+    const parsedNum = typeof value === 'string' ? parseInt(value, 10) : (value ?? 0)
+    const num = isNaN(parsedNum) ? 0 : parsedNum
+    return Math.min(100, Math.max(0, num))
 }
 
 export function percentageDistribution(variantCount: number): number[] {
@@ -96,7 +112,7 @@ export function transformFiltersForWinningVariant(
             {
                 properties: [],
                 rollout_percentage: 100,
-                description: 'Added automatically when the experiment variant was shipped',
+                description: 'Added automatically when the experiment was ended to keep only one variant.',
             },
             // Preserve existing groups so that users can roll back this action
             // by deleting the newly added release condition
@@ -106,7 +122,7 @@ export function transformFiltersForWinningVariant(
 }
 
 function seriesToFilterLegacy(
-    series: AnyEntityNode,
+    series: AnyEntityNode | GroupNode,
     featureFlagKey: string,
     variantKey: string
 ): UniversalFiltersGroupValue | null {
@@ -868,7 +884,7 @@ export function initializeMetricOrdering(experiment: Experiment): Experiment {
  * Maps metrics to their results and errors in the correct display order
  * This handles the complex logic of:
  * 1. Mapping results by index to original metrics array (including shared metrics)
- * 2. Enriching shared metrics with metadata
+ * 2. Enriching shared metrics with metadata, including breakdowns
  * 3. Reordering everything according to the ordered UUIDs
  */
 export function getOrderedMetricsWithResults(
@@ -883,6 +899,7 @@ export function getOrderedMetricsWithResults(
     result: any
     error: any
     displayIndex: number
+    metricIndex: number
 }> {
     const metricType = isSecondary ? 'secondary' : 'primary'
     const results = isSecondary ? secondaryMetricsResults : primaryMetricsResults
@@ -900,6 +917,11 @@ export function getOrderedMetricsWithResults(
             name: sharedMetric.name,
             sharedMetricId: sharedMetric.saved_metric,
             isSharedMetric: true,
+            // Merge breakdowns from metadata into breakdownFilter
+            breakdownFilter: {
+                ...sharedMetric.query?.breakdownFilter,
+                breakdowns: sharedMetric.metadata?.breakdowns || [],
+            },
         })) as ExperimentMetric[]
 
     const allMetrics = [...regularMetrics, ...enrichedSharedMetrics]
@@ -908,6 +930,7 @@ export function getOrderedMetricsWithResults(
     const resultsMap = new Map()
     const errorsMap = new Map()
     const metricsMap = new Map()
+    const originalIndexMap = new Map()
 
     allMetrics.forEach((metric: any, index) => {
         const uuid = metric.uuid || metric.query?.uuid
@@ -915,6 +938,7 @@ export function getOrderedMetricsWithResults(
             resultsMap.set(uuid, results[index])
             errorsMap.set(uuid, errors[index])
             metricsMap.set(uuid, metric)
+            originalIndexMap.set(uuid, index) // Track original position for retry
         }
     })
 
@@ -931,5 +955,6 @@ export function getOrderedMetricsWithResults(
             result: resultsMap.get(metric.uuid),
             error: errorsMap.get(metric.uuid),
             displayIndex: index,
+            metricIndex: originalIndexMap.get(metric.uuid) ?? index, // Original position for retry
         }))
 }

@@ -98,23 +98,22 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
 
     # Skip all onboarding tasks if requested (prevents Quick Start popover in tests)
     if data.skip_onboarding:
-        # Mark all common onboarding tasks as skipped
         team.onboarding_tasks = {
-            "ingest_first_event": "skipped",
-            "set_up_reverse_proxy": "skipped",
-            "create_first_insight": "skipped",
-            "create_first_dashboard": "skipped",
-            "track_custom_events": "skipped",
-            "define_actions": "skipped",
-            "set_up_cohorts": "skipped",
-            "explore_trends_insight": "skipped",
-            "create_funnel": "skipped",
-            "explore_retention_insight": "skipped",
-            "explore_paths_insight": "skipped",
-            "explore_stickiness_insight": "skipped",
-            "explore_lifecycle_insight": "skipped",
-            "setup_session_recordings": "skipped",
-            "watch_session_recording": "skipped",
+            "ingest_first_event": "completed",
+            "set_up_reverse_proxy": "completed",
+            "create_first_insight": "completed",
+            "create_first_dashboard": "completed",
+            "track_custom_events": "completed",
+            "define_actions": "completed",
+            "set_up_cohorts": "completed",
+            "explore_trends_insight": "completed",
+            "create_funnel": "completed",
+            "explore_retention_insight": "completed",
+            "explore_paths_insight": "completed",
+            "explore_stickiness_insight": "completed",
+            "explore_lifecycle_insight": "completed",
+            "setup_session_recordings": "completed",
+            "watch_session_recording": "completed",
         }
         team.save()
 

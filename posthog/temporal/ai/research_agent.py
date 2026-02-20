@@ -44,6 +44,7 @@ class ResearchAgentWorkflowInputs:
     session_id: Optional[str] = None
     billing_context: Optional[MaxBillingContext] = None
     is_agent_billable: bool = True
+    is_impersonated: bool = False
     resume_payload: Optional[dict[str, Any]] = None
 
 
@@ -100,6 +101,7 @@ async def process_research_agent_activity(inputs: ResearchAgentWorkflowInputs) -
         session_id=inputs.session_id,
         billing_context=inputs.billing_context,
         is_agent_billable=inputs.is_agent_billable,
+        is_impersonated=inputs.is_impersonated,
         resume_payload=inputs.resume_payload,
     )
 

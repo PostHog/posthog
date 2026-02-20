@@ -16,7 +16,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.errors import look_up_error_code_meta
+from posthog.errors import look_up_clickhouse_error_code_meta
 from posthog.exceptions_capture import capture_exception
 
 from products.data_warehouse.backend.models import DataWarehouseJoin
@@ -117,7 +117,11 @@ class ViewLinkSerializer(serializers.ModelSerializer, ViewLinkValidationMixin):
 
         self._validate_join_key(source_table_key, source_table, self.context["team_id"])
         self._validate_join_key(joining_table_key, joining_table, self.context["team_id"])
-        self._validate_key_uniqueness(field_name=field_name, table_name=source_table, team_id=self.context["team_id"])
+        self._validate_key_uniqueness(
+            field_name=field_name,
+            table_name=source_table,
+            team_id=self.context["team_id"],
+        )
 
         view_link = DataWarehouseJoin.objects.create(**validated_data)
 
@@ -226,7 +230,9 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             query_response = execute_hogql_query(
-                query=validation_query, team=self.team, context=HogQLContext(database=database)
+                query=validation_query,
+                team=self.team,
+                context=HogQLContext(database=database),
             )
             response_data["hogql"] = query_response.hogql
             response_data["results"] = query_response.results
@@ -245,7 +251,7 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status_code = status.HTTP_500_INTERNAL_SERVER_ERROR  # type: ignore[assignment]
             response_data["is_valid"] = False
 
-            is_safe = look_up_error_code_meta(e).user_safe
+            is_safe = look_up_clickhouse_error_code_meta(e).user_safe
             if is_safe:
                 response_data["detail"] = str(e)
         except QueryError as e:

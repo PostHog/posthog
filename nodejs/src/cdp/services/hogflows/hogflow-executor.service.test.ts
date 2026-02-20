@@ -1315,6 +1315,208 @@ describe('Hogflow Executor', () => {
         })
     })
 
+    describe('output variable mapping', () => {
+        let hogFlowBuilder: (outputVariable: any) => Promise<HogFlow>
+
+        beforeEach(async () => {
+            const nameBytecode = await compileHog(`return 'Test'`)
+            hogFlowBuilder = (outputVariable: any) => {
+                return Promise.resolve(
+                    new FixtureHogFlowBuilder()
+                        .withWorkflow({
+                            actions: {
+                                trigger: {
+                                    type: 'trigger',
+                                    config: {
+                                        type: 'event',
+                                        filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                                    },
+                                },
+                                action_1: {
+                                    type: 'function',
+                                    config: {
+                                        template_id: 'template-test-hogflow-executor',
+                                        inputs: {
+                                            name: {
+                                                value: 'Test',
+                                                bytecode: nameBytecode,
+                                            },
+                                        },
+                                    },
+                                    output_variable: outputVariable,
+                                } as any,
+                                exit: {
+                                    type: 'exit',
+                                    config: {},
+                                },
+                            },
+                            edges: [
+                                { from: 'trigger', to: 'action_1', type: 'continue' },
+                                { from: 'action_1', to: 'exit', type: 'continue' },
+                            ],
+                        })
+                        .build()
+                )
+            }
+        })
+
+        const executeToCompletion = async (hogFlow: HogFlow) => {
+            const invocation = createExampleHogFlowInvocation(hogFlow, {
+                event: {
+                    ...createHogExecutionGlobals().event,
+                    properties: { name: 'Test' },
+                },
+            })
+            let result = await executor.execute(invocation)
+            while (!result.finished) {
+                result = await executor.execute(result.invocation)
+            }
+            return result
+        }
+
+        it('stores full result in variable with single object output_variable', async () => {
+            const hogFlow = await hogFlowBuilder({ key: 'response', result_path: null })
+            const result = await executeToCompletion(hogFlow)
+
+            expect(result.invocation.state.variables?.response).toBeDefined()
+            expect(result.invocation.state.variables?.response).toHaveProperty('status', 200)
+        })
+
+        it('stores extracted value via result_path', async () => {
+            const hogFlow = await hogFlowBuilder({ key: 'http_status', result_path: 'status' })
+            const result = await executeToCompletion(hogFlow)
+
+            expect(result.invocation.state.variables).toEqual({ http_status: 200 })
+        })
+
+        it('stores multiple variables from array output_variable', async () => {
+            const hogFlow = await hogFlowBuilder([
+                { key: 'http_status', result_path: 'status' },
+                { key: 'response_body', result_path: 'body' },
+            ])
+            const result = await executeToCompletion(hogFlow)
+
+            expect(result.invocation.state.variables?.http_status).toBe(200)
+            expect(result.invocation.state.variables?.response_body).toBeDefined()
+        })
+
+        it('spreads object result into prefixed variables', async () => {
+            const hogFlow = await hogFlowBuilder({ key: 'resp', result_path: 'body', spread: true })
+            const result = await executeToCompletion(hogFlow)
+
+            // body is { status: 200 } so spread should create resp_status
+            expect(result.invocation.state.variables?.resp_status).toBe(200)
+        })
+
+        it('skips entries with empty key in array form', async () => {
+            const hogFlow = await hogFlowBuilder([
+                { key: '', result_path: 'status' },
+                { key: 'http_status', result_path: 'status' },
+            ])
+            const result = await executeToCompletion(hogFlow)
+
+            expect(result.invocation.state.variables).toEqual({ http_status: 200 })
+        })
+
+        it('does nothing when output_variable is undefined', async () => {
+            const hogFlow = await hogFlowBuilder(undefined)
+            const result = await executeToCompletion(hogFlow)
+
+            expect(result.invocation.state.variables).toBeUndefined()
+        })
+
+        it('errors and exits when total variable size exceeds 5KB with on_error=abort', async () => {
+            const hogFlow = await hogFlowBuilder({ key: 'response', result_path: null })
+            // Set action to abort on error
+            const action = hogFlow.actions.find((a) => a.id === 'action_1')!
+            action.on_error = 'abort'
+
+            const invocation = createExampleHogFlowInvocation(hogFlow, {
+                event: {
+                    ...createHogExecutionGlobals().event,
+                    properties: { name: 'Test' },
+                },
+            })
+            invocation.state.variables = { existing: 'x'.repeat(5100) }
+
+            let result = await executor.execute(invocation)
+            while (!result.finished) {
+                result = await executor.execute(result.invocation)
+            }
+
+            expect(result.error).toContain('exceeds 5KB limit')
+            expect(result.invocation.state.variables?.response).toBeUndefined()
+            expect(result.invocation.state.variables?.existing).toBe('x'.repeat(5100))
+        })
+
+        it('errors but continues when total variable size exceeds 5KB with on_error=continue', async () => {
+            const hogFlow = await hogFlowBuilder({ key: 'response', result_path: null })
+            const invocation = createExampleHogFlowInvocation(hogFlow, {
+                event: {
+                    ...createHogExecutionGlobals().event,
+                    properties: { name: 'Test' },
+                },
+            })
+            invocation.state.variables = { existing: 'x'.repeat(5100) }
+
+            let result = await executor.execute(invocation)
+            while (!result.finished) {
+                result = await executor.execute(result.invocation)
+            }
+
+            // on_error=continue (default), so workflow finishes but variables are cleaned up
+            expect(result.finished).toBe(true)
+            expect(result.invocation.state.variables?.response).toBeUndefined()
+            expect(result.invocation.state.variables?.existing).toBe('x'.repeat(5100))
+            expect(result.logs.some((l) => l.message.includes('exceeds 5KB limit'))).toBe(true)
+        })
+
+        it('warns when output variable specified but no result returned', async () => {
+            // Use a template that doesn't do a fetch (no result)
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-no-result',
+                name: 'No result template',
+                code: `print('no result')`,
+                inputs_schema: [],
+            })
+
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: {
+                                type: 'event',
+                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                            },
+                        },
+                        action_1: {
+                            type: 'function',
+                            config: {
+                                template_id: 'template-no-result',
+                                inputs: {},
+                            },
+                            output_variable: { key: 'my_var', result_path: null },
+                        } as any,
+                        exit: {
+                            type: 'exit',
+                            config: {},
+                        },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'action_1', type: 'continue' },
+                        { from: 'action_1', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+
+            const result = await executeToCompletion(hogFlow)
+
+            // No variables should be set since no result was produced
+            expect(result.invocation.state.variables).toBeUndefined()
+        })
+    })
+
     describe('billing metrics', () => {
         const createHogFlow = (flow: SimpleHogFlowRepresentation): HogFlow => {
             return new FixtureHogFlowBuilder()

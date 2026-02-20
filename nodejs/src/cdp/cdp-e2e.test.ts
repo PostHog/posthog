@@ -21,6 +21,7 @@ import {
     insertIntegration,
 } from './_tests/fixtures'
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
+import { cdpSeekLatencyMs, cdpSeekResult } from './services/job-queue/job-queue-kafka'
 import { compileHog } from './templates/compiler'
 
 const ActualKafkaProducerWrapper = jest.requireActual('../../src/kafka/producer').KafkaProducerWrapper
@@ -116,6 +117,9 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
             cyclotronWorkerKafka = new CdpCyclotronWorker({
                 ...hub,
                 CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
+                CDP_CYCLOTRON_TEST_SEEK_LATENCY: true,
+                CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE: 1.0, // Always sample for testing
+                CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: 1,
             })
             await cyclotronWorkerKafka.start()
 
@@ -316,5 +320,40 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 expect.stringContaining('HTTP fetch failed on attempt 2 with status code 500. Retrying in '),
             ])
         })
+
+        // Test seek latency functionality - only runs for kafka/hybrid modes where messages go through Kafka
+        if (mode === 'kafka' || mode === 'hybrid') {
+            it('should record seek latency metrics when enabled', async () => {
+                // Reset metrics before test
+                cdpSeekLatencyMs.reset()
+                cdpSeekResult.reset()
+
+                // Process first event to create offset 0
+                await eventsConsumer.processBatch([globals])
+                await waitForExpect(() => {
+                    expect(
+                        mockProducerObserver.getProducedKafkaMessagesForTopic('log_entries_test').length
+                    ).toBeGreaterThanOrEqual(2)
+                }, 5000)
+
+                // Process second event - this message will have offset >= 1, allowing seek back
+                await eventsConsumer.processBatch([globals])
+                await waitForExpect(() => {
+                    expect(
+                        mockProducerObserver.getProducedKafkaMessagesForTopic('log_entries_test').length
+                    ).toBeGreaterThanOrEqual(4)
+                }, 5000)
+
+                // Verify seek metrics were recorded
+                const resultMetric = await cdpSeekResult.get()
+                const latencyMetric = await cdpSeekLatencyMs.get()
+
+                // With offset >= 1, sample_rate = 1.0, and max_offset = 1, we must have seek metrics
+                expect(resultMetric.values.length).toBeGreaterThan(0)
+                const successCount = resultMetric.values.find((v) => v.labels.result === 'success')
+                expect(successCount?.value).toBeGreaterThanOrEqual(1)
+                expect(latencyMetric.values.length).toBeGreaterThan(0)
+            })
+        }
     })
 })

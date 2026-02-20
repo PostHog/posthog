@@ -353,6 +353,7 @@ export class HogFlowExecutorService {
 
                 if (handlerResult.result) {
                     this.trackActionResult(result, currentAction, handlerResult.result)
+                    result.execResult = handlerResult.result
                 }
 
                 if (handlerResult.finished) {
@@ -510,42 +511,80 @@ export class HogFlowExecutorService {
         action: HogFlowAction,
         actionResult: unknown
     ): void {
-        if (action.output_variable?.key) {
-            if (!actionResult) {
-                this.log(
-                    result,
-                    'warn',
-                    `An output variable was specified for [Action:${action.id}], but no output was returned.`
-                )
-                return
-            }
+        // Normalize output_variable to an array for uniform handling
+        const outputVars = Array.isArray(action.output_variable)
+            ? action.output_variable
+            : action.output_variable
+              ? [action.output_variable]
+              : []
 
-            if (!result.invocation.state.variables) {
-                result.invocation.state.variables = {}
-            }
+        if (outputVars.length === 0) {
+            return
+        }
 
-            result.invocation.state.variables[action.output_variable.key] = action.output_variable?.result_path
-                ? get(actionResult, action.output_variable.result_path)
-                : actionResult
-
-            // Check that result to be stored is below 1kb
-            const resultSize = Buffer.byteLength(JSON.stringify(result.invocation.state.variables), 'utf8')
-            if (resultSize > 1024) {
-                this.log(
-                    result,
-                    'warn',
-                    `Total variable size after updating '${action.output_variable.key}' is larger than 1KB, this result will not be stored and won't be available in subsequent actions.`
-                )
-                delete result.invocation.state.variables[action.output_variable.key]
-                return
-            }
-
+        if (!actionResult) {
             this.log(
                 result,
-                'debug',
-                `Stored action result in variable '${action.output_variable.key}': ${JSON.stringify(result.invocation.state.variables[action.output_variable.key])}`
+                'warn',
+                `An output variable was specified for [Action:${action.id}], but no output was returned.`
+            )
+            return
+        }
+
+        if (!result.invocation.state.variables) {
+            result.invocation.state.variables = {}
+        }
+
+        const allStoredKeys: string[] = []
+
+        for (const outputVar of outputVars) {
+            if (!outputVar.key) {
+                continue
+            }
+
+            const resolvedResult = outputVar.result_path ? get(actionResult, outputVar.result_path) : actionResult
+
+            // When spread is true, store each property of the result as a separate variable
+            if (
+                outputVar.spread &&
+                typeof resolvedResult === 'object' &&
+                resolvedResult !== null &&
+                !Array.isArray(resolvedResult)
+            ) {
+                const prefix = outputVar.key
+                for (const [prop, value] of Object.entries(resolvedResult)) {
+                    const spreadKey = `${prefix}_${prop}`
+                    result.invocation.state.variables[spreadKey] = value
+                    allStoredKeys.push(spreadKey)
+                }
+            } else {
+                result.invocation.state.variables[outputVar.key] = resolvedResult
+                allStoredKeys.push(outputVar.key)
+            }
+        }
+
+        // Check that total variables are below 5KB
+        const resultSize = Buffer.byteLength(JSON.stringify(result.invocation.state.variables), 'utf8')
+        if (resultSize > 5120) {
+            const keyNames = allStoredKeys.join(', ')
+            this.log(
+                result,
+                'error',
+                `Total variable size after updating '${keyNames}' exceeds 5KB limit. Use result_path to store only the fields you need.`
+            )
+            // Clean up all variables we just set
+            for (const key of allStoredKeys) {
+                delete result.invocation.state.variables[key]
+            }
+            throw new Error(
+                `Total variable size after updating '${keyNames}' exceeds 5KB limit. Use result_path to store only the fields you need.`
             )
         }
+
+        const storedSummary = allStoredKeys
+            .map((key) => `${key} = ${JSON.stringify(result.invocation.state.variables![key])}`)
+            .join(', ')
+        this.log(result, 'debug', `Stored action result in variable(s): ${storedSummary}`)
     }
 
     private logExecutionTriggerInfo(invocation: CyclotronJobInvocationHogFlow): MinimalLogEntry {

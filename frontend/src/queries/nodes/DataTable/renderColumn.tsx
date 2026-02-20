@@ -311,7 +311,7 @@ export function renderColumn(
                 : urls.personByUUID(value.id)
         }
 
-        if (isTracesQuery(query.source)) {
+        if (isTracesQuery(query.source) && value) {
             displayProps.person = value.distinct_id ? (value as LLMTracePerson) : value
             displayProps.noPopover = false // If we are in a traces list, the popover experience is better
         }
