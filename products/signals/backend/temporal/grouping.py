@@ -23,7 +23,7 @@ from posthog.schema import EmbeddingModelName
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.api.embedding_worker import emit_embedding_request, generate_embedding
+from posthog.api.embedding_worker import async_generate_embedding, emit_embedding_request
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
@@ -64,9 +64,7 @@ async def get_embedding_activity(input: GenerateEmbeddingInput) -> GenerateEmbed
     """Generate embedding for signal content using the embedding worker API."""
     try:
         team = await Team.objects.aget(pk=input.team_id)
-        response = await sync_to_async(generate_embedding, thread_sensitive=False)(
-            team, input.content, model=EMBEDDING_MODEL.value
-        )
+        response = await async_generate_embedding(team, input.content, model=EMBEDDING_MODEL.value)
         logger.debug(
             f"Generated embedding for team {input.team_id}",
             team_id=input.team_id,

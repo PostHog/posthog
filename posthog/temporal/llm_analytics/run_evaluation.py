@@ -17,6 +17,7 @@ from posthog.models.event.util import create_event
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.llm_analytics.emit_eval_signal import emit_eval_signal_activity
 from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
 from posthog.temporal.llm_analytics.metrics import (
     increment_errors,
@@ -663,6 +664,23 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             args=[evaluation, evaluation["team_id"], result],
             schedule_to_close_timeout=timedelta(seconds=30),
         )
+
+        # Activity 6: Emit signal when eval judge verdict is true (fire-and-forget)
+        if result.get("verdict") is True and result.get("reasoning"):
+            try:
+                await temporalio.workflow.execute_activity(
+                    emit_eval_signal_activity,
+                    args=[evaluation["team_id"], evaluation, inputs.event_data, result],
+                    schedule_to_close_timeout=timedelta(seconds=120),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+            except Exception:
+                # Don't fail the workflow if signal emission fails
+                temporalio.workflow.logger.exception(
+                    "Failed to emit eval signal",
+                    evaluation_id=evaluation["id"],
+                    team_id=evaluation["team_id"],
+                )
 
         return {
             "verdict": result["verdict"],

@@ -7,6 +7,7 @@ from posthog.models.utils import UUIDModel
 class SignalSourceConfig(UUIDModel):
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS = "session_analysis", "Session analysis"
+        LLM_EVAL = "llm_eval", "LLM evaluation"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_type = models.CharField(max_length=100, choices=SourceType.choices)
