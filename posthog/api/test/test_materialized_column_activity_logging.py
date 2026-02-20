@@ -6,8 +6,9 @@ from unittest.mock import MagicMock, patch
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import ActivityLog, MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
-from posthog.models.property_definition import PropertyType
 from posthog.temporal.backfill_materialized_property.activities import UpdateSlotStateInputs, update_slot_state
+
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 class TestMaterializedColumnActivityLogging(APIBaseTest):

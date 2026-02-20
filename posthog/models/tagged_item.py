@@ -49,14 +49,14 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
         related_name="tagged_items",
     )
     event_definition = models.ForeignKey(
-        "EventDefinition",
+        "event_definitions.EventDefinition",
         on_delete=models.CASCADE,
         null=True,
         blank=True,
         related_name="tagged_items",
     )
     property_definition = models.ForeignKey(
-        "PropertyDefinition",
+        "event_definitions.PropertyDefinition",
         on_delete=models.CASCADE,
         null=True,
         blank=True,

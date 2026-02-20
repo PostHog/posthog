@@ -17,7 +17,8 @@ from posthog.schema import CachedEventTaxonomyQueryResponse, EventTaxonomyQuery
 
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.models import Action, PropertyDefinition
-from posthog.models.property_definition import PropertyType
+
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 @override_settings(IN_UNIT_TESTING=True)

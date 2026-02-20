@@ -1,9 +1,9 @@
 from django.db import models
 from django.utils import timezone
 
-from posthog.models.event_definition import EventDefinition
-from posthog.models.team import Team
 from posthog.models.utils import UUIDTModel
+
+from .event_definition import EventDefinition
 
 
 class SchemaPropertyType(models.TextChoices):
@@ -23,18 +23,18 @@ class SchemaPropertyGroup(UUIDTModel):
     """
 
     team = models.ForeignKey(
-        Team,
+        "posthog.Team",
         on_delete=models.CASCADE,
         related_name="schema_property_groups",
         related_query_name="schema_property_group",
     )
-    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
+    project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True)
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(
-        "User",
+        "posthog.User",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -42,6 +42,7 @@ class SchemaPropertyGroup(UUIDTModel):
     )
 
     class Meta:
+        db_table = "posthog_schemapropertygroup"
         indexes = [
             models.Index(fields=["team", "name"], name="schema_pg_team_name_idx"),
         ]
@@ -76,6 +77,7 @@ class SchemaPropertyGroupProperty(UUIDTModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        db_table = "posthog_schemapropertygroupproperty"
         indexes = [
             models.Index(
                 fields=["property_group", "name"],
@@ -117,6 +119,7 @@ class EventSchema(UUIDTModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        db_table = "posthog_eventschema"
         constraints = [
             models.UniqueConstraint(
                 fields=["event_definition", "property_group"],
