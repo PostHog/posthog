@@ -13,7 +13,9 @@
             "public/*": ["public/*"],
             "products/*": ["../products/*"],
             // Needed to access the subpath since torph didn't set up types properly
-            "torph/react": ["node_modules/torph/dist/react/index"]
+            "torph/react": ["node_modules/torph/dist/react/index"],
+            // Needed while moduleResolution stays "node" and react-grid-layout publishes modern subpath types
+            "react-grid-layout/legacy": ["node_modules/react-grid-layout/dist/legacy"]
         },
         // https://www.sitepoint.com/react-with-typescript-best-practices/
         "allowJs": true, // Allow JavaScript files to be compiled

@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
-import { Responsive as ReactGridLayout } from 'react-grid-layout'
+import { Responsive as ReactGridLayout } from 'react-grid-layout/legacy'
 
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'

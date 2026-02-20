@@ -1,7 +1,7 @@
 import { LogicWrapper } from 'kea'
 import type { PostHog, PropertyMatchType, SupportedWebVitalsMetrics } from 'posthog-js'
 import { ReactNode } from 'react'
-import { Layout } from 'react-grid-layout'
+import { LayoutItem } from 'react-grid-layout'
 
 import { LemonTableColumns } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
@@ -2163,7 +2163,7 @@ export interface Cacheable {
     cache_target_age?: string | null
 }
 
-export interface TileLayout extends Omit<Layout, 'i'> {
+export interface TileLayout extends Omit<LayoutItem, 'i'> {
     i?: string // we use `i` in the front end but not in the API
 }
 
