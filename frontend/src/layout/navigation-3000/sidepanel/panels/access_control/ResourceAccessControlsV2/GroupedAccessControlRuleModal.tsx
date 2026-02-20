@@ -1,72 +1,161 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { useEffect } from 'react'
 
-import { IconHome, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonModal, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconHome, IconInfo, IconPlus } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonDropdown, LemonModal, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { toSentenceCase } from 'lib/utils'
 import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
 
 import { APIScopeObject, AccessControlLevel } from '~/types'
 
 import { ScopeIcon } from './ScopeIcon'
-import { AccessControlLevelMapping, GroupedAccessControlRulesForm, accessControlsLogic } from './accessControlsLogic'
-import { RuleModalState, ScopeType } from './types'
+import {
+    AccessControlLevelMapping,
+    GroupedAccessControlRulesForm,
+    accessControlsLogic,
+    getEntryId,
+} from './accessControlsLogic'
+import { getLevelOptionsForResource } from './helpers'
+import { AccessControlSettingsEntry, RuleModalState, ScopeType } from './types'
+
+type InheritedReason = 'project_default' | 'role_override' | 'organization_admin' | null | undefined
+
+function getInheritedReasonTooltip(reason: InheritedReason): string | undefined {
+    switch (reason) {
+        case 'project_default':
+            return 'Based on project default permissions'
+        case 'role_override':
+            return 'Based on role permissions'
+        default:
+            return undefined
+    }
+}
+
+function getMinLevelDisabledReason(
+    level: AccessControlLevel | null | undefined,
+    reason: InheritedReason,
+    resourceLabel?: string
+): string | undefined {
+    if (reason === 'organization_admin') {
+        return 'User is an organization admin'
+    }
+    if (level && level !== 'none') {
+        switch (reason) {
+            case 'project_default':
+                return `Project default is ${toSentenceCase(level)}`
+            case 'role_override':
+                return `User has a role with ${toSentenceCase(level)} access`
+        }
+    }
+    if (level && level !== 'none' && resourceLabel) {
+        return `Minimum level for ${resourceLabel} is ${toSentenceCase(level)}`
+    }
+    return undefined
+}
+
+function getProjectDisabledReason(entry: AccessControlSettingsEntry, canEdit: boolean): string | undefined {
+    if (!canEdit) {
+        return 'Cannot edit'
+    }
+    if (entry.project.inherited_access_level_reason === 'organization_admin') {
+        return 'User is an organization admin'
+    }
+    return undefined
+}
+
+function getFeaturesDisabledReason(
+    entry: AccessControlSettingsEntry,
+    canEdit: boolean,
+    loading: boolean
+): string | undefined {
+    if (loading) {
+        return 'Loading...'
+    }
+    if (!canEdit) {
+        return 'Cannot edit'
+    }
+    if (entry.project.inherited_access_level_reason === 'organization_admin') {
+        return 'User is an organization admin and has access to all features'
+    }
+    return undefined
+}
+
+function getGroupedAccessControlRuleModalTitle(scopeType: ScopeType): string {
+    switch (scopeType) {
+        case 'default':
+            return 'Update default access'
+        case 'role':
+            return 'Update role access'
+        case 'member':
+            return 'Update member access'
+    }
+}
 
 export function GroupedAccessControlRuleModal(props: {
     state: RuleModalState
     close: () => void
     onSave: (params: { scopeType: ScopeType; scopeId: string | null; levels: AccessControlLevelMapping[] }) => void
-    resources: { key: APIScopeObject; label: string }[]
-    getLevelOptionsForResource: (
-        resourceKey: APIScopeObject
-    ) => { value: AccessControlLevel; label: string; disabledReason?: string }[]
     loading: boolean
     projectId: string
     canEdit: boolean
-    memberIsOrgAdmin: boolean
-    memberHasAdminAccess: boolean
-    roleHasAdminAccess: boolean
 }): JSX.Element | null {
     const logic = accessControlsLogic({ projectId: props.projectId })
     const { groupedRulesForm } = useValues(logic)
     const { setGroupedRulesFormValues } = useActions(logic)
 
-    const editingRow = props.state.row
-    const scopeType: ScopeType =
-        editingRow.id === 'default' ? 'default' : editingRow.id.startsWith('role:') ? 'role' : 'member'
-    const scopeId = editingRow.role.id === 'default' ? null : editingRow.role.id
+    const { scopeType, entry } = props.state
+    const scopeId = getEntryId(entry)
 
     useEffect(() => {
-        setGroupedRulesFormValues({
-            scopeId,
-            levels: editingRow.levels,
-        })
-    }, [editingRow, setGroupedRulesFormValues, scopeId])
+        // Initialize form with effective levels
+        const levels: AccessControlLevelMapping[] = []
+        if (entry.project.effective_access_level) {
+            levels.push({
+                resourceKey: 'project' as APIScopeObject,
+                level: entry.project.effective_access_level,
+            })
+        }
+        for (const [resource, resourceEntry] of Object.entries(entry.resources)) {
+            if (resourceEntry.effective_access_level) {
+                levels.push({
+                    resourceKey: resource as APIScopeObject,
+                    level: resourceEntry.effective_access_level,
+                })
+            }
+        }
+        setGroupedRulesFormValues({ scopeId, levels })
+    }, [entry, setGroupedRulesFormValues, scopeId])
 
     const clearOverrides = (): void => {
         if (props.loading) {
             return
         }
-
-        setGroupedRulesFormValues({
-            scopeId,
-            levels: groupedRulesForm.levels.filter((l) => l.resourceKey === 'project'),
-        })
+        // Reset all resources to their inherited levels (clearing explicit overrides)
+        const levels: AccessControlLevelMapping[] = []
+        // Keep project level as is
+        const projectLevel = groupedRulesForm.levels.find((l) => l.resourceKey === 'project')
+        if (projectLevel) {
+            levels.push(projectLevel)
+        }
+        // Reset resources to inherited levels
+        for (const [resource, resourceEntry] of Object.entries(entry.resources)) {
+            if (resourceEntry.inherited_access_level) {
+                levels.push({
+                    resourceKey: resource as APIScopeObject,
+                    level: resourceEntry.inherited_access_level,
+                })
+            }
+        }
+        setGroupedRulesFormValues({ scopeId, levels })
     }
 
     const updateLevels = (levels: AccessControlLevelMapping[]): void => {
-        setGroupedRulesFormValues({
-            scopeId,
-            levels,
-        })
+        setGroupedRulesFormValues({ scopeId, levels })
     }
 
     const save = (): void => {
-        props.onSave({
-            scopeType,
-            scopeId,
-            levels: groupedRulesForm.levels,
-        })
+        props.onSave({ scopeType, scopeId, levels: groupedRulesForm.levels })
     }
 
     return (
@@ -77,25 +166,21 @@ export function GroupedAccessControlRuleModal(props: {
             maxWidth="32rem"
             footer={
                 <GroupedAccessControlRuleModalFooter
-                    scopeType={scopeType}
-                    canEdit={props.canEdit}
                     close={props.close}
                     loading={props.loading}
+                    canEdit={props.canEdit}
                     onSave={save}
                 />
             }
         >
             <GroupedAccessControlRuleModalContent
-                loading={props.loading}
-                onClear={clearOverrides}
-                resources={props.resources}
+                entry={entry}
                 groupedRuleForm={groupedRulesForm}
                 onUpdate={updateLevels}
-                getLevelOptionsForResource={props.getLevelOptionsForResource}
+                onClear={clearOverrides}
+                loading={props.loading}
                 canEdit={props.canEdit}
-                memberIsOrgAdmin={props.memberIsOrgAdmin}
-                memberHasAdminAccess={props.memberHasAdminAccess}
-                roleHasAdminAccess={props.roleHasAdminAccess}
+                projectId={props.projectId}
             />
         </LemonModal>
     )
@@ -106,18 +191,7 @@ function GroupedAccessControlRuleModalFooter(props: {
     loading: boolean
     canEdit: boolean
     onSave: () => void
-    scopeType: ScopeType
 }): JSX.Element {
-    function getDisabledReason(): string | undefined {
-        if (!props.canEdit) {
-            return 'You cannot edit this rule'
-        }
-
-        return undefined
-    }
-
-    const disabledReason = getDisabledReason()
-
     return (
         <div className="flex items-center justify-end gap-2">
             <LemonButton
@@ -127,7 +201,12 @@ function GroupedAccessControlRuleModalFooter(props: {
             >
                 Cancel
             </LemonButton>
-            <LemonButton type="primary" disabledReason={disabledReason} loading={props.loading} onClick={props.onSave}>
+            <LemonButton
+                type="primary"
+                disabledReason={!props.canEdit ? 'You cannot edit this rule' : undefined}
+                loading={props.loading}
+                onClick={props.onSave}
+            >
                 Save
             </LemonButton>
         </div>
@@ -135,53 +214,28 @@ function GroupedAccessControlRuleModalFooter(props: {
 }
 
 function GroupedAccessControlRuleModalContent(props: {
-    loading: boolean
-    onClear: () => void
-    onUpdate: (levels: AccessControlLevelMapping[]) => void
-    resources: { key: APIScopeObject; label: string }[]
+    entry: AccessControlSettingsEntry
     groupedRuleForm: GroupedAccessControlRulesForm
-    getLevelOptionsForResource: (
-        resourceKey: APIScopeObject
-    ) => { value: AccessControlLevel; label: string; disabledReason?: string }[]
+    onUpdate: (levels: AccessControlLevelMapping[]) => void
+    onClear: () => void
+    loading: boolean
     canEdit: boolean
-    memberIsOrgAdmin: boolean
-    memberHasAdminAccess: boolean
-    roleHasAdminAccess: boolean
+    projectId: string
 }): JSX.Element {
-    const mappedLevels = props.groupedRuleForm.levels.reduce(
-        (prev, mapping) => {
-            return Object.assign(prev, { [mapping.resourceKey]: mapping.level })
-        },
-        {} as Record<APIScopeObject, AccessControlLevel>
-    )
+    const logic = accessControlsLogic({ projectId: props.projectId })
+    const { resourcesWithProject, availableProjectLevels, availableResourceLevels } = useValues(logic)
 
-    const disabledReasonForFeatures = useMemo(() => {
-        if (props.loading) {
-            return 'Loading...'
-        }
+    const projectDisabledReason = getProjectDisabledReason(props.entry, props.canEdit)
+    const featuresDisabledReason = getFeaturesDisabledReason(props.entry, props.canEdit, props.loading)
 
-        if (!props.canEdit) {
-            return 'Cannot edit'
-        }
+    // Display the form state value for project
+    const formProjectLevel = props.groupedRuleForm.levels.find((l) => l.resourceKey === 'project')?.level
+    const displayedProjectLevel = formProjectLevel ?? props.entry.project.effective_access_level
 
-        if (props.memberHasAdminAccess || props.roleHasAdminAccess) {
-            return 'Feature overrides do not apply to admins'
-        }
-    }, [props.loading, props.canEdit, props.memberHasAdminAccess, props.roleHasAdminAccess])
-
-    const disabledReasonForProject = useMemo(() => {
-        if (props.loading) {
-            return 'Loading...'
-        }
-
-        if (!props.canEdit) {
-            return 'Cannot edit'
-        }
-
-        if (props.memberIsOrgAdmin) {
-            return 'Project overrides do not apply to admins'
-        }
-    }, [props.loading, props.canEdit, props.memberIsOrgAdmin])
+    // Prevent users from selecting project level lower than inherited level
+    const minimumProjectLevel = props.entry.project.inherited_access_level ?? undefined
+    const projectInheritedReason = props.entry.project.inherited_access_level_reason
+    const isProjectShowingInherited = displayedProjectLevel === minimumProjectLevel && minimumProjectLevel !== null
 
     return (
         <div className="space-y-4">
@@ -195,8 +249,11 @@ function GroupedAccessControlRuleModalContent(props: {
                 <div className="min-w-[8rem]">
                     <LemonSelect
                         dropdownPlacement="bottom-end"
-                        value={mappedLevels['project'] ?? null}
-                        disabledReason={disabledReasonForProject}
+                        value={displayedProjectLevel}
+                        disabledReason={projectDisabledReason}
+                        tooltip={
+                            isProjectShowingInherited ? getInheritedReasonTooltip(projectInheritedReason) : undefined
+                        }
                         size="small"
                         className="w-36"
                         onChange={(newValue) => {
@@ -206,7 +263,10 @@ function GroupedAccessControlRuleModalContent(props: {
                             ]
                             props.onUpdate(newLevels)
                         }}
-                        options={props.getLevelOptionsForResource('project' as APIScopeObject)}
+                        options={getLevelOptionsForResource(availableProjectLevels, {
+                            minimum: minimumProjectLevel,
+                            disabledReason: getMinLevelDisabledReason(minimumProjectLevel, projectInheritedReason),
+                        })}
                     />
                 </div>
             </div>
@@ -222,16 +282,62 @@ function GroupedAccessControlRuleModalContent(props: {
                             e.preventDefault()
                             props.onClear()
                         }}
-                        className={props.loading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}
+                        className={
+                            props.loading || featuresDisabledReason
+                                ? 'cursor-not-allowed opacity-50 pointer-events-none'
+                                : 'cursor-pointer'
+                        }
                     >
                         Clear all
                     </Link>
                 </div>
 
-                {props.resources
+                {resourcesWithProject
                     .filter((r) => r.key !== 'project')
                     .map((resource) => {
                         const tooltipText = getAccessControlTooltip(resource.key)
+                        const resourceEntry = props.entry.resources[resource.key]
+                        const formEntry = props.groupedRuleForm.levels.find((l) => l.resourceKey === resource.key)
+                        const hasFormEntry = formEntry !== undefined
+                        const formLevel = formEntry?.level ?? null
+                        const displayedResourceLevel = hasFormEntry
+                            ? formLevel
+                            : (resourceEntry?.effective_access_level ?? null)
+
+                        // The minimum selectable level is the higher of the resource's minimum and the inherited level
+                        const inheritedReason = resourceEntry?.inherited_access_level_reason
+                        const isOrgAdmin = inheritedReason === 'organization_admin'
+                        const inheritedLevel = resourceEntry?.inherited_access_level
+                        const resourceMinimum = resourceEntry?.minimum
+
+                        // Org admins have max access, others can't go below inherited level or the resource's minimum
+                        const minimumResourceLevel = isOrgAdmin
+                            ? (resourceEntry?.effective_access_level ?? undefined)
+                            : (inheritedLevel ?? resourceMinimum)
+
+                        const isShowingInherited = displayedResourceLevel === inheritedLevel && inheritedLevel !== null
+
+                        const resourceMinDisabledReason = isOrgAdmin
+                            ? 'User is an organization admin'
+                            : (getMinLevelDisabledReason(inheritedLevel, inheritedReason) ??
+                              getMinLevelDisabledReason(resourceMinimum, null, resource.label))
+
+                        const levelOptions = getLevelOptionsForResource(availableResourceLevels, {
+                            minimum: minimumResourceLevel,
+                            disabledReason: resourceMinDisabledReason,
+                        })
+
+                        const handleLevelChange = (newValue: AccessControlLevel | null): void => {
+                            const newLevels: AccessControlLevelMapping[] = [
+                                ...props.groupedRuleForm.levels.filter(
+                                    (mapping) => mapping.resourceKey !== resource.key
+                                ),
+                                // Always add the entry (even with null) to track user's explicit choice
+                                { resourceKey: resource.key, level: newValue },
+                            ]
+                            props.onUpdate(newLevels)
+                        }
+
                         return (
                             <div key={resource.key} className="flex gap-2 items-center justify-between">
                                 <div className="font-medium flex items-center gap-2">
@@ -246,27 +352,71 @@ function GroupedAccessControlRuleModalContent(props: {
                                     )}
                                 </div>
                                 <div className="min-w-[8rem]">
-                                    <LemonSelect
-                                        placeholder="No override"
-                                        className="w-36"
-                                        size="small"
-                                        value={mappedLevels[resource.key] ?? null}
-                                        disabledReason={disabledReasonForFeatures}
-                                        onChange={(newValue) => {
-                                            const newLevels = [
-                                                ...props.groupedRuleForm.levels.filter(
-                                                    (mapping) => mapping.resourceKey !== resource.key
-                                                ),
-                                                ...(newValue ? [{ resourceKey: resource.key, level: newValue }] : []),
-                                            ]
-
-                                            props.onUpdate(newLevels)
-                                        }}
-                                        options={[
-                                            { value: null, label: 'No override' },
-                                            ...props.getLevelOptionsForResource(resource.key),
-                                        ]}
-                                    />
+                                    {!inheritedLevel &&
+                                    ((hasFormEntry && formLevel === null) ||
+                                        (!hasFormEntry && resourceEntry?.access_level === null)) ? (
+                                        <LemonDropdown
+                                            placement="bottom-end"
+                                            overlay={
+                                                <div className="flex flex-col">
+                                                    {levelOptions.map((option) => (
+                                                        <LemonButton
+                                                            key={option.value}
+                                                            size="small"
+                                                            className="w-36"
+                                                            fullWidth
+                                                            disabledReason={option.disabledReason}
+                                                            onClick={() => handleLevelChange(option.value)}
+                                                        >
+                                                            {option.label}
+                                                        </LemonButton>
+                                                    ))}
+                                                </div>
+                                            }
+                                        >
+                                            <LemonButton
+                                                size="small"
+                                                type="tertiary"
+                                                icon={<IconPlus />}
+                                                sideIcon={null}
+                                                disabledReason={featuresDisabledReason}
+                                                className="ml-auto w-36"
+                                            >
+                                                Add override
+                                            </LemonButton>
+                                        </LemonDropdown>
+                                    ) : (
+                                        <LemonSelect
+                                            className="w-36"
+                                            size="small"
+                                            value={displayedResourceLevel}
+                                            disabledReason={featuresDisabledReason}
+                                            tooltip={
+                                                isShowingInherited
+                                                    ? getInheritedReasonTooltip(inheritedReason)
+                                                    : undefined
+                                            }
+                                            renderButtonContent={(leaf) => {
+                                                if (isShowingInherited && inheritedLevel) {
+                                                    return toSentenceCase(inheritedLevel)
+                                                }
+                                                return leaf?.label ?? ''
+                                            }}
+                                            onChange={handleLevelChange}
+                                            options={[
+                                                // Only show "No override" if there's no inherited level
+                                                ...(inheritedLevel
+                                                    ? []
+                                                    : [
+                                                          {
+                                                              value: null as AccessControlLevel | null,
+                                                              label: 'No override',
+                                                          },
+                                                      ]),
+                                                ...levelOptions,
+                                            ]}
+                                        />
+                                    )}
                                 </div>
                             </div>
                         )
@@ -274,15 +424,4 @@ function GroupedAccessControlRuleModalContent(props: {
             </div>
         </div>
     )
-}
-
-function getGroupedAccessControlRuleModalTitle(scopeType: ScopeType): string {
-    switch (scopeType) {
-        case 'default':
-            return 'Update default access'
-        case 'role':
-            return 'Update role access'
-        case 'member':
-            return 'Update member access'
-    }
 }

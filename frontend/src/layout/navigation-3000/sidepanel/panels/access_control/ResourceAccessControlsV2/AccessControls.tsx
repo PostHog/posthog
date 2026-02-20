@@ -11,7 +11,7 @@ import { AccessControlFilters } from './AccessControlFilters'
 import { AccessControlTable } from './AccessControlTable'
 import { GroupedAccessControlRuleModal } from './GroupedAccessControlRuleModal'
 import { accessControlsLogic } from './accessControlsLogic'
-import type { AccessControlsTab } from './types'
+import type { AccessControlSettingsEntry, AccessControlsTab } from './types'
 
 export function AccessControls({ projectId }: { projectId: string }): JSX.Element {
     const logic = accessControlsLogic({ projectId })
@@ -23,22 +23,23 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         ruleModalState,
         canUseRoles,
         allMembers,
+        roles,
         resourcesWithProject,
         ruleOptions,
-        filteredSortedRows,
-        getLevelOptionsForResource,
-        canEditAny,
+        filteredRoles,
+        filteredMembers,
+        canEdit,
         loading,
-        roles,
-        canEditAccessControls,
-        canEditRoleBasedAccessControls,
-        ruleModalMemberIsOrgAdmin,
-        ruleModalMemberHasAdminAccess,
-        ruleModalRoleHasAdminAccess,
     } = useValues(logic)
 
     const { setActiveTab, setSearchText, setFilters, openRuleModal, closeRuleModal, saveGroupedRules } =
         useActions(logic)
+
+    const scopeType = activeTab === 'roles' ? 'role' : 'member'
+
+    const handleEdit = (entry: AccessControlSettingsEntry): void => {
+        openRuleModal({ scopeType, entry })
+    }
 
     return (
         <>
@@ -76,10 +77,10 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                             />
                             <AccessControlTable
                                 activeTab={activeTab}
-                                rows={filteredSortedRows}
+                                entries={activeTab === 'roles' ? filteredRoles : filteredMembers}
                                 loading={loading}
-                                canEditAny={canEditAny}
-                                onEdit={(row) => openRuleModal({ row })}
+                                canEditAny={canEdit}
+                                onEdit={handleEdit}
                             />
                         </div>
                     )}
@@ -90,17 +91,10 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                 <GroupedAccessControlRuleModal
                     state={ruleModalState}
                     close={closeRuleModal}
-                    resources={resourcesWithProject}
                     loading={loading}
                     projectId={projectId}
-                    getLevelOptionsForResource={getLevelOptionsForResource}
-                    canEdit={
-                        ruleModalState.row.id === 'default' ? !!canEditAccessControls : !!canEditRoleBasedAccessControls
-                    }
+                    canEdit={canEdit}
                     onSave={saveGroupedRules}
-                    memberIsOrgAdmin={ruleModalMemberIsOrgAdmin}
-                    memberHasAdminAccess={ruleModalMemberHasAdminAccess}
-                    roleHasAdminAccess={ruleModalRoleHasAdminAccess}
                 />
             )}
         </>

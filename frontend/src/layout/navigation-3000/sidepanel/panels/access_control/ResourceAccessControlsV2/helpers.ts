@@ -2,19 +2,6 @@ import { toSentenceCase } from 'lib/utils'
 
 import { APIScopeObject, AccessControlLevel } from '~/types'
 
-import { AccessControlRow, AccessControlsTab, ScopeType } from './types'
-
-export function scopeTypeForAccessControlsTab(activeTab: AccessControlsTab): ScopeType {
-    switch (activeTab) {
-        case 'defaults':
-            return 'default'
-        case 'roles':
-            return 'role'
-        case 'members':
-            return 'member'
-    }
-}
-
 export function describeAccessControlLevel(
     level: AccessControlLevel | null | undefined,
     resourceKey: APIScopeObject
@@ -55,22 +42,28 @@ export function humanizeAccessControlLevel(level: AccessControlLevel | null | un
     return toSentenceCase(level)
 }
 
-export function sortAccessControlRows(a: AccessControlRow, b: AccessControlRow): number {
-    return a.role.name.localeCompare(b.role.name)
-}
+export function getLevelOptionsForResource(
+    availableLevels: AccessControlLevel[],
+    options?: {
+        minimum?: AccessControlLevel
+        maximum?: AccessControlLevel
+        disabledReason?: string
+    }
+): { value: AccessControlLevel; label: string; disabledReason?: string }[] {
+    const minimum = options?.minimum
+    const maximum = options?.maximum
+    const customDisabledReason = options?.disabledReason
 
-export function getScopeTypeNoun(scopeType: ScopeType): string {
-    return scopeType === 'role' ? 'role' : 'member'
-}
+    return availableLevels.map((level) => {
+        const minIndex = minimum ? availableLevels.indexOf(minimum) : -1
+        const maxIndex = maximum ? availableLevels.indexOf(maximum) : availableLevels.length
+        const currentIndex = availableLevels.indexOf(level)
+        const isDisabled = (minIndex >= 0 && currentIndex < minIndex) || (maxIndex >= 0 && currentIndex > maxIndex)
 
-export function getIdForDefaultRow(): string {
-    return 'default'
-}
-
-export function getIdForRoleRow(roleId: string): string {
-    return `role:${roleId}`
-}
-
-export function getIdForMemberRow(memberId: string): string {
-    return `member:${memberId}`
+        return {
+            value: level,
+            label: level === AccessControlLevel.None ? 'None' : toSentenceCase(level),
+            disabledReason: isDisabled ? (customDisabledReason ?? 'Not available for this feature') : undefined,
+        }
+    })
 }

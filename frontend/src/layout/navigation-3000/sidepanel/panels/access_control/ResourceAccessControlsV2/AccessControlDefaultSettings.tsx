@@ -6,29 +6,20 @@ import { LemonButton, LemonDropdown, LemonSelect, LemonTable, Tooltip } from '@p
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
 
-import { APIScopeObject, AccessControlLevel, AvailableFeature } from '~/types'
+import { AccessControlLevel, AvailableFeature } from '~/types'
 
 import { ScopeIcon } from './ScopeIcon'
 import { accessControlsLogic } from './accessControlsLogic'
+import { getLevelOptionsForResource } from './helpers'
 
 export function AccessControlDefaultSettings({ projectId }: { projectId: string }): JSX.Element {
     const logic = accessControlsLogic({ projectId })
-    const {
-        resourcesWithProject,
-        getLevelOptionsForResource,
-        allRows,
-        loading,
-        canEditAccessControls,
-        canEditRoleBasedAccessControls,
-    } = useValues(logic)
+    const { defaults, resourceKeys, loading } = useValues(logic)
     const { updateAccessControlDefault, updateResourceAccessControls } = useActions(logic)
 
-    const defaultRow = allRows.find((row) => row.id === 'default')
-    const mappedLevels: Record<APIScopeObject, AccessControlLevel | null> =
-        defaultRow?.levels.reduce(
-            (prev, l) => Object.assign(prev, { [l.resourceKey]: l.level }),
-            {} as Record<APIScopeObject, AccessControlLevel | null>
-        ) || ({} as Record<APIScopeObject, AccessControlLevel | null>)
+    const canEdit = defaults?.can_edit ?? false
+    const projectLevels = defaults?.available_project_levels ?? []
+    const resourceLevels = defaults?.available_resource_levels ?? []
 
     return (
         <div className="space-y-4">
@@ -47,21 +38,21 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                 <div className="max-w-sm">
                     <LemonSelect
                         dropdownPlacement="bottom-start"
-                        value={mappedLevels['project'] ?? null}
-                        disabled={loading || !canEditAccessControls}
+                        value={defaults?.project_access_level ?? null}
+                        disabledReason={loading ? 'Loading...' : !canEdit ? 'Cannot edit' : undefined}
                         size="small"
                         className="w-36"
                         onChange={(newValue) => {
                             updateAccessControlDefault(newValue as AccessControlLevel)
                         }}
-                        options={getLevelOptionsForResource('project' as APIScopeObject)}
+                        options={getLevelOptionsForResource(projectLevels)}
                     />
                 </div>
             </div>
 
             <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
                 <LemonTable
-                    dataSource={resourcesWithProject.filter((r) => r.key !== 'project')}
+                    dataSource={resourceKeys}
                     loading={loading}
                     columns={[
                         {
@@ -89,8 +80,12 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                             key: 'access',
                             align: 'right',
                             render: function RenderAccess(_, resource) {
-                                const canEdit = canEditRoleBasedAccessControls
-                                const value = mappedLevels[resource.key] ?? null
+                                const entry = defaults?.resource_access_levels[resource.key]
+                                const value = entry?.access_level ?? null
+                                const options = getLevelOptionsForResource(resourceLevels, {
+                                    minimum: entry?.minimum,
+                                    maximum: entry?.maximum,
+                                })
 
                                 if (value === null) {
                                     return (
@@ -98,7 +93,7 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                                             placement="bottom-end"
                                             overlay={
                                                 <div className="flex flex-col">
-                                                    {getLevelOptionsForResource(resource.key).map((option) => (
+                                                    {options.map((option) => (
                                                         <LemonButton
                                                             key={option.value}
                                                             size="small"
@@ -131,7 +126,9 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                                                 type="tertiary"
                                                 icon={<IconPlus />}
                                                 sideIcon={null}
-                                                disabled={loading || !canEdit}
+                                                disabledReason={
+                                                    loading ? 'Loading...' : !canEdit ? 'Cannot edit' : undefined
+                                                }
                                                 className="ml-auto my-0.5 w-36"
                                             >
                                                 Add default
@@ -145,7 +142,7 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                                         dropdownPlacement="bottom-end"
                                         placeholder="No override"
                                         value={value}
-                                        disabled={loading || !canEdit}
+                                        disabledReason={loading ? 'Loading...' : !canEdit ? 'Cannot edit' : undefined}
                                         size="small"
                                         className="ml-auto w-36 my-0.5"
                                         onChange={(newValue) => {
@@ -161,10 +158,7 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                                                 'default'
                                             )
                                         }}
-                                        options={[
-                                            { value: null, label: 'No override' },
-                                            ...getLevelOptionsForResource(resource.key),
-                                        ]}
+                                        options={[{ value: null, label: 'No override' }, ...options]}
                                     />
                                 )
                             },
