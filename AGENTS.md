@@ -155,6 +155,7 @@ docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/ru
 - Reduce nesting: Use early returns, guard clauses, and helper methods to avoid deeply nested code
 - Avoid over-engineering: Don't apply design patterns just because you know them
 - Start simple, iterate: Build minimal solution first, add complexity only when demanded
+- DO NOT alter random useEffect or useMemo etc dependencies. Only alter if they impact the actual code you are writing in files that you really need to touch.
 
 ## General
 

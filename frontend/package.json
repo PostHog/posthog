@@ -130,6 +130,7 @@
         "@tiptap/extension-image": "^3.14.0",
         "@tiptap/extension-link": "^3.14.0",
         "@tiptap/extension-list": "^3.11.1",
+        "@tiptap/extension-paragraph": "^3.13.0",
         "@tiptap/extension-placeholder": "^3.14.0",
         "@tiptap/extension-table": "^3.13.0",
         "@tiptap/extension-table-of-contents": "^3.11.1",
