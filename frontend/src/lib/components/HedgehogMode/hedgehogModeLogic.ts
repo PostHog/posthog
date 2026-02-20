@@ -26,6 +26,7 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
         toggleHedgehogMode: true,
         loadRemoteConfig: true,
         updateRemoteConfig: (config: Partial<HedgehogConfig>) => ({ config }),
+        setRemoteConfigUpdateDisabled: (disabled: boolean) => ({ disabled }),
         syncGame: true,
         syncFromState: true,
     }),
@@ -37,9 +38,15 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
                 setHedgehogMode: (_, { hedgeHogMode }) => hedgeHogMode,
             },
         ],
+        remoteConfigUpdateDisabled: [
+            false,
+            {
+                setRemoteConfigUpdateDisabled: (_, { disabled }) => disabled,
+            },
+        ],
     })),
 
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         remoteConfig: [
             null as Partial<HedgehogConfig> | null,
             {
@@ -57,26 +64,32 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
                 },
 
                 updateRemoteConfig: async ({ config }) => {
-                    const endpoint = '/api/users/@me/hedgehog_config'
-                    let newConfig: Partial<HedgehogConfig>
+                    try {
+                        const endpoint = '/api/users/@me/hedgehog_config'
+                        let newConfig: Partial<HedgehogConfig>
 
-                    let payload = {
-                        ...values.hedgehogConfig,
-                        ...config,
-                    }
-
-                    const mountedToolbarConfigLogic = toolbarConfigLogic.findMounted()
-                    if (mountedToolbarConfigLogic) {
-                        // If toolbarConfigLogic is mounted, we're inside the Toolbar
-                        if (!mountedToolbarConfigLogic.values.isAuthenticated) {
-                            return null
+                        const payload = {
+                            ...values.hedgehogConfig,
+                            ...config,
                         }
-                        newConfig = await (await toolbarFetch(endpoint, 'PATCH', payload)).json()
-                    } else {
-                        newConfig = await api.update(endpoint, payload)
-                    }
 
-                    return newConfig ?? null
+                        const mountedToolbarConfigLogic = toolbarConfigLogic.findMounted()
+                        if (mountedToolbarConfigLogic) {
+                            // If toolbarConfigLogic is mounted, we're inside the Toolbar
+                            if (!mountedToolbarConfigLogic.values.isAuthenticated) {
+                                return null
+                            }
+                            newConfig = await (await toolbarFetch(endpoint, 'PATCH', payload)).json()
+                        } else {
+                            newConfig = await api.update(endpoint, payload)
+                        }
+
+                        return newConfig ?? null
+                    } catch (e) {
+                        console.error('Failed to update hedgehog remote config', e)
+                        actions.setRemoteConfigUpdateDisabled(true)
+                        return values.remoteConfig
+                    }
                 },
             },
         ],
@@ -116,9 +129,11 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
 
     listeners(({ actions, values }) => ({
         setHedgehogModeEnabled: ({ enabled }) => {
-            actions.updateRemoteConfig({
-                enabled,
-            })
+            if (!values.remoteConfigUpdateDisabled) {
+                actions.updateRemoteConfig({
+                    enabled,
+                })
+            }
 
             posthog.capture(enabled ? 'hedgehog mode enabled' : 'hedgehog mode disabled')
         },
@@ -147,8 +162,8 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
         },
 
         syncFromState: () => {
-            const { hedgehogMode } = values
-            if (!hedgehogMode) {
+            const { hedgehogMode, remoteConfigUpdateDisabled } = values
+            if (!hedgehogMode || remoteConfigUpdateDisabled) {
                 return
             }
             const state = hedgehogMode.stateManager?.getState()

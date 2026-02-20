@@ -32,7 +32,7 @@ export function SavedInsightsFilters({
     borderless?: boolean
 }): JSX.Element {
     const { search, hideFeatureFlagInsights, favorited, tags, insightType, createdBy } = filters
-    const { meFirstMembers, filteredMembers, search: memberSearch } = useValues(membersLogic)
+    const { meFirstMembers, filteredMembers, membersLoading, search: memberSearch } = useValues(membersLogic)
     const { setSearch: setMemberSearch, ensureAllMembersLoaded } = useActions(membersLogic)
     const quickFilterSet = new Set(quickFilters)
     const hasInsightTypeSelection = !!insightType && insightType !== 'All types'
@@ -107,11 +107,14 @@ export function SavedInsightsFilters({
                             matchWidth={false}
                             placement="bottom-end"
                             actionable
+                            onVisibilityChange={(visible) => {
+                                if (visible) {
+                                    ensureAllMembersLoaded()
+                                    setMemberSearch('')
+                                }
+                            }}
                             overlay={
-                                <div
-                                    className="max-w-100 deprecated-space-y-2"
-                                    onClick={() => ensureAllMembersLoaded()}
-                                >
+                                <div className="max-w-100 deprecated-space-y-2">
                                     <LemonInput
                                         type="search"
                                         placeholder="Search"
@@ -150,7 +153,11 @@ export function SavedInsightsFilters({
                                                 </LemonButton>
                                             </li>
                                         ))}
-                                        {filteredMembers.length === 0 ? (
+                                        {membersLoading ? (
+                                            <div className="p-2 text-secondary italic truncate border-t">
+                                                Loading...
+                                            </div>
+                                        ) : filteredMembers.length === 0 ? (
                                             <div className="p-2 text-secondary italic truncate border-t">
                                                 {memberSearch ? <span>No matches</span> : <span>No users</span>}
                                             </div>

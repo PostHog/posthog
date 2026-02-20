@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconPlusSmall } from '@posthog/icons'
 import {
     LemonButton,
     LemonDialog,
@@ -51,6 +52,20 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                 loading={dataWarehouseSourcesLoading}
                 disableTableWhileLoading={false}
                 pagination={{ pageSize: 10 }}
+                emptyState={
+                    <div className="flex flex-col items-center gap-2 py-2">
+                        <span>{managedSearchTerm ? 'No sources matching your search' : 'No managed sources'}</span>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlusSmall />}
+                            to={urls.dataWarehouseSourceNew()}
+                            size="small"
+                            data-attr="managed-sources-empty-new-source"
+                        >
+                            New source
+                        </LemonButton>
+                    </div>
+                }
                 columns={[
                     {
                         width: 0,

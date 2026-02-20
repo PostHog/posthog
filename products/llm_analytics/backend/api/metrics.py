@@ -25,13 +25,46 @@ from prometheus_client import Counter, Histogram
 F = TypeVar("F", bound=Callable)
 
 
-# Latency histogram for API request duration
-# Buckets are tuned for typical API response times (100ms to 60s)
+# Latency histogram for API request duration.
+# Buckets are denser in the 100ms-60s region for better tail-percentile stability.
+LLMA_REQUEST_LATENCY_BUCKETS = [
+    0.005,
+    0.01,
+    0.015,
+    0.02,
+    0.03,
+    0.05,
+    0.075,
+    0.1,
+    0.15,
+    0.2,
+    0.3,
+    0.5,
+    0.75,
+    1.0,
+    1.5,
+    2.0,
+    3.0,
+    5.0,
+    7.5,
+    10.0,
+    15.0,
+    20.0,
+    30.0,
+    45.0,
+    60.0,
+    90.0,
+    120.0,
+    180.0,
+    240.0,
+    300.0,
+]
+
 LLMA_REQUEST_LATENCY = Histogram(
     "llma_request_duration_seconds",
     "LLM Analytics API request latency in seconds",
     labelnames=["endpoint"],
-    buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0],
+    buckets=LLMA_REQUEST_LATENCY_BUCKETS,
 )
 
 
@@ -58,7 +91,7 @@ def llma_track_latency(endpoint: str) -> Callable[[F], F]:
     Decorator to track endpoint latency using Prometheus histograms.
 
     This decorator measures the total time taken by an endpoint and records
-    it in the LLMA_REQUEST_LATENCY histogram. Use this in addition to @monitor
+    it in the LLMA request latency histogram. Use this in addition to @monitor
     for endpoints where latency tracking is important.
 
     Args:
