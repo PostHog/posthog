@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-02-19 10:15:05 UTC
+// Generated at: 2026-02-19 20:05:46 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -11,8 +11,9 @@ export type CanonicalProvider =
     | 'amazon-bedrock'
     | 'ambient-bf16'
     | 'anthropic'
-    | 'arcee-ai'
     | 'arcee-ai-bf16'
+    | 'arcee-ai-modal'
+    | 'arcee-ai-prime'
     | 'atlas-cloud-bf16'
     | 'atlas-cloud-fp16'
     | 'atlas-cloud-fp8'
