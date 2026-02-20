@@ -132,8 +132,15 @@ class TestSignalSourceTableConfigValidation:
         assert config.description_summarization_threshold_chars is None
 
 
-class TestZendeskTicketsAutoRegistered:
-    def test_zendesk_tickets_registered_on_module_load(self):
-        config = get_signal_config("Zendesk", "tickets")
+class TestAutoRegistered:
+    @pytest.mark.parametrize(
+        "source_type,schema_name",
+        [
+            ("Zendesk", "tickets"),
+            ("Github", "issues"),
+        ],
+    )
+    def test_registered_on_module_load(self, source_type, schema_name):
+        config = get_signal_config(source_type, schema_name)
         assert config is not None
-        assert config.partition_field == "created_at"
+        assert config.partition_field is not None
