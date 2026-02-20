@@ -7,6 +7,8 @@ import { resetKafka } from '~/tests/helpers/kafka'
 
 import { Clickhouse } from '../../tests/helpers/clickhouse'
 import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase } from '../../tests/helpers/sql'
+import { KAFKA_INGESTION_WARNINGS } from '../config/kafka-topics'
+import { KafkaProducerWrapper } from '../kafka/producer'
 import { Hub, InternalPerson, PipelineEvent, PluginsServerConfig, ProjectId, RawClickHouseEvent, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { parseRawClickHouseEvent } from '../utils/event'
@@ -27,6 +29,42 @@ jest.mock('~/utils/token-bucket', () => {
 
 const waitForKafkaMessages = async (hub: Hub) => {
     await hub.kafkaProducer.flush()
+}
+
+// After resetKafka() recreates topics, ClickHouse's Kafka engine consumers need to
+// reconnect. With the default auto.offset.reset=latest, any messages produced before
+// reconnection are permanently missed. We repeatedly produce probe messages until
+// ClickHouse consumes one, which guarantees at least one lands after reconnection.
+async function waitForClickHouseKafkaConsumer(clickhouse: Clickhouse): Promise<void> {
+    const producer = await KafkaProducerWrapper.create(undefined)
+    const probeTeamId = -1
+
+    try {
+        await waitForExpect(async () => {
+            await producer.queueMessages({
+                topic: KAFKA_INGESTION_WARNINGS,
+                messages: [
+                    {
+                        value: JSON.stringify({
+                            team_id: probeTeamId,
+                            type: 'probe',
+                            source: 'test-warmup',
+                            details: '{}',
+                            timestamp: DateTime.utc().toFormat('yyyy-MM-dd HH:mm:ss'),
+                        }),
+                    },
+                ],
+            })
+            await producer.flush()
+
+            const result = await clickhouse.query<{ count: number }>(
+                `SELECT count() as count FROM ingestion_warnings WHERE team_id = ${probeTeamId}`
+            )
+            expect(Number(result[0]?.count ?? 0)).toBeGreaterThan(0)
+        }, 30_000)
+    } finally {
+        await producer.disconnect()
+    }
 }
 
 class EventBuilder {
@@ -239,6 +277,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
             await resetKafka()
             await resetTestDatabase()
             await clickhouse.resetTestDatabase()
+            await waitForClickHouseKafkaConsumer(clickhouse)
             process.env.SITE_URL = 'https://example.com'
         })
 
