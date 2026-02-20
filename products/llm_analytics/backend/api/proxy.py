@@ -45,12 +45,14 @@ from .provider_keys import LLMProviderChoiceField
 
 logger = logging.getLogger(__name__)
 
+PROXY_SUPPORTED_PROVIDERS = ["openai", "anthropic", "google"]
+
 
 class LLMProxyCompletionSerializer(serializers.Serializer):
     system = serializers.CharField(allow_blank=True)
     messages = serializers.ListField(child=serializers.DictField())
     model = serializers.CharField()
-    provider = LLMProviderChoiceField(choices=["openai", "anthropic", "google"])
+    provider = LLMProviderChoiceField(choices=PROXY_SUPPORTED_PROVIDERS)
     thinking = serializers.BooleanField(default=False, required=False)
     temperature = serializers.FloatField(required=False)
     max_tokens = serializers.IntegerField(required=False)
