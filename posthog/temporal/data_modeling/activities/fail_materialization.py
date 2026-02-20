@@ -25,7 +25,7 @@ class FailMaterializationInputs:
 
 @database_sync_to_async
 def _fail_node_and_data_modeling_job(inputs: FailMaterializationInputs):
-    node = Node.objects.get(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
+    node = Node.objects.get(id=inputs.node_id, team_id=inputs.team_id, dag_id_text=inputs.dag_id)
     update_node_system_properties(
         node,
         status="failed",

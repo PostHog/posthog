@@ -71,6 +71,7 @@ import {
 } from '~/types'
 
 import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
+import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
@@ -315,7 +316,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             groupsModel,
             ['aggregationLabel'],
             userLogic,
-            ['hasAvailableFeature'],
+            ['hasAvailableFeature', 'user'],
             organizationLogic,
             ['currentOrganization'],
             enabledFeaturesLogic,
@@ -384,6 +385,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         // V2 form UI actions
         setShowImplementation: (show: boolean) => ({ show }),
         setOpenVariants: (openVariants: string[]) => ({ openVariants }),
+        setPayloadExpanded: (expanded: boolean) => ({ expanded }),
+        setTemplateExpanded: (expanded: boolean) => ({ expanded }),
+        applyUrlTemplate: (templateId: string) => ({ templateId }),
+        applyTemplate: (templateId: string) => ({ templateId }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -713,6 +718,31 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             [] as string[],
             {
                 setOpenVariants: (_, { openVariants }) => openVariants,
+            },
+        ],
+        payloadExpanded: [
+            false,
+            {
+                setPayloadExpanded: (_, { expanded }) => expanded,
+                loadFeatureFlagSuccess: (_, { featureFlag }) => !!featureFlag?.filters?.payloads?.['true'],
+            },
+        ],
+        templateExpanded: [
+            true,
+            {
+                setTemplateExpanded: (_, { expanded }) => expanded,
+                // Collapse when a template is applied from URL
+                applyUrlTemplate: () => false,
+                // Reset to open when loading a new flag
+                loadFeatureFlag: () => true,
+            },
+        ],
+        urlTemplateApplied: [
+            false,
+            {
+                applyUrlTemplate: () => true,
+                // Reset when loading a new flag
+                loadFeatureFlag: () => false,
             },
         ],
     }),
@@ -1347,10 +1377,35 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.setMultivariateOptions(null)
             }
         },
-        loadFeatureFlagSuccess: async () => {
+        loadFeatureFlagSuccess: async ({ featureFlag }) => {
             actions.loadRelatedInsights()
             actions.loadDependentFlags()
             // Experiment is now loaded inline during loadFeatureFlag, not here
+
+            // Auto-apply template from URL param on first load
+            const templateId = router.values.searchParams.template as string | undefined
+            if (templateId && featureFlag && !values.urlTemplateApplied) {
+                actions.applyTemplate(templateId)
+            }
+        },
+        applyTemplate: ({ templateId }) => {
+            const template = values.templates.find((t) => t.id === templateId)
+            if (!template || !values.featureFlag) {
+                return
+            }
+            const templateValues = template.getValues(values.featureFlag)
+
+            actions.setFeatureFlag({
+                ...values.featureFlag,
+                ...templateValues,
+                filters: {
+                    ...values.featureFlag.filters,
+                    ...templateValues.filters,
+                },
+            } as FeatureFlagType)
+
+            actions.setTemplateExpanded(false)
+            actions.applyUrlTemplate(templateId)
         },
         copyFlagSuccess: ({ featureFlagCopy }) => {
             if (featureFlagCopy?.success.length) {
@@ -1696,6 +1751,111 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return errors
             },
         ],
+        emailDomain: [(s) => [s.user], (user) => user?.email?.split('@')[1] || 'example.com'],
+        templates: [
+            (s) => [s.emailDomain],
+            (
+                emailDomain
+            ): Array<{
+                id: string
+                name: string
+                description: string
+                getValues: (flag: FeatureFlagType) => Partial<FeatureFlagType>
+            }> => [
+                {
+                    id: 'simple',
+                    name: TEMPLATE_NAMES.simple,
+                    description: 'On/off for all users',
+                    getValues: (flag) => ({
+                        key: 'my-feature',
+                        is_remote_configuration: false,
+                        filters: {
+                            ...flag.filters,
+                            multivariate: null,
+                            groups: [{ properties: [], rollout_percentage: 0, variant: null }],
+                        },
+                    }),
+                },
+                {
+                    id: 'targeted',
+                    name: TEMPLATE_NAMES.targeted,
+                    description: 'Release to specific users',
+                    getValues: (flag) => ({
+                        key: 'targeted-release',
+                        is_remote_configuration: false,
+                        filters: {
+                            ...flag.filters,
+                            multivariate: null,
+                            groups: [
+                                {
+                                    properties: [
+                                        {
+                                            key: 'email',
+                                            type: PropertyFilterType.Person,
+                                            value: `@${emailDomain}`,
+                                            operator: PropertyOperator.IContains,
+                                        },
+                                    ],
+                                    rollout_percentage: 0,
+                                    variant: null,
+                                },
+                            ],
+                        },
+                    }),
+                },
+                {
+                    id: 'multivariate',
+                    name: TEMPLATE_NAMES.multivariate,
+                    description: 'Multiple variants',
+                    getValues: (flag) => ({
+                        key: 'multivariate-flag',
+                        is_remote_configuration: false,
+                        filters: {
+                            ...flag.filters,
+                            multivariate: {
+                                variants: [
+                                    { key: 'control', rollout_percentage: 50 },
+                                    { key: 'test', rollout_percentage: 50 },
+                                ],
+                            },
+                            groups: [{ properties: [], rollout_percentage: 0, variant: null }],
+                        },
+                    }),
+                },
+                {
+                    id: 'targeted-multivariate',
+                    name: TEMPLATE_NAMES['targeted-multivariate'],
+                    description: 'Variants for specific users',
+                    getValues: (flag) => ({
+                        key: 'targeted-multivariate',
+                        is_remote_configuration: false,
+                        filters: {
+                            ...flag.filters,
+                            multivariate: {
+                                variants: [
+                                    { key: 'control', rollout_percentage: 50 },
+                                    { key: 'test', rollout_percentage: 50 },
+                                ],
+                            },
+                            groups: [
+                                {
+                                    properties: [
+                                        {
+                                            key: 'email',
+                                            type: PropertyFilterType.Person,
+                                            value: `@${emailDomain}`,
+                                            operator: PropertyOperator.IContains,
+                                        },
+                                    ],
+                                    rollout_percentage: 0,
+                                    variant: null,
+                                },
+                            ],
+                        },
+                    }),
+                },
+            ],
+        ],
     }),
     urlToAction(({ actions, props, values }) => ({
         [urls.featureFlag(props.id ?? 'new')]: (_, searchParams, ___, { method }) => {
@@ -1716,6 +1876,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         actions.loadFeatureFlag()
                         return
                     }
+                    // When there is template, we load the feature flag (for applying template)
+                    if (props.id === 'new' && searchParams.template != null) {
+                        actions.loadFeatureFlag()
+                        return
+                    }
                     // When pushing to `/new` and the feature flag already has default tags loaded, do not load the flag again
                     if (props.id === 'new' && values.featureFlag.id == null && values.featureFlag.tags?.length > 0) {
                         return
@@ -1728,7 +1893,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
     })),
     afterMount(({ props, actions }) => {
-        if (props.id === 'new' && (router.values.searchParams.sourceId || router.values.searchParams.type)) {
+        if (
+            props.id === 'new' &&
+            (router.values.searchParams.sourceId ||
+                router.values.searchParams.type ||
+                router.values.searchParams.template)
+        ) {
             actions.loadFeatureFlag()
             return
         }

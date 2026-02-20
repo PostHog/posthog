@@ -275,6 +275,16 @@ class TestVercelRegionProxyMixin(VercelTestBase):
             assert result.status_code == 200
 
     @patch("ee.api.vercel.vercel_region_proxy_mixin.requests.request")
+    def test_proxy_sets_host_header_to_target_region(self, mock_request):
+        mock_request.return_value = self._mock_success_response()
+        mock_django_request = self._create_mock_request()
+
+        with self._setup_region_test(self.US_DOMAIN):
+            self.test_viewset._proxy_to_eu(mock_django_request)
+            call_kwargs = mock_request.call_args[1]
+            assert call_kwargs["headers"]["Host"] == "eu.posthog.com"
+
+    @patch("ee.api.vercel.vercel_region_proxy_mixin.requests.request")
     def test_raises_exception_on_proxy_request_failure(self, mock_request):
         mock_request.side_effect = requests.exceptions.RequestException("Connection failed")
         mock_django_request = self._create_mock_request(headers={})

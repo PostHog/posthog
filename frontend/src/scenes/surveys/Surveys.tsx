@@ -86,8 +86,12 @@ function NewSurveyButton(): JSX.Element {
                 router.actions.push(urls.survey(toolOutput.survey_id))
             }}
             position="bottom-right"
-            active={!!user?.uuid && userHasAccess(AccessControlResourceType.Survey, AccessControlLevel.Editor)}
-            className={cn('mr-3', isRemovingSidePanelFlag && 'mr-0')}
+            active={
+                !isRemovingSidePanelFlag &&
+                !!user?.uuid &&
+                userHasAccess(AccessControlResourceType.Survey, AccessControlLevel.Editor)
+            }
+            className={cn(!isRemovingSidePanelFlag && 'mr-3')}
         >
             <AccessControlAction
                 resourceType={AccessControlResourceType.Survey}
@@ -108,7 +112,7 @@ function NewSurveyButton(): JSX.Element {
                         tooltip="New survey"
                         onClick={trackAddNewClick}
                     >
-                        <span className="pr-3">New survey</span>
+                        <span className={cn('pr-3', isRemovingSidePanelFlag && 'pr-0')}>New survey</span>
                     </LemonButton>
                 </AppShortcut>
             </AccessControlAction>
@@ -118,7 +122,8 @@ function NewSurveyButton(): JSX.Element {
 
 function Surveys(): JSX.Element {
     const { tab } = useValues(surveysLogic)
-    const { setTab } = useActions(surveysLogic)
+    const { setTab, loadSurveys, addProductIntent } = useActions(surveysLogic)
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     return (
         <SceneContent>
@@ -133,6 +138,47 @@ function Surveys(): JSX.Element {
                         <SurveyFeedbackButton />
                         <NewSurveyButton />
                     </>
+                }
+                maxToolProps={
+                    isRemovingSidePanelFlag
+                        ? {
+                              identifier: 'create_survey',
+                              initialMaxPrompt: 'Create a survey to collect ',
+                              suggestions: [
+                                  'Create an NPS survey for customers who completed checkout',
+                                  'Create a feedback survey asking about our new dashboard',
+                                  'Create a product-market fit survey for trial users',
+                                  'Create a quick satisfaction survey for support interactions',
+                              ],
+                              context: {},
+                              callback: (toolOutput: {
+                                  survey_id?: string
+                                  survey_name?: string
+                                  error?: string
+                                  error_message?: string
+                              }) => {
+                                  addProductIntent({
+                                      product_type: ProductKey.SURVEYS,
+                                      intent_context: ProductIntentContext.SURVEY_CREATED,
+                                      metadata: {
+                                          survey_id: toolOutput.survey_id,
+                                          source: SURVEY_CREATED_SOURCE.MAX_AI,
+                                          created_successfully: !toolOutput?.error,
+                                      },
+                                  })
+
+                                  if (toolOutput?.error || !toolOutput?.survey_id) {
+                                      return captureMaxAISurveyCreationException(
+                                          toolOutput.error,
+                                          SURVEY_CREATED_SOURCE.MAX_AI
+                                      )
+                                  }
+
+                                  loadSurveys()
+                                  router.actions.push(urls.survey(toolOutput.survey_id))
+                              },
+                          }
+                        : undefined
                 }
             />
             <SurveysDisabledBanner />

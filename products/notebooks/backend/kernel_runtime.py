@@ -15,6 +15,8 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team, User
@@ -244,6 +246,7 @@ def build_notebook_sandbox_config(notebook: Notebook) -> SandboxConfig:
 
 class KernelRuntimeService:
     _TYPE_EXPRESSION_PREFIX = "__type__"
+    _HOGQL_QUERY_EXPRESSION_PREFIX = "__hogql_query__"
     _MODAL_REQUIRED_ENV_VARS = ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET")
     _SERVICE_LOCK_TIMEOUT_SECONDS = 30.0
     _HANDLE_LOCK_TIMEOUT_SECONDS = 60.0
@@ -395,6 +398,8 @@ class KernelRuntimeService:
         parsed: dict[str, Any] = {}
         type_results: dict[str, str] = {}
         type_errors: dict[str, dict[str, Any]] = {}
+        query_results: dict[str, str] = {}
+        query_errors: dict[str, dict[str, Any]] = {}
         for name, payload in user_expressions.items():
             if not isinstance(payload, dict):
                 continue
@@ -408,6 +413,22 @@ class KernelRuntimeService:
                         type_results[variable_name] = type_name
                 elif payload.get("status") == "error":
                     type_errors[variable_name] = {
+                        "status": "error",
+                        "ename": payload.get("ename"),
+                        "evalue": payload.get("evalue"),
+                        "traceback": payload.get("traceback", []),
+                    }
+                continue
+            if name.startswith(self._HOGQL_QUERY_EXPRESSION_PREFIX):
+                variable_name = name[len(self._HOGQL_QUERY_EXPRESSION_PREFIX) :]
+                if not variable_name:
+                    continue
+                if payload.get("status") == "ok":
+                    query_value = self._normalize_user_expression_string(self._extract_user_expression_text(payload))
+                    if query_value:
+                        query_results[variable_name] = query_value
+                elif payload.get("status") == "error":
+                    query_errors[variable_name] = {
                         "status": "error",
                         "ename": payload.get("ename"),
                         "evalue": payload.get("evalue"),
@@ -430,12 +451,22 @@ class KernelRuntimeService:
             type_name = type_results.get(name)
             if type_name and payload.get("status") == "ok":
                 payload["type"] = type_name
+            query_value = query_results.get(name)
+            if query_value and payload.get("status") == "ok":
+                payload["hogql_query"] = query_value
         for name, error_payload in type_errors.items():
             if name not in parsed:
                 parsed[name] = error_payload
         for name, type_name in type_results.items():
             if name not in parsed:
-                parsed[name] = {"status": "ok", "type": type_name}
+                entry: dict[str, Any] = {"status": "ok", "type": type_name}
+                query_value = query_results.get(name)
+                if query_value:
+                    entry["hogql_query"] = query_value
+                parsed[name] = entry
+        for name, error_payload in query_errors.items():
+            if name not in parsed:
+                parsed[name] = error_payload
         return parsed or None
 
     def _notebook_bridge_marker(self, handle: _KernelHandle) -> str:
@@ -446,6 +477,23 @@ class KernelRuntimeService:
         parser = _NotebookBridgeParser(marker=marker)
         filtered, _ = parser.feed(text)
         return filtered + parser.flush()
+
+    def _parse_hogql_placeholders_payload(self, payload: Any) -> dict[str, ast.Expr] | None:
+        if not isinstance(payload, dict):
+            return None
+        placeholders: dict[str, ast.Expr] = {}
+        for name, entry in payload.items():
+            if not isinstance(name, str) or not isinstance(entry, dict):
+                continue
+            placeholder_type = entry.get("type")
+            if placeholder_type == "hogql_query":
+                query = entry.get("query")
+                if isinstance(query, str) and query.strip():
+                    placeholders[name] = parse_select(query)
+            elif placeholder_type == "constant":
+                if "value" in entry:
+                    placeholders[name] = ast.Constant(value=entry.get("value"))
+        return placeholders or None
 
     def _handle_notebook_bridge_payload(self, payload_json: str, handle: _KernelHandle) -> None:
         try:
@@ -461,6 +509,7 @@ class KernelRuntimeService:
         call = payload.get("call") or "hogql_execute"
         query = payload.get("query")
         response_path = payload.get("response_path")
+        placeholders_payload = payload.get("placeholders")
         if (
             not isinstance(call, str)
             or not isinstance(query, str)
@@ -502,7 +551,8 @@ class KernelRuntimeService:
             response_payload = {"error": f"Unsupported notebook bridge call: {call}"}
         else:
             try:
-                response = execute_hogql_query(query=query, team=team)
+                placeholders = self._parse_hogql_placeholders_payload(placeholders_payload)
+                response = execute_hogql_query(query=query, team=team, placeholders=placeholders)
                 if hasattr(response, "model_dump"):
                     response_payload = response.model_dump(exclude_none=True)
                 else:
@@ -526,22 +576,10 @@ class KernelRuntimeService:
         response_json = json.dumps(response_payload, ensure_ascii=False, default=str)
         response_bytes = response_json.encode("utf-8")
         response_blob = f"{len(response_bytes)}\n".encode() + response_bytes
-        encoded_response = base64.b64encode(response_blob).decode("utf-8")
-
-        command = (
-            "python3 - <<'EOF_NOTEBOOK_BRIDGE'\n"
-            "import base64\n"
-            "from pathlib import Path\n"
-            f"payload = base64.b64decode('{encoded_response}')\n"
-            f"path = Path({json.dumps(response_path)})\n"
-            "path.parent.mkdir(parents=True, exist_ok=True)\n"
-            "path.write_bytes(payload)\n"
-            "EOF_NOTEBOOK_BRIDGE"
-        )
 
         sandbox_class = self._get_sandbox_class(handle.backend)
         sandbox = sandbox_class.get_by_id(handle.sandbox_id)
-        result = sandbox.execute(command, timeout_seconds=int(self._execution_timeout))
+        result = sandbox.write_file(response_path, response_blob)
         if result.exit_code != 0:
             logger.warning(
                 "notebook_bridge_response_write_failed",
@@ -569,6 +607,30 @@ class KernelRuntimeService:
         ):
             stripped = stripped[1:-1]
         return stripped or None
+
+    def _normalize_user_expression_string(self, value: str | None) -> str | None:
+        if not value:
+            return None
+        stripped = value.strip()
+        if stripped in {"None", "null"}:
+            return None
+        if len(stripped) >= 2 and (
+            (stripped.startswith("'") and stripped.endswith("'"))
+            or (stripped.startswith('"') and stripped.endswith('"'))
+        ):
+            stripped = stripped[1:-1]
+        return stripped or None
+
+    def _build_user_expressions(self, variable_names: list[str]) -> dict[str, str] | None:
+        if not variable_names:
+            return None
+        expressions: dict[str, str] = {}
+        for name in variable_names:
+            expressions[f"{self._TYPE_EXPRESSION_PREFIX}{name}"] = f"type({name}).__name__"
+            expressions[f"{self._HOGQL_QUERY_EXPRESSION_PREFIX}{name}"] = (
+                f"{name}._query if type({name}).__name__ == 'HogQLLazyFrame' else None"
+            )
+        return expressions
 
     def _register_cleanup_hooks(self) -> None:
         def _cleanup(*_: Any) -> None:
@@ -824,6 +886,7 @@ class KernelRuntimeService:
             "import duckdb\n"
             "import json\n"
             "import os\n"
+            "import re\n"
             "import tempfile\n"
             "import time\n"
             "from typing import Any, Sequence\n"
@@ -884,13 +947,48 @@ class KernelRuntimeService:
             "            raise RuntimeError('Failed to write HogQL request')\n"
             "        offset += written\n"
             "\n"
-            "def _hogql_execute_raw(query: str, *, timeout: float | None = 30.0) -> Any:\n"
+            '_HOGQL_PLACEHOLDER_PATTERN = re.compile(r"\\{([A-Za-z_][\\w$]*)\\}")\n'
+            "\n"
+            "def _find_hogql_placeholders(query: str) -> list[str]:\n"
+            "    if not query:\n"
+            "        return []\n"
+            "\n"
+            "    # Strip SQL comments before finding placeholders\n"
+            "    # First, remove multi-line comments\n"
+            '    while "/*" in query and "*/" in query:\n'
+            '        start = query.find("/*")\n'
+            '        end = query.find("*/", start) + 2\n'
+            "        query = query[:start] + ' ' + query[end:]\n"
+            "\n"
+            "    # Then remove single-line comments\n"
+            "    lines = query.split('\\n')\n"
+            "    cleaned_lines = []\n"
+            "    for line in lines:\n"
+            "        cleaned_lines.append(line.split('--')[0])\n"
+            "    query = '\\n'.join(cleaned_lines)\n"
+            "\n"
+            "    # Find placeholders in the cleaned query\n"
+            "    seen = set()\n"
+            "    names = []\n"
+            "    for match in _HOGQL_PLACEHOLDER_PATTERN.finditer(query):\n"
+            "        name = match.group(1)\n"
+            "        if name and name not in seen:\n"
+            "            seen.add(name)\n"
+            "            names.append(name)\n"
+            "    return names\n"
+            "\n"
+            "def _hogql_execute_raw(\n"
+            "    query: str, *, timeout: float | None = 30.0, placeholders: dict[str, Any] | None = None\n"
+            ") -> Any:\n"
             "    if not isinstance(query, str):\n"
             "        raise ValueError('query must be a string')\n"
             "    fd, response_path = tempfile.mkstemp(prefix='hogql_response_', suffix='.json')\n"
             "    os.close(fd)\n"
             "    os.unlink(response_path)\n"
-            "    _notebook_bridge_write({'call': 'hogql_execute', 'query': query, 'response_path': response_path})\n"
+            "    payload = {'call': 'hogql_execute', 'query': query, 'response_path': response_path}\n"
+            "    if placeholders:\n"
+            "        payload['placeholders'] = placeholders\n"
+            "    _notebook_bridge_write(payload)\n"
             "    start_time = time.monotonic()\n"
             "    while not os.path.exists(response_path):\n"
             "        if timeout is not None and time.monotonic() - start_time > timeout:\n"
@@ -927,17 +1025,21 @@ class KernelRuntimeService:
             "        return text\n"
             "\n"
             "class HogQLLazyFrame:\n"
-            "    def __init__(self, query: str, *, timeout: float | None = 30.0) -> None:\n"
+            "    def __init__(\n"
+            "        self, query: str, *, timeout: float | None = 30.0, placeholders: list[str] | None = None\n"
+            "    ) -> None:\n"
             "        if not isinstance(query, str):\n"
             "            raise ValueError('query must be a string')\n"
             "        self._query = query\n"
             "        self._timeout = timeout\n"
+            "        self._placeholders = placeholders or []\n"
             "        self._response: dict[str, Any] | str | None = None\n"
             "        self._dataframe: Any | None = None\n"
             "\n"
             "    def _get_response(self) -> dict[str, Any] | str:\n"
             "        if self._response is None:\n"
-            "            self._response = _hogql_execute_raw(self._query, timeout=self._timeout)\n"
+            "            placeholders = _resolve_hogql_placeholders(self._placeholders) if self._placeholders else None\n"
+            "            self._response = _hogql_execute_raw(self._query, timeout=self._timeout, placeholders=placeholders)\n"
             "        return self._response\n"
             "\n"
             "    def to_json(self) -> dict[str, Any] | str:\n"
@@ -969,6 +1071,9 @@ class KernelRuntimeService:
             "    def __getitem__(self, item: Any) -> Any:\n"
             "        return self.to_df().__getitem__(item)\n"
             "\n"
+            "    def __setitem__(self, key: Any, value: Any) -> None:\n"
+            "        self.to_df().__setitem__(key, value)\n"
+            "\n"
             "    def __repr__(self) -> str:\n"
             '        return f"HogQLLazyFrame(query={self._query!r})"\n'
             "\n"
@@ -990,8 +1095,30 @@ class KernelRuntimeService:
             "    def _ipython_display_(self) -> None:\n"
             "        return self.to_df()._ipython_display_()\n"
             "\n"
-            "def hogql_execute(query: str, *, timeout: float | None = 30.0) -> HogQLLazyFrame:\n"
-            "    return HogQLLazyFrame(query, timeout=timeout)\n"
+            "def _serialize_hogql_placeholder(value: Any) -> dict[str, Any]:\n"
+            "    if isinstance(value, HogQLLazyFrame):\n"
+            "        return {'type': 'hogql_query', 'query': value._query}\n"
+            "    if isinstance(value, (str, int, float, bool)) or value is None:\n"
+            "        return {'type': 'constant', 'value': value}\n"
+            "    if isinstance(value, (list, tuple)):\n"
+            "        return {'type': 'constant', 'value': list(value)}\n"
+            "    if isinstance(value, dict):\n"
+            "        return {'type': 'constant', 'value': value}\n"
+            "    raise ValueError(f'Unsupported HogQL placeholder type: {type(value).__name__}')\n"
+            "\n"
+            "def _resolve_hogql_placeholders(names: list[str]) -> dict[str, Any]:\n"
+            "    placeholders: dict[str, Any] = {}\n"
+            "    for name in names:\n"
+            "        if name not in globals():\n"
+            "            raise KeyError(f\"HogQL placeholder '{name}' is not defined.\")\n"
+            "        placeholders[name] = _serialize_hogql_placeholder(globals()[name])\n"
+            "    return placeholders\n"
+            "\n"
+            "def hogql_execute(\n"
+            "    query: str, *, timeout: float | None = 30.0, placeholders: Sequence[str] | None = None\n"
+            ") -> HogQLLazyFrame:\n"
+            "    placeholder_list = _find_hogql_placeholders(query) if placeholders is None else list(placeholders)\n"
+            "    return HogQLLazyFrame(query, timeout=timeout, placeholders=placeholder_list)\n"
         )
 
     def _reuse_kernel_handle_for_backend(
@@ -1205,11 +1332,7 @@ class KernelRuntimeService:
             raise RuntimeError("Sandbox not available for kernel execution.")
 
         timeout_seconds = int(timeout or self._execution_timeout)
-        user_expressions: dict[str, str] | None = None
-        if capture_variables and variable_names:
-            user_expressions = {
-                f"{self._TYPE_EXPRESSION_PREFIX}{name}": f"type({name}).__name__" for name in variable_names
-            }
+        user_expressions = self._build_user_expressions(variable_names) if capture_variables else None
 
         payload = {
             "connection_file": handle.runtime.connection_file,
@@ -1289,11 +1412,7 @@ class KernelRuntimeService:
             raise RuntimeError("Sandbox not available for kernel execution.")
 
         timeout_seconds = int(timeout or self._execution_timeout)
-        user_expressions: dict[str, str] | None = None
-        if capture_variables and variable_names:
-            user_expressions = {
-                f"{self._TYPE_EXPRESSION_PREFIX}{name}": f"type({name}).__name__" for name in variable_names
-            }
+        user_expressions = self._build_user_expressions(variable_names) if capture_variables else None
 
         payload = {
             "connection_file": handle.runtime.connection_file,

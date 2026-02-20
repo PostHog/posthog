@@ -32,7 +32,6 @@ from products.batch_exports.backend.temporal.destinations.postgres_batch_export 
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     RedshiftBatchExportWorkflow,
     copy_into_redshift_activity_from_stage,
-    insert_into_redshift_activity,
     insert_into_redshift_activity_from_stage,
 )
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
@@ -83,7 +82,6 @@ ACTIVITIES = [
     insert_into_http_activity,
     insert_into_kafka_activity_from_stage,
     insert_into_postgres_activity_from_stage,
-    insert_into_redshift_activity,
     insert_into_redshift_activity_from_stage,
     copy_into_redshift_activity_from_stage,
     insert_into_snowflake_activity_from_stage,

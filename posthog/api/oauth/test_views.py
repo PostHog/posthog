@@ -2012,8 +2012,8 @@ class TestOAuthAPI(APIBaseTest):
 
         return access_token, refresh_token
 
-    @parameterized.expand([("access_token", True), ("refresh_token", False)])
-    def test_introspection_with_http_basic_auth(self, token_type, expected_active):
+    @parameterized.expand(["access_token", "refresh_token"])
+    def test_introspection_with_http_basic_auth(self, token_type):
         access_token, refresh_token = self._create_access_and_refresh_tokens()
         token = access_token if token_type == "access_token" else refresh_token
 
@@ -2029,17 +2029,23 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        self.assertEqual(data["active"], expected_active)
+        self.assertTrue(data["active"])
+        self.assertEqual(data["client_id"], "test_confidential_client_id")
+        self.assertEqual(data["client_name"], "Test Confidential App")
+        self.assertIn("scoped_teams", data)
+        self.assertIn("scoped_organizations", data)
 
-        if expected_active:
+        if token_type == "access_token":
+            self.assertEqual(data["token_type"], "access_token")
             self.assertEqual(data["scope"], "openid")
-            self.assertEqual(data["client_id"], "test_confidential_client_id")
-            self.assertIn("scoped_teams", data)
-            self.assertIn("scoped_organizations", data)
             self.assertIn("exp", data)
+        else:
+            self.assertEqual(data["token_type"], "refresh_token")
+            self.assertNotIn("scope", data)
+            self.assertNotIn("exp", data)
 
-    @parameterized.expand([("access_token", True), ("refresh_token", False)])
-    def test_introspection_with_client_credentials_in_body(self, token_type, expected_active):
+    @parameterized.expand(["access_token", "refresh_token"])
+    def test_introspection_with_client_credentials_in_body(self, token_type):
         access_token, refresh_token = self._create_access_and_refresh_tokens()
         token = access_token if token_type == "access_token" else refresh_token
 
@@ -2054,11 +2060,15 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        self.assertEqual(data["active"], expected_active)
+        self.assertTrue(data["active"])
+        self.assertEqual(data["client_id"], "test_confidential_client_id")
 
-        if expected_active:
+        if token_type == "access_token":
+            self.assertEqual(data["token_type"], "access_token")
             self.assertEqual(data["scope"], "openid")
-            self.assertEqual(data["client_id"], "test_confidential_client_id")
+        else:
+            self.assertEqual(data["token_type"], "refresh_token")
+            self.assertNotIn("scope", data)
 
     def test_introspection_with_bearer_token_requires_introspection_scope(self):
         access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
@@ -2072,8 +2082,8 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @parameterized.expand([("access_token", True), ("refresh_token", False)])
-    def test_introspection_with_bearer_token_with_introspection_scope(self, token_type, expected_active):
+    @parameterized.expand(["access_token", "refresh_token"])
+    def test_introspection_with_bearer_token_with_introspection_scope(self, token_type):
         access_token, _ = self._create_access_and_refresh_tokens(scopes="openid introspection")
         token_to_introspect_access, token_to_introspect_refresh = self._create_access_and_refresh_tokens()
         token_to_introspect = (
@@ -2088,10 +2098,14 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        self.assertEqual(data["active"], expected_active)
+        self.assertTrue(data["active"])
 
-        if expected_active:
+        if token_type == "access_token":
+            self.assertEqual(data["token_type"], "access_token")
             self.assertEqual(data["scope"], "openid")
+        else:
+            self.assertEqual(data["token_type"], "refresh_token")
+            self.assertNotIn("scope", data)
 
     def test_introspection_with_invalid_token(self):
         authorization_header = self.get_basic_auth_header(
@@ -2245,8 +2259,8 @@ class TestOAuthAPI(APIBaseTest):
         self.assertTrue(data["active"])
 
     @freeze_time("2025-01-01 00:00:00")
-    def test_self_introspection_with_expired_token_fails(self):
-        """An expired token cannot self-introspect."""
+    def test_self_introspection_with_expired_token_returns_inactive(self):
+        """An expired token can self-introspect and gets active: false per RFC 7662."""
         access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
         access_token.expires = timezone.now() - timedelta(hours=1)
         access_token.save()
@@ -2257,7 +2271,22 @@ class TestOAuthAPI(APIBaseTest):
             headers={"Authorization": f"Bearer {access_token.token}"},
         )
 
-        # Falls back to standard behavior which requires introspection scope
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["active"])
+
+    def test_self_introspection_with_revoked_token_fails(self):
+        """A revoked (deleted) token cannot self-introspect."""
+        access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
+        token_value = access_token.token
+        access_token.delete()
+
+        response = self.post(
+            "/oauth/introspect/",
+            {"token": token_value},
+            headers={"Authorization": f"Bearer {token_value}"},
+        )
+
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_introspecting_different_token_still_requires_introspection_scope(self):

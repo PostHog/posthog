@@ -11,6 +11,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
 import { InsightColor } from '~/types'
 
@@ -71,7 +72,11 @@ export function CardMeta({
     const neededWidth = buttonsWithLabels * 140 // 140px per button
 
     // Show labels if card is wide enough AND there's room for labeled buttons
-    const showControlsLabels = !!primaryWidth && primaryWidth > 480 && controlsAvailableSpace >= neededWidth
+    // But also when in storybook to make it neater
+    const showControlsLabels =
+        inStorybook() ||
+        inStorybookTestRunner() ||
+        (!!primaryWidth && primaryWidth > 480 && controlsAvailableSpace >= neededWidth)
 
     return (
         <div className={clsx('CardMeta', className, areDetailsShown && 'CardMeta--details-shown')}>

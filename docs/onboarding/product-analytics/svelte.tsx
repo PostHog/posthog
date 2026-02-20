@@ -65,7 +65,7 @@ export const getSvelteClientSteps = (ctx: OnboardingComponentsContext): StepDefi
                                           '<ph_project_api_key>',
                                           {
                                             api_host: '<ph_client_api_host>',
-                                            defaults: '2025-11-30'
+                                            defaults: '2026-01-30'
                                           }
                                         )
                                       }

@@ -103,6 +103,11 @@
             .reduce-visual-noise & {
                 color: var(--color-accent) !important;
             }
+
+            .LemonTag {
+                color: var(--color-accent);
+                border-color: var(--color-accent);
+            }
         }
 
         a {

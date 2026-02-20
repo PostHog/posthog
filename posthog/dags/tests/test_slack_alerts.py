@@ -24,7 +24,7 @@ class TestSlackAlertsRouting:
         mock_run.job_name = "__ASSET_JOB"
         mock_run.tags = {"owner": JobOwners.TEAM_CLICKHOUSE.value}  # Original owner is different
 
-        error_message = "Execution of run for \"__ASSET_JOB\" failed. Steps failed: ['web_analytics_bounces_hourly', 'web_analytics_stats_table_hourly']."
+        error_message = "Execution of run for \"__ASSET_JOB\" failed. Steps failed: ['web_pre_aggregated_bounces', 'web_pre_aggregated_stats']."
 
         result = get_job_owner_for_alert(mock_run, error_message)
 
@@ -35,7 +35,7 @@ class TestSlackAlertsRouting:
         mock_run.job_name = "__ASSET_JOB"
         mock_run.tags = {"owner": JobOwners.TEAM_REVENUE_ANALYTICS.value}
 
-        error_message = "Execution of run for \"__ASSET_JOB\" failed. Steps failed: ['some_other_asset', 'web_analytics_bounces_hourly', 'clickhouse_asset']."
+        error_message = "Execution of run for \"__ASSET_JOB\" failed. Steps failed: ['some_other_asset', 'web_pre_aggregated_bounces', 'clickhouse_asset']."
 
         result = get_job_owner_for_alert(mock_run, error_message)
 

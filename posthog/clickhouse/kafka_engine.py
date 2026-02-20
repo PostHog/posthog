@@ -63,11 +63,14 @@ def kafka_engine(
     group="group1",
     serialization="JSONEachRow",
     use_named_collection: bool = True,
+    named_collection: str | None = None,
 ) -> str:
     if use_named_collection:
         assert kafka_host is None, "Can't set kafka_host when using named collection"
+        # Use explicit named_collection if provided, otherwise default to MSK
+        collection_name = named_collection or settings.CLICKHOUSE_KAFKA_NAMED_COLLECTION
         return KAFKA_NAMED_COLLECTION_ENGINE.format(
-            named_collection_name=settings.CLICKHOUSE_KAFKA_NAMED_COLLECTION,
+            named_collection_name=collection_name,
             topic=topic,
             group=group,
             serialization=serialization,

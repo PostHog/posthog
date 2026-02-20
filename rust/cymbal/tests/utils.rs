@@ -61,9 +61,11 @@ pub(crate) async fn get_response<T: for<'de> Deserialize<'de>>(
         .await
         .unwrap();
 
+    let body_string = String::from_utf8(body_bytes.to_vec()).unwrap();
+
     // Deserialize the JSON into your struct
     let body: T = serde_json::from_slice(body_bytes.to_bytes())
-        .unwrap_or_else(|e| panic!("Failed to deserialize response: {e}"));
+        .unwrap_or_else(|e| panic!("Failed to deserialize response: {e} {body_string}"));
     (status, body)
 }
 

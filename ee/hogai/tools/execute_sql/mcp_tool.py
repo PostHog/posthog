@@ -9,6 +9,10 @@ from ee.hogai.tool_errors import MaxToolRetryableError
 
 class ExecuteSQLMCPToolArgs(BaseModel):
     query: str = Field(description="The final SQL query to be executed.")
+    truncate: bool = Field(
+        default=True,
+        description="Whether to truncate large blob/JSON values in results. Set to false for full untruncated results.",
+    )
 
 
 @mcp_tool_registry.register(scopes=["query:read"])
@@ -34,4 +38,4 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             name="",
             description="",
         )
-        return await insight_context.execute_and_format(prompt_template="{{{results}}}")
+        return await insight_context.execute_and_format(prompt_template="{{{results}}}", truncate_results=args.truncate)

@@ -1,3 +1,5 @@
+import * as PartialJSON from 'partial-json'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
@@ -32,6 +34,47 @@ import {
     VercelSDKInputTextMessage,
     VercelSDKTextMessage,
 } from './types'
+
+export interface PagedSearchOrderFilters {
+    page: number
+    search: string
+    order_by: string
+}
+
+export interface SanitizeTraceUrlSearchParamsOptions {
+    removeSearch?: boolean
+}
+
+export function sanitizeTraceUrlSearchParams(
+    searchParams: Record<string, unknown>,
+    options: SanitizeTraceUrlSearchParamsOptions = {}
+): Record<string, unknown> {
+    const sanitizedSearchParams = { ...searchParams }
+
+    delete sanitizedSearchParams.event
+    delete sanitizedSearchParams.timestamp
+    delete sanitizedSearchParams.exception_ts
+    delete sanitizedSearchParams.line
+    delete sanitizedSearchParams.tab
+    delete sanitizedSearchParams.back_to
+
+    if (options.removeSearch) {
+        delete sanitizedSearchParams.search
+    }
+
+    return sanitizedSearchParams
+}
+
+export function cleanPagedSearchOrderParams(
+    filters: PagedSearchOrderFilters,
+    defaultOrderBy: string = '-created_at'
+): Record<string, unknown> {
+    return {
+        page: filters.page === 1 ? undefined : filters.page,
+        search: filters.search || undefined,
+        order_by: filters.order_by === defaultOrderBy ? undefined : filters.order_by,
+    }
+}
 
 function formatUsage(inputTokens: number, outputTokens?: number | null): string | null {
     return `${inputTokens} → ${outputTokens || 0} (∑ ${inputTokens + (outputTokens || 0)})`
@@ -86,6 +129,30 @@ const usdFormatter = new Intl.NumberFormat('en-US', {
 
 export function formatLLMCost(cost: number): string {
     return usdFormatter.format(cost)
+}
+
+export function formatTokens(tokens: number): string {
+    if (tokens >= 1000000) {
+        return `${(tokens / 1000000).toFixed(1)}M`
+    }
+    if (tokens >= 1000) {
+        return `${(tokens / 1000).toFixed(1)}k`
+    }
+    return tokens.toFixed(0)
+}
+
+export function formatErrorRate(errorRate: number): string {
+    const percentage = errorRate * 100
+    if (percentage === 0) {
+        return '0%'
+    }
+    if (percentage < 0.1) {
+        return '<0.1%'
+    }
+    if (percentage < 1) {
+        return `${percentage.toFixed(1)}%`
+    }
+    return `${Math.round(percentage)}%`
 }
 
 export function isLLMEvent(item: LLMTrace | LLMTraceEvent): item is LLMTraceEvent {
@@ -624,9 +691,10 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
     }
     // Tool result completion
     if (isAnthropicToolResultMessage(rawMessage)) {
+        const toolResultRole = normalizeRole('assistant (tool result)', roleToUse)
         if (Array.isArray(rawMessage.content)) {
             return rawMessage.content
-                .map((content) => normalizeMessage(content, roleToUse))
+                .map((content) => normalizeMessage(content, toolResultRole))
                 .flat()
                 .map((msg) => ({
                     ...msg,
@@ -635,7 +703,7 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
         }
         return [
             {
-                role: roleToUse,
+                role: toolResultRole,
                 content: rawMessage.content,
                 tool_call_id: rawMessage.tool_use_id,
             },
@@ -723,6 +791,26 @@ export function normalizeMessages(messages: unknown, defaultRole: string, tools?
     }
 
     return normalizedMessages
+}
+
+const JSON_PREVIEW_LENGTH = 300
+
+// We are deliberately cutting off the JSON instead of the parsed final content
+// because we will soon be sending an actual truncated version of the field
+// through a materialized column. This forces us to handle partial JSON.
+function simulateNaiveTruncation(raw: unknown): string {
+    const jsonStr = typeof raw === 'string' ? raw : JSON.stringify(raw)
+    return jsonStr.slice(0, JSON_PREVIEW_LENGTH)
+}
+
+export function parsePartialJSON(json: string): unknown {
+    const flags = PartialJSON.STR | PartialJSON.OBJ | PartialJSON.ARR
+    return PartialJSON.parse(json, flags)
+}
+
+export function parseJSONPreview(raw: unknown): unknown {
+    const truncated = simulateNaiveTruncation(raw)
+    return parsePartialJSON(truncated)
 }
 
 export function removeMilliseconds(timestamp: string): string {

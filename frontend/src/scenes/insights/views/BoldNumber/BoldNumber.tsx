@@ -71,7 +71,7 @@ function useBoldNumberTooltip({
                 renderSeries={(value: React.ReactNode) => <span className="font-semibold">{value}</span>}
                 hideColorCol
                 hideInspectActorsSection={!showPersonsModal}
-                groupTypeLabel={groupTypeLabel || aggregationLabel(series?.[0].math_group_type_index).plural}
+                groupTypeLabel={groupTypeLabel || aggregationLabel(series?.[0]?.math_group_type_index).plural}
             />
         )
     }, [isTooltipShown]) // oxlint-disable-line react-hooks/exhaustive-deps
