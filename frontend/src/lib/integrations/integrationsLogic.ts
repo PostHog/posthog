@@ -184,15 +184,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         config: { state, code },
                     })
 
-<<<<<<< HEAD
                     // Add the integration ID to the replaceUrl so that the landing page can use it
-                    replaceUrl += `${replaceUrl.includes('?') ? '&' : '?'}integration_id=${integration.id}`
-=======
-                // Add the integration ID to the replaceUrl so that the landing page can use it
-                const url = new URL(replaceUrl, window.location.origin)
-                url.searchParams.set('integration_id', String(integration.id))
-                replaceUrl = url.pathname + url.search + url.hash
->>>>>>> master
+                    const url = new URL(replaceUrl, window.location.origin)
+                    url.searchParams.set('integration_id', String(integration.id))
+                    replaceUrl = url.pathname + url.search + url.hash
 
                     actions.loadIntegrations()
                     lemonToast.success(`Integration successful.`)
