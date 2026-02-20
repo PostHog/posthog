@@ -359,7 +359,7 @@ function SearchRoot({
             // "create" is only shown when searching
             const shouldShow = hasSearchValue
                 ? items.length > 0 || isLoading
-                : category === 'suggested' || category === 'recents' || category === 'apps'
+                : (category === 'suggested' && items.length > 0) || category === 'recents' || category === 'apps'
 
             if (shouldShow) {
                 groups.push({ category, items, isLoading })
