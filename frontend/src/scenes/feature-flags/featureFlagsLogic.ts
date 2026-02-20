@@ -92,6 +92,7 @@ export enum FeatureFlagsTab {
 export interface FeatureFlagsResult extends CountedPaginatedResponse<FeatureFlagType> {
     /* not in the API response */
     filters?: FeatureFlagsFilters | null
+    lastUpdatedFlagId?: number | null
 }
 
 export interface FeatureFlagsFilters {
@@ -133,6 +134,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         setActiveTab: (tabKey: FeatureFlagsTab) => ({ tabKey }),
         setFeatureFlagsFilters: (filters: Partial<FeatureFlagsFilters>, replace?: boolean) => ({ filters, replace }),
         closeEnrichAnalyticsNotice: true,
+        setFeatureFlagUpdating: (id: number, updating: boolean) => ({ id, updating }),
     }),
     loaders(({ values }) => ({
         featureFlags: [
@@ -157,7 +159,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     const updatedFlags = [...values.featureFlags.results].map((flag) =>
                         flag.id === response.id ? response : flag
                     )
-                    return { ...values.featureFlags, results: updatedFlags }
+                    return { ...values.featureFlags, results: updatedFlags, lastUpdatedFlagId: id }
                 },
             },
         ],
@@ -178,6 +180,9 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             [] as FeatureFlagType[],
             {
                 loadFeatureFlagsSuccess: (_, { featureFlags }) => {
+                    return featureFlags.results
+                },
+                updateFeatureFlagSuccess: (_, { featureFlags }) => {
                     return featureFlags.results
                 },
                 updateFlag: (state, { flag }) => state.map((f) => (f.id === flag.id ? flag : f)),
@@ -207,6 +212,27 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             { persist: true },
             {
                 closeEnrichAnalyticsNotice: () => true,
+            },
+        ],
+        featureFlagsUpdating: [
+            {} as Record<number, boolean>,
+            {
+                setFeatureFlagUpdating: (state, { id, updating }) => {
+                    if (updating) {
+                        return { ...state, [id]: true }
+                    }
+                    const { [id]: _, ...rest } = state
+                    return rest
+                },
+                updateFeatureFlag: (state, { id }) => ({ ...state, [id]: true }),
+                updateFeatureFlagSuccess: (state, { featureFlags }) => {
+                    if (featureFlags.lastUpdatedFlagId) {
+                        const { [featureFlags.lastUpdatedFlagId]: _, ...rest } = state
+                        return rest
+                    }
+                    return state
+                },
+                updateFeatureFlagFailure: () => ({}),
             },
         ],
     }),

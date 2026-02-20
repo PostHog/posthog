@@ -1,4 +1,4 @@
-name: Cleanup Hobby Preview Droplets
+name: PR Cleanup
 
 on:
     schedule:
@@ -29,8 +29,8 @@ permissions:
     deployments: write
 
 jobs:
-    cleanup:
-        name: Cleanup preview droplets
+    cleanup-hobby-preview:
+        name: Cleanup hobby preview droplets
         runs-on: ubuntu-24.04
         steps:
             - uses: actions/checkout@v6
@@ -127,3 +127,101 @@ jobs:
                               console.log(`  Could not cleanup ${environment}: ${error.message}`);
                           }
                       }
+
+    cleanup-cf-pages-playwright:
+        name: Cleanup Cloudflare Pages playwright reports
+        runs-on: ubuntu-24.04
+        steps:
+            - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              env:
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+                  INPUT_PR_NUMBER: ${{ inputs.pr_number || '' }}
+                  INPUT_DRY_RUN: ${{ inputs.dry_run || 'false' }}
+              with:
+                  script: |
+                      const CF_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
+                      const CF_ACCOUNT = process.env.CLOUDFLARE_ACCOUNT_ID;
+                      const PROJECT = 'playwright-report';
+                      const prNumber = process.env.INPUT_PR_NUMBER;
+                      const dryRun = process.env.INPUT_DRY_RUN === 'true';
+
+                      async function cfApi(path, method = 'GET') {
+                          const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT}/pages/projects/${PROJECT}${path}`;
+                          const res = await fetch(url, {
+                              method,
+                              headers: { Authorization: `Bearer ${CF_TOKEN}` },
+                          });
+                          if (!res.ok && method === 'GET') {
+                              throw new Error(`CF API ${method} ${path}: ${res.status}`);
+                          }
+                          return method === 'GET' ? (await res.json()) : res;
+                      }
+
+                      // Fetch all deployments, paginated
+                      const deployments = [];
+                      for (let page = 1; ; page++) {
+                          const { result } = await cfApi(`/deployments?page=${page}&per_page=25`);
+                          if (!result.length) break;
+                          deployments.push(...result);
+                      }
+                      core.info(`Found ${deployments.length} total deployment(s)`);
+
+                      // Group by PR branch
+                      const byPr = new Map();
+                      for (const d of deployments) {
+                          const branch = d.deployment_trigger?.metadata?.branch;
+                          const match = branch?.match(/^pr-(\d+)$/);
+                          if (!match) continue;
+                          const pr = match[1];
+                          if (!byPr.has(pr)) byPr.set(pr, []);
+                          byPr.get(pr).push(d);
+                      }
+                      core.info(`Found ${byPr.size} PR branch(es) with deployments`);
+
+                      // Determine which PRs to clean up
+                      let prsToClean;
+                      if (prNumber) {
+                          prsToClean = [prNumber];
+                          core.info(`Targeting PR #${prNumber}`);
+                      } else {
+                          prsToClean = [];
+                          for (const pr of byPr.keys()) {
+                              try {
+                                  const { data } = await github.rest.pulls.get({
+                                      ...context.repo,
+                                      pull_number: parseInt(pr),
+                                  });
+                                  if (data.state === 'closed') {
+                                      prsToClean.push(pr);
+                                      core.info(`PR #${pr}: closed (${byPr.get(pr).length} deployment(s)) -> cleaning up`);
+                                  } else {
+                                      core.info(`PR #${pr}: open -> keeping`);
+                                  }
+                              } catch (e) {
+                                  core.warning(`PR #${pr}: could not fetch state: ${e.message}`);
+                              }
+                          }
+                      }
+
+                      if (!prsToClean.length) {
+                          core.info('Nothing to clean up.');
+                          return;
+                      }
+
+                      // Delete deployments
+                      let deleted = 0;
+                      for (const pr of prsToClean) {
+                          const deps = byPr.get(pr) || [];
+                          for (const d of deps) {
+                              if (dryRun) {
+                                  core.info(`[DRY RUN] Would delete ${d.id} (pr-${pr})`);
+                              } else {
+                                  const res = await cfApi(`/deployments/${d.id}?force=true`, 'DELETE');
+                                  core.info(`Deleted ${d.id} (pr-${pr}): ${res.status}`);
+                              }
+                              deleted++;
+                          }
+                      }
+
+                      core.info(`Done. Processed ${deleted} deployment(s) across ${prsToClean.length} PR(s).`);
