@@ -7,7 +7,7 @@ import { TRIGGER_OPTIONS, WizardTrigger, errorTrackingAlertWizardLogic } from '.
 import { WizardCard } from './WizardCard'
 
 export function TriggerStep(): JSX.Element {
-    const { setTrigger, setStep } = useActions(errorTrackingAlertWizardLogic)
+    const { setTriggerKey, setStep } = useActions(errorTrackingAlertWizardLogic)
 
     return (
         <div className="space-y-4">
@@ -24,12 +24,12 @@ export function TriggerStep(): JSX.Element {
                 <p className="text-secondary text-sm">Choose when you want to be notified</p>
             </div>
             <div className="space-y-3">
-                {TRIGGER_OPTIONS.map((option: WizardTrigger) => (
+                {TRIGGER_OPTIONS.map((trigger: WizardTrigger) => (
                     <WizardCard
-                        key={option.key}
-                        name={option.name}
-                        description={option.description}
-                        onClick={() => setTrigger(option.key)}
+                        key={trigger.key}
+                        name={trigger.name}
+                        description={trigger.description}
+                        onClick={() => setTriggerKey(trigger.key)}
                     />
                 ))}
             </div>

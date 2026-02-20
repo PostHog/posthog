@@ -116,8 +116,8 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
     actions({
         setAlertCreationView: (view: AlertCreationView) => ({ view }),
         setStep: (step: WizardStep) => ({ step }),
-        setDestination: (destination: WizardDestinationKey) => ({ destination }),
-        setTrigger: (trigger: WizardTriggerKey) => ({ trigger }),
+        setDestinationKey: (destinationKey: WizardDestinationKey) => ({ destinationKey }),
+        setTriggerKey: (triggerKey: WizardTriggerKey) => ({ triggerKey }),
         setInputValue: (key: string, value: CyclotronJobInputType) => ({ key, value }),
         resetWizard: true,
         createAlertSuccess: true,
@@ -136,21 +136,21 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
             'destination' as WizardStep,
             {
                 setStep: (_, { step }) => step,
-                setDestination: () => 'trigger' as WizardStep,
+                setDestinationKey: () => 'trigger' as WizardStep,
                 resetWizard: () => 'destination' as WizardStep,
             },
         ],
-        selectedDestination: [
+        selectedDestinationKey: [
             null as WizardDestinationKey | null,
             {
-                setDestination: (_, { destination }) => destination,
+                setDestinationKey: (_, { destinationKey }) => destinationKey,
                 resetWizard: () => null,
             },
         ],
-        selectedTrigger: [
+        selectedTriggerKey: [
             null as WizardTriggerKey | null,
             {
-                setTrigger: (_, { trigger }) => trigger,
+                setTriggerKey: (_, { triggerKey }) => triggerKey,
                 resetWizard: () => null,
             },
         ],
@@ -167,8 +167,8 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
                 setInputValue: (state, { key, value }) => ({ ...state, [key]: value }),
                 resetWizard: () => ({}),
                 // Reset inputs when switching destination or trigger
-                setDestination: () => ({}),
-                setTrigger: () => ({}),
+                setDestinationKey: () => ({}),
+                setTriggerKey: () => ({}),
             },
         ],
         submitting: [
@@ -214,45 +214,45 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
     }),
 
     selectors({
-        usedDestinations: [
+        usedDestinationKeys: [
             (s) => [s.existingAlerts],
             (existingAlerts): Set<WizardDestinationKey> => {
-                const used = new Set<WizardDestinationKey>()
+                const usedDestinationKeys = new Set<WizardDestinationKey>()
                 for (const alert of existingAlerts) {
-                    const dest = extractDestinationKeyFromAlert(alert)
-                    if (dest) {
-                        used.add(dest)
+                    const destinationKey = extractDestinationKeyFromAlert(alert)
+                    if (destinationKey) {
+                        usedDestinationKeys.add(destinationKey)
                     }
                 }
-                return used
+                return usedDestinationKeys
             },
         ],
 
-        destinationOptions: [
-            (s) => [s.usedDestinations],
-            (usedDestinations): WizardDestination[] => {
+        destinations: [
+            (s) => [s.usedDestinationKeys],
+            (usedDestinationKeys): WizardDestination[] => {
                 const sorted = [...DESTINATIONS_DEFAULT_PRIORITY].sort((a, b) => {
-                    const aUsed = usedDestinations.has(a) ? 1 : 0
-                    const bUsed = usedDestinations.has(b) ? 1 : 0
+                    const aUsed = usedDestinationKeys.has(a) ? 1 : 0
+                    const bUsed = usedDestinationKeys.has(b) ? 1 : 0
                     return bUsed - aUsed
                 })
                 const top3 = sorted.slice(0, 3)
-                return top3.map((key) => ALL_DESTINATIONS.find((d) => d.key === key)!)
+                return top3.map((destinationKey) => ALL_DESTINATIONS.find((d) => d.key === destinationKey)!)
             },
         ],
 
         activeSubTemplate: [
-            (s) => [s.selectedDestination, s.selectedTrigger],
-            (selectedDestination, selectedTrigger) => {
-                if (!selectedDestination || !selectedTrigger) {
+            (s) => [s.selectedDestinationKey, s.selectedTriggerKey],
+            (selectedDestinationKey, selectedTriggerKey) => {
+                if (!selectedDestinationKey || !selectedTriggerKey) {
                     return null
                 }
-                const destinationOption = ALL_DESTINATIONS.find((d) => d.key === selectedDestination)
-                if (!destinationOption) {
+                const destination = ALL_DESTINATIONS.find((d) => d.key === selectedDestinationKey)
+                if (!destination) {
                     return null
                 }
-                const subTemplates = HOG_FUNCTION_SUB_TEMPLATES[selectedTrigger as HogFunctionSubTemplateIdType]
-                return subTemplates?.find((t) => t.template_id === destinationOption.templateId) ?? null
+                const subTemplates = HOG_FUNCTION_SUB_TEMPLATES[selectedTriggerKey as HogFunctionSubTemplateIdType]
+                return subTemplates?.find((t) => t.template_id === destination.templateId) ?? null
             },
         ],
 
@@ -293,26 +293,26 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
             }
         },
 
-        setTrigger: () => {
-            const destination = values.selectedDestination
-            if (destination) {
-                const destinationOptions = ALL_DESTINATIONS.find((d) => d.key === destination)!
-                actions.loadTemplate(destinationOptions.templateId)
+        setTriggerKey: () => {
+            const destinationKey = values.selectedDestinationKey
+            if (destinationKey) {
+                const destination = ALL_DESTINATIONS.find((d) => d.key === destinationKey)!
+                actions.loadTemplate(destination.templateId)
             }
             actions.setStep('configure')
         },
 
         submitConfiguration: async () => {
-            const dest = values.selectedDestination
-            const trigger = values.selectedTrigger
+            const destinationKey = values.selectedDestinationKey
+            const triggerKey = values.selectedTriggerKey
 
-            if (!dest || !trigger) {
+            if (!destinationKey || !triggerKey) {
                 return
             }
 
-            const destOption = ALL_DESTINATIONS.find((d) => d.key === dest)!
-            const subTemplates = HOG_FUNCTION_SUB_TEMPLATES[trigger]
-            const subTemplate = subTemplates.find((t) => t.template_id === destOption.templateId)
+            const destination = ALL_DESTINATIONS.find((d) => d.key === destinationKey)!
+            const subTemplates = HOG_FUNCTION_SUB_TEMPLATES[triggerKey]
+            const subTemplate = subTemplates.find((t) => t.template_id === destination.templateId)
 
             if (!subTemplate) {
                 lemonToast.error('Template not found for this combination')
@@ -326,7 +326,7 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
 
             const configuration: Record<string, any> = {
                 type: 'internal_destination',
-                template_id: destOption.templateId,
+                template_id: destination.templateId,
                 filters: subTemplate.filters,
                 enabled: true,
                 masking: null,

@@ -9,8 +9,8 @@ import { WizardDestination, errorTrackingAlertWizardLogic } from '../errorTracki
 import { WizardCard } from './WizardCard'
 
 export function DestinationStep({ onBack }: { onBack: () => void }): JSX.Element {
-    const { destinationOptions, usedDestinations, existingAlertsLoading } = useValues(errorTrackingAlertWizardLogic)
-    const { setDestination } = useActions(errorTrackingAlertWizardLogic)
+    const { destinations, usedDestinationKeys, existingAlertsLoading } = useValues(errorTrackingAlertWizardLogic)
+    const { setDestinationKey } = useActions(errorTrackingAlertWizardLogic)
 
     if (existingAlertsLoading) {
         return (
@@ -62,14 +62,14 @@ export function DestinationStep({ onBack }: { onBack: () => void }): JSX.Element
                 <p className="text-secondary text-sm">Choose your preferred notification channel</p>
             </div>
             <div className="space-y-3">
-                {destinationOptions.map((option: WizardDestination) => (
+                {destinations.map((destination: WizardDestination) => (
                     <WizardCard
-                        key={option.key}
-                        icon={<HogFunctionIcon src={option.icon} size="medium" />}
-                        name={option.name}
-                        description={option.description}
-                        badge={usedDestinations.has(option.key) ? 'Previously used' : undefined}
-                        onClick={() => setDestination(option.key)}
+                        key={destination.key}
+                        icon={<HogFunctionIcon src={destination.icon} size="medium" />}
+                        name={destination.name}
+                        description={destination.description}
+                        badge={usedDestinationKeys.has(destination.key) ? 'Previously used' : undefined}
+                        onClick={() => setDestinationKey(destination.key)}
                     />
                 ))}
             </div>
