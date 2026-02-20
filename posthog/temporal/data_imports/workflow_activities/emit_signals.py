@@ -81,9 +81,7 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
 
     async with Heartbeater():
         # Fetch schema and team
-        schema, team = await database_sync_to_async(_fetch_schema_and_team, thread_sensitive=False)(
-            inputs.schema_id, inputs.team_id
-        )
+        schema, team = await _fetch_schema_and_team(inputs.schema_id, inputs.team_id)
         if schema.table is None:
             activity.logger.warning(
                 f"Schema {inputs.schema_id} has no table for emitting signals", extra=inputs.properties_to_log
@@ -140,9 +138,9 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
         return {"status": "success", "signals_emitted": signals_emitted}
 
 
-def _fetch_schema_and_team(schema_id: uuid.UUID, team_id: int) -> tuple[ExternalDataSchema, Team]:
-    schema = ExternalDataSchema.objects.prefetch_related("table", "source").get(id=schema_id, team_id=team_id)
-    team = Team.objects.get(id=team_id)
+async def _fetch_schema_and_team(schema_id: uuid.UUID, team_id: int) -> tuple[ExternalDataSchema, Team]:
+    schema = await ExternalDataSchema.objects.prefetch_related("table", "source").aget(id=schema_id, team_id=team_id)
+    team = await Team.objects.aget(id=team_id)
     return schema, team
 
 
