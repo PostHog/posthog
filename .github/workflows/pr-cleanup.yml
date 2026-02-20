@@ -185,30 +185,53 @@ jobs:
                           prsToClean = [prNumber];
                           core.info(`Targeting PR #${prNumber}`);
                       } else {
-                          // Fetch all open PRs in bulk (much more efficient than checking each individually)
-                          const openPrs = new Set();
-                          for (let page = 1; ; page++) {
-                              const { data } = await github.rest.pulls.list({
-                                  ...context.repo,
-                                  state: 'open',
-                                  per_page: 100,
-                                  page,
-                              });
-                              if (!data.length) break;
-                              for (const pr of data) {
-                                  openPrs.add(String(pr.number));
+                          // Use hybrid approach: bulk fetch for many PRs, individual checks for few
+                          const BULK_FETCH_THRESHOLD = 5;
+                          
+                          if (byPr.size >= BULK_FETCH_THRESHOLD) {
+                              // Bulk approach: fetch all open PRs (more efficient for many PRs)
+                              const openPrs = new Set();
+                              for (let page = 1; ; page++) {
+                                  const { data } = await github.rest.pulls.list({
+                                      ...context.repo,
+                                      state: 'open',
+                                      per_page: 100,
+                                      page,
+                                  });
+                                  if (!data.length) break;
+                                  for (const pr of data) {
+                                      openPrs.add(String(pr.number));
+                                  }
                               }
-                          }
-                          core.info(`Found ${openPrs.size} open PR(s)`);
-
-                          // Any PR with deployments that's not in openPrs is closed
-                          prsToClean = [];
-                          for (const pr of byPr.keys()) {
-                              if (openPrs.has(pr)) {
-                                  core.info(`PR #${pr}: open -> keeping`);
-                              } else {
-                                  prsToClean.push(pr);
-                                  core.info(`PR #${pr}: closed (${byPr.get(pr).length} deployment(s)) -> cleaning up`);
+                              core.info(`Found ${openPrs.size} open PR(s)`);
+                              
+                              prsToClean = [];
+                              for (const pr of byPr.keys()) {
+                                  if (openPrs.has(pr)) {
+                                      core.info(`PR #${pr}: open -> keeping`);
+                                  } else {
+                                      prsToClean.push(pr);
+                                      core.info(`PR #${pr}: closed (${byPr.get(pr).length} deployment(s)) -> cleaning up`);
+                                  }
+                              }
+                          } else {
+                              // Individual checks: fetch state for each PR (more efficient for few PRs)
+                              prsToClean = [];
+                              for (const pr of byPr.keys()) {
+                                  try {
+                                      const { data } = await github.rest.pulls.get({
+                                          ...context.repo,
+                                          pull_number: parseInt(pr),
+                                      });
+                                      if (data.state === 'closed') {
+                                          prsToClean.push(pr);
+                                          core.info(`PR #${pr}: closed (${byPr.get(pr).length} deployment(s)) -> cleaning up`);
+                                      } else {
+                                          core.info(`PR #${pr}: open -> keeping`);
+                                      }
+                                  } catch (e) {
+                                      core.warning(`PR #${pr}: could not fetch state: ${e.message}`);
+                                  }
                               }
                           }
                       }
