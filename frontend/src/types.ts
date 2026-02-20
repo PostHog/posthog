@@ -1418,7 +1418,7 @@ export type SearchableEntity =
     | 'property_definition'
     | 'survey'
 
-export type SearchListParams = { q: string; entities?: SearchableEntity[] }
+export type SearchListParams = { q: string; entities?: SearchableEntity[]; include_counts?: boolean }
 
 export type SearchResultType = {
     result_id: string
@@ -1429,7 +1429,7 @@ export type SearchResultType = {
 
 export type SearchResponse = {
     results: SearchResultType[]
-    counts: Record<SearchableEntity, number | null>
+    counts?: Record<SearchableEntity, number | null>
 }
 
 export type GroupListParams = { group_type_index: GroupTypeIndex; search: string; limit?: number }
@@ -2260,6 +2260,7 @@ export interface EndpointType extends WithAccessControl {
     /** Last execution time from ClickHouse query_log table */
     last_executed_at?: string
     materialization?: EndpointVersionMaterializationType
+    columns?: { name: string; type: string }[]
 }
 
 /** Extends EndpointType with version-specific fields when fetching a specific version */
@@ -3665,6 +3666,7 @@ export interface SurveyQuestionBase {
 
 export interface BasicSurveyQuestion extends SurveyQuestionBase {
     type: SurveyQuestionType.Open
+    validation?: SurveyValidationRule[]
 }
 
 export interface LinkSurveyQuestion extends SurveyQuestionBase {
@@ -3708,6 +3710,17 @@ export enum SurveyQuestionType {
     SingleChoice = 'single_choice',
     Rating = 'rating',
     Link = 'link',
+}
+
+export enum SurveyValidationType {
+    MinLength = 'min_length',
+    MaxLength = 'max_length',
+}
+
+export interface SurveyValidationRule {
+    type: SurveyValidationType
+    value?: number
+    errorMessage?: string
 }
 
 export enum SurveyQuestionBranchingType {
@@ -4070,6 +4083,11 @@ export type HotKey =
     | 'delete'
 export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
 
+export enum SchemaEnforcementMode {
+    Allow = 'allow',
+    Reject = 'reject',
+}
+
 export interface EventDefinition {
     id: string
     name: string
@@ -4087,6 +4105,7 @@ export interface EventDefinition {
     is_action?: boolean
     hidden?: boolean
     default_columns?: string[]
+    enforcement_mode?: SchemaEnforcementMode
     media_preview_urls?: string[]
 }
 

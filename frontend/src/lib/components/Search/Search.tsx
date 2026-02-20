@@ -189,6 +189,7 @@ const commandItemToTreeDataItem = (item: SearchItem): TreeDataItem => {
 // ============================================================================
 
 interface SearchContextValue {
+    logicKey: string
     searchValue: string
     setSearchValue: (value: string) => void
     filteredItems: SearchItem[]
@@ -362,6 +363,7 @@ function SearchRoot({
 
     const contextValue: SearchContextValue = useMemo(
         () => ({
+            logicKey,
             searchValue,
             setSearchValue,
             filteredItems,
@@ -374,7 +376,17 @@ function SearchRoot({
             onAskAiClick,
             highlightedItemRef,
         }),
-        [searchValue, filteredItems, groupedItems, isSearching, isActive, handleItemClick, showAskAiLink, onAskAiClick]
+        [
+            logicKey,
+            searchValue,
+            filteredItems,
+            groupedItems,
+            isSearching,
+            isActive,
+            handleItemClick,
+            showAskAiLink,
+            onAskAiClick,
+        ]
     )
 
     return (
@@ -533,7 +545,11 @@ function SearchStatus(): JSX.Element {
         return 'Type to search...'
     }, [isSearching, searchValue, filteredItems.length])
 
-    return <Autocomplete.Status className="px-3 pt-1 pb-2 text-xs text-muted">{statusMessage}</Autocomplete.Status>
+    return (
+        <Autocomplete.Status className="px-3 pt-1 pb-2 text-xs text-muted flex items-center">
+            <span>{statusMessage}</span>
+        </Autocomplete.Status>
+    )
 }
 
 // ============================================================================
@@ -574,7 +590,7 @@ function SearchResults({
                 </Autocomplete.Empty>
             )}
 
-            <Autocomplete.List className={cn('pt-3 pb-1', listClassName)} tabIndex={-1}>
+            <Autocomplete.List className={cn('pt-3 pb-1 empty:hidden', listClassName)} tabIndex={-1}>
                 {groupedItems.map((group) => {
                     return (
                         <Autocomplete.Group key={group.category} items={group.items} className="mb-4">

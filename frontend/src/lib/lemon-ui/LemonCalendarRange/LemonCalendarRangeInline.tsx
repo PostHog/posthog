@@ -38,7 +38,7 @@ export function LemonCalendarRangeInline({
             typeof window === 'undefined' ? WIDTH_OF_ONE_CALENDAR_MONTH * CALENDARS_IF_NO_WINDOW : window.innerWidth
         return Math.min(Math.max(1, Math.floor(width / WIDTH_OF_ONE_CALENDAR_MONTH)), 2)
     }
-    const [autoMonthCount, setAutoMonthCount] = useState(getMonthCount())
+    const [autoMonthCount, setAutoMonthCount] = useState(getMonthCount)
     useEffect(() => {
         const listener = (): void => {
             if (autoMonthCount !== getMonthCount()) {

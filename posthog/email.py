@@ -114,6 +114,7 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "approval_rejected": "58",
     "approval_expired": "59",
     "approval_applied": "61",
+    "conversation_restore": "63",
 }
 
 
