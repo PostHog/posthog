@@ -38,6 +38,7 @@ test.describe('Dashboards', () => {
             await dashboard.createNew()
             await dashboard.addInsightToNewDashboard()
             await expect(page.locator('.InsightCard')).toBeVisible()
+            dashboardUrl = page.url()
         })
 
         await test.step('select to edit an insight', async () => {

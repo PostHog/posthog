@@ -53,8 +53,8 @@ function getDayDateRange(day: string): { date_from: string; date_to: string } {
 
 export const llmAnalyticsDashboardLogic = kea<llmAnalyticsDashboardLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'tabs', 'llmAnalyticsDashboardLogic']),
-    key((props: LLMAnalyticsDashboardLogicProps) => props.tabId || 'default'),
     props({} as LLMAnalyticsDashboardLogicProps),
+    key((props: LLMAnalyticsDashboardLogicProps) => props.tabId || 'default'),
     connect((props: LLMAnalyticsDashboardLogicProps) => ({
         values: [
             llmAnalyticsSharedLogic({ tabId: props.tabId }),

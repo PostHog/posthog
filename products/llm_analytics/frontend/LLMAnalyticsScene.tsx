@@ -140,7 +140,7 @@ function LLMAnalyticsDashboard(): JSX.Element {
             date_to: externalFilters?.date_to ?? null,
             properties: externalFilters?.properties ?? null,
         }),
-        [externalFilters]
+        [externalFilters?.date_from, externalFilters?.date_to, externalFilters?.properties]
     )
 
     // Set filters using useLayoutEffect to ensure they're set before Dashboard's afterMount event fires

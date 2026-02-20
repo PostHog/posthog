@@ -152,7 +152,7 @@ export const llmPersonsLazyLoaderLogic = kea<llmPersonsLazyLoaderLogicType>([
                 } catch {
                     actions.loadPersonsBatchFailure(batch)
                 }
-            }, 100)
+            }, 0)
         }
 
         return {
