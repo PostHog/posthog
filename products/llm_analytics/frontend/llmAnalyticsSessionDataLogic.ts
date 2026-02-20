@@ -35,16 +35,18 @@ export interface SessionDataLogicProps {
     tabId?: string
 }
 
-function getDataNodeLogicProps({ sessionId, query, cachedResults }: SessionDataLogicProps): DataNodeLogicProps {
+function getDataNodeLogicProps({ sessionId, query, cachedResults, tabId }: SessionDataLogicProps): DataNodeLogicProps {
+    const tabScope = tabId ?? 'default'
+    const scopedSessionId = `${sessionId}:${tabScope}`
     const insightProps: InsightLogicProps<DataTableNode> = {
-        dashboardItemId: `new-Session.${sessionId}`,
-        dataNodeCollectionId: sessionId,
+        dashboardItemId: `new-Session.${scopedSessionId}`,
+        dataNodeCollectionId: scopedSessionId,
     }
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
         key: vizKey,
-        dataNodeCollectionId: sessionId,
+        dataNodeCollectionId: scopedSessionId,
         cachedResults: cachedResults || undefined,
     }
     return dataNodeLogicProps

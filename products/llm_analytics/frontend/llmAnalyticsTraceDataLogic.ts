@@ -18,6 +18,7 @@ import { InsightLogicProps } from '~/types'
 
 import type { llmAnalyticsTraceDataLogicType } from './llmAnalyticsTraceDataLogicType'
 import { llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
+import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import {
     SearchOccurrence,
     eventMatchesSearch,
@@ -35,16 +36,18 @@ export interface TraceDataLogicProps {
     tabId?: string
 }
 
-function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogicProps): DataNodeLogicProps {
+function getDataNodeLogicProps({ traceId, query, cachedResults, tabId }: TraceDataLogicProps): DataNodeLogicProps {
+    const tabScope = tabId ?? 'default'
+    const scopedTraceId = `${traceId}:${tabScope}`
     const insightProps: InsightLogicProps<DataTableNode> = {
-        dashboardItemId: `new-Trace.${traceId}`,
-        dataNodeCollectionId: traceId,
+        dashboardItemId: `new-Trace.${scopedTraceId}`,
+        dataNodeCollectionId: scopedTraceId,
     }
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
         key: vizKey,
-        dataNodeCollectionId: traceId,
+        dataNodeCollectionId: scopedTraceId,
         cachedResults: cachedResults || undefined,
     }
     return dataNodeLogicProps
@@ -404,6 +407,10 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
         trace: (trace: LLMTrace | undefined) => {
             if (trace?.createdAt && props.traceId) {
                 llmAnalyticsTraceLogic({ tabId: props.tabId }).actions.loadNeighbors(props.traceId, trace.createdAt)
+            }
+
+            if (trace?.distinctId) {
+                llmPersonsLazyLoaderLogic.actions.ensurePersonLoaded(trace.distinctId)
             }
 
             llmAnalyticsTraceDataLogic(props).actions.reportSingleTraceLoadIfReady()
