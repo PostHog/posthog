@@ -41,7 +41,7 @@ class LLMModelsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if key_id:
             try:
                 provider_key = LLMProviderKey.objects.get(id=key_id, team_id=self.team_id)
-                if provider_key.provider != provider:
+                if canonicalize_llm_provider(provider_key.provider) != provider:
                     return Response(
                         {
                             "detail": f"Key provider '{provider_key.provider}' does not match requested provider '{provider}'"

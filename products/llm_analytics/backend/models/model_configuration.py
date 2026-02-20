@@ -3,7 +3,7 @@ from django.db import models
 
 from posthog.models.utils import UUIDTModel
 
-from .provider_keys import LLMProvider
+from .provider_keys import LLMProvider, canonicalize_llm_provider
 
 # Cost-controlled models for PostHog default keys
 POSTHOG_ALLOWED_MODELS: dict[str, list[str]] = {
@@ -46,8 +46,10 @@ class LLMModelConfiguration(UUIDTModel):
         self._validate_provider_key_match()
 
     def _validate_provider_key_match(self) -> None:
-        """If a key is set, provider must match the key's provider."""
-        if self.provider_key and self.provider_key.provider != self.provider:
+        """If a key is set, provider must match the key's provider (accounting for legacy aliases)."""
+        if self.provider_key and canonicalize_llm_provider(self.provider_key.provider) != canonicalize_llm_provider(
+            self.provider
+        ):
             raise ValidationError(
                 {"provider": f"Provider '{self.provider}' does not match key provider '{self.provider_key.provider}'"}
             )

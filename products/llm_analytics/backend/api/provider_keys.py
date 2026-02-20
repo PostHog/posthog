@@ -292,7 +292,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
             except LLMProviderKey.DoesNotExist:
                 return Response({"detail": "Replacement key not found"}, status=status.HTTP_400_BAD_REQUEST)
 
-            if replacement_key.provider != instance.provider:
+            if canonicalize_llm_provider(replacement_key.provider) != canonicalize_llm_provider(instance.provider):
                 return Response(
                     {"detail": "Replacement key must be from the same provider"}, status=status.HTTP_400_BAD_REQUEST
                 )
