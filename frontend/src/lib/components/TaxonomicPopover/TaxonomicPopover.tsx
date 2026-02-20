@@ -13,7 +13,6 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
@@ -105,6 +104,9 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     if (!buttonPropsFinal.type) {
         buttonPropsFinal.type = 'secondary'
     }
+    if (localValue && !visible) {
+        buttonPropsFinal.tooltip = String(localValue)
+    }
 
     useEffect(() => {
         if (!buttonPropsFinal.loading) {
@@ -146,26 +148,24 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
             }}
             placement={placement}
         >
-            <Tooltip title={localValue && !visible ? String(localValue) : undefined}>
-                {isClearButtonShown ? (
-                    <LemonButton
-                        sideAction={{
-                            icon: <IconX />,
-                            tooltip: 'Clear selection',
-                            onClick: (e) => {
-                                e.stopPropagation()
-                                onChange?.('' as ValueType, groupType, null)
-                                setLocalValue('' as ValueType)
-                            },
-                            divider: false,
-                        }}
-                        {...buttonPropsFinal}
-                        ref={ref}
-                    />
-                ) : (
-                    <LemonButton {...buttonPropsFinal} {...(sideIcon !== undefined && { sideIcon })} ref={ref} />
-                )}
-            </Tooltip>
+            {isClearButtonShown ? (
+                <LemonButton
+                    sideAction={{
+                        icon: <IconX />,
+                        tooltip: 'Clear selection',
+                        onClick: (e) => {
+                            e.stopPropagation()
+                            onChange?.('' as ValueType, groupType, null)
+                            setLocalValue('' as ValueType)
+                        },
+                        divider: false,
+                    }}
+                    {...buttonPropsFinal}
+                    ref={ref}
+                />
+            ) : (
+                <LemonButton {...buttonPropsFinal} {...(sideIcon !== undefined && { sideIcon })} ref={ref} />
+            )}
         </LemonDropdown>
     )
 }) as <ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>(
