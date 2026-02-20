@@ -24,6 +24,7 @@ import {
     DashboardFilter,
     DataWarehouseManagedViewsetKind,
     DatabaseSerializedFieldType,
+    DomainConnectProviderName,
     EndpointLastExecutionTimesRequest,
     EndpointRequest,
     EndpointRunRequest,
@@ -148,6 +149,7 @@ import {
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     type OAuthApplicationPublicMetadata,
+    ObjectMediaPreview,
     OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
     OrganizationMemberScopedApiKeysResponse,
@@ -228,6 +230,7 @@ import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingFingerprint,
     ErrorTrackingRelease,
+    ErrorTrackingSpikeDetectionConfig,
     ErrorTrackingStackFrame,
     ErrorTrackingStackFrameRecord,
     ErrorTrackingSymbolSet,
@@ -329,6 +332,13 @@ export class RateLimitError extends Error {
     constructor(public retryAfterSeconds: number) {
         super('Rate limit exceeded')
         this.name = 'RateLimitError'
+    }
+}
+
+export class RecordingDeletedError extends Error {
+    constructor(public deletedAt: number | null) {
+        super('Recording has been permanently deleted')
+        this.name = 'RecordingDeletedError'
     }
 }
 
@@ -727,6 +737,14 @@ export class ApiRequest {
 
     public eventDefinitionDetail(eventDefinitionId: EventDefinition['id'], projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('event_definitions').addPathComponent(eventDefinitionId)
+    }
+
+    public objectMediaPreviews(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('object_media_previews')
+    }
+
+    public objectMediaPreviewDetail(previewId: string, projectId?: ProjectType['id']): ApiRequest {
+        return this.objectMediaPreviews(projectId).addPathComponent(previewId)
     }
 
     public propertyDefinitions(projectId?: ProjectType['id']): ApiRequest {
@@ -1250,6 +1268,10 @@ export class ApiRequest {
         return this.errorTrackingIssue(issueId, teamId).addPathComponent(`cohort`)
     }
 
+    public errorTrackingSpikeDetectionConfig(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('spike_detection_config')
+    }
+
     public quickFilters(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('quick_filters')
     }
@@ -1474,6 +1496,14 @@ export class ApiRequest {
 
     public integrationEmailVerify(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('email/verify')
+    }
+
+    public integrationsDomainConnectCheck(teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent('domain-connect/check')
+    }
+
+    public integrationsDomainConnectApplyUrl(teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent('domain-connect/apply-url')
     }
 
     // # Organization Integrations
@@ -1808,6 +1838,10 @@ export class ApiRequest {
 
     public llmPromptByName(name: string, teamId?: TeamType['id']): ApiRequest {
         return this.llmPrompts(teamId).addPathComponent('name').addPathComponent(name)
+    }
+
+    public llmPromptResolveByName(name: string, teamId?: TeamType['id']): ApiRequest {
+        return this.llmPrompts(teamId).addPathComponent('resolve').addPathComponent('name').addPathComponent(name)
     }
 
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
@@ -2787,6 +2821,9 @@ const api = {
         async create(data: Partial<EventSchema>, projectId?: ProjectType['id']): Promise<EventSchema> {
             return new ApiRequest().eventSchemas(projectId).create({ data })
         },
+        async update(id: string, data: Partial<EventSchema>, projectId?: ProjectType['id']): Promise<EventSchema> {
+            return new ApiRequest().eventSchemasDetail(id, projectId).update({ data })
+        },
         async delete(id: string, projectId?: ProjectType['id']): Promise<void> {
             return new ApiRequest().eventSchemasDetail(id, projectId).delete()
         },
@@ -3618,6 +3655,19 @@ const api = {
         async assignCohort(issueId: ErrorTrackingIssue['id'], cohortId: CohortType['id']): Promise<{ id: string }> {
             return await new ApiRequest().errorTrackingIssueCohort(issueId).put({ data: { cohortId } })
         },
+
+        async getSpikeDetectionConfig(): Promise<ErrorTrackingSpikeDetectionConfig> {
+            return await new ApiRequest().errorTrackingSpikeDetectionConfig().get()
+        },
+
+        async updateSpikeDetectionConfig(
+            data: Partial<ErrorTrackingSpikeDetectionConfig>
+        ): Promise<ErrorTrackingSpikeDetectionConfig> {
+            return await new ApiRequest()
+                .errorTrackingSpikeDetectionConfig()
+                .withAction('update_config')
+                .update({ data })
+        },
     },
 
     quickFilters: {
@@ -3739,11 +3789,19 @@ const api = {
             params: SessionRecordingSnapshotParams,
             headers: Record<string, string> = {}
         ): Promise<string[] | Uint8Array> {
-            const response = await new ApiRequest()
-                .recording(recordingId)
-                .withAction('snapshots')
-                .withQueryString(params)
-                .getResponse({ headers })
+            let response: Response
+            try {
+                response = await new ApiRequest()
+                    .recording(recordingId)
+                    .withAction('snapshots')
+                    .withQueryString(params)
+                    .getResponse({ headers })
+            } catch (e) {
+                if (e instanceof ApiError && e.status === 410 && e.data?.error === 'recording_deleted') {
+                    throw new RecordingDeletedError(e.data?.deleted_at ?? null)
+                }
+                throw e
+            }
 
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
 
@@ -4850,6 +4908,25 @@ const api = {
         ): Promise<IntegrationType> {
             return await new ApiRequest().integrationEmail(integrationId).update({ data })
         },
+        async domainConnectCheck(domain: string): Promise<{
+            supported: boolean
+            provider_name: DomainConnectProviderName | null
+            available_providers: { endpoint: string; name: DomainConnectProviderName }[]
+        }> {
+            return await new ApiRequest()
+                .integrationsDomainConnectCheck()
+                .withQueryString(`domain=${encodeURIComponent(domain)}`)
+                .get()
+        },
+        async domainConnectApplyUrl(data: {
+            context: 'email' | 'proxy'
+            integration_id?: number
+            proxy_record_id?: string
+            redirect_uri?: string
+            provider_endpoint?: string
+        }): Promise<{ url: string }> {
+            return await new ApiRequest().integrationsDomainConnectApplyUrl().create({ data })
+        },
     },
 
     organizationIntegrations: {
@@ -4861,6 +4938,35 @@ const api = {
     media: {
         async upload(data: FormData): Promise<MediaUploadResponse> {
             return await new ApiRequest().media().create({ data })
+        },
+    },
+
+    objectMediaPreviews: {
+        async list(eventDefinitionId: string): Promise<{ results: ObjectMediaPreview[] }> {
+            return await new ApiRequest()
+                .objectMediaPreviews()
+                .withQueryString(`event_definition=${eventDefinitionId}`)
+                .get()
+        },
+        async create(data: {
+            uploaded_media_id: string
+            event_definition_id: string
+            metadata?: Record<string, any>
+        }): Promise<ObjectMediaPreview> {
+            return await new ApiRequest().objectMediaPreviews().create({ data })
+        },
+        async getPreferred(eventDefinitionId: string): Promise<ObjectMediaPreview> {
+            return await new ApiRequest()
+                .objectMediaPreviews()
+                .withAction('preferred_for_event')
+                .withQueryString(`event_definition=${eventDefinitionId}`)
+                .get()
+        },
+        async delete(previewId: string): Promise<void> {
+            return await new ApiRequest().objectMediaPreviewDetail(previewId).delete()
+        },
+        async update(previewId: string, data: Partial<ObjectMediaPreview>): Promise<ObjectMediaPreview> {
+            return await new ApiRequest().objectMediaPreviewDetail(previewId).update({ data })
         },
     },
 
@@ -5125,6 +5231,7 @@ const api = {
             refresh?: RefreshType
             filtersOverride?: DashboardFilter | null
             variablesOverride?: Record<string, HogQLVariable> | null
+            limitContext?: 'posthog_ai'
         }
     ): Promise<
         T extends { [response: string]: any }
@@ -5141,6 +5248,7 @@ const api = {
                 refresh: queryOptions?.refresh,
                 filters_override: queryOptions?.filtersOverride,
                 variables_override: queryOptions?.variablesOverride,
+                limit_context: queryOptions?.limitContext,
             },
         })
     },
@@ -5381,6 +5489,10 @@ const api = {
 
         getByName(promptName: string): Promise<LLMPrompt> {
             return new ApiRequest().llmPromptByName(promptName).get()
+        },
+
+        resolveByName(promptName: string): Promise<LLMPrompt> {
+            return new ApiRequest().llmPromptResolveByName(promptName).get()
         },
 
         async create(data: Omit<Partial<LLMPrompt>, 'created_by'>): Promise<LLMPrompt> {

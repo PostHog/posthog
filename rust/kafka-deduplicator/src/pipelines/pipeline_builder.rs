@@ -53,6 +53,7 @@ pub struct PipelineBuilder {
     batch_size: usize,
     batch_timeout: std::time::Duration,
     commit_interval: std::time::Duration,
+    seek_timeout: std::time::Duration,
     checkpoint_importer: Option<Arc<CheckpointImporter>>,
     rebalance_cleanup_parallelism: usize,
 
@@ -73,6 +74,7 @@ impl PipelineBuilder {
         batch_size: usize,
         batch_timeout: std::time::Duration,
         commit_interval: std::time::Duration,
+        seek_timeout: std::time::Duration,
         rebalance_cleanup_parallelism: usize,
     ) -> Self {
         Self {
@@ -84,6 +86,7 @@ impl PipelineBuilder {
             batch_size,
             batch_timeout,
             commit_interval,
+            seek_timeout,
             checkpoint_importer: None,
             rebalance_cleanup_parallelism,
             dedup_config: None,
@@ -177,6 +180,7 @@ impl PipelineBuilder {
             self.batch_size,
             self.batch_timeout,
             self.commit_interval,
+            self.seek_timeout,
         )
         .with_context(|| format!("Failed to create consumer for topic '{}'", self.topic))?;
 
@@ -230,6 +234,7 @@ impl PipelineBuilder {
             self.batch_size,
             self.batch_timeout,
             self.commit_interval,
+            self.seek_timeout,
         )
         .with_context(|| format!("Failed to create consumer for topic '{}'", self.topic))?;
 

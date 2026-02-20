@@ -3,7 +3,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import chdb
-import dagster
 import structlog
 from dagster import AssetCheckExecutionContext, AssetCheckResult, AssetCheckSeverity, Field, MetadataValue, asset_check
 
@@ -20,7 +19,7 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import DagsterTags, get_query_tags, tags_context
-from posthog.dags.common import JobOwners, dagster_tags
+from posthog.dags.common import dagster_tags
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 from posthog.models import Team
 from posthog.settings.base_variables import DEBUG
@@ -502,25 +501,14 @@ def run_accuracy_check_for_version(
     return create_accuracy_check_result(comparison_data, team_id, table_version)
 
 
+# Team selection check for web_pre_aggregated_* tables
 @asset_check(
-    asset="web_analytics_bounces_daily",
-    name="web_analytics_accuracy_check",
-    description="Validates that pre-aggregated web analytics data matches regular queries within tolerance",
-    blocking=False,
+    asset="web_analytics_team_selection",
+    name="web_analytics_team_selection_has_data",
+    description="Check if web analytics team selection has teams configured",
 )
-def web_analytics_accuracy_check(context: AssetCheckExecutionContext) -> AssetCheckResult:
-    """Data quality check: validates v1 pre-aggregated tables match regular WebOverview queries within tolerance."""
-    return run_accuracy_check_for_version(context, "web_analytics_accuracy_check", "v1", use_v2_tables=False)
-
-
-# V2 Table Checks for web_pre_aggregated_* tables
-@asset_check(
-    asset="web_analytics_team_selection_v2",
-    name="web_analytics_team_selection_v2_has_data",
-    description="Check if web analytics v2 team selection has teams configured",
-)
-def web_analytics_team_selection_v2_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
-    """Verify that v2 team selection has configured teams."""
+def web_analytics_team_selection_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
+    """Verify that team selection has configured teams."""
     # Skip team selection checks during backfill runs
     if hasattr(context.run, "tags") and context.run.tags and context.run.tags.get("dagster/backfill"):
         return AssetCheckResult(
@@ -540,13 +528,13 @@ def web_analytics_team_selection_v2_has_data(context: AssetCheckExecutionContext
         if team_count > 0:
             return AssetCheckResult(
                 passed=True,
-                description=f"V2 team selection has {team_count} teams configured",
+                description=f"Team selection has {team_count} teams configured",
                 metadata={"team_count": MetadataValue.int(team_count)},
             )
         else:
             return AssetCheckResult(
                 passed=False,
-                description="V2 team selection has no teams configured",
+                description="Team selection has no teams configured",
                 metadata={"team_count": MetadataValue.int(0)},
             )
     except Exception as e:
@@ -555,12 +543,3 @@ def web_analytics_team_selection_v2_has_data(context: AssetCheckExecutionContext
             description=f"Failed to check v2 team selection: {str(e)}",
             metadata={"error": MetadataValue.text(str(e))},
         )
-
-
-simple_data_checks_job = dagster.define_asset_job(
-    name="simple_data_checks_job",
-    selection=dagster.AssetSelection.checks_for_assets(
-        ["web_analytics_bounces_hourly", "web_analytics_stats_table_hourly"]
-    ),
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
-)

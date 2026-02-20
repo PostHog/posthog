@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-02-12 10:15:28 UTC
+// Generated at: 2026-02-19 20:05:46 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -11,8 +11,9 @@ export type CanonicalProvider =
     | 'amazon-bedrock'
     | 'ambient-bf16'
     | 'anthropic'
-    | 'arcee-ai'
     | 'arcee-ai-bf16'
+    | 'arcee-ai-modal'
+    | 'arcee-ai-prime'
     | 'atlas-cloud-bf16'
     | 'atlas-cloud-fp16'
     | 'atlas-cloud-fp8'
@@ -46,7 +47,6 @@ export type CanonicalProvider =
     | 'fireworks-fp8'
     | 'friendli'
     | 'gmicloud-fp8'
-    | 'gmicloud-int4'
     | 'google-ai-studio'
     | 'google-vertex'
     | 'google-vertex-europe'
@@ -67,7 +67,7 @@ export type CanonicalProvider =
     | 'mancer-int4'
     | 'minimax'
     | 'minimax-fp8'
-    | 'minimax-lightning'
+    | 'minimax-highspeed'
     | 'mistral'
     | 'modelrun-fp4'
     | 'moonshotai'
@@ -77,6 +77,7 @@ export type CanonicalProvider =
     | 'morph'
     | 'nebius'
     | 'nebius-base'
+    | 'nebius-bf16'
     | 'nebius-fast'
     | 'nebius-fp4'
     | 'nebius-fp8'
@@ -110,6 +111,7 @@ export type CanonicalProvider =
     | 'sambanova-turbo'
     | 'seed-fp8'
     | 'siliconflow-fp8'
+    | 'siliconflow-int4'
     | 'stealth'
     | 'stepfun-fp8'
     | 'streamlake-fp16'

@@ -10,6 +10,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -42,6 +43,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
 from posthog.models.project import Project
 from posthog.models.tag import Tag
+from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
@@ -318,6 +320,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
     managed_viewsets = serializers.SerializerMethodField()
+    available_setup_task_ids = serializers.SerializerMethodField()
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
@@ -350,6 +353,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "live_events_token",
             "product_intents",
             "managed_viewsets",
+            "available_setup_task_ids",
         )
 
         read_only_fields = (
@@ -372,6 +376,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "user_access_level",
             "product_intents",
             "managed_viewsets",
+            "available_setup_task_ids",
         )
 
     def to_representation(self, instance):
@@ -419,6 +424,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         enabled_set = set(enabled_viewsets)
 
         return {kind: (kind in enabled_set) for kind, _ in DataWarehouseManagedViewSetKind.choices}
+
+    @extend_schema_field(
+        serializers.ListField(child=serializers.ChoiceField(choices=[(e.value, e.value) for e in SetupTaskId]))
+    )
+    def get_available_setup_task_ids(self, obj) -> list[str]:
+        return [e.value for e in SetupTaskId]
 
     @staticmethod
     def validate_revenue_analytics_config(value):
@@ -1455,6 +1466,23 @@ class RootTeamViewSet(TeamViewSet):
     # NOTE: We don't want people creating environments via the "current_organization"/"current_project" concept, but
     # rather specify the org ID and project ID in the URL - hence this is hidden from the API docs, but used in the app
     hide_api_docs = True
+
+
+@extend_schema_view(
+    list=extend_schema(deprecated=True),
+    retrieve=extend_schema(deprecated=True),
+    create=extend_schema(deprecated=True),
+    update=extend_schema(deprecated=True),
+    partial_update=extend_schema(deprecated=True),
+    destroy=extend_schema(deprecated=True),
+)
+class ProjectEnvironmentsViewSet(TeamViewSet):
+    """Deprecated: use /api/environments/{id}/ instead."""
+
+    def initial(self, request: request.Request, *args, **kwargs) -> None:
+        raise exceptions.PermissionDenied(
+            "Multiple environments per project are no longer available. Please contact support if you need assistance."
+        )
 
 
 def handle_conversations_token_on_update(

@@ -15,7 +15,7 @@
     "engines": {
         "node": ">=24 <25"
     },
-    "packageManager": "pnpm@10.23.0+sha512.21c4e5698002ade97e4efe8b8b4a89a8de3c85a37919f957e7a0f30f38fbc5bbdd05980ffe29179b2fb6e6e691242e098d945d1601772cad0fef5fb6411e2a4b",
+    "packageManager": "pnpm@10.23.0",
     "scripts": {
         "copy-scripts": "mkdir -p dist/ && ./bin/copy-posthog-js",
         "clean": "rm -rf dist && mkdir dist",
@@ -43,10 +43,12 @@
         "format": "cd .. && oxlint --fix --fix-suggestions --fix-dangerously --quiet && pnpm prettier -w \"./{products,frontend/src}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "visualize-toolbar-bundle": "pnpm exec esbuild-visualizer --metadata ./toolbar-esbuild-meta.json --filename=toolbar-esbuild-bundle-visualization.html",
         "check-toolbar-csp-eval": "node ./bin/check-toolbar-csp-eval.mjs",
-        "start-vite": "pnpm build:products && concurrently -n VITE,TAILWIND -c green,yellow \"vite --host 0.0.0.0\" \"pnpm watch:tailwind\"",
+        "start-vite": "pnpm build:products && concurrently -n VITE,TAILWIND,TOOLBAR -c green,yellow,magenta \"vite --host 0.0.0.0\" \"pnpm watch:tailwind\" \"pnpm watch:toolbar\"",
+        "watch:toolbar": "node ./bin/build-toolbar.mjs --dev",
         "mobile-replay:web:schema:build:json": "ts-json-schema-generator -f ./tsconfig.json --path 'node_modules/@posthog/rrweb-types/dist/index.d.ts' --type 'eventWithTime' --expose all --no-top-ref --out ./src/scenes/session-recordings/mobile-replay/schema/web/rr-web-schema.json && prettier --write ./src/scenes/session-recordings/mobile-replay/schema/web/rr-web-schema.json",
         "mobile-replay:mobile:schema:build:json": "ts-json-schema-generator -f ./tsconfig.json --path './src/scenes/session-recordings/mobile-replay/mobile.types.ts' --type 'mobileEventWithTime' --expose all --no-top-ref --out ./src/scenes/session-recordings/mobile-replay/schema/mobile/rr-mobile-schema.json && prettier --write ./src/scenes/session-recordings/mobile-replay/schema/mobile/rr-mobile-schema.json",
-        "mobile-replay:schema:build:json": "pnpm mobile-replay:web:schema:build:json && pnpm mobile-replay:mobile:schema:build:json"
+        "mobile-replay:schema:build:json": "pnpm mobile-replay:web:schema:build:json && pnpm mobile-replay:mobile:schema:build:json",
+        "build:survey-sdk-docs": "ts-node -r tsconfig-paths/register --transpile-only ./bin/docs/build-survey-sdk-docs.ts"
     },
     "dependencies": {
         "@babel/runtime": "^7.24.0",
@@ -65,9 +67,10 @@
         "@monaco-editor/react": "4.7.0",
         "@posthog/docs-onboarding": "workspace:*",
         "@posthog/esbuilder": "workspace:*",
+        "@posthog/hedgehog-mode": "^0.0.48",
         "@posthog/hogql-parser": "workspace:*",
         "@posthog/hogvm": "workspace:*",
-        "@posthog/icons": "^0.36.5",
+        "@posthog/icons": "^0.36.6",
         "@posthog/plugin-scaffold": "^1.4.4",
         "@posthog/products-actions": "workspace:*",
         "@posthog/products-cohorts": "workspace:*",
@@ -128,6 +131,7 @@
         "@tiptap/extension-link": "^3.14.0",
         "@tiptap/extension-list": "^3.11.1",
         "@tiptap/extension-placeholder": "^3.14.0",
+        "@tiptap/extension-table": "^3.13.0",
         "@tiptap/extension-table-of-contents": "^3.11.1",
         "@tiptap/extension-text-align": "^3.14.0",
         "@tiptap/extension-text-style": "^3.14.0",
@@ -149,7 +153,7 @@
         "chartjs-plugin-annotation": "^3.1.0",
         "chartjs-plugin-crosshair": "2.0.0",
         "chartjs-plugin-datalabels": "^2.2.0",
-        "chartjs-plugin-stacked100": "^1.7.0",
+        "chartjs-plugin-stacked100": "github:PostHog/chartjs-plugin-stacked100#built-1.7.1",
         "chartjs-plugin-trendline": "^3.2.0",
         "chartjs-plugin-zoom": "^2.2.0",
         "chokidar": "^3.5.3",
@@ -245,6 +249,7 @@
         "snappy-wasm": "^0.3.0",
         "tailwind-merge": "^2.2.2",
         "tailwindcss": "4.0.7",
+        "torph": "^0.0.5",
         "ts-pattern": "catalog:",
         "typescript": "catalog:",
         "use-debounce": "catalog:",
@@ -332,6 +337,7 @@
         "ts-clone-node": "^4.0.0",
         "ts-json-schema-generator": "^v2.4.0-next.6",
         "ts-node": "^10.9.1",
+        "tsconfig-paths": "^4.2.0",
         "whatwg-fetch": "^3.6.2"
     },
     "optionalDependencies": {

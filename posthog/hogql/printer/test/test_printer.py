@@ -129,6 +129,13 @@ class TestPrinter(BaseTest):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
         self.assertTrue(expected_error in str(context.exception))
 
+    def _assert_query_error(self, statement, expected_error):
+        with self.assertRaises(QueryError) as context:
+            self._select(statement, None)
+        if expected_error not in str(context.exception):
+            raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
+        self.assertTrue(expected_error in str(context.exception))
+
     def _pretty(self, query: str):
         printed, _ = prepare_and_print_ast(
             parse_select(query),
@@ -1325,7 +1332,7 @@ class TestPrinter(BaseTest):
             self._select("select 1 from events"),
             f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
-        self._assert_select_error("select 1 from other", "Unknown table `other`.")
+        self._assert_query_error("select 1 from other", "Unknown table `other`.")
 
     def test_select_from_placeholder(self):
         self.assertEqual(
@@ -1530,7 +1537,7 @@ class TestPrinter(BaseTest):
     def test_select_limit_with_posthog_ai_context(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, limit_context=LimitContext.POSTHOG_AI)
         self.assertEqual(
-            self._select("select 1 limit 500", context=context),
+            self._select("select 1 limit 1000", context=context),
             f"SELECT 1 LIMIT {MAX_SELECT_POSTHOG_AI_LIMIT}",
         )
 
@@ -3007,6 +3014,26 @@ class TestPrinter(BaseTest):
                 dialect="clickhouse",
             )
 
+    def test_fails_on_placeholder_macro_expansion_depth_limit(self):
+        query = parse_select(
+            """
+            SELECT date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', date_part('year', now())))))))))
+            """
+        )
+        with pytest.raises(QueryError, match="exceeded maximum placeholder macro depth"):
+            prepare_and_print_ast(
+                query,
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+            )
+
+    def test_date_part_macro_does_not_expand_exponentially(self):
+        sql = self._select("SELECT date_part('year', date_part('year', date_part('year', now())))")
+
+        assert "arrayMap((part, dt) -> multiIf" in sql
+        assert sql.count("now()") == 1
+        assert len(sql) < 3_000
+
     def test_team_id_guarding_events(self):
         sql = self._select(
             "SELECT event FROM events",
@@ -3270,6 +3297,80 @@ class TestPrinter(BaseTest):
 
         assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot  # type: ignore
 
+    def test_cte_with_alias_in_join_clickhouse(self):
+        """Test that CTETableAliasType properly prints in ClickHouse dialect with qualified fields"""
+        result = self._select(
+            """
+            WITH
+                exposures AS (SELECT event AS person_id, timestamp AS exposure_time FROM events),
+                conversions AS (SELECT event AS person_id, timestamp AS conversion_time FROM events)
+            SELECT
+                e.person_id,
+                e.exposure_time,
+                c.conversion_time
+            FROM exposures AS e
+            LEFT JOIN conversions AS c ON e.person_id = c.person_id AND c.conversion_time >= e.exposure_time
+            """
+        )
+
+        # The key assertion: JOIN constraint fields should be qualified with CTE aliases
+        self.assertIn("equals(e.person_id, c.person_id)", result)
+        # timestamp fields get wrapped in toTimeZone, but the important part is the alias qualification
+        self.assertIn("c.conversion_time", result)
+        self.assertIn("e.exposure_time", result)
+        # Verify the greaterOrEquals comparison exists with the qualified fields
+        self.assertIn("greaterOrEquals(toTimeZone(c.conversion_time", result)
+        self.assertIn("toTimeZone(e.exposure_time", result)
+        # Verify CTE aliasing in FROM/JOIN clauses
+        self.assertIn("FROM exposures AS e", result)
+        self.assertIn("LEFT JOIN conversions AS c", result)
+
+    def test_cte_non_aliased_with_aliased_join_clickhouse(self):
+        """Test mixing non-aliased and aliased CTEs in ClickHouse output"""
+        result = self._select(
+            """
+            WITH users AS (SELECT event AS user_id, timestamp FROM events)
+            SELECT users.user_id, u2.user_id, users.timestamp
+            FROM users
+            LEFT JOIN users AS u2 ON users.user_id = u2.user_id
+            """
+        )
+
+        # Non-aliased CTE: fields qualified with CTE name
+        self.assertIn("users.user_id", result)
+        self.assertIn("users.timestamp", result)
+        # Aliased CTE: fields qualified with alias
+        self.assertIn("u2.user_id", result)
+        # JOIN constraint should have both
+        self.assertIn("equals(users.user_id, u2.user_id)", result)
+        # Verify table references
+        self.assertIn("FROM users", result)
+        self.assertIn("LEFT JOIN users AS u2", result)
+
+    def test_cte_multiple_aliases_same_cte_clickhouse(self):
+        """Test that the same CTE can be joined multiple times with different aliases"""
+        result = self._select(
+            """
+            WITH base AS (SELECT event AS id FROM events)
+            SELECT b1.id, b2.id, b3.id
+            FROM base AS b1
+            LEFT JOIN base AS b2 ON b1.id = b2.id
+            LEFT JOIN base AS b3 ON b2.id = b3.id
+            """
+        )
+
+        # All three aliases should be present and properly qualified
+        self.assertIn("b1.id", result)
+        self.assertIn("b2.id", result)
+        self.assertIn("b3.id", result)
+        # JOIN constraints should use the right aliases
+        self.assertIn("equals(b1.id, b2.id)", result)
+        self.assertIn("equals(b2.id, b3.id)", result)
+        # Table aliases in FROM/JOIN
+        self.assertIn("FROM base AS b1", result)
+        self.assertIn("LEFT JOIN base AS b2", result)
+        self.assertIn("LEFT JOIN base AS b3", result)
+
     def test_final_keyword_not_supported(self):
         with self.assertRaises(QueryError) as e:
             self._select("SELECT * FROM events FINAL")
@@ -3306,17 +3407,17 @@ class TestPrinter(BaseTest):
         ]
     )
     def test_postgres_style_cast(self, name, expr, expected):
-        self.assertEqual(self._expr(expr, backend="cpp-json"), expected)
+        self.assertEqual(self._expr(expr), expected)
 
     def test_postgres_style_cast_datetime(self):
         # DateTime types include timezone, test separately
-        self.assertIn("toDateTime(events.event", self._expr("event::datetime", backend="cpp-json"))
-        self.assertIn("toDateTime(events.event", self._expr("event::timestamp", backend="cpp-json"))
-        self.assertIn("toDateTime(events.event", self._expr("event::timestamptz", backend="cpp-json"))
+        self.assertIn("toDateTime(events.event", self._expr("event::datetime"))
+        self.assertIn("toDateTime(events.event", self._expr("event::timestamp"))
+        self.assertIn("toDateTime(events.event", self._expr("event::timestamptz"))
 
     def test_postgres_style_cast_unsupported_type(self):
         with self.assertRaises(QueryError) as ctx:
-            self._expr("event::unsupported_type", backend="cpp-json")
+            self._expr("event::unsupported_type")
         self.assertIn("Unsupported type cast", str(ctx.exception))
 
 
@@ -4041,6 +4142,18 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             not_in_matches = {d for (d,) in not_in_result.results}
             assert not_in_matches == not_in_expected, f"NOT IN {in_values}"
 
+    def test_recursive_cte_raises(self):
+        query = """
+        WITH RECURSIVE cte AS (
+            SELECT 1 AS n
+            UNION ALL
+            SELECT n + 1 FROM cte WHERE n < 5
+        )
+        SELECT * FROM cte;
+        """
+        with self.assertRaises(ImpossibleASTError):
+            execute_hogql_query(team=self.team, query=query)
+
 
 class TestPrinted(APIBaseTest):
     def test_can_call_parametric_function(self):
@@ -4086,7 +4199,7 @@ class TestPostgresPrinter(BaseTest):
         dialect: HogQLDialect = "postgres",
     ) -> str:
         return prepare_and_print_ast(
-            parse_select(query, placeholders=placeholders),
+            parse_select(query, placeholders=placeholders, backend="cpp-json"),
             context or HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             dialect,
         )[0]
@@ -4238,14 +4351,14 @@ class TestPostgresPrinter(BaseTest):
         )
 
     def test_postgres_style_cast(self):
-        self.assertEqual(self._expr("123::int", backend="cpp-json"), "CAST(123 AS int)")
-        self.assertEqual(self._expr("123.45::float", backend="cpp-json"), "CAST(123.45 AS float)")
-        self.assertEqual(self._expr("'2024-01-01'::date", backend="cpp-json"), "CAST('2024-01-01' AS date)")
-        self.assertEqual(self._expr("event::int", backend="cpp-json"), "CAST(events.event AS int)")
-        self.assertEqual(self._expr("event::text", backend="cpp-json"), "CAST(events.event AS text)")
-        self.assertEqual(self._expr("event::boolean", backend="cpp-json"), "CAST(events.event AS boolean)")
-        self.assertEqual(self._expr("event::INT", backend="cpp-json"), "CAST(events.event AS int)")
-        self.assertEqual(self._expr("(1 + 2)::int", backend="cpp-json"), "CAST((1 + 2) AS int)")
+        self.assertEqual(self._expr("123::int"), "CAST(123 AS int)")
+        self.assertEqual(self._expr("123.45::float"), "CAST(123.45 AS float)")
+        self.assertEqual(self._expr("'2024-01-01'::date"), "CAST('2024-01-01' AS date)")
+        self.assertEqual(self._expr("event::int"), "CAST(events.event AS int)")
+        self.assertEqual(self._expr("event::text"), "CAST(events.event AS text)")
+        self.assertEqual(self._expr("event::boolean"), "CAST(events.event AS boolean)")
+        self.assertEqual(self._expr("event::INT"), "CAST(events.event AS int)")
+        self.assertEqual(self._expr("(1 + 2)::int"), "CAST((1 + 2) AS int)")
 
     @parameterized.expand(
         [
@@ -4275,3 +4388,18 @@ class TestPostgresPrinter(BaseTest):
             type_name=type_name,
         )
         self.assertEqual(self._expr(node), f"CAST(123 AS {expected_escaped})")
+
+    def test_with_recursive(self):
+        query = "WITH RECURSIVE events_cte AS (SELECT id FROM events) SELECT id FROM events_cte"
+        self.assertEqual(
+            self._select(query),
+            "WITH RECURSIVE events_cte AS (SELECT id FROM events) SELECT id FROM events_cte LIMIT 50000",
+        )
+
+    def test_with_recursive_self_referencing(self):
+        query = "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM nums WHERE n < 5) SELECT n FROM nums"
+        self.assertEqual(
+            self._select(query),
+            "WITH RECURSIVE nums AS (SELECT 1 AS n UNION ALL SELECT (nums.n + 1) FROM nums WHERE (nums.n < 5)) "
+            "SELECT nums.n FROM nums LIMIT 50000",
+        )

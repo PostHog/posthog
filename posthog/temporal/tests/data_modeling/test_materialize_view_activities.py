@@ -48,7 +48,7 @@ async def anode(ateam, asaved_query):
     node = await database_sync_to_async(Node.objects.create)(
         team=ateam,
         saved_query=asaved_query,
-        dag_id="test-dag",
+        dag_id_text="test-dag",
         name="test_model",
         type=NodeType.MAT_VIEW,
     )
@@ -253,7 +253,7 @@ class TestMaterializeViewActivity:
     async def test_rejects_table_node_type(self, activity_environment, ateam, ajob):
         table_node = await database_sync_to_async(Node.objects.create)(
             team=ateam,
-            dag_id="test-dag",
+            dag_id_text="test-dag",
             name="source_table",
             type=NodeType.TABLE,
         )
