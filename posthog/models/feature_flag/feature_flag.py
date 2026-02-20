@@ -225,19 +225,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             return None
 
     def get_filters(self) -> dict:
-        if isinstance(self.filters, dict) and "groups" in self.filters:
-            return self.filters
-        else:
-            # :TRICKY: Keep this backwards compatible.
-            #   We don't want to migrate to avoid /decide endpoint downtime until this code has been deployed
-            return {
-                "groups": [
-                    {
-                        "properties": self.filters.get("properties", []),
-                        "rollout_percentage": self.rollout_percentage,
-                    }
-                ],
-            }
+        return self.filters
 
     def transform_cohort_filters_for_easy_evaluation(
         self,
