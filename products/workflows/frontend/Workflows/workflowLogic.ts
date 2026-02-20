@@ -18,10 +18,9 @@ import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { HogFunctionTemplateType, SurveyEventName } from '~/types'
+import { HogFunctionTemplateType } from '~/types'
 
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
-import { isSurveyTrigger, surveyTriggerLogic } from './hogflows/steps/surveyTriggerLogic'
 import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import { type HogFlow, type HogFlowAction, HogFlowActionValidationResult, type HogFlowEdge } from './hogflows/types'
 import type { workflowLogicType } from './workflowLogicType'
@@ -91,13 +90,6 @@ function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): strin
         } catch (e: any) {
             return `Liquid template error: ${e.message}`
         }
-    }
-}
-
-function ensureSurveysLoaded(): void {
-    surveyTriggerLogic.mount()
-    if (surveyTriggerLogic.values.allSurveys.length === 0 && !surveyTriggerLogic.values.surveysLoading) {
-        surveyTriggerLogic.actions.loadSurveys()
     }
 }
 
@@ -439,9 +431,6 @@ export const workflowLogic = kea<workflowLogicType>([
         },
         loadWorkflowSuccess: async ({ originalWorkflow }) => {
             actions.resetWorkflow(originalWorkflow)
-            if (isSurveyTrigger(originalWorkflow)) {
-                ensureSurveysLoaded()
-            }
         },
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
             const tasksToMarkAsCompleted: SetupTaskId[] = []
@@ -524,16 +513,6 @@ export const workflowLogic = kea<workflowLogicType>([
             const changes = { actions: newActions } as Partial<HogFlow>
             if (action.type === 'trigger') {
                 changes.trigger = updatedConfig as TriggerAction['config']
-
-                // Load surveys when the trigger is changed to a survey trigger
-                if (
-                    'type' in updatedConfig &&
-                    updatedConfig.type === 'event' &&
-                    updatedConfig.filters?.events?.length === 1 &&
-                    updatedConfig.filters?.events?.[0]?.id === SurveyEventName.SENT
-                ) {
-                    ensureSurveysLoaded()
-                }
             }
 
             actions.setWorkflowValues(changes)

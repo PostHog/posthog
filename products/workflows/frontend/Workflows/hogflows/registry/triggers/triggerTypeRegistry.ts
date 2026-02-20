@@ -24,6 +24,8 @@ export type TriggerTypeDefinition = {
     ConfigComponent?: React.ComponentType<{ node: any }>
     /** Validate the trigger config, returning errors if invalid. Triggers without this use generic validation. */
     validate?: (config: any) => { valid: boolean; errors: Record<string, string> } | null
+    /** Build sample globals for hog function autocomplete. Returns full sample globals (event, person, etc.) or null for defaults. */
+    buildSampleGlobals?: (workflow: any) => Record<string, any> | null
 }
 
 const triggerTypeDefinitions: TriggerTypeDefinition[] = []

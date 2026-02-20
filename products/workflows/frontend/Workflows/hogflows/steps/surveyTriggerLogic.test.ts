@@ -3,9 +3,17 @@ import { expectLogic, testUtilsPlugin } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { Survey } from '~/types'
+import { Survey, SurveyEventName, SurveyQuestionType } from '~/types'
 
-import { surveyTriggerLogic } from './surveyTriggerLogic'
+// Import surveys to trigger registration of the survey trigger type
+import '../registry/triggers/surveys'
+import type { HogFlow } from '../types'
+import {
+    buildSurveySampleEvent,
+    getSampleValueForQuestionType,
+    isSurveyTrigger,
+    surveyTriggerLogic,
+} from './surveyTriggerLogic'
 
 const makeSurvey = (overrides: Partial<Survey> = {}): Survey =>
     ({
@@ -19,6 +27,161 @@ const makeSurvey = (overrides: Partial<Survey> = {}): Survey =>
 
 const makeSurveys = (count: number, overrides: Partial<Survey> = {}): Survey[] =>
     Array.from({ length: count }, (_, i) => makeSurvey({ name: `Survey ${i + 1}`, ...overrides }))
+
+function makeWorkflow(triggerOverrides?: Record<string, any>): HogFlow {
+    const base = {
+        id: 'test-workflow',
+        actions: [
+            {
+                id: 'trigger_node',
+                type: 'trigger',
+                config: { type: 'event', filters: {} },
+                ...triggerOverrides,
+            },
+        ],
+        edges: [],
+    }
+    return base as unknown as HogFlow
+}
+
+describe('isSurveyTrigger', () => {
+    it.each([
+        { name: 'null workflow', workflow: null, expected: false },
+        { name: 'undefined workflow', workflow: undefined, expected: false },
+        { name: 'workflow with no trigger action', workflow: { ...makeWorkflow(), actions: [] }, expected: false },
+        {
+            name: 'schedule trigger',
+            workflow: makeWorkflow({ config: { type: 'schedule', scheduled_at: '2026-01-01' } }),
+            expected: false,
+        },
+        {
+            name: 'event trigger with non-survey event',
+            workflow: makeWorkflow({
+                config: { type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } },
+            }),
+            expected: false,
+        },
+        {
+            name: 'event trigger with multiple events including survey sent',
+            workflow: makeWorkflow({
+                config: {
+                    type: 'event',
+                    filters: {
+                        events: [
+                            { id: SurveyEventName.SENT, type: 'events' },
+                            { id: '$pageview', type: 'events' },
+                        ],
+                    },
+                },
+            }),
+            expected: false,
+        },
+        {
+            name: 'event trigger with exactly survey sent',
+            workflow: makeWorkflow({
+                config: { type: 'event', filters: { events: [{ id: SurveyEventName.SENT, type: 'events' }] } },
+            }),
+            expected: true,
+        },
+    ])('returns $expected for $name', ({ workflow, expected }) => {
+        expect(isSurveyTrigger(workflow as HogFlow | null | undefined)).toBe(expected)
+    })
+})
+
+describe('getSampleValueForQuestionType', () => {
+    it.each([
+        { type: SurveyQuestionType.Open, expected: 'User response text' },
+        { type: SurveyQuestionType.Rating, expected: '8' },
+        { type: SurveyQuestionType.SingleChoice, expected: 'Selected option' },
+        { type: SurveyQuestionType.MultipleChoice, expected: ['Option A', 'Option B'] },
+        { type: SurveyQuestionType.Link, expected: null },
+        { type: 'unknown_type', expected: 'response' },
+    ])('returns $expected for $type', ({ type, expected }) => {
+        expect(getSampleValueForQuestionType(type)).toEqual(expected)
+    })
+})
+
+describe('buildSurveySampleEvent', () => {
+    const mockGetSampleValue = (type: string): any => {
+        switch (type) {
+            case SurveyQuestionType.Open:
+                return 'text'
+            case SurveyQuestionType.Rating:
+                return '8'
+            case SurveyQuestionType.Link:
+                return null
+            default:
+                return 'response'
+        }
+    }
+
+    it('uses placeholder values when no survey is selected', () => {
+        const result = buildSurveySampleEvent(null, mockGetSampleValue)
+
+        expect(result.event).toBe('survey sent')
+        expect(result.properties.$survey_id).toBe('survey-uuid')
+        expect(result.properties.$survey_name).toBe('Survey name')
+        expect(result.properties.$survey_completed).toBe(true)
+    })
+
+    it('uses survey name and id when a survey is selected', () => {
+        const survey = makeSurvey({ id: 'abc-123', name: 'NPS Survey' })
+        const result = buildSurveySampleEvent(survey, mockGetSampleValue)
+
+        expect(result.properties.$survey_id).toBe('abc-123')
+        expect(result.properties.$survey_name).toBe('NPS Survey')
+    })
+
+    it('builds per-question response fields for survey with questions', () => {
+        const survey = makeSurvey({
+            questions: [
+                { id: 'q1', type: SurveyQuestionType.Open, question: 'How are you?' },
+                {
+                    id: 'q2',
+                    type: SurveyQuestionType.Rating,
+                    question: 'Rate us',
+                    display: 'number',
+                    scale: 10,
+                    lowerBoundLabel: 'Bad',
+                    upperBoundLabel: 'Great',
+                },
+            ] as Survey['questions'],
+        })
+        const result = buildSurveySampleEvent(survey, mockGetSampleValue)
+
+        expect(result.properties.$survey_response_q1).toBe('text')
+        expect(result.properties.$survey_response_q2).toBe('8')
+        expect(result.properties.$survey_questions).toEqual([
+            { id: 'q1', question: 'How are you?', response: 'text' },
+            { id: 'q2', question: 'Rate us', response: '8' },
+        ])
+    })
+
+    it('skips Link questions in response fields', () => {
+        const survey = makeSurvey({
+            questions: [
+                { id: 'q1', type: SurveyQuestionType.Open, question: 'Feedback?' },
+                { id: 'q2', type: SurveyQuestionType.Link, question: 'Visit us', link: 'https://example.com' },
+            ] as Survey['questions'],
+        })
+        const result = buildSurveySampleEvent(survey, mockGetSampleValue)
+
+        expect(result.properties.$survey_response_q1).toBe('text')
+        expect(result.properties).not.toHaveProperty('$survey_response_q2')
+        // Link questions still appear in $survey_questions array
+        expect(result.properties.$survey_questions).toHaveLength(2)
+    })
+
+    it('skips questions without an id', () => {
+        const survey = makeSurvey({
+            questions: [{ type: SurveyQuestionType.Open, question: 'No id question' }] as Survey['questions'],
+        })
+        const result = buildSurveySampleEvent(survey, mockGetSampleValue)
+
+        const responseKeys = Object.keys(result.properties).filter((k) => k.startsWith('$survey_response_'))
+        expect(responseKeys).toHaveLength(0)
+    })
+})
 
 describe('surveyTriggerLogic', () => {
     let logic: ReturnType<typeof surveyTriggerLogic.build>
