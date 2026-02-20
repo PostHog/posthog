@@ -5075,6 +5075,50 @@ export type AccessControlResponseType = {
     user_can_edit_access_levels: boolean
 }
 
+export type InheritedAccessLevelReason = 'project_default' | 'role_override' | 'organization_admin'
+
+export interface EffectiveAccessControlEntry {
+    access_level: AccessControlLevel | null
+    effective_access_level: AccessControlLevel | null
+    inherited_access_level: AccessControlLevel | null
+    inherited_access_level_reason: InheritedAccessLevelReason | null
+    minimum: AccessControlLevel
+    maximum: AccessControlLevel
+}
+
+export interface AccessControlDefaultsResponse {
+    available_project_levels: AccessControlLevel[]
+    available_resource_levels: AccessControlLevel[]
+    can_edit: boolean
+    project_access_level: AccessControlLevel
+    resource_access_levels: Record<string, EffectiveAccessControlEntry>
+}
+
+export interface AccessControlRolesResponse {
+    available_project_levels: AccessControlLevel[]
+    available_resource_levels: AccessControlLevel[]
+    can_edit: boolean
+    results: {
+        role_id: RoleType['id']
+        role_name: string
+        project: EffectiveAccessControlEntry
+        resources: Record<string, EffectiveAccessControlEntry>
+    }[]
+}
+
+export interface AccessControlMembersResponse {
+    available_project_levels: AccessControlLevel[]
+    available_resource_levels: AccessControlLevel[]
+    can_edit: boolean
+    results: {
+        organization_membership_id: OrganizationMemberType['id']
+        user: { uuid: string; first_name: string; email: string }
+        organization_level: number
+        project: EffectiveAccessControlEntry
+        resources: Record<string, EffectiveAccessControlEntry>
+    }[]
+}
+
 export type JsonType = string | number | boolean | null | { [key: string]: JsonType } | Array<JsonType>
 
 export type PromptButtonType = 'primary' | 'secondary'
