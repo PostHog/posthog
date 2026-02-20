@@ -181,7 +181,7 @@ class Manifest:
         """
         # First, check if command is directly in a manifest section (explicit placement)
         for category_key, commands in self._data.items():
-            if category_key == "metadata" or not isinstance(commands, dict):
+            if category_key in {"metadata", "config"} or not isinstance(commands, dict):
                 continue
 
             if command_name in commands:
@@ -192,7 +192,7 @@ class Manifest:
         prefix = command_name.split(":")[0] if ":" in command_name else command_name
 
         for category_key, commands in self._data.items():
-            if category_key == "metadata" or not isinstance(commands, dict):
+            if category_key in {"metadata", "config"} or not isinstance(commands, dict):
                 continue
 
             # Check if any manifest command shares this prefix
@@ -229,17 +229,20 @@ class Manifest:
     def get_all_commands(self) -> list[str]:
         """Get all available commands from the manifest."""
         commands: list[str] = []
-        for category in self._data.values():
-            if isinstance(category, dict) and category is not self._data.get("metadata"):
+        for category_key, category in self._data.items():
+            if category_key in {"metadata", "config"} or not isinstance(category, dict):
+                continue
+            if isinstance(category, dict):
                 commands.extend(category.keys())
         return commands
 
     def get_command_config(self, command_name: str) -> dict | None:
         """Get configuration for a specific command."""
-        for category in self._data.values():
-            if isinstance(category, dict) and category is not self._data.get("metadata"):
-                if command_name in category:
-                    return category[command_name]
+        for category_key, category in self._data.items():
+            if category_key in {"metadata", "config"} or not isinstance(category, dict):
+                continue
+            if command_name in category and isinstance(category[command_name], dict):
+                return category[command_name]
         return None
 
     def get_children_for_command(self, command_name: str) -> list[str]:

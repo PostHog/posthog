@@ -44,7 +44,7 @@ def generate_zsh_completion(cli_name: str = "hogli") -> str:
     for cmd in sorted(commands):
         # Get command config from manifest
         cmd_config = manifest.get_command_config(cmd)
-        if not cmd_config:
+        if not cmd_config or not isinstance(cmd_config, dict):
             desc = ""
         else:
             desc = cmd_config.get("description", "")
