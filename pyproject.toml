@@ -269,6 +269,10 @@ dev = [
     "pywatchman>=2.0.0",
     "watchdog==5.0.3",
 ]
+sentiment = [
+    "optimum[onnxruntime]~=1.25.0",
+    "torch~=2.7.0",
+]
 
 [tool.uv]
 required-version = "~=0.10.2"
