@@ -54,9 +54,6 @@ EXTRA_FIELDS = (
     "type",
     "tags",
     "created_at",
-    "requester_id",
-    "organization_id",
-    "brand_id",
     "priority",
     "status",
 )

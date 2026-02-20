@@ -42,6 +42,9 @@ checked at the parent workflow level before spawning the child.
    write a pure emitter function that transforms a record dict into a signal output (or `None` if data is insufficient),
    optionally define an LLM actionability prompt and/or a summarization prompt with threshold,
    and export the final config as a module-level constant.
+   **Avoid querying PII fields** (user IDs, email addresses, names, organization IDs, etc.)
+   unless they are strictly required to locate the entity in the source system later.
+   Prefer opaque record IDs and URLs over fields that identify people or organizations.
 2. **Register in `posthog/temporal/data_imports/signals/registry.py`** — import the config and add it inside `_register_all_emitters()`.
    The source type must match an `ExternalDataSourceType` enum value,
    and the schema name must match the table name as it appears in the data warehouse.

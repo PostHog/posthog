@@ -53,7 +53,6 @@ class TestZendeskTicketEmitter:
         result = zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)
 
         assert result is not None
-        assert result.extra["brand_id"] == 1001
         assert result.extra["created_at"] == "2025-01-15 10:30:00-05:00"
         assert result.extra["url"] == "https://testcorp.zendesk.com/api/v2/tickets/42.json"
 
