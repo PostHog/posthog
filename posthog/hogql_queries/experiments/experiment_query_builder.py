@@ -36,6 +36,7 @@ from posthog.hogql_queries.experiments.base_query_utils import (
 from posthog.hogql_queries.experiments.breakdown_injector import BreakdownInjector
 from posthog.hogql_queries.experiments.exposure_query_logic import normalize_to_exposure_criteria
 from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
+    aggregation_needs_numeric_input,
     build_aggregation_call,
     extract_aggregation_and_inner_expr,
 )
@@ -948,12 +949,13 @@ class ExperimentQueryBuilder:
         if not apply_coalesce:
             return base_expr
 
-        # Check if this is a count distinct math type - don't coalesce IDs
+        # Don't coalesce values for count distinct types (IDs) or HOGQL (user controls the expression)
         math_type = getattr(source, "math", ExperimentMetricMathType.TOTAL)
         if math_type in [
             ExperimentMetricMathType.UNIQUE_SESSION,
             ExperimentMetricMathType.DAU,
             ExperimentMetricMathType.UNIQUE_GROUP,
+            ExperimentMetricMathType.HOGQL,
         ]:
             return base_expr
 
@@ -1017,10 +1019,14 @@ class ExperimentQueryBuilder:
         elif math_type == ExperimentMetricMathType.HOGQL:
             math_hogql = getattr(source, "math_hogql", None)
             if math_hogql is not None:
-                aggregation_function, _, params = extract_aggregation_and_inner_expr(math_hogql)
+                aggregation_function, _, params, distinct = extract_aggregation_and_inner_expr(math_hogql)
                 if aggregation_function:
-                    inner_value_expr = parse_expr(f"toFloat({column_ref})")
-                    agg_call = build_aggregation_call(aggregation_function, inner_value_expr, params=params)
+                    inner_value_expr = parse_expr(column_ref)
+                    if aggregation_needs_numeric_input(aggregation_function):
+                        inner_value_expr = ast.Call(name="toFloat", args=[inner_value_expr])
+                    agg_call = build_aggregation_call(
+                        aggregation_function, inner_value_expr, params=params, distinct=distinct
+                    )
                     return ast.Call(name="coalesce", args=[agg_call, ast.Constant(value=0)])
             # Fallback to SUM
             return parse_expr(f"sum(coalesce(toFloat({column_ref}), 0))")
@@ -1177,6 +1183,10 @@ class ExperimentQueryBuilder:
 
         Re-aggregates across jobs since the same user can appear in multiple time-window jobs.
         Returns the same column shape as _build_exposure_select_query().
+
+        Important: Jobs can cover broader time ranges than the experiment (for reusability),
+        so we must filter by experiment start/end dates to avoid including exposures outside
+        the experiment window.
         """
         # The lazy-computed table stores entity_id as String, but person_id is UUID in events.
         # Cast back to match the type expected by downstream JOINs.
@@ -1204,6 +1214,8 @@ class ExperimentQueryBuilder:
                 FROM experiment_exposures_preaggregated AS t
                 WHERE t.job_id IN {job_ids}
                     AND t.team_id = {team_id}
+                    AND t.first_exposure_time >= {date_from}
+                    AND t.first_exposure_time <= {date_to}
                 GROUP BY entity_id
             """,
             placeholders={
@@ -1211,6 +1223,8 @@ class ExperimentQueryBuilder:
                 "variant_expr": variant_expr,
                 "job_ids": ast.Constant(value=job_ids),
                 "team_id": ast.Constant(value=self.team.id),
+                "date_from": self.date_range_query.date_from_as_hogql(),
+                "date_to": self.date_range_query.date_to_as_hogql(),
             },
         )
         assert isinstance(query, ast.SelectQuery)

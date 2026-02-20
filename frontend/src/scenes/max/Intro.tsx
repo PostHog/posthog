@@ -11,7 +11,7 @@ const LOGOMARK_AIRTIME_MS = 400 // Sync with --logomark-airtime in base.scss
 
 export function Intro(): JSX.Element {
     const { headline } = useValues(maxLogic)
-    const [hedgehogLastJumped, setHedgehogLastJumped] = useState<number | null>(Date.now())
+    const [hedgehogLastJumped, setHedgehogLastJumped] = useState<number | null>(() => Date.now())
     const [hedgehogJumpIteration, setHedgehogJumpIteration] = useState(0)
 
     const handleLogomarkClick = (): void => {

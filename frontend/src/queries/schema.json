@@ -2621,7 +2621,7 @@
                     "items": {
                         "$ref": "#/definitions/Breakdown"
                     },
-                    "maxLength": 3,
+                    "maxItems": 3,
                     "type": "array"
                 }
             },
@@ -15525,7 +15525,8 @@
                 "Omnisend",
                 "Brevo",
                 "Postmark",
-                "Granola"
+                "Granola",
+                "BuildBetter"
             ],
             "type": "string"
         },

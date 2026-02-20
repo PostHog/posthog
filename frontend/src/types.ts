@@ -2260,6 +2260,7 @@ export interface EndpointType extends WithAccessControl {
     /** Last execution time from ClickHouse query_log table */
     last_executed_at?: string
     materialization?: EndpointVersionMaterializationType
+    columns?: { name: string; type: string }[]
 }
 
 /** Extends EndpointType with version-specific fields when fetching a specific version */
@@ -3665,6 +3666,7 @@ export interface SurveyQuestionBase {
 
 export interface BasicSurveyQuestion extends SurveyQuestionBase {
     type: SurveyQuestionType.Open
+    validation?: SurveyValidationRule[]
 }
 
 export interface LinkSurveyQuestion extends SurveyQuestionBase {
@@ -3708,6 +3710,17 @@ export enum SurveyQuestionType {
     SingleChoice = 'single_choice',
     Rating = 'rating',
     Link = 'link',
+}
+
+export enum SurveyValidationType {
+    MinLength = 'min_length',
+    MaxLength = 'max_length',
+}
+
+export interface SurveyValidationRule {
+    type: SurveyValidationType
+    value?: number
+    errorMessage?: string
 }
 
 export enum SurveyQuestionBranchingType {
