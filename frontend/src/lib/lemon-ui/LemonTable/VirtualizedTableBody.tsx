@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React, { CSSProperties, HTMLProps, useMemo, useRef } from 'react'
+import React, { CSSProperties, HTMLProps, useMemo } from 'react'
 import { List, useListRef } from 'react-window'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
@@ -10,11 +10,12 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { getStickyColumnInfo } from './columnUtils'
 import { LemonTableColumn, LemonTableColumnGroup, TableCellRepresentation } from './types'
 
-export interface VirtualizedRowData {
+export interface VirtualizedTableBodyProps {
     dataSource: Record<string, any>[]
     columns: LemonTableColumn<Record<string, any>, any>[]
     columnGroups: LemonTableColumnGroup<Record<string, any>>[]
     gridTemplateColumns: string
+    rowHeight: number
     rowKey?: string | ((record: Record<string, any>, rowIndex: number) => string | number)
     rowClassName?: string | ((record: Record<string, any>, rowIndex: number) => string | null)
     rowRibbonColor?: string | ((record: Record<string, any>, rowIndex: number) => string | null | undefined)
@@ -27,6 +28,16 @@ export interface VirtualizedRowData {
     pinnedColumns?: string[]
     rowActions?: (record: Record<string, any>, recordIndex: number) => React.ReactNode | null
     startIndex: number
+    loading?: boolean
+    loadingSkeletonRows?: number
+    emptyState?: React.ReactNode
+    nouns?: [string, string]
+}
+
+export type VirtualizedRowData = Omit<
+    VirtualizedTableBodyProps,
+    'rowHeight' | 'loading' | 'loadingSkeletonRows' | 'emptyState' | 'nouns'
+> & {
     rowCount: number
 }
 
@@ -174,30 +185,6 @@ function VirtualizedRow({
     )
 }
 
-export interface VirtualizedTableBodyProps {
-    dataSource: Record<string, any>[]
-    columns: LemonTableColumn<Record<string, any>, any>[]
-    columnGroups: LemonTableColumnGroup<Record<string, any>>[]
-    gridTemplateColumns: string
-    rowHeight: number
-    rowKey?: string | ((record: Record<string, any>, rowIndex: number) => string | number)
-    rowClassName?: string | ((record: Record<string, any>, rowIndex: number) => string | null)
-    rowRibbonColor?: string | ((record: Record<string, any>, rowIndex: number) => string | null | undefined)
-    rowStatus?:
-        | 'highlighted'
-        | 'highlight-new'
-        | ((record: Record<string, any>, rowIndex: number) => 'highlighted' | 'highlight-new' | null)
-    onRow?: (record: Record<string, any>, index: number) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
-    firstColumnSticky?: boolean
-    pinnedColumns?: string[]
-    rowActions?: (record: Record<string, any>, recordIndex: number) => React.ReactNode | null
-    startIndex: number
-    loading?: boolean
-    loadingSkeletonRows?: number
-    emptyState?: React.ReactNode
-    nouns?: [string, string]
-}
-
 export function VirtualizedTableBody({
     dataSource,
     columns,
@@ -219,7 +206,6 @@ export function VirtualizedTableBody({
     nouns = ['entry', 'entries'],
 }: VirtualizedTableBodyProps): JSX.Element {
     const listRef = useListRef(null)
-    const containerRef = useRef<HTMLDivElement>(null)
 
     const rowProps = useMemo(
         (): VirtualizedRowData => ({
@@ -227,14 +213,14 @@ export function VirtualizedTableBody({
             columns,
             columnGroups,
             gridTemplateColumns,
-            rowKey: rowKey as VirtualizedRowData['rowKey'],
-            rowClassName: rowClassName as VirtualizedRowData['rowClassName'],
-            rowRibbonColor: rowRibbonColor as VirtualizedRowData['rowRibbonColor'],
-            rowStatus: rowStatus as VirtualizedRowData['rowStatus'],
-            onRow: onRow as VirtualizedRowData['onRow'],
+            rowKey,
+            rowClassName,
+            rowRibbonColor,
+            rowStatus,
+            onRow,
             firstColumnSticky,
             pinnedColumns,
-            rowActions: rowActions as VirtualizedRowData['rowActions'],
+            rowActions,
             startIndex,
             rowCount: dataSource.length,
         }),
@@ -287,7 +273,7 @@ export function VirtualizedTableBody({
     }
 
     return (
-        <div ref={containerRef} className="LemonTable__virtualized-body">
+        <div className="LemonTable__virtualized-body">
             <AutoSizer
                 renderProp={({ height, width }: SizeProps) =>
                     height && width ? (
