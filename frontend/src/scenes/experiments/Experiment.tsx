@@ -64,7 +64,7 @@ function ExperimentCreateMode({ tabId }: { tabId: string }): JSX.Element {
     const logic = createExperimentLogic({ tabId })
     useAttachedLogic(logic, experimentSceneLogic({ tabId }))
 
-    const showWizard = useFeatureFlag('EXPERIMENTS_WIZARD_CREATION_FORM')
+    const showWizard = useFeatureFlag('EXPERIMENTS_WIZARD_CREATION_FORM', 'test')
 
     if (showWizard) {
         return (
