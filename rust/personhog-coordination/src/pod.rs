@@ -6,7 +6,7 @@ use etcd_client::EventType;
 use tokio_util::sync::CancellationToken;
 
 use crate::error::{Error, Result};
-use crate::store::{self, EtcdStore};
+use crate::store::{self, PersonhogStore};
 use crate::types::{HandoffPhase, HandoffState, PodStatus, RegisteredPod};
 use crate::util;
 
@@ -44,13 +44,17 @@ impl Default for PodConfig {
 }
 
 pub struct PodHandle {
-    store: Arc<EtcdStore>,
+    store: Arc<PersonhogStore>,
     config: PodConfig,
     handler: Arc<dyn HandoffHandler>,
 }
 
 impl PodHandle {
-    pub fn new(store: Arc<EtcdStore>, config: PodConfig, handler: Arc<dyn HandoffHandler>) -> Self {
+    pub fn new(
+        store: Arc<PersonhogStore>,
+        config: PodConfig,
+        handler: Arc<dyn HandoffHandler>,
+    ) -> Self {
         Self {
             store,
             config,
@@ -117,7 +121,7 @@ impl PodHandle {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 msg = stream.message() => {
-                    let resp = msg?.ok_or_else(|| Error::InvalidState("handoff watch stream ended".to_string()))?;
+                    let resp = msg?.ok_or_else(|| Error::invalid_state("handoff watch stream ended".to_string()))?;
                     for event in resp.events() {
                         if event.event_type() == EventType::Put {
                             match store::parse_watch_value::<HandoffState>(event) {

@@ -8,7 +8,7 @@ use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
 use crate::error::{Error, Result};
-use crate::store::{self, EtcdStore};
+use crate::store::{self, PersonhogStore};
 use crate::types::{
     HandoffPhase, HandoffState, PartitionAssignment, RegisteredRouter, RouterCutoverAck,
 };
@@ -49,7 +49,7 @@ impl Default for RoutingTableConfig {
 /// the `Ready` phase, calls the `CutoverHandler` to perform the traffic
 /// switch, then writes a `RouterCutoverAck` to etcd.
 pub struct RoutingTable {
-    store: Arc<EtcdStore>,
+    store: Arc<PersonhogStore>,
     config: RoutingTableConfig,
     handler: Arc<dyn CutoverHandler>,
     table: Arc<RwLock<HashMap<u32, String>>>,
@@ -57,7 +57,7 @@ pub struct RoutingTable {
 
 impl RoutingTable {
     pub fn new(
-        store: Arc<EtcdStore>,
+        store: Arc<PersonhogStore>,
         config: RoutingTableConfig,
         handler: Arc<dyn CutoverHandler>,
     ) -> Self {
@@ -128,7 +128,7 @@ impl RoutingTable {
         let result = tokio::select! {
             _ = cancel.cancelled() => Ok(()),
             Some(result) = tasks.join_next() => {
-                result.map_err(|e| Error::InvalidState(format!("task panicked: {e}")))?
+                result.map_err(|e| Error::invalid_state(format!("task panicked: {e}")))?
             }
         };
 
@@ -188,7 +188,7 @@ impl RoutingTable {
     }
 
     async fn watch_assignments_loop(
-        store: Arc<EtcdStore>,
+        store: Arc<PersonhogStore>,
         table: Arc<RwLock<HashMap<u32, String>>>,
         cancel: CancellationToken,
     ) -> Result<()> {
@@ -198,7 +198,7 @@ impl RoutingTable {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 msg = stream.message() => {
-                    let resp = msg?.ok_or_else(|| Error::InvalidState("assignment watch stream ended".to_string()))?;
+                    let resp = msg?.ok_or_else(|| Error::invalid_state("assignment watch stream ended".to_string()))?;
                     for event in resp.events() {
                         match event.event_type() {
                             EventType::Put => {
@@ -222,7 +222,7 @@ impl RoutingTable {
     }
 
     async fn watch_handoffs_loop(
-        store: Arc<EtcdStore>,
+        store: Arc<PersonhogStore>,
         handler: Arc<dyn CutoverHandler>,
         router_name: String,
         cancel: CancellationToken,
@@ -233,7 +233,7 @@ impl RoutingTable {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 msg = stream.message() => {
-                    let resp = msg?.ok_or_else(|| Error::InvalidState("handoff watch stream ended".to_string()))?;
+                    let resp = msg?.ok_or_else(|| Error::invalid_state("handoff watch stream ended".to_string()))?;
                     for event in resp.events() {
                         if event.event_type() == EventType::Put {
                             match store::parse_watch_value::<HandoffState>(event) {

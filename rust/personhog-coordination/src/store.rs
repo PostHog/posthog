@@ -1,9 +1,5 @@
-use etcd_client::{
-    Client, Compare, CompareOp, DeleteOptions, GetOptions, PutOptions, Txn, TxnOp, WatchOptions,
-    WatchStream,
-};
-use serde::de::DeserializeOwned;
-use serde::Serialize;
+use assignment_coordination::store::EtcdStore;
+use etcd_client::{Compare, CompareOp, PutOptions, Txn, TxnOp, WatchStream};
 
 use crate::error::{Error, Result};
 use crate::types::{
@@ -11,14 +7,7 @@ use crate::types::{
     RegisteredRouter, RouterCutoverAck,
 };
 
-#[derive(Debug, Clone)]
-pub struct StoreConfig {
-    pub endpoints: Vec<String>,
-    /// Key prefix for all operations (e.g., "/personhog/" or "/test-{uuid}/").
-    pub prefix: String,
-}
-
-/// All etcd key patterns used by the store.
+/// All etcd key patterns used by the PersonHog store.
 enum StoreKey<'a> {
     Pod(&'a str),
     PodsPrefix,
@@ -59,101 +48,43 @@ impl StoreKey<'_> {
     }
 }
 
-/// Typed wrapper around etcd for all PersonHog coordination state.
+/// Domain-specific store for PersonHog coordination state.
 ///
-/// `Client` is `Clone` (it wraps an inner `Arc`), so each method clones it.
+/// Wraps the shared `EtcdStore` (generic JSON helpers, lease ops) and adds
+/// PersonHog-specific key resolution and domain operations.
 #[derive(Clone)]
-pub struct EtcdStore {
-    client: Client,
-    config: StoreConfig,
+pub struct PersonhogStore {
+    inner: EtcdStore,
 }
 
-impl EtcdStore {
-    pub async fn connect(config: StoreConfig) -> Result<Self> {
-        let client = Client::connect(&config.endpoints, None).await?;
-        Ok(Self { client, config })
+impl PersonhogStore {
+    pub fn new(inner: EtcdStore) -> Self {
+        Self { inner }
+    }
+
+    pub fn inner(&self) -> &EtcdStore {
+        &self.inner
     }
 
     fn key(&self, k: StoreKey<'_>) -> String {
-        k.resolve(&self.config.prefix)
-    }
-
-    // ── Generic helpers ──────────────────────────────────────────
-
-    async fn get_json<T: DeserializeOwned>(&self, key: String) -> Result<Option<T>> {
-        let resp = self.client.clone().get(key, None).await?;
-        match resp.kvs().first() {
-            Some(kv) => Ok(Some(serde_json::from_slice(kv.value())?)),
-            None => Ok(None),
-        }
-    }
-
-    /// Like `get_json` but also returns the key's version for use in CAS transactions.
-    async fn get_json_versioned<T: DeserializeOwned>(
-        &self,
-        key: String,
-    ) -> Result<Option<(T, i64)>> {
-        let resp = self.client.clone().get(key, None).await?;
-        match resp.kvs().first() {
-            Some(kv) => {
-                let value = serde_json::from_slice(kv.value())?;
-                Ok(Some((value, kv.version())))
-            }
-            None => Ok(None),
-        }
-    }
-
-    async fn list_json<T: DeserializeOwned>(&self, prefix: String) -> Result<Vec<T>> {
-        let options = GetOptions::new().with_prefix();
-        let resp = self.client.clone().get(prefix, Some(options)).await?;
-        resp.kvs()
-            .iter()
-            .map(|kv| serde_json::from_slice(kv.value()).map_err(Error::from))
-            .collect()
-    }
-
-    async fn put_json<T: Serialize>(
-        &self,
-        key: String,
-        value: &T,
-        lease_id: Option<i64>,
-    ) -> Result<()> {
-        let value = serde_json::to_string(value)?;
-        let options = lease_id.map(|id| PutOptions::new().with_lease(id));
-        self.client.clone().put(key, value, options).await?;
-        Ok(())
-    }
-
-    async fn delete_key(&self, key: String) -> Result<()> {
-        self.client.clone().delete(key, None).await?;
-        Ok(())
-    }
-
-    async fn delete_by_prefix(&self, prefix: String) -> Result<()> {
-        let options = DeleteOptions::new().with_prefix();
-        self.client.clone().delete(prefix, Some(options)).await?;
-        Ok(())
-    }
-
-    async fn watch_by_prefix(&self, prefix: String) -> Result<WatchStream> {
-        let options = WatchOptions::new().with_prefix();
-        let stream = self.client.clone().watch(prefix, Some(options)).await?;
-        Ok(stream)
+        k.resolve(self.inner.prefix())
     }
 
     // ── Pod operations ──────────────────────────────────────────
 
     pub async fn register_pod(&self, pod: &RegisteredPod, lease_id: i64) -> Result<()> {
-        self.put_json(self.key(StoreKey::Pod(&pod.pod_name)), pod, Some(lease_id))
-            .await
+        let key = self.key(StoreKey::Pod(&pod.pod_name));
+        Ok(self.inner.put(&key, pod, Some(lease_id)).await?)
     }
 
     pub async fn get_pod(&self, pod_name: &str) -> Result<Option<RegisteredPod>> {
-        self.get_json(self.key(StoreKey::Pod(pod_name))).await
+        let key = self.key(StoreKey::Pod(pod_name));
+        Ok(self.inner.get(&key).await?)
     }
 
     pub async fn list_pods(&self) -> Result<Vec<RegisteredPod>> {
-        self.list_json(self.key(StoreKey::PodsPrefix)).await
+        let key = self.key(StoreKey::PodsPrefix);
+        Ok(self.inner.list(&key).await?)
     }
 
     pub async fn update_pod_status(
@@ -164,46 +95,46 @@ impl EtcdStore {
     ) -> Result<()> {
         let key = self.key(StoreKey::Pod(pod_name));
         let mut pod: RegisteredPod = self
-            .get_json(key.clone())
+            .inner
+            .get(&key)
             .await?
             .ok_or_else(|| Error::NotFound(format!("pod {pod_name}")))?;
         pod.status = status;
-        self.put_json(key, &pod, Some(lease_id)).await
+        Ok(self.inner.put(&key, &pod, Some(lease_id)).await?)
     }
 
     pub async fn watch_pods(&self) -> Result<WatchStream> {
-        self.watch_by_prefix(self.key(StoreKey::PodsPrefix)).await
+        let key = self.key(StoreKey::PodsPrefix);
+        Ok(self.inner.watch(&key).await?)
     }
 
     // ── Router operations ────────────────────────────────────────
 
     pub async fn register_router(&self, router: &RegisteredRouter, lease_id: i64) -> Result<()> {
-        self.put_json(
-            self.key(StoreKey::Router(&router.router_name)),
-            router,
-            Some(lease_id),
-        )
-        .await
+        let key = self.key(StoreKey::Router(&router.router_name));
+        Ok(self.inner.put(&key, router, Some(lease_id)).await?)
     }
 
     pub async fn list_routers(&self) -> Result<Vec<RegisteredRouter>> {
-        self.list_json(self.key(StoreKey::RoutersPrefix)).await
+        let key = self.key(StoreKey::RoutersPrefix);
+        Ok(self.inner.list(&key).await?)
     }
 
     pub async fn watch_routers(&self) -> Result<WatchStream> {
-        self.watch_by_prefix(self.key(StoreKey::RoutersPrefix))
-            .await
+        let key = self.key(StoreKey::RoutersPrefix);
+        Ok(self.inner.watch(&key).await?)
     }
 
     // ── Assignment operations ───────────────────────────────────
 
     pub async fn get_assignment(&self, partition: u32) -> Result<Option<PartitionAssignment>> {
-        self.get_json(self.key(StoreKey::Assignment(partition)))
-            .await
+        let key = self.key(StoreKey::Assignment(partition));
+        Ok(self.inner.get(&key).await?)
     }
 
     pub async fn list_assignments(&self) -> Result<Vec<PartitionAssignment>> {
-        self.list_json(self.key(StoreKey::AssignmentsPrefix)).await
+        let key = self.key(StoreKey::AssignmentsPrefix);
+        Ok(self.inner.list(&key).await?)
     }
 
     pub async fn put_assignments(&self, assignments: &[PartitionAssignment]) -> Result<()> {
@@ -219,42 +150,40 @@ impl EtcdStore {
             })
             .collect();
         let txn = Txn::new().and_then(ops);
-        self.client.clone().txn(txn).await?;
+        self.inner.txn(txn).await?;
         Ok(())
     }
 
     pub async fn watch_assignments(&self) -> Result<WatchStream> {
-        self.watch_by_prefix(self.key(StoreKey::AssignmentsPrefix))
-            .await
+        let key = self.key(StoreKey::AssignmentsPrefix);
+        Ok(self.inner.watch(&key).await?)
     }
 
     // ── Handoff operations ──────────────────────────────────────
 
     pub async fn get_handoff(&self, partition: u32) -> Result<Option<HandoffState>> {
-        self.get_json(self.key(StoreKey::Handoff(partition))).await
+        let key = self.key(StoreKey::Handoff(partition));
+        Ok(self.inner.get(&key).await?)
     }
 
     pub async fn list_handoffs(&self) -> Result<Vec<HandoffState>> {
-        self.list_json(self.key(StoreKey::HandoffsPrefix)).await
+        let key = self.key(StoreKey::HandoffsPrefix);
+        Ok(self.inner.list(&key).await?)
     }
 
     pub async fn put_handoff(&self, handoff: &HandoffState) -> Result<()> {
-        self.put_json(
-            self.key(StoreKey::Handoff(handoff.partition)),
-            handoff,
-            None,
-        )
-        .await
+        let key = self.key(StoreKey::Handoff(handoff.partition));
+        Ok(self.inner.put(&key, handoff, None).await?)
     }
 
     pub async fn delete_handoff(&self, partition: u32) -> Result<()> {
-        self.delete_key(self.key(StoreKey::Handoff(partition)))
-            .await
+        let key = self.key(StoreKey::Handoff(partition));
+        Ok(self.inner.delete(&key).await?)
     }
 
     pub async fn watch_handoffs(&self) -> Result<WatchStream> {
-        self.watch_by_prefix(self.key(StoreKey::HandoffsPrefix))
-            .await
+        let key = self.key(StoreKey::HandoffsPrefix);
+        Ok(self.inner.watch(&key).await?)
     }
 
     // ── Router cutover ack operations ────────────────────────────
@@ -264,22 +193,22 @@ impl EtcdStore {
             partition: ack.partition,
             router: &ack.router_name,
         });
-        self.put_json(key, ack, None).await
+        Ok(self.inner.put(&key, ack, None).await?)
     }
 
     pub async fn list_router_acks(&self, partition: u32) -> Result<Vec<RouterCutoverAck>> {
-        self.list_json(self.key(StoreKey::HandoffAcksForPartition(partition)))
-            .await
+        let key = self.key(StoreKey::HandoffAcksForPartition(partition));
+        Ok(self.inner.list(&key).await?)
     }
 
     pub async fn delete_router_acks(&self, partition: u32) -> Result<()> {
-        self.delete_by_prefix(self.key(StoreKey::HandoffAcksForPartition(partition)))
-            .await
+        let key = self.key(StoreKey::HandoffAcksForPartition(partition));
+        Ok(self.inner.delete_prefix(&key).await?)
     }
 
     pub async fn watch_handoff_acks(&self) -> Result<WatchStream> {
-        self.watch_by_prefix(self.key(StoreKey::HandoffAcksPrefix))
-            .await
+        let key = self.key(StoreKey::HandoffAcksPrefix);
+        Ok(self.inner.watch(&key).await?)
     }
 
     // ── Transactional operations ────────────────────────────────
@@ -304,7 +233,7 @@ impl EtcdStore {
         }
 
         let txn = Txn::new().and_then(ops);
-        self.client.clone().txn(txn).await?;
+        self.inner.txn(txn).await?;
         Ok(())
     }
 
@@ -319,7 +248,8 @@ impl EtcdStore {
         let handoff_key = self.key(StoreKey::Handoff(partition));
 
         let (mut handoff, version) = self
-            .get_json_versioned::<HandoffState>(handoff_key.clone())
+            .inner
+            .get_versioned::<HandoffState>(&handoff_key)
             .await?
             .ok_or_else(|| Error::NotFound(format!("handoff for partition {partition}")))?;
 
@@ -343,7 +273,7 @@ impl EtcdStore {
                 TxnOp::put(handoff_key, serde_json::to_vec(&handoff)?, None),
                 TxnOp::put(assignment_key, serde_json::to_vec(&assignment)?, None),
             ]);
-        let resp = self.client.clone().txn(txn).await?;
+        let resp = self.inner.txn(txn).await?;
         Ok(resp.succeeded())
     }
 
@@ -370,67 +300,79 @@ impl EtcdStore {
             )])
             .or_else(vec![TxnOp::get(key, None)]);
 
-        let resp = self.client.clone().txn(txn).await?;
+        let resp = self.inner.txn(txn).await?;
         Ok(resp.succeeded())
     }
 
     pub async fn get_leader(&self) -> Result<Option<LeaderInfo>> {
-        self.get_json(self.key(StoreKey::Leader)).await
+        let key = self.key(StoreKey::Leader);
+        Ok(self.inner.get(&key).await?)
     }
 
     // ── Lease operations ────────────────────────────────────────
 
     pub async fn grant_lease(&self, ttl: i64) -> Result<i64> {
-        let resp = self.client.clone().lease_grant(ttl, None).await?;
-        Ok(resp.id())
+        Ok(self.inner.grant_lease(ttl).await?)
     }
 
     pub async fn keep_alive(
         &self,
         lease_id: i64,
     ) -> Result<(etcd_client::LeaseKeeper, etcd_client::LeaseKeepAliveStream)> {
-        let (keeper, stream) = self.client.clone().lease_keep_alive(lease_id).await?;
-        Ok((keeper, stream))
+        Ok(self.inner.keep_alive(lease_id).await?)
     }
 
     pub async fn revoke_lease(&self, lease_id: i64) -> Result<()> {
-        self.client.clone().lease_revoke(lease_id).await?;
-        Ok(())
+        Ok(self.inner.revoke_lease(lease_id).await?)
     }
 
     // ── Config operations ───────────────────────────────────────
 
     pub async fn get_total_partitions(&self) -> Result<u32> {
         let key = self.key(StoreKey::Config("total_partitions"));
-        let resp = self.client.clone().get(key.clone(), None).await?;
+        let resp = self.inner.client().clone().get(key.clone(), None).await?;
         let kv = resp.kvs().first().ok_or_else(|| Error::NotFound(key))?;
         let s = std::str::from_utf8(kv.value())
-            .map_err(|e| Error::InvalidState(format!("non-utf8 total_partitions: {e}")))?;
+            .map_err(|e| Error::invalid_state(format!("non-utf8 total_partitions: {e}")))?;
         s.parse::<u32>()
-            .map_err(|e| Error::InvalidState(format!("invalid total_partitions: {e}")))
+            .map_err(|e| Error::invalid_state(format!("invalid total_partitions: {e}")))
     }
 
     pub async fn set_total_partitions(&self, count: u32) -> Result<()> {
-        let key = self.key(StoreKey::Config("total_partitions"));
-        self.client
+        self.inner
+            .client()
             .clone()
-            .put(key, count.to_string(), None)
+            .put(
+                self.key(StoreKey::Config("total_partitions")),
+                count.to_string(),
+                None,
+            )
             .await?;
         Ok(())
     }
 
     pub async fn get_generation(&self) -> Result<String> {
         let key = self.key(StoreKey::Generation);
-        let resp = self.client.clone().get(key.clone(), None).await?;
+        let resp = self.inner.client().clone().get(key.clone(), None).await?;
         let kv = resp.kvs().first().ok_or_else(|| Error::NotFound(key))?;
         String::from_utf8(kv.value().to_vec())
-            .map_err(|e| Error::InvalidState(format!("non-utf8 generation: {e}")))
+            .map_err(|e| Error::invalid_state(format!("non-utf8 generation: {e}")))
     }
 
     pub async fn set_generation(&self, generation: &str) -> Result<()> {
-        let key = self.key(StoreKey::Generation);
-        self.client.clone().put(key, generation, None).await?;
+        self.inner
+            .client()
+            .clone()
+            .put(self.key(StoreKey::Generation), generation, None)
+            .await?;
         Ok(())
+    }
+
+    // ── Cleanup ─────────────────────────────────────────────────
+
+    /// Delete all keys under the store's prefix.
+    pub async fn delete_all(&self) -> Result<()> {
+        Ok(self.inner.delete_all().await?)
     }
 }
 
@@ -456,6 +398,6 @@ pub fn parse_watch_value<T: serde::de::DeserializeOwned>(
 ) -> std::result::Result<T, Error> {
     let kv = event
         .kv()
-        .ok_or_else(|| Error::InvalidState("watch event missing kv".to_string()))?;
+        .ok_or_else(|| Error::invalid_state("watch event missing kv"))?;
     serde_json::from_slice(kv.value()).map_err(Error::from)
 }
