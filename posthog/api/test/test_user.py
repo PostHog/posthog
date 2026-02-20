@@ -1396,7 +1396,6 @@ class TestUserAPI(APIBaseTest):
                 "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
-                "error_tracking_weekly_digest": True,
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "materialized_view_sync_failed": True,
@@ -1412,7 +1411,6 @@ class TestUserAPI(APIBaseTest):
                 "project_weekly_digest_disabled": {"123": True},
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
-                "error_tracking_weekly_digest": True,
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "materialized_view_sync_failed": True,
@@ -1482,7 +1480,6 @@ class TestUserAPI(APIBaseTest):
                 "project_weekly_digest_disabled": {},  # Default value
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": True,  # Default value
-                "error_tracking_weekly_digest": True,  # Default value
                 "data_pipeline_error_threshold": 0.01,  # Default value
                 "project_api_key_exposed": True,  # Default value
                 "materialized_view_sync_failed": False,  # Default value

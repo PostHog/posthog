@@ -136,6 +136,7 @@ def get_top_issues_for_team(team: Team) -> list[dict]:
                     WHERE event = '$exception'
                     AND timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY
                     AND timestamp < toStartOfDay(now())
+                    AND issue_id IS NOT NULL
                     GROUP BY issue_id, day
                     ORDER BY day ASC
                 )
