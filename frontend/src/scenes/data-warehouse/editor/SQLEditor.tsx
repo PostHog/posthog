@@ -267,8 +267,8 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                     icon={<EditingViewButtonIcon />}
                                     type="primary"
                                     size="small"
-                                    sideIcon={<IconChevronDown />}
                                     sideAction={{
+                                        icon: <IconChevronDown />,
                                         dropdown: {
                                             placement: 'bottom-end',
                                             overlay: (
@@ -302,8 +302,8 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 type="primary"
                                 size="small"
                                 onClick={() => updateInsight()}
-                                sideIcon={<IconChevronDown />}
                                 sideAction={{
+                                    icon: <IconChevronDown />,
                                     dropdown: {
                                         placement: 'bottom-end',
                                         overlay: (
@@ -334,8 +334,8 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 type="primary"
                                 size="small"
                                 onClick={() => saveAsInsight()}
-                                sideIcon={<IconChevronDown />}
                                 sideAction={{
+                                    icon: <IconChevronDown />,
                                     'data-attr': 'sql-editor-save-options-button',
                                     dropdown: {
                                         placement: 'bottom-end',
