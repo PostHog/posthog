@@ -32,7 +32,12 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWareh
     props({} as FunnelDataWarehouseStepDefinitionPopoverLogicProps),
     key((props) => `${props.group.type}-${String(props.group.getValue?.(props.item) ?? props.item.name ?? 'new')}`),
     connect({
-        values: [definitionPopoverLogic, ['localDefinition'], taxonomicFilterLogic, ['dataWarehousePopoverFields']],
+        values: [
+            definitionPopoverLogic,
+            ['localDefinition'],
+            taxonomicFilterLogic,
+            ['dataWarehousePopoverFields as rawDataWarehousePopoverFields'],
+        ],
         actions: [definitionPopoverLogic, ['setLocalDefinition'], taxonomicFilterLogic, ['selectItem']],
     }),
     actions(() => ({
@@ -40,6 +45,11 @@ export const funnelDataWarehouseStepDefinitionPopoverLogic = kea<funnelDataWareh
         selectDataWarehouseStep: true,
     })),
     selectors({
+        dataWarehousePopoverFields: [
+            (s) => [s.rawDataWarehousePopoverFields],
+            (dataWarehousePopoverFields: unknown): DataWarehousePopoverField[] =>
+                Array.isArray(dataWarehousePopoverFields) ? dataWarehousePopoverFields : [],
+        ],
         definition: [
             (s) => [s.localDefinition, (_, props) => props.item],
             (

@@ -20,6 +20,17 @@ export function FunnelDataWarehouseStepDefinitionPopover({
     group,
     defaultView,
 }: DefinitionPopoverRendererProps): JSX.Element | null {
+    if (group.type !== TaxonomicFilterGroupType.DataWarehouse) {
+        return defaultView
+    }
+
+    return <FunnelDataWarehouseStepDefinitionPopoverContent item={item} group={group} />
+}
+
+function FunnelDataWarehouseStepDefinitionPopoverContent({
+    item,
+    group,
+}: Pick<DefinitionPopoverRendererProps, 'item' | 'group'>): JSX.Element | null {
     const logic = funnelDataWarehouseStepDefinitionPopoverLogic({ item, group })
     const {
         localDefinition,
@@ -31,10 +42,6 @@ export function FunnelDataWarehouseStepDefinitionPopover({
         isUsingHogQLExpression,
     } = useValues(logic)
     const { setFieldValue, selectDataWarehouseStep } = useActions(logic)
-
-    if (group.type !== TaxonomicFilterGroupType.DataWarehouse) {
-        return defaultView
-    }
 
     if (!definition || dataWarehousePopoverFields.length === 0) {
         return <></>
