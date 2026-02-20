@@ -37,6 +37,7 @@ export const llmPersonsLazyLoaderLogic = kea<llmPersonsLazyLoaderLogicType>([
 
     actions({
         ensurePersonLoaded: (distinctId: string) => ({ distinctId }),
+        queuePersonLoad: (distinctId: string) => ({ distinctId }),
         loadPersonsBatchSuccess: (persons: Record<string, LLMTracePerson>, requestedDistinctIds: string[]) => ({
             persons,
             requestedDistinctIds,
@@ -72,7 +73,7 @@ export const llmPersonsLazyLoaderLogic = kea<llmPersonsLazyLoaderLogicType>([
         loadingDistinctIds: [
             new Set<string>(),
             {
-                ensurePersonLoaded: (state, { distinctId }) => {
+                queuePersonLoad: (state, { distinctId }) => {
                     if (state.has(distinctId)) {
                         return state
                     }
@@ -161,6 +162,7 @@ export const llmPersonsLazyLoaderLogic = kea<llmPersonsLazyLoaderLogicType>([
                     return
                 }
 
+                actions.queuePersonLoad(distinctId)
                 pendingDistinctIds.add(distinctId)
                 scheduleBatchLoad()
             },
