@@ -2169,8 +2169,6 @@ importers:
 
   products/growth: {}
 
-  products/hasburger: {}
-
   products/links:
     dependencies:
       '@posthog/icons':
@@ -2712,19 +2710,19 @@ importers:
     dependencies:
       '@posthog/icons':
         specifier: '*'
-        version: 0.36.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.36.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
       kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.3.1)
+        specifier: 'catalog:'
+        version: 4.0.0-pre.3(react@18.3.1)
       kea-loaders:
-        specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.3.1))
+        specifier: 'catalog:'
+        version: 3.1.1(kea@4.0.0-pre.3(react@18.3.1))
       kea-router:
-        specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.3.1))
+        specifier: 'catalog:'
+        version: 3.4.1(kea@4.0.0-pre.3(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1

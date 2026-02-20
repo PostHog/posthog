@@ -23,14 +23,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from ..facade import api
-from ..facade.contracts import (
-    ApproveRunInput,
-    ApproveRunRequestInput,
-    CreateRepoInput,
-    CreateRunInput,
-    UpdateRepoInput,
-    UpdateRepoRequestInput,
-)
+from ..facade.contracts import ApproveRunInput, CreateRunInput, UpdateRepoInput
 from .serializers import (
     ApproveRunInputSerializer,
     CreateRepoInputSerializer,
@@ -55,8 +48,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     A repo typically represents a repository or test suite.
     """
 
-    # TODO: Add "visual_review" to APIScopeObject in posthog/scopes.py
-    scope_object = "repo"
+    scope_object = "visual_review"
     scope_object_write_actions = ["create", "partial_update"]
     scope_object_read_actions = ["list", "retrieve"]
 
@@ -70,9 +62,9 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer=CreateRepoInputSerializer,
         responses={201: OpenApiResponse(response=RepoSerializer)},
     )
-    def create(self, request: ValidatedRequest[CreateRepoInput], **kwargs) -> Response:
+    def create(self, request: ValidatedRequest, **kwargs) -> Response:
         """Create a new repo."""
-        repo = api.create_repo(team_id=self.team_id, name=request.validated_data.name)
+        repo = api.create_repo(team_id=self.team_id, name=request.validated_data["name"])
         return Response(RepoSerializer(instance=repo).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(responses={200: RepoSerializer})
@@ -88,14 +80,14 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer=UpdateRepoInputSerializer,
         responses={200: OpenApiResponse(response=RepoSerializer)},
     )
-    def partial_update(self, request: ValidatedRequest[UpdateRepoRequestInput], pk: str, **kwargs) -> Response:
+    def partial_update(self, request: ValidatedRequest, pk: str, **kwargs) -> Response:
         """Update a repo's settings."""
         body = request.validated_data
         input_dto = UpdateRepoInput(
             repo_id=UUID(pk),
-            name=body.name,
-            repo_full_name=body.repo_full_name,
-            baseline_file_paths=body.baseline_file_paths,
+            name=body["name"],
+            repo_full_name=body["repo_full_name"],
+            baseline_file_paths=body["baseline_file_paths"],
         )
 
         try:
@@ -113,8 +105,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     A run represents a single CI execution that captures screenshots.
     """
 
-    # TODO: Add "visual_review" to APIScopeObject in posthog/scopes.py
-    scope_object = "repo"
+    scope_object = "visual_review"
     scope_object_write_actions = ["create", "complete", "approve"]
     scope_object_read_actions = ["list", "retrieve", "snapshots"]
 
@@ -132,9 +123,9 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer=CreateRunInputSerializer,
         responses={201: OpenApiResponse(response=CreateRunResultSerializer)},
     )
-    def create(self, request: ValidatedRequest[CreateRunInput], **kwargs) -> Response:
+    def create(self, request: ValidatedRequest, **kwargs) -> Response:
         """Create a new run from a CI manifest."""
-        result = api.create_run(request.validated_data)
+        result = api.create_run(CreateRunInput(**request.validated_data))
         return Response(CreateRunResultSerializer(instance=result).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(responses={200: RunSerializer})
@@ -175,14 +166,14 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={200: OpenApiResponse(response=RunSerializer)},
     )
     @action(detail=True, methods=["post"])
-    def approve(self, request: ValidatedRequest[ApproveRunRequestInput], pk: str, **kwargs) -> Response:
+    def approve(self, request: ValidatedRequest, pk: str, **kwargs) -> Response:
         """Approve visual changes for snapshots in this run."""
         body = request.validated_data
         input_dto = ApproveRunInput(
             run_id=UUID(pk),
             user_id=cast(int, request.user.id),
-            snapshots=body.snapshots,
-            commit_to_github=body.commit_to_github,
+            snapshots=body["snapshots"],
+            commit_to_github=body["commit_to_github"],
         )
 
         try:

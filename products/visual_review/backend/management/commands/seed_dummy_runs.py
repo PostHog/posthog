@@ -246,7 +246,6 @@ class Command(BaseCommand):
             elif result == SnapshotResult.REMOVED:
                 baseline_artifact = artifact
                 baseline_hash = content_hash
-                artifact = None
                 removed_count += 1
             elif result == SnapshotResult.CHANGED:
                 # Use same artifact but different hash to simulate change
