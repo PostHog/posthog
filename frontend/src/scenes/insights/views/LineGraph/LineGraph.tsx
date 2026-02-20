@@ -816,9 +816,9 @@ export function LineGraph_({
                             }
 
                             const bounds = canvas.getBoundingClientRect()
-                            const isBarChart = isHighlightBarMode || isHorizontal
-                            const caretY = isBarChart ? tooltip.caretY : 0
-                            positionTooltip(tooltipEl, bounds, tooltip.caretX, caretY, isBarChart)
+                            const centerVertically = isHighlightBarMode || isHorizontal
+                            const caretY = centerVertically ? tooltip.caretY : 0
+                            positionTooltip(tooltipEl, bounds, tooltip.caretX, caretY, centerVertically)
                         },
                     },
                     ...(!isBar
