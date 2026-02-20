@@ -347,7 +347,9 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
                                     </div>
                                 ) : (
-                                    <ContextDisplay size={contextDisplaySize} />
+                                    <div className="pr-12">
+                                        <ContextDisplay size={contextDisplaySize} />
+                                    </div>
                                 )}
                             </div>
                         )}
