@@ -431,36 +431,39 @@ export function InsightsTable({
     }
 
     return (
-        <LemonTable
-            id={isInDashboardContext ? insight.short_id : undefined}
-            dataSource={
-                isLegend || isMainInsightView
-                    ? indexedResults
-                    : indexedResults.filter((dataset) => !getTrendsHidden(dataset))
-            }
-            embedded={embedded}
-            columns={columns}
-            rowKey="id"
-            loading={insightDataLoading}
-            disableTableWhileLoading={false}
-            emptyState="No insight results"
-            data-attr="insights-table-graph"
-            useURLForSorting={!editMode}
-            rowRibbonColor={
-                isLegend
-                    ? (item) => {
-                          const isPrevious = !!item.compare && item.compare_label === 'previous'
+        <div style={{ height: 500 }}>
+            <LemonTable
+                id={isInDashboardContext ? insight.short_id : undefined}
+                dataSource={
+                    isLegend || isMainInsightView
+                        ? indexedResults
+                        : indexedResults.filter((dataset) => !getTrendsHidden(dataset))
+                }
+                embedded={embedded}
+                columns={columns}
+                rowKey="id"
+                loading={insightDataLoading}
+                disableTableWhileLoading={false}
+                emptyState="No insight results"
+                data-attr="insights-table-graph"
+                useURLForSorting={!editMode}
+                virtualized={{ rowHeight: 36 }}
+                rowRibbonColor={
+                    isLegend
+                        ? (item) => {
+                              const isPrevious = !!item.compare && item.compare_label === 'previous'
 
-                          const themeColor = getTrendsColor(item)
-                          const mainColor = isPrevious ? `${themeColor}80` : themeColor
+                              const themeColor = getTrendsColor(item)
+                              const mainColor = isPrevious ? `${themeColor}80` : themeColor
 
-                          return mainColor
-                      }
-                    : undefined
-            }
-            firstColumnSticky
-            pinnedColumns={pinnedColumns}
-            maxHeaderWidth="20rem"
-        />
+                              return mainColor
+                          }
+                        : undefined
+                }
+                firstColumnSticky
+                pinnedColumns={pinnedColumns}
+                maxHeaderWidth="20rem"
+            />
+        </div>
     )
 }

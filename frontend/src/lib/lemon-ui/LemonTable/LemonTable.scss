@@ -385,6 +385,7 @@ body:not(.storybook-test-runner) {
 .LemonTable--virtualized {
     display: flex;
     flex-direction: column;
+    height: 100%;
 
     &.LemonTable--stealth {
         .LemonTable__virtualized-header,
@@ -409,7 +410,7 @@ body:not(.storybook-test-runner) {
 .LemonTable__virtualized-content {
     display: flex;
     flex-direction: column;
-    min-height: 100%;
+    height: 100%;
 }
 
 .LemonTable__virtualized-group-header {
