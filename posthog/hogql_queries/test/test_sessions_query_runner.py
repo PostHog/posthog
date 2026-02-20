@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
@@ -11,9 +12,11 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
-from posthog.schema import CachedSessionsQueryResponse, SessionsQuery
+from parameterized import parameterized
 
-from posthog.hogql_queries.sessions_query_runner import SessionsQueryRunner
+from posthog.schema import CachedSessionsQueryResponse, PersonPropertyFilter, SessionsQuery
+
+from posthog.hogql_queries.sessions_query_runner import SUPPORTED_PERSON_PROPERTY_OPERATORS, SessionsQueryRunner
 from posthog.models.utils import uuid7
 
 
@@ -300,3 +303,711 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = SessionsQueryRunner(query=query, team=self.team)
 
         assert runner.select_input_raw() == ["session_id", "distinct_id"]
+
+    @snapshot_clickhouse_queries
+    def test_person_display_name_field(self):
+        """Test person_display_name returns correct dict structure with default properties."""
+        self._create_test_sessions(
+            data=[
+                ("user1", "session1", "2024-01-01T12:00:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person_display_name -- Person"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+
+            person_display = response.results[0][1]
+            assert isinstance(person_display, dict)
+            # Default display name uses email
+            assert person_display["display_name"] == "user1@posthog.com"
+            assert "id" in person_display
+            assert person_display["distinct_id"] == "user1"
+
+    @snapshot_clickhouse_queries
+    def test_person_display_name_with_custom_properties(self):
+        """Test person_display_name respects team.person_display_name_properties."""
+        self._create_test_sessions(
+            data=[
+                ("user1", "session1", "2024-01-01T12:00:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        # Set custom display name property
+        self.team.person_display_name_properties = ["name"]
+        self.team.save()
+        self.team.refresh_from_db()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person_display_name -- Person"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+
+            person_display = response.results[0][1]
+            # Should use name property instead of email
+            assert person_display["display_name"] == "Person user1"
+
+    @snapshot_clickhouse_queries
+    def test_person_display_name_fallback_to_distinct_id(self):
+        """Test person_display_name falls back to distinct_id when properties missing."""
+        self._create_test_sessions(
+            data=[
+                ("user1", "session1", "2024-01-01T12:00:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        # Set property that doesn't exist
+        self.team.person_display_name_properties = ["nonexistent_property"]
+        self.team.save()
+        self.team.refresh_from_db()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person_display_name -- Person"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+
+            person_display = response.results[0][1]
+            # Should fall back to distinct_id
+            assert person_display["display_name"] == "user1"
+
+    @snapshot_clickhouse_queries
+    def test_person_display_name_with_spaces_in_property_name(self):
+        """Test person_display_name handles property names with spaces."""
+        # Create person with property that has spaces
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["user_spaced"],
+            properties={
+                "Property With Spaces": "Test User With Spaces",
+                "email": "spaced@example.com",
+            },
+        )
+        session_id = str(uuid7("2024-01-01T12:00:00Z"))
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_spaced",
+            timestamp="2024-01-01T12:00:00Z",
+            properties={"$session_id": session_id},
+        )
+        flush_persons_and_events()
+
+        # Set property with spaces as display name
+        self.team.person_display_name_properties = ["Property With Spaces"]
+        self.team.save()
+        self.team.refresh_from_db()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person_display_name -- Person"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+
+            person_display = response.results[0][1]
+            assert person_display["display_name"] == "Test User With Spaces"
+
+    @snapshot_clickhouse_queries
+    def test_person_display_name_combined_with_other_columns(self):
+        """Test person_display_name works alongside other session columns."""
+        self._create_test_sessions(
+            data=[
+                ("user1", "session1", "2024-01-01T12:00:00Z", {}),
+                ("user1", "session1", "2024-01-01T12:10:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person_display_name -- Person", "$session_duration"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+
+            row = response.results[0]
+            assert row[0] is not None  # session_id
+            assert isinstance(row[1], dict)  # person_display_name
+            assert row[1]["display_name"] == "user1@posthog.com"
+            assert row[2] == 600  # 10 minutes duration
+
+    @snapshot_clickhouse_queries
+    def test_orderby_person_display_name(self):
+        """Test sessions can be ordered by person_display_name."""
+        self._create_test_sessions(
+            data=[
+                ("userA", "session1", "2024-01-01T12:00:00Z", {}),
+                ("userB", "session2", "2024-01-01T12:05:00Z", {}),
+                ("userC", "session3", "2024-01-01T12:10:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person_display_name -- Person"],
+                orderBy=["person_display_name -- Person DESC"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 3
+
+            # Should be ordered by display_name (email) descending
+            display_names = [row[1]["display_name"] for row in response.results]
+            assert display_names == ["userC@posthog.com", "userB@posthog.com", "userA@posthog.com"]
+
+    @snapshot_clickhouse_queries
+    def test_person_display_name_multiple_persons(self):
+        """Test person_display_name correctly resolves different persons for different sessions."""
+        self._create_test_sessions(
+            data=[
+                ("alice", "session1", "2024-01-01T12:00:00Z", {}),
+                ("bob", "session2", "2024-01-01T12:05:00Z", {}),
+                ("charlie", "session3", "2024-01-01T12:10:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person_display_name -- Person"],
+                orderBy=["person_display_name -- Person ASC"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 3
+
+            display_names = [row[1]["display_name"] for row in response.results]
+            assert display_names == ["alice@posthog.com", "bob@posthog.com", "charlie@posthog.com"]
+            for row in response.results:
+                assert isinstance(row[1], dict)
+                assert row[1]["id"] is not None
+                assert row[1]["distinct_id"] is not None
+
+    @snapshot_clickhouse_queries
+    def test_person_display_name_with_star_select(self):
+        """Test person_display_name works alongside star select."""
+        self._create_test_sessions(
+            data=[
+                ("user1", "session1", "2024-01-01T12:00:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["*", "person_display_name -- Person"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+
+            row = response.results[0]
+            assert isinstance(row[0], dict)  # star select returns dict
+            assert isinstance(row[1], dict)  # person_display_name returns dict
+            assert row[1]["display_name"] == "user1@posthog.com"
+
+    @snapshot_clickhouse_queries
+    def test_person_display_name_without_person_join_no_regression(self):
+        """Test queries without person_display_name don't include person joins."""
+        self._create_test_sessions(
+            data=[
+                ("user1", "session1", "2024-01-01T12:00:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "$session_duration", "$start_timestamp"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            assert not runner._needs_person_join()
+
+            response = runner.run()
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+
+    @snapshot_clickhouse_queries
+    def test_arbitrary_person_property_field(self):
+        """Test arbitrary person.properties.X columns work."""
+        self._create_test_sessions(
+            data=[
+                ("user1", "session1", "2024-01-01T12:00:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person.properties.email"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            assert runner._needs_person_join()
+
+            response = runner.run()
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+            assert response.results[0][1] == "user1@posthog.com"
+
+    @snapshot_clickhouse_queries
+    def test_arbitrary_person_property_with_comment(self):
+        """Test person.properties.X with comment alias works."""
+        self._create_test_sessions(
+            data=[
+                ("user1", "session1", "2024-01-01T12:00:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person.properties.name -- Name"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+            assert response.results[0][1] == "Person user1"
+
+    @snapshot_clickhouse_queries
+    def test_arbitrary_person_property_orderby(self):
+        """Test ordering by arbitrary person properties."""
+        self._create_test_sessions(
+            data=[
+                ("alice", "session1", "2024-01-01T12:00:00Z", {}),
+                ("bob", "session2", "2024-01-01T12:05:00Z", {}),
+                ("charlie", "session3", "2024-01-01T12:10:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person.properties.email"],
+                orderBy=["person.properties.email ASC"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 3
+            emails = [row[1] for row in response.results]
+            assert emails == ["alice@posthog.com", "bob@posthog.com", "charlie@posthog.com"]
+
+    @snapshot_clickhouse_queries
+    def test_person_property_combined_with_display_name(self):
+        """Test combining person.properties.X with person_display_name."""
+        self._create_test_sessions(
+            data=[
+                ("user1", "session1", "2024-01-01T12:00:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person_display_name -- Person", "person.properties.name"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+            assert response.results[0][1]["display_name"] == "user1@posthog.com"
+            assert response.results[0][2] == "Person user1"
+
+    @snapshot_clickhouse_queries
+    def test_filter_by_person_property(self):
+        """Test filtering sessions by person property."""
+        self._create_test_sessions(
+            data=[
+                ("alice", "session1", "2024-01-01T12:00:00Z", {}),
+                ("bob", "session2", "2024-01-01T12:05:00Z", {}),
+                ("charlie", "session3", "2024-01-01T12:10:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person.properties.email"],
+                properties=[
+                    PersonPropertyFilter(key="email", value="bob@posthog.com", operator="exact", type="person")
+                ],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            assert runner._needs_person_join()
+
+            response = runner.run()
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+            assert response.results[0][1] == "bob@posthog.com"
+
+    @snapshot_clickhouse_queries
+    def test_filter_by_person_property_icontains(self):
+        """Test filtering sessions by person property with icontains operator."""
+        self._create_test_sessions(
+            data=[
+                ("alice", "session1", "2024-01-01T12:00:00Z", {}),
+                ("bob", "session2", "2024-01-01T12:05:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person.properties.email"],
+                properties=[PersonPropertyFilter(key="email", value="alice", operator="icontains", type="person")],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+            assert response.results[0][1] == "alice@posthog.com"
+
+    @snapshot_clickhouse_queries
+    def test_filter_by_person_property_without_person_column(self):
+        """Test filtering by person property without selecting person columns."""
+        self._create_test_sessions(
+            data=[
+                ("alice", "session1", "2024-01-01T12:00:00Z", {}),
+                ("bob", "session2", "2024-01-01T12:05:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "$session_duration"],
+                properties=[PersonPropertyFilter(key="name", value="Person alice", operator="exact", type="person")],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            assert runner._needs_person_join()
+
+            response = runner.run()
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+
+    @snapshot_clickhouse_queries
+    def test_session_property_column(self):
+        """Test selecting session properties like $channel_type using session.X syntax."""
+        session_id = str(uuid7("2024-01-01T12:00:00Z"))
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["user1"],
+            properties={"email": "user1@posthog.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user1",
+            timestamp="2024-01-01T12:00:00Z",
+            properties={
+                "$session_id": session_id,
+                "$referring_domain": "google.com",
+                "gclid": "test123",
+            },
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "session.$channel_type"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+            # Should have resolved the channel type
+            assert response.results[0][1] is not None
+
+    @snapshot_clickhouse_queries
+    def test_session_property_with_person_property(self):
+        """Test combining session.X properties with person properties."""
+        session_id = str(uuid7("2024-01-01T12:00:00Z"))
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["user1"],
+            properties={"email": "user1@posthog.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user1",
+            timestamp="2024-01-01T12:00:00Z",
+            properties={"$session_id": session_id},
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "session.$entry_current_url", "person.properties.email"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            assert runner._needs_person_join()
+
+            response = runner.run()
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+            assert response.results[0][2] == "user1@posthog.com"
+
+    @snapshot_clickhouse_queries
+    def test_anonymous_session_identified_later(self):
+        """Test that anonymous sessions that get identified later still resolve person properties."""
+        session_id = str(uuid7("2024-01-01T12:00:00Z"))
+        anon_distinct_id = "anon_user_123"
+        identified_distinct_id = "identified_user"
+
+        # Create the person with the identified distinct_id
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[identified_distinct_id, anon_distinct_id],
+            properties={"email": "identified@posthog.com", "name": "Identified User"},
+        )
+
+        # Session started with anonymous distinct_id
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=anon_distinct_id,
+            timestamp="2024-01-01T12:00:00Z",
+            properties={"$session_id": session_id},
+        )
+        # Later in the same session, user identifies
+        _create_event(
+            team=self.team,
+            event="$identify",
+            distinct_id=identified_distinct_id,
+            timestamp="2024-01-01T12:05:00Z",
+            properties={"$session_id": session_id, "$anon_distinct_id": anon_distinct_id},
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person_display_name -- Person", "person.properties.email"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+            # Should resolve to the identified person's properties
+            person_display = response.results[0][1]
+            assert person_display["display_name"] == "identified@posthog.com"
+            assert response.results[0][2] == "identified@posthog.com"
+
+    @snapshot_clickhouse_queries
+    def test_anonymous_session_not_identified(self):
+        """Test that sessions that remain anonymous fall back to distinct_id."""
+        session_id = str(uuid7("2024-01-01T12:00:00Z"))
+        anon_distinct_id = "anon_user_456"
+
+        # No person created - session remains anonymous
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=anon_distinct_id,
+            timestamp="2024-01-01T12:00:00Z",
+            properties={"$session_id": session_id},
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "person_display_name -- Person"],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            assert len(response.results) == 1
+            # Should fall back to distinct_id since no person exists
+            person_display = response.results[0][1]
+            assert person_display["display_name"] == anon_distinct_id
+            assert person_display["distinct_id"] == anon_distinct_id
+
+    def test_unsupported_person_property_operator_raises_error(self):
+        """Test that unsupported operators raise ValueError."""
+        self._create_test_sessions(
+            data=[
+                ("user1", "session1", "2024-01-01T12:00:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id"],
+                properties=[PersonPropertyFilter(key="email", value="test", operator="is_date_after", type="person")],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            with pytest.raises(ValueError) as exc_info:
+                runner.run()
+
+            assert "Unsupported operator 'is_date_after'" in str(exc_info.value)
+            assert "Supported operators:" in str(exc_info.value)
+
+    @parameterized.expand(
+        [
+            ("exact_match", "exact", "user1@posthog.com", True),
+            ("exact_no_match", "exact", "other@posthog.com", False),
+            ("is_not_match", "is_not", "other@posthog.com", True),
+            ("is_not_no_match", "is_not", "user1@posthog.com", False),
+            ("icontains_match", "icontains", "user1", True),
+            ("icontains_no_match", "icontains", "nobody", False),
+            ("not_icontains_match", "not_icontains", "nobody", True),
+            ("not_icontains_no_match", "not_icontains", "user1", False),
+            ("regex_match", "regex", r"user\d+@posthog\.com", True),
+            ("regex_no_match", "regex", r"admin@.*", False),
+            ("not_regex_match", "not_regex", r"admin@.*", True),
+            ("not_regex_no_match", "not_regex", r"user\d+@posthog\.com", False),
+            ("is_set_match", "is_set", None, True),
+            ("is_not_set_no_match", "is_not_set", None, False),
+        ],
+    )
+    def test_person_property_filter_operators(self, _name, operator, value, expected_match):
+        """Test that all supported person property operators work correctly."""
+        self._create_test_sessions(
+            data=[
+                ("user1", "session1", "2024-01-01T12:00:00Z", {}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id"],
+                properties=[PersonPropertyFilter(key="email", value=value, operator=operator, type="person")],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            if expected_match:
+                assert len(response.results) == 1, (
+                    f"Expected 1 result for operator '{operator}' but got {len(response.results)}"
+                )
+            else:
+                assert len(response.results) == 0, (
+                    f"Expected 0 results for operator '{operator}' but got {len(response.results)}"
+                )
+
+    def test_supported_operators_constant_is_complete(self):
+        """Verify that the SUPPORTED_PERSON_PROPERTY_OPERATORS constant contains expected operators."""
+        expected_operators = {
+            "exact",
+            "is_not",
+            "icontains",
+            "not_icontains",
+            "regex",
+            "not_regex",
+            "is_set",
+            "is_not_set",
+            "gt",
+            "lt",
+            "gte",
+            "lte",
+        }
+        assert SUPPORTED_PERSON_PROPERTY_OPERATORS == expected_operators
