@@ -49,11 +49,11 @@ from posthog.models.element import Element
 from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
-from posthog.models.property_definition import PropertyType
 from posthog.utils import get_from_dict_or_attr
 
 from products.data_warehouse.backend.models import DataWarehouseJoin
 from products.data_warehouse.backend.models.util import get_view_or_table_by_name
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 def parse_semver(value: str) -> tuple[str, str, str]:

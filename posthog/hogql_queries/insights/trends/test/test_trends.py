@@ -51,11 +51,12 @@ from posthog.models import Action, Cohort, Entity, Filter, Organization, Person
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting, override_instance_config
 from posthog.models.person.util import create_person_distinct_id
-from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 
 def breakdown_label(entity: Entity, value: Union[str, int]) -> dict[str, Optional[Union[str, int]]]:

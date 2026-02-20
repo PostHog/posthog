@@ -11,10 +11,10 @@ from django.utils import timezone
 
 import requests
 
-from posthog.models.event_definition import EventDefinition
 from posthog.models.integration import GitHubIntegration, Integration
 
 from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.tasks.backend.models import Task
 
 logger = logging.getLogger(__name__)

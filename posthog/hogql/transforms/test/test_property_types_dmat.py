@@ -14,11 +14,12 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
-from posthog.models.property_definition import PropertyType
 from posthog.temporal.backfill_materialized_property.activities import (
     PROPERTY_TYPE_TO_COLUMN_NAME,
     _generate_property_extraction_sql,
 )
+
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 class TestDmatIntegration(BaseTest):

@@ -69,10 +69,11 @@ from posthog.hogql_queries.insights.trends.trends_query_runner import BREAKDOWN_
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
-from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team.team import Team
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 
 @dataclass

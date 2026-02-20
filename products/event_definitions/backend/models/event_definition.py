@@ -2,7 +2,6 @@ from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.utils import timezone
 
-from posthog.models.team import Team
 from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
 
 
@@ -13,12 +12,12 @@ class SchemaEnforcementMode(models.TextChoices):
 
 class EventDefinition(UUIDTModel):
     team = models.ForeignKey(
-        Team,
+        "posthog.Team",
         on_delete=models.CASCADE,
         related_name="event_definitions",
         related_query_name="team",
     )
-    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
+    project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True)
     name = models.CharField(max_length=400)
     created_at = models.DateTimeField(default=timezone.now, null=True)
     last_seen_at = models.DateTimeField(default=None, null=True)
@@ -38,6 +37,7 @@ class EventDefinition(UUIDTModel):
     )
 
     class Meta:
+        db_table = "posthog_eventdefinition"
         indexes = [
             # Index on project_id foreign key
             models.Index(fields=["project"], name="posthog_eve_proj_id_f93fcbb0"),

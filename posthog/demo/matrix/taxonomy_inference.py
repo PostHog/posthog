@@ -5,7 +5,8 @@ from typing import Optional
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition
 from posthog.models.group.sql import GROUPS_TABLE
 from posthog.models.person.sql import PERSONS_TABLE
-from posthog.models.property_definition import PropertyType
+
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 def infer_taxonomy_for_team(team_id: int) -> tuple[int, int, int]:

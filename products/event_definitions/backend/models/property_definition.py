@@ -4,7 +4,6 @@ from django.db.models.expressions import F
 from django.db.models.functions import Coalesce
 
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
-from posthog.models.team import Team
 from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
@@ -40,12 +39,12 @@ class PropertyDefinition(UUIDTModel):
         SESSION = 4, "session"
 
     team = models.ForeignKey(
-        Team,
+        "posthog.Team",
         on_delete=models.CASCADE,
         related_name="property_definitions",
         related_query_name="team",
     )
-    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
+    project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True)
     name = models.CharField(max_length=400)
     is_numerical = models.BooleanField(
         default=False
@@ -71,6 +70,7 @@ class PropertyDefinition(UUIDTModel):
     query_usage_30_day = models.IntegerField(default=None, null=True)
 
     class Meta:
+        db_table = "posthog_propertydefinition"
         indexes = [
             # Index on project_id foreign key
             models.Index(fields=["project"], name="posthog_prop_proj_id_d3eb982d"),
