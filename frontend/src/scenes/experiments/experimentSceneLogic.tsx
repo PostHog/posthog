@@ -21,6 +21,9 @@ import {
 import type { experimentLogicType } from './experimentLogicType'
 import type { experimentSceneLogicType } from './experimentSceneLogicType'
 
+export const EXPERIMENT_TABS = ['metrics', 'code', 'variants', 'history', 'feedback'] as const
+export type ExperimentTab = (typeof EXPERIMENT_TABS)[number]
+
 export interface ExperimentSceneLogicProps extends ExperimentLogicProps {
     tabId?: string
 }
@@ -285,9 +288,10 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                 }
             }
 
-            // Handle tab query parameter
+            // Handle tab query parameter — ignore unknown values
             const tabFromUrl = query?.tab as string | undefined
-            const targetTab = tabFromUrl || 'metrics'
+            const targetTab =
+                tabFromUrl && EXPERIMENT_TABS.includes(tabFromUrl as ExperimentTab) ? tabFromUrl : 'metrics'
             if (targetTab !== values.activeTabKey) {
                 actions.setActiveTabKey(targetTab)
             }
@@ -323,9 +327,10 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                 actions.setSceneState(parsedId, parsedFormMode)
             }
 
-            // Handle tab query parameter
+            // Handle tab query parameter — ignore unknown values
             const tabFromUrl = query?.tab as string | undefined
-            const targetTab = tabFromUrl || 'metrics'
+            const targetTab =
+                tabFromUrl && EXPERIMENT_TABS.includes(tabFromUrl as ExperimentTab) ? tabFromUrl : 'metrics'
             if (targetTab !== values.activeTabKey) {
                 actions.setActiveTabKey(targetTab)
             }
