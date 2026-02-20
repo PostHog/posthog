@@ -246,7 +246,7 @@ withExprList: withExpr (COMMA withExpr)* COMMA?;
 withExpr
     : identifier AS (NOT? MATERIALIZED)? LPAREN selectSetStmt RPAREN    # WithExprSubquery
     // NOTE: asterisk and subquery goes before |columnExpr| so that we can mark them as multi-column expressions.
-    | columnExpr AS (NOT? MATERIALIZED)? identifier                       # WithExprColumn
+    | columnExpr AS identifier                                          # WithExprColumn
     ;
 
 
