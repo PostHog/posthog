@@ -3,7 +3,6 @@ import { router } from 'kea-router'
 import { IconGraph, IconServer } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { urls } from 'scenes/urls'
 
 interface EndpointTypeOption {
@@ -19,7 +18,7 @@ const ENDPOINT_TYPE_OPTIONS: EndpointTypeOption[] = [
         icon: IconServer,
         name: 'HogQL endpoint',
         description: 'Create an endpoint from a HogQL query in the SQL editor.',
-        url: urls.sqlEditor({ outputTab: OutputTab.Endpoint }),
+        url: urls.sqlEditor(),
         dataAttr: 'new-endpoint-overlay-hogql',
     },
     {

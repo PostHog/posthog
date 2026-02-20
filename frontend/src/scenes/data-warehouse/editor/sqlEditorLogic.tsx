@@ -838,7 +838,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
             const insight = await insightsApi.create({
                 name,
-                query: { ...values.sourceQuery, display },
+                query: { ...values.sourceQuery, display } as DataVisualizationNode,
                 saved: true,
             })
             const logic = insightLogic({

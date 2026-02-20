@@ -637,9 +637,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
     )
 }
 
-function InternalDataTableVisualization(
-    props: DataTableVisualizationProps & { onSaveInsight: () => void }
-): JSX.Element | null {
+function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX.Element | null {
     const {
         query,
         visualizationType,

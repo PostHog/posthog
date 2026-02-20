@@ -18,7 +18,7 @@ export const DatabaseTree = memo(function DatabaseTree({
     databaseTreeRef,
 }: {
     databaseTreeRef: React.RefObject<HTMLDivElement>
-}): JSX.Element {
+}): JSX.Element | null {
     const { databaseTreeWidth, databaseTreeResizerProps, isDatabaseTreeCollapsed, databaseTreeWillCollapse } =
         useValues(editorSizingLogic)
     const { toggleDatabaseTreeCollapsed, setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
