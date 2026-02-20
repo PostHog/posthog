@@ -609,6 +609,9 @@ importers:
       '@posthog/products-user-interviews':
         specifier: workspace:*
         version: link:../products/user_interviews
+      '@posthog/products-visual-review':
+        specifier: workspace:*
+        version: link:../products/visual_review
       '@posthog/products-web-analytics':
         specifier: workspace:*
         version: link:../products/web_analytics
