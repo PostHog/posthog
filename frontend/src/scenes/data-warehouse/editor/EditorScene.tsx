@@ -176,7 +176,7 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
     )
 }
 
-/** Syncs queryInput from multitabEditorLogic to variablesLogic without causing EditorScene re-renders */
+/** Syncs queryInput from sqlEditorLogic to variablesLogic without causing EditorScene re-renders */
 function VariablesQuerySync(): null {
     const { queryInput } = useValues(sqlEditorLogic)
     const { setEditorQuery } = useActions(variablesLogic)

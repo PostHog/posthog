@@ -79,16 +79,14 @@ export const urls = {
             params.set('open_view', view_id)
         } else if (insightShortId) {
             params.set('open_insight', insightShortId)
+        } else if (endpointName) {
+            params.set('open_endpoint', endpointName)
         } else if (draftId) {
             params.set('open_draft', draftId)
         }
 
         if (outputTab) {
             params.set('output_tab', outputTab)
-        }
-
-        if (endpointName) {
-            params.set('endpoint_name', endpointName)
         }
 
         const queryString = params.toString()
