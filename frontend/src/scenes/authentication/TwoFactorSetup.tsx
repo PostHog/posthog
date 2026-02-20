@@ -27,7 +27,11 @@ export function TwoFactorSetup({ onSuccess }: { onSuccess: () => void }): JSX.El
             >
                 <div className="flex flex-col items-center">
                     <div className="bg-white p-4 rounded">
-                        <img src="/account/two_factor/qrcode/" className="Setup2FA__image" />
+                        <img
+                            src="/account/two_factor/qrcode/"
+                            className="Setup2FA__image"
+                            alt="QR code for two-factor authentication setup"
+                        />
                     </div>
 
                     {/* Secret key for manual entry */}

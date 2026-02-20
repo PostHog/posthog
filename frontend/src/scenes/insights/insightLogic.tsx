@@ -564,7 +564,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             if (isTrendsQuery(query)) {
                 tasksToComplete.push(SetupTaskId.ExploreTrendsInsight)
             } else if (isFunnelsQuery(query)) {
-                tasksToComplete.push(SetupTaskId.ExploreFunnelInsight)
+                tasksToComplete.push(SetupTaskId.CreateFunnel)
             } else if (isRetentionQuery(query)) {
                 tasksToComplete.push(SetupTaskId.ExploreRetentionInsight)
             } else if (isPathsQuery(query)) {

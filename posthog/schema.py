@@ -2384,9 +2384,10 @@ class MarketingAnalyticsColumnsSchemaNames(StrEnum):
     REPORTED_CONVERSION_VALUE = "reported_conversion_value"
 
 
-class MarketingAnalyticsHelperForColumnNames(StrEnum):
+class MarketingAnalyticsConstants(StrEnum):
     GOAL = "Goal"
     COST_PER = "Cost per"
+    CONST_ = "const:"
 
 
 class MarketingAnalyticsOrderByEnum(StrEnum):
@@ -3953,7 +3954,11 @@ class TaxonomicFilterGroupType(StrEnum):
     NUMERICAL_EVENT_PROPERTIES = "numerical_event_properties"
     PERSON_PROPERTIES = "person_properties"
     PAGEVIEW_URLS = "pageview_urls"
+    PAGEVIEW_EVENTS = "pageview_events"
     SCREENS = "screens"
+    SCREEN_EVENTS = "screen_events"
+    EMAIL_ADDRESSES = "email_addresses"
+    AUTOCAPTURE_EVENTS = "autocapture_events"
     CUSTOM_EVENTS = "custom_events"
     WILDCARD = "wildcard"
     GROUPS = "groups"
@@ -16847,7 +16852,9 @@ class FunnelsQuery(BaseModel):
     ) = Field(default=[], description="Property filters for all series")
     response: FunnelsQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    series: list[EventsNode | ActionsNode | DataWarehouseNode] = Field(..., description="Events and actions to include")
+    series: list[GroupNode | EventsNode | ActionsNode | DataWarehouseNode] = Field(
+        ..., description="Events and actions to include"
+    )
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 

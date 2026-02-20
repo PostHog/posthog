@@ -12,3 +12,5 @@ export {
     ParseMessageStepInput,
     ParseMessageStepOutput,
 } from './parse-message-step'
+
+export { createTeamFilterStep, TeamFilterStepInput, TeamFilterStepOutput } from './team-filter-step'

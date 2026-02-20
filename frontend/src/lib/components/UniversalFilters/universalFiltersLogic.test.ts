@@ -133,6 +133,52 @@ describe('universalFiltersLogic', () => {
         })
     })
 
+    describe('addGroupFilter with quick filter group types', () => {
+        it.each([
+            {
+                groupType: TaxonomicFilterGroupType.PageviewUrls,
+                propertyKey: 'https://example.com/blog',
+                expected: {
+                    key: '$current_url',
+                    value: 'https://example.com/blog',
+                    operator: PropertyOperator.IContains,
+                    type: PropertyFilterType.Event,
+                },
+            },
+            {
+                groupType: TaxonomicFilterGroupType.Screens,
+                propertyKey: 'HomeScreen',
+                expected: {
+                    key: '$screen_name',
+                    value: 'HomeScreen',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                },
+            },
+            {
+                groupType: TaxonomicFilterGroupType.EmailAddresses,
+                propertyKey: 'user@example.com',
+                expected: {
+                    key: 'email',
+                    value: 'user@example.com',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Person,
+                },
+            },
+        ])('creates a property filter for $groupType', async ({ groupType, propertyKey, expected }) => {
+            await expectLogic(logic, () => {
+                logic.actions.addGroupFilter({ type: groupType } as TaxonomicFilterGroup, propertyKey, {
+                    name: propertyKey,
+                })
+            }).toMatchValues({
+                filterGroup: {
+                    ...defaultFilter,
+                    values: [...defaultFilter.values, expected],
+                },
+            })
+        })
+    })
+
     describe('addGroupFilter with QuickFilterItem', () => {
         it.each([
             {
