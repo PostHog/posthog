@@ -556,6 +556,7 @@ class DockerSandbox:
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
+        # Call agent-server binary directly instead of via npx to avoid npx cache issues
         command = (
             f"cd /scripts && "
             f"nohup npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {shlex.quote(repo_path)} "

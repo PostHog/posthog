@@ -173,7 +173,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         finally:
             if sandbox_id:
                 await self._read_sandbox_logs(sandbox_id)
-                await self._cleanup_sandbox(sandbox_id)
+                # Temporarily disabled for debugging
+                # await self._cleanup_sandbox(sandbox_id)
 
     async def _get_task_processing_context(self, input: ProcessTaskInput) -> TaskProcessingContext:
         return await workflow.execute_activity(

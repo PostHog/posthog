@@ -128,9 +128,14 @@ def execute_task_processing_workflow(
         skip_user_check: If True, skip user-based feature flag check. Use for automated/system tasks.
     """
     try:
+        logger.info(f"execute_task_processing_workflow called for task={task_id}, run={run_id}, team={team_id}, user={user_id}")
+
         team = Team.objects.get(id=team_id)
 
-        if skip_user_check:
+        if settings.DEBUG:
+            logger.info(f"DEBUG mode - skipping feature flag check for task {task_id}")
+            tasks_enabled = True
+        elif skip_user_check:
             logger.info(f"Skipping user check for automated task {task_id}")
             tasks_enabled = posthoganalytics.feature_enabled(
                 "tasks",
@@ -156,6 +161,8 @@ def execute_task_processing_workflow(
                 send_feature_flag_events=False,
             )
 
+        logger.info(f"Feature flag 'tasks' result for task {task_id}: {tasks_enabled}")
+
         if not tasks_enabled:
             logger.warning(f"Task workflow execution blocked for task {task_id} - feature flag 'tasks' not enabled")
             return
@@ -169,9 +176,12 @@ def execute_task_processing_workflow(
             slack_thread_context=slack_context_dict,
         )
 
-        logger.info(f"Starting workflow process-task ({workflow_id}) for task {task_id}, run {run_id}")
+        logger.info(f"Connecting to Temporal for task {task_id}, task_queue={settings.TASKS_TASK_QUEUE}")
 
         client = sync_connect()
+
+        logger.info(f"Temporal client connected, starting workflow {workflow_id}")
+
         asyncio.run(
             client.start_workflow(
                 "process-task",
@@ -183,12 +193,12 @@ def execute_task_processing_workflow(
             )
         )
 
-        logger.info(f"Workflow started for task {task_id}, run {run_id}")
+        logger.info(f"Workflow started successfully for task {task_id}, run {run_id}")
 
     except (Team.DoesNotExist, User.DoesNotExist) as e:
         logger.exception(f"Failed to validate permissions for task workflow execution: {e}")
     except Exception as e:
-        logger.exception(f"Failed to start task processing workflow: {e}")
+        logger.exception(f"Failed to start task processing workflow for task {task_id}: {e}")
 
 
 def execute_video_segment_clustering_workflow(team_id: int, skip_priming: bool = False) -> dict[str, Any]:

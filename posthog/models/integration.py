@@ -90,6 +90,7 @@ ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
         SLACK = "slack"
+        SLACK_TWIG = "slack-twig"
         SALESFORCE = "salesforce"
         HUBSPOT = "hubspot"
         GOOGLE_PUBSUB = "google-pubsub"
@@ -191,6 +192,7 @@ class OauthConfig:
 class OauthIntegration:
     supported_kinds = [
         "slack",
+        "slack-twig",
         "salesforce",
         "hubspot",
         "google-ads",
@@ -235,6 +237,26 @@ class OauthIntegration:
                 client_id=from_settings["SLACK_APP_CLIENT_ID"],
                 client_secret=from_settings["SLACK_APP_CLIENT_SECRET"],
                 scope="channels:read,groups:read,chat:write,chat:write.customize",
+                id_path="team.id",
+                name_path="team.name",
+            )
+        elif kind == "slack-twig":
+            from_settings = get_instance_settings(
+                [
+                    "SLACK_TWIG_CLIENT_ID",
+                    "SLACK_TWIG_CLIENT_SECRET",
+                ]
+            )
+
+            if not from_settings["SLACK_TWIG_CLIENT_ID"] or not from_settings["SLACK_TWIG_CLIENT_SECRET"]:
+                raise NotImplementedError("Twig Slack app not configured")
+
+            return OauthConfig(
+                authorize_url="https://slack.com/oauth/v2/authorize",
+                token_url="https://slack.com/api/oauth.v2.access",
+                client_id=from_settings["SLACK_TWIG_CLIENT_ID"],
+                client_secret=from_settings["SLACK_TWIG_CLIENT_SECRET"],
+                scope="channels:read,groups:read,channels:history,groups:history,chat:write,reactions:write,users:read,users:read.email",
                 id_path="team.id",
                 name_path="team.name",
             )
@@ -476,6 +498,8 @@ class OauthIntegration:
     @classmethod
     def redirect_uri(cls, kind: str) -> str:
         # The redirect uri is fixed but should always be https and include the "next" parameter for the frontend to redirect
+        if settings.DEBUG and settings.NGROK_URL:
+            return f"{settings.NGROK_URL}/integrations/{kind}/callback"
         return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod
@@ -827,7 +851,7 @@ class SlackIntegration:
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
-        if integration.kind != "slack":
+        if integration.kind not in ("slack", "slack-twig"):
             raise Exception("SlackIntegration init called with Integration with wrong 'kind'")
 
         self.integration = integration
@@ -908,36 +932,8 @@ class SlackIntegration:
 
     @classmethod
     def validate_request(cls, request: HttpRequest | Request):
-        """
-        Based on https://api.slack.com/authentication/verifying-requests-from-slack
-        """
         slack_config = cls.slack_config()
-        slack_signature = request.headers.get("X-SLACK-SIGNATURE")
-        slack_time = request.headers.get("X-SLACK-REQUEST-TIMESTAMP")
-
-        if not slack_config["SLACK_APP_SIGNING_SECRET"] or not slack_signature or not slack_time:
-            raise SlackIntegrationError("Invalid")
-
-        # Check the token is not older than 5mins
-        try:
-            if time.time() - float(slack_time) > 300:
-                raise SlackIntegrationError("Expired")
-        except ValueError:
-            raise SlackIntegrationError("Invalid")
-
-        sig_basestring = f"v0:{slack_time}:{request.body.decode('utf-8')}"
-
-        my_signature = (
-            "v0="
-            + hmac.new(
-                slack_config["SLACK_APP_SIGNING_SECRET"].encode("utf-8"),
-                sig_basestring.encode("utf-8"),
-                digestmod=hashlib.sha256,
-            ).hexdigest()
-        )
-
-        if not hmac.compare_digest(my_signature, slack_signature):
-            raise SlackIntegrationError("Invalid")
+        validate_slack_request(request, slack_config["SLACK_APP_SIGNING_SECRET"])
 
     @classmethod
     @cache_for(timedelta(minutes=5))
@@ -951,6 +947,49 @@ class SlackIntegration:
         )
 
         return config
+
+    @classmethod
+    @cache_for(timedelta(minutes=5))
+    def twig_slack_config(cls) -> dict[str, str]:
+        return get_instance_settings(
+            [
+                "SLACK_TWIG_CLIENT_ID",
+                "SLACK_TWIG_CLIENT_SECRET",
+                "SLACK_TWIG_SIGNING_SECRET",
+            ]
+        )
+
+
+def validate_slack_request(request: HttpRequest | Request, signing_secret: str) -> None:
+    """
+    Validate a Slack request using HMAC-SHA256 signature verification.
+    Based on https://api.slack.com/authentication/verifying-requests-from-slack
+    """
+    slack_signature = request.headers.get("X-SLACK-SIGNATURE")
+    slack_time = request.headers.get("X-SLACK-REQUEST-TIMESTAMP")
+
+    if not signing_secret or not slack_signature or not slack_time:
+        raise SlackIntegrationError("Invalid")
+
+    try:
+        if time.time() - float(slack_time) > 300:
+            raise SlackIntegrationError("Expired")
+    except ValueError:
+        raise SlackIntegrationError("Invalid")
+
+    sig_basestring = f"v0:{slack_time}:{request.body.decode('utf-8')}"
+
+    my_signature = (
+        "v0="
+        + hmac.new(
+            signing_secret.encode("utf-8"),
+            sig_basestring.encode("utf-8"),
+            digestmod=hashlib.sha256,
+        ).hexdigest()
+    )
+
+    if not hmac.compare_digest(my_signature, slack_signature):
+        raise SlackIntegrationError("Invalid")
 
 
 class GoogleAdsIntegration:
