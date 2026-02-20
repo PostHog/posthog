@@ -113,11 +113,11 @@ const MetricsTab = (): JSX.Element => {
         firstPrimaryMetric &&
         firstPrimaryMetricResult
 
-    const isControlVariant = useFeatureFlag('EXPERIMENT_AI_ANALYSIS_TAB', 'control')
+    const isAiAnalysisTabEnabled = useFeatureFlag('EXPERIMENT_AI_ANALYSIS_TAB')
 
     return (
         <>
-            {usesNewQueryRunner && isControlVariant && (
+            {usesNewQueryRunner && !isAiAnalysisTabEnabled && (
                 <div className="mt-1 mb-4 flex justify-start gap-2">
                     <SummarizeExperimentButton
                         disabledReason={
@@ -256,7 +256,8 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
 
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
-    const isTestVariant = useFeatureFlag('EXPERIMENT_AI_ANALYSIS_TAB', 'test')
+
+    const isAiAnalysisTabEnabled = useFeatureFlag('EXPERIMENT_AI_ANALYSIS_TAB')
 
     /**
      * We show the create form if the experiment is draft + has no primary metrics. Otherwise,
@@ -295,7 +296,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                 label: 'Metrics',
                                 content: <MetricsTab />,
                             },
-                            ...(isTestVariant && usesNewQueryRunner
+                            ...(isAiAnalysisTabEnabled && usesNewQueryRunner
                                 ? [
                                       {
                                           key: 'ai_analysis',
