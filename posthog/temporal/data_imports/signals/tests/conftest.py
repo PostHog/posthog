@@ -61,6 +61,31 @@ MOCK_ZENDESK_TICKET_RECORD: dict = {
 }
 
 
+MOCK_LINEAR_ISSUE_RECORD: dict = {
+    "id": "abc-123-def",
+    "identifier": "ENG-42",
+    "title": "Dashboard widgets fail to load when timezone is set to UTC+13",
+    "description": (
+        "When the user's timezone is set to UTC+13 (e.g. Samoa), dashboard widgets "
+        "throw a parsing error and display 'Failed to load data'. The date range picker "
+        "also shows incorrect dates. Reproducible in both Chrome and Safari."
+    ),
+    "priority": 2,
+    "priorityLabel": "High",
+    "number": 42,
+    "url": "https://linear.app/acme/issue/ENG-42",
+    "state": '{"id": "state-1", "name": "In Progress", "type": "started", "color": "#f2c94c"}',
+    "team": '{"id": "team-1", "name": "Engineering", "key": "ENG"}',
+    "labels": '{"nodes": [{"id": "label-1", "name": "bug", "color": "#eb5757"}]}',
+    "assignee": '{"id": "user-1", "name": "Jane Doe", "email": "jane@acme.com"}',
+    "createdAt": "2025-06-10T14:30:00.000Z",
+    "updatedAt": "2025-06-11T09:15:00.000Z",
+    "estimate": 3,
+    "completedAt": None,
+    "canceledAt": None,
+}
+
+
 @pytest.fixture
 def github_issue_record() -> dict:
     return {**MOCK_GITHUB_ISSUE_RECORD}
@@ -69,3 +94,8 @@ def github_issue_record() -> dict:
 @pytest.fixture
 def zendesk_ticket_record() -> dict:
     return {**MOCK_ZENDESK_TICKET_RECORD}
+
+
+@pytest.fixture
+def linear_issue_record() -> dict:
+    return {**MOCK_LINEAR_ISSUE_RECORD}
