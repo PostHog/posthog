@@ -700,7 +700,7 @@ fn test_datadog_log_overridden_timestamp_tracking() {
     assert!(row_overridden.attributes.contains_key("$originalTimestamp"));
 
     // Test with a recent timestamp (should not be overridden)
-    let recent = Utc::now().timestamp_millis() - (1 * 3600 * 1000); // 1 hour ago
+    let recent = Utc::now().timestamp_millis() - (3600 * 1000); // 1 hour ago
     let log_recent = DatadogLog {
         ddsource: None,
         ddtags: None,
