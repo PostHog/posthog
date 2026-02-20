@@ -469,7 +469,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                                     <>
                                                                         <b>{humanFriendlyNumber(affectedUserCount)}</b>{' '}
                                                                         of {humanFriendlyNumber(totalUsers)}{' '}
-                                                                        {aggregationTargetName} match these conditions
+                                                                        {aggregationTargetName} match these filters
                                                                     </>
                                                                 )
                                                             }
@@ -478,10 +478,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                                     Will match ~
                                                                     <b>{humanFriendlyNumber(usersReceivingFlag)}</b> of{' '}
                                                                     {humanFriendlyNumber(totalUsers)}{' '}
-                                                                    {aggregationTargetName} (
-                                                                    {humanFriendlyNumber(affectedUserCount)} matching ×{' '}
-                                                                    {rolloutPct}
-                                                                    %)
+                                                                    {aggregationTargetName} ({rolloutPct}% of{' '}
+                                                                    {humanFriendlyNumber(affectedUserCount)} matching
+                                                                    the filters)
                                                                 </>
                                                             )
                                                         })()}
