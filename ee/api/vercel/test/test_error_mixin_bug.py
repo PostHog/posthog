@@ -84,3 +84,40 @@ class TestVercelErrorMixin(VercelTestBase):
             self.assertEqual(response.status_code, 500)
             self.assertEqual(response.data["error"]["code"], "request_failed")
             self.assertNotIn("Test error", response.data["error"]["message"])
+
+
+class TestVercelSSOEndpointMissingCredentials(VercelTestBase):
+    """Integration test: hits the actual /login/vercel/ URL through Django's full request stack.
+
+    The RuntimeError from _validate_client_credentials is caught by authenticate_sso's
+    catch-all, which calls capture_exception and re-raises as AuthenticationFailed (401).
+    The response is still formatted in Vercel's error schema by VercelErrorResponseMixin.
+    """
+
+    @patch("ee.vercel.integration.capture_exception")
+    def test_missing_secret_returns_vercel_error_and_captures(self, mock_capture):
+        with self.settings(VERCEL_CLIENT_INTEGRATION_ID="test_id", VERCEL_CLIENT_INTEGRATION_SECRET=None):
+            response = self.client.get("/login/vercel/", {"mode": "sso", "code": "fake", "state": "fake"})
+
+        self.assertEqual(response.status_code, 401)
+        data = response.json()
+        self.assertEqual(data["error"]["code"], "request_failed")
+        self.assertNotIn("VERCEL_CLIENT_INTEGRATION_SECRET", data["error"]["message"])
+        mock_capture.assert_called_once()
+        captured_exc = mock_capture.call_args[0][0]
+        self.assertIsInstance(captured_exc, RuntimeError)
+        self.assertIn("VERCEL_CLIENT_INTEGRATION_SECRET", str(captured_exc))
+
+    @patch("ee.vercel.integration.capture_exception")
+    def test_missing_id_returns_vercel_error_and_captures(self, mock_capture):
+        with self.settings(VERCEL_CLIENT_INTEGRATION_ID=None, VERCEL_CLIENT_INTEGRATION_SECRET=None):
+            response = self.client.get("/login/vercel/", {"mode": "sso", "code": "fake", "state": "fake"})
+
+        self.assertEqual(response.status_code, 401)
+        data = response.json()
+        self.assertEqual(data["error"]["code"], "request_failed")
+        self.assertNotIn("VERCEL_CLIENT_INTEGRATION_ID", data["error"]["message"])
+        mock_capture.assert_called_once()
+        captured_exc = mock_capture.call_args[0][0]
+        self.assertIsInstance(captured_exc, RuntimeError)
+        self.assertIn("VERCEL_CLIENT_INTEGRATION_ID", str(captured_exc))

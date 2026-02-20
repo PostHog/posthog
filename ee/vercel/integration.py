@@ -1011,6 +1011,7 @@ class VercelIntegration:
             return login_url
         except Exception as e:
             logger.exception("Vercel SSO authentication failed", error=str(e), integration="vercel")
+            capture_exception(e)
             raise exceptions.AuthenticationFailed("Authentication failed")
 
     @staticmethod
