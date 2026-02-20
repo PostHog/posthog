@@ -3,7 +3,7 @@
 exports[`vercel log drain template should capture all Vercel log properties 1`] = `
 [
   {
-    "distinct_id": "dpl_233NRGRjVZX1caZrXWtz5g1TAksD:643af4e3-975a-4cc7-9e7a-1eda11539d90",
+    "distinct_id": "vercel_daf25311d55596cea257253b43e031c395ef08c2538927897750fbbc635b9e3a",
     "event": "$log_http_hit",
     "properties": {
       "$hog_function_execution_count": 1,

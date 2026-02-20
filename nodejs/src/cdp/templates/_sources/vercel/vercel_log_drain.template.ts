@@ -2,12 +2,11 @@ import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: false,
-    status: 'hidden',
+    status: 'alpha',
     type: 'source_webhook',
     id: 'template-source-vercel-log-drain',
-    name: 'Vercel log drain',
-    description:
-        'Capture Vercel deployment logs as events. To set up: copy the webhook URL above, then in Vercel go to Project Settings → Observability → Log Drains → Add Drain → Custom and paste the URL.',
+    name: 'Vercel logs',
+    description: 'Capture Vercel deployment logs as PostHog events',
     icon_url: '/static/services/vercel.png',
     category: ['Infrastructure', 'Monitoring'],
     code_language: 'hog',
@@ -99,7 +98,7 @@ fun truncateIfNeeded(s) {
     return substring(s, 1, limit)
 }
 
-let distinctId := generateUUIDv4()
+let distinctId := f'vercel_{sha256Hex(f'{logs[1].deploymentId}:{logs[1].requestId ?? logs[1].id}')}'
 
 // Build array of log entries
 let logEntries := []

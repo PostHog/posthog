@@ -24,10 +24,8 @@ describe('vercel log drain template', () => {
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(true)
         expect(response.capturedPostHogEvents).toHaveLength(1)
-        expect(response.capturedPostHogEvents[0]).toMatchObject({
-            event: '$log_http_hit',
-            distinct_id: 'dpl_233NRGRjVZX1caZrXWtz5g1TAksD:643af4e3-975a-4cc7-9e7a-1eda11539d90',
-        })
+        expect(response.capturedPostHogEvents[0].event).toEqual('$log_http_hit')
+        expect(response.capturedPostHogEvents[0].distinct_id).toMatch(/^vercel_[a-f0-9]{64}$/)
         expect(response.capturedPostHogEvents[0].properties.log_count).toBe(1)
         expect(response.capturedPostHogEvents[0].properties.first_log).toMatchObject({
             source: 'lambda',
@@ -243,9 +241,8 @@ describe('vercel log drain template', () => {
         )
 
         expect(response.error).toBeUndefined()
-        expect(response.capturedPostHogEvents[0].distinct_id).toEqual(
-            `${vercelLogDrain.deploymentId}:${vercelLogDrain.id}`
-        )
+        // Hash is based on deploymentId:id when requestId is missing
+        expect(response.capturedPostHogEvents[0].distinct_id).toMatch(/^vercel_[a-f0-9]{64}$/)
     })
 
     it('should capture all Vercel log properties', async () => {
