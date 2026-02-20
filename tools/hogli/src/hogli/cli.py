@@ -10,8 +10,9 @@ import os
 from collections import defaultdict
 
 import click
+
 from hogli.command_types import BinScriptCommand, CompositeCommand, DirectCommand, HogliCommand
-from hogli.manifest import REPO_ROOT, get_manifest, load_manifest
+from hogli.manifest import get_manifest, load_manifest
 
 
 class CategorizedGroup(click.Group):
@@ -269,8 +270,8 @@ def _import_custom_commands() -> None:
     1. config.commands_dir in hogli.yaml (e.g., common/posthog_hogli)
     2. Default: hogli/ folder next to hogli.yaml
     """
-    import importlib.util
     import sys
+    import importlib.util
 
     from hogli.manifest import get_manifest
 

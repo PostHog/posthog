@@ -33,9 +33,5 @@ from __future__ import annotations
 
 # Side-effect imports: these modules use @cli.command() decorators that register
 # commands with the CLI group when imported. The imports appear unused but are required.
-from . import (  # noqa: F401
-    doctor,
-    migrations,
-    product,
-)
+from . import doctor, migrations, product  # noqa: F401
 from .devenv import cli as devenv_cli  # noqa: F401

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import yaml
+
 from hogli.manifest import MANIFEST_FILE, get_manifest
 
 

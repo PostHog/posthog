@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+
 from hogli.manifest import get_services_for_command
 
 
@@ -187,7 +188,10 @@ def _run_prechecks(prechecks: list[dict[str, Any]], yes: bool = False) -> bool:
                 try:
                     from posthog_hogli.migrations import _compute_migration_diff, _get_cached_migration
                 except ModuleNotFoundError:
-                    from hogli.migrations import _compute_migration_diff, _get_cached_migration  # type: ignore[attr-defined]
+                    from hogli.migrations import (  # type: ignore[attr-defined]
+                        _compute_migration_diff,
+                        _get_cached_migration,
+                    )
 
                 diff = _compute_migration_diff()
 

@@ -238,9 +238,11 @@ async def test_async_generate_assets_basic(mock_export: MagicMock, team, user) -
     subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
 
     subscription = await sync_to_async(
-        lambda: type(subscription)
-        .objects.select_related("team", "dashboard", "insight", "created_by")
-        .get(id=subscription.id)
+        lambda: (
+            type(subscription)
+            .objects.select_related("team", "dashboard", "insight", "created_by")
+            .get(id=subscription.id)
+        )
     )()
 
     insights, assets = await generate_assets_async(subscription)
@@ -268,9 +270,11 @@ async def test_async_generate_assets_timeout_continues_with_partial_results(
     subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
 
     subscription = await sync_to_async(
-        lambda: type(subscription)
-        .objects.select_related("team", "dashboard", "insight", "created_by")
-        .get(id=subscription.id)
+        lambda: (
+            type(subscription)
+            .objects.select_related("team", "dashboard", "insight", "created_by")
+            .get(id=subscription.id)
+        )
     )()
 
     insights, assets = await generate_assets_async(subscription)
@@ -303,9 +307,11 @@ async def test_async_generate_assets_partial_success(mock_export: MagicMock, tea
     subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
 
     subscription = await sync_to_async(
-        lambda: type(subscription)
-        .objects.select_related("team", "dashboard", "insight", "created_by")
-        .get(id=subscription.id)
+        lambda: (
+            type(subscription)
+            .objects.select_related("team", "dashboard", "insight", "created_by")
+            .get(id=subscription.id)
+        )
     )()
 
     insights, assets = await generate_assets_async(subscription)
@@ -371,9 +377,11 @@ class TestAsyncGenerateAssetsRetryBehavior:
         subscription = await sync_to_async(create_subscription)(team=retry_team, insight=insight, created_by=retry_user)
 
         subscription = await sync_to_async(
-            lambda: type(subscription)
-            .objects.select_related("team", "dashboard", "insight", "created_by")
-            .get(id=subscription.id)
+            lambda: (
+                type(subscription)
+                .objects.select_related("team", "dashboard", "insight", "created_by")
+                .get(id=subscription.id)
+            )
         )()
 
         with patch("tenacity.nap.sleep"):
@@ -395,9 +403,11 @@ class TestAsyncGenerateAssetsRetryBehavior:
         subscription = await sync_to_async(create_subscription)(team=retry_team, insight=insight, created_by=retry_user)
 
         subscription = await sync_to_async(
-            lambda: type(subscription)
-            .objects.select_related("team", "dashboard", "insight", "created_by")
-            .get(id=subscription.id)
+            lambda: (
+                type(subscription)
+                .objects.select_related("team", "dashboard", "insight", "created_by")
+                .get(id=subscription.id)
+            )
         )()
 
         with patch("tenacity.nap.sleep"):
@@ -429,9 +439,11 @@ class TestAsyncGenerateAssetsRetryBehavior:
         subscription = await sync_to_async(create_subscription)(team=retry_team, insight=insight, created_by=retry_user)
 
         subscription = await sync_to_async(
-            lambda: type(subscription)
-            .objects.select_related("team", "dashboard", "insight", "created_by")
-            .get(id=subscription.id)
+            lambda: (
+                type(subscription)
+                .objects.select_related("team", "dashboard", "insight", "created_by")
+                .get(id=subscription.id)
+            )
         )()
 
         with patch("tenacity.nap.sleep"):

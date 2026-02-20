@@ -273,15 +273,17 @@ def get_app_dashboard_queries_rate_limiter():
         __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG = RateLimit(
             max_concurrency=DEFAULT_APP_DASHBOARD_CONCURRENT_QUERIES,
             applicable=(
-                lambda *args, **kwargs: not TEST
-                and not kwargs.get("is_api")
-                and kwargs.get("dashboard_id") is not None
-                # if running in celery, we don't want rate limit to apply
-                # as celery tasks have their own limits on the queues + using @limit_concurrency
-                and not current_task
-                # if running in temporal workflow, don't apply rate limit
-                # as temporal activities have their own concurrency controls
-                and not _is_in_temporal()
+                lambda *args, **kwargs: (
+                    not TEST
+                    and not kwargs.get("is_api")
+                    and kwargs.get("dashboard_id") is not None
+                    # if running in celery, we don't want rate limit to apply
+                    # as celery tasks have their own limits on the queues + using @limit_concurrency
+                    and not current_task
+                    # if running in temporal workflow, don't apply rate limit
+                    # as temporal activities have their own concurrency controls
+                    and not _is_in_temporal()
+                )
             ),
             limit_name="app_dashboard_queries_per_org",
             get_task_name=lambda *args, **kwargs: f"app:dashboard_query:per-org:{kwargs.get('org_id')}",

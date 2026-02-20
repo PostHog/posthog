@@ -33,7 +33,9 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "type": "incremental",
                         "cursor_path": "SystemModstamp",
                         "initial_value": "2000-01-01T00:00:00.000+0000",
-                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM User WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
+                        "convert": lambda date_str: (
+                            f"SELECT FIELDS(ALL) FROM User WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200"
+                        ),
                     }
                     if should_use_incremental_field
                     else "SELECT FIELDS(ALL) FROM User ORDER BY Id ASC LIMIT 200",
@@ -59,7 +61,9 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "type": "incremental",
                         "cursor_path": "SystemModstamp",
                         "initial_value": "2000-01-01T00:00:00.000+0000",
-                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM UserRole WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
+                        "convert": lambda date_str: (
+                            f"SELECT FIELDS(ALL) FROM UserRole WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200"
+                        ),
                     }
                     if should_use_incremental_field
                     else "SELECT FIELDS(ALL) FROM UserRole ORDER BY Id ASC LIMIT 200",
@@ -85,7 +89,9 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "type": "incremental",
                         "cursor_path": "SystemModstamp",
                         "initial_value": "2000-01-01T00:00:00.000+0000",
-                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Lead WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
+                        "convert": lambda date_str: (
+                            f"SELECT FIELDS(ALL) FROM Lead WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200"
+                        ),
                     }
                     if should_use_incremental_field
                     else "SELECT FIELDS(ALL) FROM Lead ORDER BY Id ASC LIMIT 200",
@@ -111,7 +117,9 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "type": "incremental",
                         "cursor_path": "SystemModstamp",
                         "initial_value": "2000-01-01T00:00:00.000+0000",
-                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Contact WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
+                        "convert": lambda date_str: (
+                            f"SELECT FIELDS(ALL) FROM Contact WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200"
+                        ),
                     }
                     if should_use_incremental_field
                     else "SELECT FIELDS(ALL) FROM Contact ORDER BY Id ASC LIMIT 200",
@@ -137,7 +145,9 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "type": "incremental",
                         "cursor_path": "SystemModstamp",
                         "initial_value": "2000-01-01T00:00:00.000+0000",
-                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Campaign WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
+                        "convert": lambda date_str: (
+                            f"SELECT FIELDS(ALL) FROM Campaign WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200"
+                        ),
                     }
                     if should_use_incremental_field
                     else "SELECT FIELDS(ALL) FROM Campaign ORDER BY Id ASC LIMIT 200",
@@ -163,7 +173,9 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "type": "incremental",
                         "cursor_path": "SystemModstamp",
                         "initial_value": "2000-01-01T00:00:00.000+0000",
-                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Product2 WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
+                        "convert": lambda date_str: (
+                            f"SELECT FIELDS(ALL) FROM Product2 WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200"
+                        ),
                     }
                     if should_use_incremental_field
                     else "SELECT FIELDS(ALL) FROM Product2 ORDER BY Id ASC LIMIT 200",
@@ -189,7 +201,9 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "type": "incremental",
                         "cursor_path": "SystemModstamp",
                         "initial_value": "2000-01-01T00:00:00.000+0000",
-                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Pricebook2 WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
+                        "convert": lambda date_str: (
+                            f"SELECT FIELDS(ALL) FROM Pricebook2 WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200"
+                        ),
                     }
                     if should_use_incremental_field
                     else "SELECT FIELDS(ALL) FROM Pricebook2 ORDER BY Id ASC LIMIT 200",
@@ -215,7 +229,9 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "type": "incremental",
                         "cursor_path": "SystemModstamp",
                         "initial_value": "2000-01-01T00:00:00.000+0000",
-                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM PricebookEntry WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
+                        "convert": lambda date_str: (
+                            f"SELECT FIELDS(ALL) FROM PricebookEntry WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200"
+                        ),
                     }
                     if should_use_incremental_field
                     else "SELECT FIELDS(ALL) FROM PricebookEntry ORDER BY Id ASC LIMIT 200",
@@ -241,7 +257,9 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "type": "incremental",
                         "cursor_path": "SystemModstamp",
                         "initial_value": "2000-01-01T00:00:00.000+0000",
-                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Order WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
+                        "convert": lambda date_str: (
+                            f"SELECT FIELDS(ALL) FROM Order WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200"
+                        ),
                     }
                     if should_use_incremental_field
                     else "SELECT FIELDS(ALL) FROM Order ORDER BY Id ASC LIMIT 200",
@@ -267,7 +285,9 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "type": "incremental",
                         "cursor_path": "SystemModstamp",
                         "initial_value": "2000-01-01T00:00:00.000+0000",
-                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Opportunity WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
+                        "convert": lambda date_str: (
+                            f"SELECT FIELDS(ALL) FROM Opportunity WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200"
+                        ),
                     }
                     if should_use_incremental_field
                     else "SELECT FIELDS(ALL) FROM Opportunity ORDER BY Id ASC LIMIT 200",
@@ -293,7 +313,9 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "type": "incremental",
                         "cursor_path": "SystemModstamp",
                         "initial_value": "2000-01-01T00:00:00.000+0000",
-                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Account WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
+                        "convert": lambda date_str: (
+                            f"SELECT FIELDS(ALL) FROM Account WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200"
+                        ),
                     }
                     if should_use_incremental_field
                     else "SELECT FIELDS(ALL) FROM Account ORDER BY Id ASC LIMIT 200",
@@ -320,7 +342,9 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "type": "incremental",
                         "cursor_path": "SystemModstamp",
                         "initial_value": "2000-01-01T00:00:00.000+0000",
-                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Event WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
+                        "convert": lambda date_str: (
+                            f"SELECT FIELDS(ALL) FROM Event WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200"
+                        ),
                     }
                     if should_use_incremental_field
                     else "SELECT FIELDS(ALL) FROM Event ORDER BY Id ASC LIMIT 200",
@@ -347,7 +371,9 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "type": "incremental",
                         "cursor_path": "SystemModstamp",
                         "initial_value": "2000-01-01T00:00:00.000+0000",
-                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Task WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
+                        "convert": lambda date_str: (
+                            f"SELECT FIELDS(ALL) FROM Task WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200"
+                        ),
                     }
                     if should_use_incremental_field
                     else "SELECT FIELDS(ALL) FROM Task ORDER BY Id ASC LIMIT 200",
