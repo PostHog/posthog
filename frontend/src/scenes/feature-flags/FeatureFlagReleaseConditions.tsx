@@ -26,7 +26,7 @@ import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { IconArrowDown, IconArrowUp, IconErrorOutline, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
+import { capitalizeFirstLetter, clamp, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
 import { FeatureFlagConditionWarning } from 'scenes/feature-flags/FeatureFlagConditionWarning'
 import { urls } from 'scenes/urls'
 
@@ -117,7 +117,9 @@ export function FeatureFlagReleaseConditions({
     const {
         taxonomicGroupTypes,
         propertySelectErrors,
+        computeBlastRadiusPercentage,
         affectedUsers,
+        totalUsers,
         filtersTaxonomicOptions,
         aggregationTargetName,
         properties,
@@ -433,23 +435,43 @@ export function FeatureFlagReleaseConditions({
                                         propertySelectErrors?.[index]?.rollout_percentage ? 'basis-full h-0' : ''
                                     )}
                                 />
-                                of <b>{aggregationTargetName}</b> in this set.{' '}
+                                of <b>{aggregationTargetName}</b> in this set. Will match approximately{' '}
                                 {group.sort_key && affectedUsers[group.sort_key] !== undefined ? (
-                                    (() => {
-                                        const affectedUserCount = affectedUsers[group.sort_key!] ?? 0
+                                    <b>
+                                        {`${
+                                            Math.max(
+                                                computeBlastRadiusPercentage(
+                                                    Number.isNaN(group.rollout_percentage)
+                                                        ? 0
+                                                        : group.rollout_percentage,
+                                                    group.sort_key
+                                                ).toPrecision(2) * 1,
+                                                0
+                                            )
+                                            // Multiplying by 1 removes trailing zeros after the decimal
+                                            // point added by toPrecision
+                                        }% `}
+                                    </b>
+                                ) : (
+                                    <Spinner className="mr-1" />
+                                )}{' '}
+                                {(() => {
+                                    const affectedUserCount = group.sort_key ? affectedUsers[group.sort_key] : undefined
+                                    if (
+                                        affectedUserCount !== undefined &&
+                                        affectedUserCount >= 0 &&
+                                        totalUsers !== null
+                                    ) {
                                         const rolloutPct = Number.isNaN(group.rollout_percentage)
                                             ? 0
                                             : (group.rollout_percentage ?? 100)
-                                        return (
-                                            <span>
-                                                {rolloutPct}% of <b>{humanFriendlyNumber(affectedUserCount)}</b>{' '}
-                                                matching the filters.
-                                            </span>
-                                        )
-                                    })()
-                                ) : (
-                                    <Spinner className="mr-1" />
-                                )}
+                                        return `(${humanFriendlyNumber(
+                                            Math.floor((affectedUserCount * clamp(rolloutPct, 0, 100)) / 100)
+                                        )} / ${humanFriendlyNumber(totalUsers)})`
+                                    }
+                                    return ''
+                                })()}{' '}
+                                <span>of total {aggregationTargetName}.</span>
                             </div>
                         </div>
                     )}

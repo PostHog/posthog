@@ -460,11 +460,27 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                                 return null
                                                             }
 
+                                                            const usersReceivingFlag = Math.floor(
+                                                                (affectedUserCount * clamp(rolloutPct, 0, 100)) / 100
+                                                            )
+
+                                                            if (rolloutPct === 100) {
+                                                                return (
+                                                                    <>
+                                                                        <b>{humanFriendlyNumber(affectedUserCount)}</b>{' '}
+                                                                        of {humanFriendlyNumber(totalUsers)}{' '}
+                                                                        {aggregationTargetName} match these filters
+                                                                    </>
+                                                                )
+                                                            }
                                                             return (
                                                                 <>
-                                                                    {rolloutPct}% of{' '}
-                                                                    <b>{humanFriendlyNumber(affectedUserCount)}</b>{' '}
-                                                                    matching the filters
+                                                                    Will match ~
+                                                                    <b>{humanFriendlyNumber(usersReceivingFlag)}</b> of{' '}
+                                                                    {humanFriendlyNumber(totalUsers)}{' '}
+                                                                    {aggregationTargetName} ({rolloutPct}% of{' '}
+                                                                    {humanFriendlyNumber(affectedUserCount)} matching
+                                                                    the filters)
                                                                 </>
                                                             )
                                                         })()}
