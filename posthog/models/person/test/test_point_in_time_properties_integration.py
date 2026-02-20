@@ -25,7 +25,7 @@ class TestPointInTimePropertiesIntegration(TestCase):
     """
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
-    def skip_test_realistic_person_properties_timeline(self, mock_sync_execute):
+    def test_realistic_person_properties_timeline(self, mock_sync_execute):
         """
         Test a realistic scenario where a person's properties evolve over time
         through multiple events and we want to see their state at a specific point.
