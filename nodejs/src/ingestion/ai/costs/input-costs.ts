@@ -26,6 +26,18 @@ const matchProvider = (event: PluginEvent, provider: string): boolean => {
     return false
 }
 
+const usesInclusiveAnthropicInputTokens = (event: PluginEvent): boolean => {
+    if (!event.properties) {
+        return false
+    }
+
+    const provider = event.properties['$ai_provider']?.toLowerCase()
+    const framework = event.properties['$ai_framework']?.toLowerCase()
+
+    // Vercel AI Gateway reports input tokens inclusive of cache read/write tokens.
+    return provider === 'gateway' && framework === 'vercel'
+}
+
 export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost): string => {
     if (!event.properties) {
         return '0'
@@ -34,9 +46,11 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
     const cacheReadTokens = event.properties['$ai_cache_read_input_tokens'] || 0
     const inputTokens = event.properties['$ai_input_tokens'] || 0
 
-    // Anthropic special case: inputTokens already excludes cache tokens
+    // Anthropic-style pricing has separate cache read/write token rates.
+    // Most providers report input tokens excluding cache tokens, but Vercel gateway reports inclusive counts.
     if (matchProvider(event, 'anthropic')) {
         const cacheWriteTokens = event.properties['$ai_cache_creation_input_tokens'] || 0
+        const inclusiveInputTokens = usesInclusiveAnthropicInputTokens(event)
 
         // Use actual cache costs if available, otherwise fall back to multipliers
         const writeCost =
@@ -50,7 +64,15 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
                 : bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.1), cacheReadTokens)
 
         const totalCacheCost = bigDecimal.add(writeCost, cacheReadCost)
-        const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, inputTokens)
+        // If inputTokens < cacheReadTokens + cacheWriteTokens, the tokens can't be inclusive
+        // (inclusive means cache tokens are a subset of input tokens). This guards against
+        // SDKs that report exclusive counts through the Vercel gateway.
+        const isActuallyInclusive =
+            inclusiveInputTokens && Number(inputTokens) >= Number(cacheReadTokens) + Number(cacheWriteTokens)
+        const uncachedTokens = isActuallyInclusive
+            ? bigDecimal.subtract(bigDecimal.subtract(inputTokens, cacheReadTokens), cacheWriteTokens)
+            : inputTokens
+        const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, uncachedTokens)
 
         return bigDecimal.add(totalCacheCost, uncachedCost)
     }

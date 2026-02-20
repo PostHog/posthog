@@ -1,7 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonLabel } from '@posthog/lemon-ui'
-
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -53,24 +51,13 @@ export function ExperimentRecalculationTime(): JSX.Element {
     const currentLocalHour = utcToLocalHour(currentTeam?.experiment_recalculation_time, projectTimezone)
 
     return (
-        <div>
-            <div className="flex flex-col space-y-2">
-                <LemonLabel className="text-base">Daily recalculation time</LemonLabel>
-                <p className="text-secondary">
-                    Select the time of day when experiment metrics should be recalculated. This time is in your
-                    project's timezone ({projectTimezone}).
-                </p>
-                <div className="space-y-2">
-                    <LemonSelect
-                        value={currentLocalHour.toString()}
-                        onChange={handleChange}
-                        options={hourOptions}
-                        disabledReason={restrictionReason || (currentTeamLoading ? 'Loading...' : undefined)}
-                        data-attr="team-experiment-recalculation-time"
-                        placeholder="Select recalculation time"
-                    />
-                </div>
-            </div>
-        </div>
+        <LemonSelect
+            value={currentLocalHour.toString()}
+            onChange={handleChange}
+            options={hourOptions}
+            disabledReason={restrictionReason || (currentTeamLoading ? 'Loading...' : undefined)}
+            data-attr="team-experiment-recalculation-time"
+            placeholder="Select recalculation time"
+        />
     )
 }

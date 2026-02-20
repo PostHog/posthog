@@ -43,12 +43,6 @@ describe('normalizeEvent()', () => {
             key3_once: 'value4',
         })
     })
-
-    it('sanitizes token', () => {
-        const event = { token: '\u0000' }
-        const sanitized = normalizeEvent(event as any)
-        expect(sanitized.token).toBe('\uFFFD')
-    })
 })
 
 describe('parseRawClickHouseEvent()', () => {

@@ -2,7 +2,7 @@
 # name: TestMarketingAnalyticsAdapters.test_azure_adapter_query_generation
   '''
   
-  SELECT toString(campaign_name) AS match_key, toString(campaign_name) AS campaign, toString(campaign_name) AS id, toString(`'Azure'`) AS source, toFloat(coalesce(impressions, 0)) AS impressions, toFloat(coalesce(clicks, 0)) AS clicks, toFloat(convertCurrency('\'USD\'', 'USD', toFloat(coalesce(spend, 0)))) AS cost, toFloat(coalesce(conversions, 0)) AS reported_conversion, toFloat(coalesce(0, 0)) AS reported_conversion_value 
+  SELECT toString(campaign_name) AS match_key, toString(campaign_name) AS campaign, toString(campaign_name) AS id, toString('Azure') AS source, toFloat(coalesce(toFloat(impressions), 0)) AS impressions, toFloat(coalesce(toFloat(clicks), 0)) AS clicks, toFloat(convertCurrency('USD', 'USD', coalesce(toFloat(spend), 0))) AS cost, toFloat(coalesce(toFloat(conversions), 0)) AS reported_conversion, 0 AS reported_conversion_value 
   FROM azure_table 
   WHERE and(greaterOrEquals(toDateTime(report_date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(report_date), toDateTime('2024-12-31 23:59:59')))
   '''
@@ -19,7 +19,7 @@
 # name: TestMarketingAnalyticsAdapters.test_cloudflare_r2_adapter_query_generation
   '''
   
-  SELECT toString(campaign_name) AS match_key, toString(campaign_name) AS campaign, toString(campaign_name) AS id, toString(`'Cloudflare'`) AS source, toFloat(coalesce(impressions, 0)) AS impressions, toFloat(coalesce(clicks, 0)) AS clicks, toFloat(convertCurrency('\'USD\'', 'USD', toFloat(coalesce(spend, 0)))) AS cost, toFloat(coalesce(conversions, 0)) AS reported_conversion, toFloat(coalesce(0, 0)) AS reported_conversion_value 
+  SELECT toString(campaign_name) AS match_key, toString(campaign_name) AS campaign, toString(campaign_name) AS id, toString('Cloudflare') AS source, toFloat(coalesce(toFloat(impressions), 0)) AS impressions, toFloat(coalesce(toFloat(clicks), 0)) AS clicks, toFloat(convertCurrency('USD', 'USD', coalesce(toFloat(spend), 0))) AS cost, toFloat(coalesce(toFloat(conversions), 0)) AS reported_conversion, 0 AS reported_conversion_value 
   FROM cloudflare_table 
   WHERE and(greaterOrEquals(toDateTime(report_date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(report_date), toDateTime('2024-12-31 23:59:59')))
   '''
@@ -27,7 +27,7 @@
 # name: TestMarketingAnalyticsAdapters.test_currency_conversion_handling
   '''
   
-  SELECT toString(campaign_name) AS match_key, toString(campaign_name) AS campaign, toString(campaign_name) AS id, toString(`'Facebook'`) AS source, toFloat(coalesce(impressions, 0)) AS impressions, toFloat(coalesce(clicks, 0)) AS clicks, toFloat(convertCurrency('spend_currency', 'USD', toFloat(coalesce(spend_amount, 0)))) AS cost, toFloat(coalesce(conversions, 0)) AS reported_conversion, toFloat(coalesce(0, 0)) AS reported_conversion_value 
+  SELECT toString(campaign_name) AS match_key, toString(campaign_name) AS campaign, toString(campaign_name) AS id, toString('Facebook') AS source, toFloat(coalesce(toFloat(impressions), 0)) AS impressions, toFloat(coalesce(toFloat(clicks), 0)) AS clicks, toFloat(convertCurrency(spend_currency, 'USD', coalesce(toFloat(spend_amount), 0))) AS cost, toFloat(coalesce(toFloat(conversions), 0)) AS reported_conversion, 0 AS reported_conversion_value 
   FROM currency_test_table 
   WHERE and(greaterOrEquals(toDateTime(date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(date), toDateTime('2024-12-31 23:59:59')))
   '''
@@ -35,7 +35,7 @@
 # name: TestMarketingAnalyticsAdapters.test_facebook_ads_query_generation
   '''
   
-  SELECT toString(campaign_name) AS match_key, toString(campaign_name) AS campaign, toString(campaign_name) AS id, toString(`'Facebook'`) AS source, toFloat(coalesce(impressions, 0)) AS impressions, toFloat(coalesce(clicks, 0)) AS clicks, toFloat(convertCurrency('\'USD\'', 'USD', toFloat(coalesce(spend_usd, 0)))) AS cost, toFloat(coalesce(conversions, 0)) AS reported_conversion, toFloat(coalesce(0, 0)) AS reported_conversion_value 
+  SELECT toString(campaign_name) AS match_key, toString(campaign_name) AS campaign, toString(campaign_name) AS id, toString('Facebook') AS source, toFloat(coalesce(toFloat(impressions), 0)) AS impressions, toFloat(coalesce(toFloat(clicks), 0)) AS clicks, toFloat(convertCurrency('USD', 'USD', coalesce(toFloat(spend_usd), 0))) AS cost, toFloat(coalesce(toFloat(conversions), 0)) AS reported_conversion, 0 AS reported_conversion_value 
   FROM facebook_table 
   WHERE and(greaterOrEquals(toDateTime(report_date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(report_date), toDateTime('2024-12-31 23:59:59')))
   '''
@@ -43,7 +43,16 @@
 # name: TestMarketingAnalyticsAdapters.test_google_ads_query_generation
   '''
   
-  SELECT toString(google_campaign.campaign_name) AS match_key, toString(google_campaign.campaign_name) AS campaign, toString(google_campaign.campaign_id) AS id, toString('google') AS source, toFloat(SUM(ifNull(toFloat(google_stats.metrics_impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(google_stats.metrics_clicks), 0))) AS clicks, toFloat(convertCurrency('USD', 'USD', SUM(toFloat(divide(google_stats.metrics_cost_micros, 1000000))))) AS cost, toFloat(SUM(ifNull(toFloat(google_stats.metrics_conversions), 0))) AS reported_conversion, toFloat(SUM(ifNull(toFloat(google_stats.metrics_conversions_value), 0))) AS reported_conversion_value 
+  SELECT toString(google_campaign.campaign_name) AS match_key, toString(google_campaign.campaign_name) AS campaign, toString(google_campaign.campaign_id) AS id, toString('google') AS source, toFloat(SUM(ifNull(toFloat(google_stats.metrics_impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(google_stats.metrics_clicks), 0))) AS clicks, toFloat(SUM(toFloat(divide(google_stats.metrics_cost_micros, 1000000)))) AS cost, toFloat(SUM(ifNull(toFloat(google_stats.metrics_conversions), 0))) AS reported_conversion, toFloat(SUM(ifNull(toFloat(google_stats.metrics_conversions_value), 0))) AS reported_conversion_value 
+  FROM google_campaign LEFT JOIN google_stats ON equals(google_campaign.campaign_id, google_stats.campaign_id) 
+  WHERE and(greaterOrEquals(toDateTime(google_stats.segments_date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(google_stats.segments_date), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY toString(google_campaign.campaign_name), toString(google_campaign.campaign_id)
+  '''
+# ---
+# name: TestMarketingAnalyticsAdapters.test_google_ads_query_generation_with_clp_currency
+  '''
+  
+  SELECT toString(google_campaign.campaign_name) AS match_key, toString(google_campaign.campaign_name) AS campaign, toString(google_campaign.campaign_id) AS id, toString('google') AS source, toFloat(SUM(ifNull(toFloat(google_stats.metrics_impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(google_stats.metrics_clicks), 0))) AS clicks, SUM(toFloat(convertCurrency(coalesce(google_stats.customer_currency_code, 'CLP'), 'CLP', toFloat(divide(google_stats.metrics_cost_micros, 1000000))))) AS cost, toFloat(SUM(ifNull(toFloat(google_stats.metrics_conversions), 0))) AS reported_conversion, SUM(toFloat(convertCurrency(coalesce(google_stats.customer_currency_code, 'CLP'), 'CLP', ifNull(toFloat(google_stats.metrics_conversions_value), 0)))) AS reported_conversion_value 
   FROM google_campaign LEFT JOIN google_stats ON equals(google_campaign.campaign_id, google_stats.campaign_id) 
   WHERE and(greaterOrEquals(toDateTime(google_stats.segments_date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(google_stats.segments_date), toDateTime('2024-12-31 23:59:59'))) 
   GROUP BY toString(google_campaign.campaign_name), toString(google_campaign.campaign_id)
@@ -106,7 +115,7 @@
 # name: TestMarketingAnalyticsAdapters.test_tiktok_ads_query_generation
   '''
   
-  SELECT toString(campaign_name) AS match_key, toString(campaign_name) AS campaign, toString(campaign_name) AS id, toString(`'TikTok'`) AS source, toFloat(coalesce(impressions, 0)) AS impressions, toFloat(coalesce(clicks, 0)) AS clicks, toFloat(convertCurrency('\'USD\'', 'USD', toFloat(coalesce(spend, 0)))) AS cost, toFloat(coalesce(conversions, 0)) AS reported_conversion, toFloat(coalesce(0, 0)) AS reported_conversion_value 
+  SELECT toString(campaign_name) AS match_key, toString(campaign_name) AS campaign, toString(campaign_name) AS id, toString('TikTok') AS source, toFloat(coalesce(toFloat(impressions), 0)) AS impressions, toFloat(coalesce(toFloat(clicks), 0)) AS clicks, toFloat(convertCurrency('USD', 'USD', coalesce(toFloat(spend), 0))) AS cost, toFloat(coalesce(toFloat(conversions), 0)) AS reported_conversion, 0 AS reported_conversion_value 
   FROM tiktok_table 
   WHERE and(greaterOrEquals(toDateTime(report_date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(report_date), toDateTime('2024-12-31 23:59:59')))
   '''
@@ -116,10 +125,10 @@
   
   SELECT campaign AS campaign, source AS source, impressions AS impressions, clicks AS clicks, cost AS cost 
   FROM (
-  SELECT toString(campaign_id) AS match_key, toString(campaign_id) AS campaign, toString(campaign_id) AS id, toString(`'Facebook'`) AS source, toFloat(coalesce(impressions, 0)) AS impressions, toFloat(coalesce(clicks, 0)) AS clicks, toFloat(convertCurrency('currency', 'USD', toFloat(coalesce(spend, 0)))) AS cost, toFloat(coalesce(conversions, 0)) AS reported_conversion, toFloat(coalesce(0, 0)) AS reported_conversion_value 
+  SELECT toString(campaign_id) AS match_key, toString(campaign_id) AS campaign, toString(campaign_id) AS id, toString('Facebook') AS source, toFloat(coalesce(toFloat(impressions), 0)) AS impressions, toFloat(coalesce(toFloat(clicks), 0)) AS clicks, toFloat(convertCurrency(currency, 'USD', coalesce(toFloat(spend), 0))) AS cost, toFloat(coalesce(toFloat(conversions), 0)) AS reported_conversion, 0 AS reported_conversion_value 
   FROM facebook_table 
   WHERE and(greaterOrEquals(toDateTime(date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(date), toDateTime('2024-12-31 23:59:59'))) UNION ALL 
-  SELECT toString(campaign_name) AS match_key, toString(campaign_name) AS campaign, toString(campaign_name) AS id, toString(`'TikTok'`) AS source, toFloat(coalesce(impressions, 0)) AS impressions, toFloat(coalesce(clicks, 0)) AS clicks, toFloat(convertCurrency('currency', 'USD', toFloat(coalesce(spend, 0)))) AS cost, toFloat(coalesce(conversions, 0)) AS reported_conversion, toFloat(coalesce(0, 0)) AS reported_conversion_value 
+  SELECT toString(campaign_name) AS match_key, toString(campaign_name) AS campaign, toString(campaign_name) AS id, toString('TikTok') AS source, toFloat(coalesce(toFloat(impressions), 0)) AS impressions, toFloat(coalesce(toFloat(clicks), 0)) AS clicks, toFloat(convertCurrency(currency, 'USD', coalesce(toFloat(spend), 0))) AS cost, toFloat(coalesce(toFloat(conversions), 0)) AS reported_conversion, 0 AS reported_conversion_value 
   FROM tiktok_table 
   WHERE and(greaterOrEquals(toDateTime(date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(date), toDateTime('2024-12-31 23:59:59')))) AS all_marketing_data
   '''

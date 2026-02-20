@@ -1,5 +1,4 @@
 use std::fmt::Display;
-use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEventEvent};
@@ -256,7 +255,7 @@ impl IssueFingerprintOverride {
 }
 
 pub async fn resolve_issue(
-    context: Arc<AppContext>,
+    context: &AppContext,
     team_id: i32,
     name: String,
     description: String,
@@ -278,7 +277,7 @@ pub async fn resolve_issue(
             )
             .await?;
             let output_props: OutputErrProps = event_properties.clone().to_output(issue.id);
-            send_issue_reopened_alert(&context, &issue, assignment, output_props, &event_timestamp)
+            send_issue_reopened_alert(context, &issue, assignment, output_props, &event_timestamp)
                 .await?;
         }
         return Ok(issue);
@@ -331,7 +330,7 @@ pub async fn resolve_issue(
             )
             .await?;
             let output_props: OutputErrProps = event_properties.clone().to_output(issue.id);
-            send_issue_reopened_alert(&context, &issue, assignment, output_props, &event_timestamp)
+            send_issue_reopened_alert(context, &issue, assignment, output_props, &event_timestamp)
                 .await?;
         }
     } else {
@@ -345,8 +344,8 @@ pub async fn resolve_issue(
         .await?;
 
         let output_props = event_properties.clone().to_output(issue.id);
-        send_new_fingerprint_event(&context, &issue, &output_props).await?;
-        send_issue_created_alert(&context, &issue, assignment, output_props, &event_timestamp)
+        send_new_fingerprint_event(context, &issue, &output_props).await?;
+        send_issue_created_alert(context, &issue, assignment, output_props, &event_timestamp)
             .await?;
         txn.commit().await?;
         capture_issue_created(
@@ -368,7 +367,13 @@ pub async fn process_assignment(
     let new_assignment = if let Some(new) = props.fingerprint.assignment.clone() {
         Some(new)
     } else {
-        try_assignment_rules(conn, team_manager, issue.clone(), props.to_output(issue.id)).await?
+        try_assignment_rules(
+            conn,
+            team_manager,
+            issue.clone(),
+            &props.to_output(issue.id),
+        )
+        .await?
     };
 
     let assignment = if let Some(new_assignment) = new_assignment {
@@ -380,7 +385,7 @@ pub async fn process_assignment(
     Ok(assignment)
 }
 
-async fn send_issue_created_alert(
+pub async fn send_issue_created_alert(
     context: &AppContext,
     issue: &Issue,
     assignment: Option<Assignment>,
@@ -398,7 +403,7 @@ async fn send_issue_created_alert(
     .await
 }
 
-async fn send_new_fingerprint_event(
+pub async fn send_new_fingerprint_event(
     context: &AppContext,
     issue: &Issue,
     output_props: &OutputErrProps,
@@ -419,7 +424,7 @@ async fn send_new_fingerprint_event(
     Ok(())
 }
 
-async fn send_issue_reopened_alert(
+pub async fn send_issue_reopened_alert(
     context: &AppContext,
     issue: &Issue,
     assignment: Option<Assignment>,

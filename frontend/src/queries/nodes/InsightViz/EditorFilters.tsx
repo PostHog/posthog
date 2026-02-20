@@ -472,7 +472,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                             setQuery(node)
                         }}
                         initialMaxPrompt="Show me users who "
-                        className="EditorFiltersWrapper"
+                        className="EditorFiltersWrapper__max-tool"
                         active={maxToolActive}
                     >
                         <div

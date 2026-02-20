@@ -40,6 +40,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
@@ -510,6 +511,9 @@ const ReplayFiltersTab = ({
 
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
+    const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
+    const { hasPageview, hasScreen } = getProjectEventExistence()
+
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.Replay,
         TaxonomicFilterGroupType.Events,
@@ -519,10 +523,18 @@ const ReplayFiltersTab = ({
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.SessionProperties,
         ...groupsTaxonomicTypes,
+        ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
+        ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
+        TaxonomicFilterGroupType.EmailAddresses,
+        TaxonomicFilterGroupType.AutocaptureEvents,
     ]
 
     if (allowReplayHogQLFilters) {
         taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
+    }
+
+    if (showQuickFilters) {
+        taxonomicGroupTypes.unshift(TaxonomicFilterGroupType.SuggestedFilters)
     }
 
     const { appliedSavedFilter } = useValues(sessionRecordingSavedFiltersLogic)
@@ -640,34 +652,38 @@ const ReplayFiltersTab = ({
             >
                 <div className="flex items-center gap-2 px-2 mt-2">
                     <span className="font-medium">Add filters:</span>
-                    <QuickFilterButton
-                        filterKey="email"
-                        label="Email"
-                        propertyType={PropertyFilterType.Person}
-                        filters={filters}
-                        setFilters={setFilters}
-                    />
-                    <QuickFilterButton
-                        filterKey="$user_id"
-                        label="User ID"
-                        propertyType={PropertyFilterType.Person}
-                        filters={filters}
-                        setFilters={setFilters}
-                    />
-                    <QuickFilterButton
-                        filterKey="$pathname"
-                        label="Path name"
-                        propertyType={PropertyFilterType.Event}
-                        filters={filters}
-                        setFilters={setFilters}
-                    />
-                    <QuickFilterButton
-                        filterKey="$current_url"
-                        label="Current URL"
-                        propertyType={PropertyFilterType.Event}
-                        filters={filters}
-                        setFilters={setFilters}
-                    />
+                    {!showQuickFilters && (
+                        <>
+                            <QuickFilterButton
+                                filterKey="email"
+                                label="Email"
+                                propertyType={PropertyFilterType.Person}
+                                filters={filters}
+                                setFilters={setFilters}
+                            />
+                            <QuickFilterButton
+                                filterKey="$user_id"
+                                label="User ID"
+                                propertyType={PropertyFilterType.Person}
+                                filters={filters}
+                                setFilters={setFilters}
+                            />
+                            <QuickFilterButton
+                                filterKey="$pathname"
+                                label="Path name"
+                                propertyType={PropertyFilterType.Event}
+                                filters={filters}
+                                setFilters={setFilters}
+                            />
+                            <QuickFilterButton
+                                filterKey="$current_url"
+                                label="Current URL"
+                                propertyType={PropertyFilterType.Event}
+                                filters={filters}
+                                setFilters={setFilters}
+                            />
+                        </>
+                    )}
                     {/* Add filter button scoped to the first nested group */}
                     {filters.filter_group.values.length > 0 &&
                         isUniversalGroupFilterLike(filters.filter_group.values[0]) && (

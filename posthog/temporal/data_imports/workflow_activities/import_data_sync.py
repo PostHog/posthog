@@ -5,11 +5,14 @@ from typing import Any, Optional
 
 from django.db.models import Prefetch
 
+import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.exceptions_capture import capture_exception
+from posthog.models import Team
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
@@ -24,7 +27,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.temporal.data_imports.sources import SourceRegistry
-from posthog.temporal.data_imports.sources.common.base import ResumableSource
+from posthog.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataJob, ExternalDataSource
@@ -32,6 +35,8 @@ from products.data_warehouse.backend.models.external_data_schema import External
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
+
+WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
 
 
 @dataclasses.dataclass
@@ -155,9 +160,13 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
                     config, resumable_source_manager, source_inputs
                 )
-            else:
+            elif isinstance(new_source, SimpleSource):
                 source_response = await database_sync_to_async_pool(new_source.source_for_pipeline)(
                     config, source_inputs
+                )
+            else:
+                raise TypeError(
+                    f"{new_source.__class__.__name__} does not implement either SimpleSource or ResumableSource"
                 )
 
             return await _run(
@@ -170,6 +179,35 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
+
+
+async def _is_pipeline_v3_enabled(team_id: int, logger: FilteringBoundLogger) -> bool:
+    try:
+        team = await database_sync_to_async_pool(Team.objects.only("uuid", "organization_id").get)(id=team_id)
+    except Team.DoesNotExist:
+        return False
+
+    try:
+        enabled = await database_sync_to_async_pool(posthoganalytics.feature_enabled)(
+            WAREHOUSE_PIPELINES_V3_FLAG,
+            str(team.uuid),
+            groups={
+                "organization": str(team.organization_id),
+                "project": str(team.id),
+            },
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+        if enabled:
+            logger.debug(f"Feature flag '{WAREHOUSE_PIPELINES_V3_FLAG}' is enabled for team {team_id}")
+        return bool(enabled)
+    except Exception as e:
+        capture_exception(e)
+        return False
 
 
 @database_sync_to_async_pool
@@ -198,18 +236,39 @@ async def _run(
 ) -> PipelineResult:
     try:
         job, schema, source, table = await _get_models(job_inputs.run_id)
-        pipeline = PipelineNonDLT(
-            source_response,
-            logger,
-            job_inputs.run_id,
-            reset_pipeline,
-            shutdown_monitor,
-            job,
-            schema,
-            source,
-            table,
-            resumable_source_manager,
-        )
+
+        use_v3 = await _is_pipeline_v3_enabled(job_inputs.team_id, logger)
+
+        if use_v3:
+            from posthog.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
+
+            logger.info("Running V3 pipeline (feature flag enabled)")
+            pipeline: PipelineV3 | PipelineNonDLT = PipelineV3(
+                source_response,
+                logger,
+                job_inputs.run_id,
+                reset_pipeline,
+                shutdown_monitor,
+                job,
+                schema,
+                source,
+                table,
+                resumable_source_manager,
+            )
+        else:
+            pipeline = PipelineNonDLT(
+                source_response,
+                logger,
+                job_inputs.run_id,
+                reset_pipeline,
+                shutdown_monitor,
+                job,
+                schema,
+                source,
+                table,
+                resumable_source_manager,
+            )
+
         result = await pipeline.run()
         del pipeline
         await logger.adebug("Finished running pipeline")

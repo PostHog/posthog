@@ -14,6 +14,7 @@ import type {
     PaginatedTaskRunDetailListApi,
     PatchedTaskApi,
     PatchedTaskRunUpdateApi,
+    RepositoryReadinessResponseApi,
     TaskApi,
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
@@ -23,6 +24,7 @@ import type {
     TaskRunCreateRequestApi,
     TaskRunDetailApi,
     TasksListParams,
+    TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
     TasksRunsSessionLogsRetrieveParams,
 } from './api.schemas'
@@ -424,16 +426,35 @@ export const tasksRunsSetOutputPartialUpdate = async (
 }
 
 /**
- * Run the video segment clustering workflow for this team. DEBUG only. Blocks until workflow completes.
- * @summary Run video segment clustering
+ * Get autonomy readiness details for a specific repository in the current project.
+ * @summary Get repository readiness
  */
-export const getTasksClusterVideoSegmentsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/tasks/cluster_video_segments/`
+export const getTasksRepositoryReadinessRetrieveUrl = (
+    projectId: string,
+    params: TasksRepositoryReadinessRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/repository_readiness/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/repository_readiness/`
 }
 
-export const tasksClusterVideoSegmentsCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getTasksClusterVideoSegmentsCreateUrl(projectId), {
+export const tasksRepositoryReadinessRetrieve = async (
+    projectId: string,
+    params: TasksRepositoryReadinessRetrieveParams,
+    options?: RequestInit
+): Promise<RepositoryReadinessResponseApi> => {
+    return apiMutator<RepositoryReadinessResponseApi>(getTasksRepositoryReadinessRetrieveUrl(projectId, params), {
         ...options,
-        method: 'POST',
+        method: 'GET',
     })
 }

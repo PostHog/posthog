@@ -8,7 +8,6 @@ from typing import Any, Generic, Literal, TypeVar
 
 import pyarrow as pa
 import deltalake as deltalake
-import posthoganalytics
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
@@ -16,12 +15,20 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.common.extract import (
     cdp_producer_clear_chunks,
+    cleanup_memory,
+    finalize_desc_sort_incremental_value,
+    handle_reset_or_full_refresh,
+    reset_rows_synced_if_needed,
+    setup_row_tracking_with_billing_check,
+    should_check_shutdown,
+    update_incremental_field_values,
+    update_row_tracking_after_batch,
+    validate_incremental_sync,
     write_chunk_for_cdp_producer,
 )
 from posthog.temporal.data_imports.pipelines.common.load import (
-    get_incremental_field_value,
+    notify_revenue_analytics_that_sync_has_completed,
     supports_partial_data_loading,
-    update_job_row_count,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
@@ -29,8 +36,6 @@ from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import 
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PipelineResult, ResumableData, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
-    BillingLimitsWillBeReachedException,
-    DuplicatePrimaryKeysException,
     _append_debug_column_to_pyarrows_table,
     _evolve_pyarrow_schema,
     _handle_null_columns_with_definitions,
@@ -41,9 +46,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import (
     update_last_synced_at,
     validate_schema_and_update_table,
 )
-from posthog.temporal.data_imports.row_tracking import decrement_rows, increment_rows, will_hit_billing_limit
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from posthog.temporal.data_imports.sources.stripe.constants import CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 
 from products.data_warehouse.backend.models import (
@@ -53,7 +56,6 @@ from products.data_warehouse.backend.models import (
     ExternalDataSource,
 )
 from products.data_warehouse.backend.models.external_data_schema import process_incremental_value
-from products.data_warehouse.backend.types import ExternalDataSourceType
 
 T = TypeVar("T")
 
@@ -162,47 +164,27 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         try:
             await cdp_producer_clear_chunks(self._cdp_producer)
-            # Reset the rows_synced count - this may not be 0 if the job restarted due to a heartbeat timeout
-            if (
-                self._job.rows_synced is not None
-                and self._job.rows_synced != 0
-                and (not self._is_incremental or self._reset_pipeline is True)
-                and not should_resume
-            ):
-                self._job.rows_synced = 0
-                await database_sync_to_async_pool(self._job.save)()
 
-            # Check for duplicate primary keys
-            if self._is_incremental and self._resource.has_duplicate_primary_keys:
-                raise DuplicatePrimaryKeysException(
-                    f"The primary keys for this table are not unique. We can't sync incrementally until the table has a unique primary key. Primary keys being used are: {self._resource.primary_keys}"
-                )
+            await reset_rows_synced_if_needed(self._job, self._is_incremental, self._reset_pipeline, should_resume)
 
-            # Setup row tracking
-            if self._resource.rows_to_sync:
-                await increment_rows(self._job.team_id, self._schema.id, self._resource.rows_to_sync)
+            validate_incremental_sync(self._is_incremental, self._resource)
 
-                # Check billing limits against incoming rows (skip for non-billable jobs)
-                if self._job.billable and await will_hit_billing_limit(
-                    team_id=self._job.team_id, source=self._source, logger=self._logger
-                ):
-                    raise BillingLimitsWillBeReachedException(
-                        f"Your account will hit your Data Warehouse billing limits syncing {self._resource.name} with {self._resource.rows_to_sync} rows"
-                    )
+            await setup_row_tracking_with_billing_check(
+                self._job.team_id,
+                self._schema,
+                self._resource,
+                self._source,
+                self._logger,
+                billable=self._job.billable,
+            )
 
             py_table = None
             row_count = 0
             chunk_index = 0
 
-            if self._reset_pipeline and not should_resume:
-                await self._logger.adebug("Deleting existing table due to reset_pipeline being set")
-                await self._delta_table_helper.reset_table()
-                await database_sync_to_async_pool(self._schema.update_sync_type_config_for_reset_pipeline)()
-            elif self._schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH and not should_resume:
-                # Avoid schema mismatches from existing data about to be overwritten
-                await self._logger.adebug("Deleting existing table due to sync being full refresh")
-                await self._delta_table_helper.reset_table()
-                await database_sync_to_async_pool(self._schema.update_sync_type_config_for_reset_pipeline)()
+            await handle_reset_or_full_refresh(
+                self._reset_pipeline, should_resume, self._schema, self._delta_table_helper, self._logger
+            )
 
             # If the schema has no DWH table, it's a first ever sync
             is_first_ever_sync: bool = self._table is None
@@ -228,22 +210,10 @@ class PipelineNonDLT(Generic[ResumableData]):
 
                 chunk_index += 1
 
-                # Cleanup
-                if "py_table" in locals() and py_table is not None:
-                    del py_table
-                pa_memory_pool.release_unused()
+                cleanup_memory(pa_memory_pool, py_table)
+                py_table = None
 
-                # Only raise if we're not running in descending order, otherwise we'll often not
-                # complete the job before the incremental value can be updated. Or if the source is
-                # resumable
-                # TODO: raise when we're within `x` time of the worker being forced to shutdown
-                # Raising during a full reset will reset our progress back to 0 rows
-                incremental_sync_raise_during_shutdown = (
-                    self._schema.should_use_incremental_field
-                    and self._resource.sort_mode != "desc"
-                    and not self._reset_pipeline
-                )
-                if incremental_sync_raise_during_shutdown or source_is_resumable:
+                if should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable):
                     self._shutdown_monitor.raise_if_is_worker_shutdown()
 
             if self._batcher.should_yield(include_incomplete_chunk=True):
@@ -271,10 +241,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             del self._resource
             del self._delta_table_helper
 
-            if "py_table" in locals() and py_table is not None:
-                del py_table
-
-            pa_memory_pool.release_unused()
+            cleanup_memory(pa_memory_pool, py_table if "py_table" in locals() else None)
 
     async def _process_pa_table(
         self, pa_table: pa.Table, index: int, resuming_sync: bool, row_count: int, is_first_ever_sync: bool
@@ -309,42 +276,21 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         await write_chunk_for_cdp_producer(self._cdp_producer, index, pa_table)
 
-        # Update the incremental_field_last_value.
-        # If the resource returns data sorted in ascending timestamp order, we can update the
-        # `incremental_field_last_value` in the schema.
-        # However, if the data is returned in descending order, we only want to update the
-        # `incremental_field_last_value` once we have processed all of the data, otherwise if we fail halfway through,
-        # we'd not process older data the next time we retry. But we do store the earliest available value so that we
-        # can resume syncs if they stop mid way through without having to start from the beginning
-        last_value = get_incremental_field_value(self._schema, pa_table)
-        if last_value is not None:
-            if (self._last_incremental_field_value is None) or (last_value > self._last_incremental_field_value):
-                self._last_incremental_field_value = last_value
+        (
+            self._last_incremental_field_value,
+            self._earliest_incremental_field_value,
+        ) = await update_incremental_field_values(
+            self._schema,
+            pa_table,
+            self._resource,
+            self._last_incremental_field_value,
+            self._earliest_incremental_field_value,
+            self._logger,
+        )
 
-            if self._resource.sort_mode == "asc":
-                await self._logger.adebug(
-                    f"Updating incremental_field_last_value with {self._last_incremental_field_value}"
-                )
-                await database_sync_to_async_pool(self._schema.update_incremental_field_value)(
-                    self._last_incremental_field_value
-                )
-
-            if self._resource.sort_mode == "desc":
-                earliest_value = get_incremental_field_value(self._schema, pa_table, aggregate="min")
-
-                if (
-                    self._earliest_incremental_field_value is None
-                    or earliest_value < self._earliest_incremental_field_value
-                ):
-                    self._earliest_incremental_field_value = earliest_value
-
-                    await self._logger.adebug(f"Updating incremental_field_earliest_value with {earliest_value}")
-                    await database_sync_to_async_pool(self._schema.update_incremental_field_value)(
-                        earliest_value, type="earliest"
-                    )
-
-        await update_job_row_count(self._job.id, pa_table.num_rows, self._logger)
-        await decrement_rows(self._job.team_id, self._schema.id, pa_table.num_rows)
+        await update_row_tracking_after_batch(
+            self._job.id, self._job.team_id, self._schema.id, pa_table.num_rows, self._logger
+        )
 
         # if it's the first ever sync for this schema and the source supports partial data loading, we make the delta
         # table files available for querying and create the data warehouse table, so that the user has some data
@@ -439,18 +385,11 @@ class PipelineNonDLT(Generic[ResumableData]):
         await update_last_synced_at(job_id=self._job.id, schema_id=self._schema.id, team_id=self._job.team_id)
 
         await self._logger.adebug("Notifying revenue analytics that sync has completed")
-        await _notify_revenue_analytics_that_sync_has_completed(self._schema, self._source, self._logger)
+        await notify_revenue_analytics_that_sync_has_completed(self._schema, self._source, self._logger)
 
-        # As mentioned above, for sort mode 'desc' we only want to update the `incremental_field_last_value` once we
-        # have processed all of the data (we could also update it here for 'asc' but it's not needed)
-        if self._resource.sort_mode == "desc" and self._last_incremental_field_value is not None:
-            await self._logger.adebug(
-                f"Sort mode is 'desc' -> updating incremental_field_last_value with {self._last_incremental_field_value}"
-            )
-            await database_sync_to_async_pool(self._schema.refresh_from_db)()
-            await database_sync_to_async_pool(self._schema.update_incremental_field_value)(
-                self._last_incremental_field_value
-            )
+        await finalize_desc_sort_incremental_value(
+            self._resource, self._schema, self._last_incremental_field_value, self._logger
+        )
 
         await self._logger.adebug("Validating schema and updating table")
         await validate_schema_and_update_table(
@@ -463,41 +402,6 @@ class PipelineNonDLT(Generic[ResumableData]):
             table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
         )
         await self._logger.adebug("Finished validating schema and updating table")
-
-
-async def _notify_revenue_analytics_that_sync_has_completed(
-    schema: ExternalDataSchema, source: ExternalDataSource, logger: FilteringBoundLogger
-) -> None:
-    try:
-
-        @database_sync_to_async_pool
-        def _check_and_notify():
-            if (
-                schema.name == STRIPE_CHARGE_RESOURCE_NAME
-                and source.source_type == ExternalDataSourceType.STRIPE
-                and source.revenue_analytics_config.enabled
-                and not schema.team.revenue_analytics_config.notified_first_sync
-            ):
-                # For every admin in the org, send a revenue analytics ready event
-                # This will trigger a Campaign in PostHog and send an email
-                for user in schema.team.all_users_with_access():
-                    if user.distinct_id is not None:
-                        posthoganalytics.capture(
-                            distinct_id=user.distinct_id,
-                            event="revenue_analytics_ready",
-                            properties={"source_type": source.source_type},
-                        )
-
-                # Mark the team as notified, avoiding spamming emails
-                schema.team.revenue_analytics_config.notified_first_sync = True
-                schema.team.revenue_analytics_config.save()
-
-        await _check_and_notify()
-    except Exception as e:
-        # Silently fail, we don't want this to crash the pipeline
-        # Sending an email is not critical to the pipeline
-        await logger.aexception(f"Error notifying revenue analytics that sync has completed: {e}")
-        capture_exception(e)
 
 
 def _estimate_size(obj: Any) -> int:

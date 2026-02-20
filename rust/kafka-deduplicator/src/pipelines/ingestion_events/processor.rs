@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use axum::async_trait;
 use common_kafka::kafka_producer::KafkaContext;
-use common_types::{CapturedEvent, RawEvent};
+use common_types::{CapturedEvent, EventWithLibraryInfo, RawEvent};
 use futures::future::join_all;
 use itertools::Itertools;
 use rayon::prelude::*;
@@ -24,12 +24,11 @@ use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::types::Partition;
 use crate::metrics::MetricsHelper;
 use crate::metrics_const::{
-    DUPLICATE_EVENTS_PUBLISHED_COUNTER, DUPLICATE_EVENTS_TOTAL_COUNTER, EVENT_PARSING_DURATION_MS,
-    KAFKA_PRODUCER_SEND_DURATION_MS, PARTITION_BATCH_PROCESSING_DURATION_MS,
-    TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM, TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM,
-    TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER, TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM,
-    TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM, TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM,
-    UNIQUE_EVENTS_TOTAL_COUNTER,
+    DUPLICATE_EVENTS_PUBLISHED_COUNTER, EVENT_PARSING_DURATION_MS, KAFKA_PRODUCER_SEND_DURATION_MS,
+    PARTITION_BATCH_PROCESSING_DURATION_MS, TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM,
+    TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM, TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER,
+    TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM, TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM,
+    TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM,
 };
 use crate::pipelines::traits::EventParser;
 use crate::pipelines::DeduplicationResult;
@@ -272,7 +271,7 @@ impl IngestionEventsBatchProcessor {
                     .to_string();
                 keys.push(key);
             } else if let Err(e) = &parsed_events[idx] {
-                error!("Failed to parse event: {}", e);
+                error!("Failed to parse event: {e:#}");
             }
         }
 
@@ -361,7 +360,7 @@ impl IngestionEventsBatchProcessor {
                             Some(max_producer_offset.map_or(offset, |current| current.max(offset)));
                     }
                     Err(e) => {
-                        error!("Failed to publish non-duplicate event: {}", e);
+                        error!("Failed to publish non-duplicate event: {e:#}");
                         return Err(e);
                     }
                 }
@@ -434,12 +433,13 @@ impl IngestionEventsBatchProcessor {
             }
             Err((e, _)) => {
                 error!(
-                    "Failed to publish event with key {} to {}: {}",
-                    key, output_topic, e
+                    "Failed to publish event with key {} to {}: {e:#}",
+                    key, output_topic
                 );
-                Err(anyhow::anyhow!(
-                    "Failed to publish event with key '{key}' to topic '{output_topic}': {e}"
-                ))
+                Err(anyhow::Error::from(e).context(format!(
+                    "Failed to publish event with key '{}' to topic '{}'",
+                    key, output_topic
+                )))
             }
         }
     }
@@ -461,12 +461,6 @@ impl IngestionEventsBatchProcessor {
 
         if let Some(info) = duplicate_info {
             if let Some(lib_info) = raw_event.extract_library_info() {
-                metrics
-                    .counter(DUPLICATE_EVENTS_TOTAL_COUNTER)
-                    .with_label("lib", &lib_info.name)
-                    .with_label("dedup_type", "timestamp")
-                    .increment(1);
-
                 metrics
                     .histogram(TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM)
                     .with_label("lib", &lib_info.name)
@@ -499,14 +493,6 @@ impl IngestionEventsBatchProcessor {
                         .with_label("field", &field_name.to_string())
                         .increment(1);
                 }
-            }
-        } else if matches!(result, DeduplicationResult::New) {
-            if let Some(lib_info) = raw_event.extract_library_info() {
-                metrics
-                    .counter(UNIQUE_EVENTS_TOTAL_COUNTER)
-                    .with_label("lib", &lib_info.name)
-                    .with_label("dedup_type", "timestamp")
-                    .increment(1);
             }
         }
     }

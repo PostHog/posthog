@@ -24,6 +24,9 @@ describe('insightSceneLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/insights/trend/': { result: ['result from api'] },
+                '/api/environments/:team_id/insights/': {
+                    results: [{ id: 42, short_id: Insight42, result: ['result from api'] }],
+                },
             },
             post: {
                 '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
@@ -93,5 +96,34 @@ describe('insightSceneLogic', () => {
             insightId: Insight42,
             insightMode: ItemMode.Edit,
         })
+    })
+
+    it('does not reload insight when only the URL hash changes', async () => {
+        const insightApiCall = jest
+            .fn()
+            .mockReturnValue([200, { results: [{ id: 42, short_id: Insight42, result: ['result from api'] }] }])
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': insightApiCall,
+            },
+            post: {
+                '/api/environments/:team_id/query/upgrade/': { query: {} },
+            },
+        })
+
+        logic = insightSceneLogic({ tabId })
+        logic.mount()
+
+        router.actions.push(urls.insightView(Insight42))
+        await expectLogic(logic).toMatchValues({ insightId: Insight42 })
+        await expectLogic(logic).delay(150) // wait for loadInsight debounce
+
+        const callCountAfterInitialLoad = insightApiCall.mock.calls.length
+
+        // Simulate opening the side panel (hash-only URL change)
+        router.actions.replace(urls.insightView(Insight42), {}, { panel: 'info' })
+        await expectLogic(logic).delay(150)
+
+        expect(insightApiCall.mock.calls.length).toEqual(callCountAfterInitialLoad)
     })
 })

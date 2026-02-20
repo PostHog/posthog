@@ -50,11 +50,11 @@ type HedgehogProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'>
 
 // w400 x h400
 const SquaredHedgehog = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={props.src} width={400} height={400} {...props} />
+    return <img src={props.src} width={400} height={400} alt="PostHog hedgehog" {...props} />
 }
 // any width x h400
 const RectangularHedgehog = (props: ImgHTMLAttributes<HTMLImageElement>): JSX.Element => {
-    return <img src={props.src} height={400} {...props} />
+    return <img src={props.src} height={400} alt="PostHog hedgehog" {...props} />
 }
 
 export const SurprisedHog = (props: HedgehogProps): JSX.Element => {

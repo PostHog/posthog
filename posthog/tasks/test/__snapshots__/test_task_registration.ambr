@@ -26,6 +26,7 @@
     'posthog.tasks.email.send_async_migration_complete_email',
     'posthog.tasks.email.send_async_migration_errored_email',
     'posthog.tasks.email.send_canary_email',
+    'posthog.tasks.email.send_conversation_restore_email',
     'posthog.tasks.email.send_discussions_mentioned',
     'posthog.tasks.email.send_email_change_emails',
     'posthog.tasks.email.send_email_mfa_link',

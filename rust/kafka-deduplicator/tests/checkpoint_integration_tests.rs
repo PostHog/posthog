@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 use kafka_deduplicator::checkpoint::{
     hash_prefix_for_partition, CheckpointConfig, CheckpointDownloader, CheckpointExporter,
     CheckpointImporter, CheckpointMetadata, CheckpointWorker, S3Downloader, S3Uploader,
+    METADATA_FILENAME,
 };
 use kafka_deduplicator::kafka::types::Partition;
 use kafka_deduplicator::store::{
@@ -268,16 +269,34 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
         .map(|e| e.file_name().to_string_lossy().to_string())
         .collect();
 
-    // Separate marker file from checkpoint files
+    // Separate marker file and metadata.json (written by importer) from S3-downloaded checkpoint files
     let marker_files: Vec<_> = all_imported_files
         .iter()
         .filter(|f| f.starts_with(".imported_"))
         .collect();
     let imported_files: Vec<_> = all_imported_files
         .iter()
-        .filter(|f| !f.starts_with(".imported_"))
+        .filter(|f| !f.starts_with(".imported_") && *f != METADATA_FILENAME)
         .cloned()
         .collect();
+
+    assert!(
+        all_imported_files.contains(&METADATA_FILENAME.to_string()),
+        "metadata.json should exist in import dir, got: {all_imported_files:?}"
+    );
+
+    // Verify metadata.json written by importer round-trips and has correct topic/partition/updated_at
+    let loaded_metadata = CheckpointMetadata::load_from_dir(&import_result)
+        .await
+        .expect("metadata.json in import dir should deserialize");
+    assert_eq!(loaded_metadata.topic, test_topic);
+    assert_eq!(loaded_metadata.partition, test_partition);
+    assert!(
+        loaded_metadata.updated_at >= downloaded_metadata.attempt_timestamp,
+        "updated_at should be more recent than attempt_timestamp (stamped at import write), got updated_at {:?} attempt_timestamp {:?}",
+        loaded_metadata.updated_at,
+        downloaded_metadata.attempt_timestamp
+    );
 
     // Verify marker file exists (created by import to identify imported stores)
     assert_eq!(

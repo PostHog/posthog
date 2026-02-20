@@ -528,10 +528,10 @@ def get_affected_person_ids_from_clickhouse(
     even though the actual event property aggregation will extend to now() to
     capture all property updates for those persons.
 
-    Note: This query checks for presence of $set/$set_once/$unset but doesn't filter
-    FILTERED_PERSON_UPDATE_PROPERTIES. This may include persons who only had filtered
-    properties updated, but the subsequent raw update queries will filter them out.
-    This is a minor inefficiency that doesn't affect correctness.
+    The query filters out FILTERED_PERSON_UPDATE_PROPERTIES using arrayExists
+    so that persons whose events only set high-frequency SDK properties (like
+    $browser, $os, $current_url) are excluded. This keeps the detected set
+    close to the set that will actually have diffs after comparison.
 
     Args:
         team_id: Team ID to query
@@ -561,9 +561,18 @@ def get_affected_person_ids_from_clickhouse(
       AND e.timestamp >= %(bug_window_start)s
       AND e.timestamp < %(bug_window_end)s
       AND (
-        JSONExtractString(e.properties, '$set') != ''
-        OR JSONExtractString(e.properties, '$set_once') != ''
-        OR notEmpty(JSONExtractArrayRaw(e.properties, '$unset'))
+        arrayExists(
+            x -> x.1 NOT IN %(filtered_properties)s,
+            JSONExtractKeysAndValuesRaw(e.properties, '$set')
+        )
+        OR arrayExists(
+            x -> x.1 NOT IN %(filtered_properties)s,
+            JSONExtractKeysAndValuesRaw(e.properties, '$set_once')
+        )
+        OR arrayExists(
+            x -> JSON_VALUE(x, '$') NOT IN %(filtered_properties)s,
+            JSONExtractArrayRaw(e.properties, '$unset')
+        )
       )
     ORDER BY person_id
     SETTINGS
@@ -576,6 +585,7 @@ def get_affected_person_ids_from_clickhouse(
         "team_id": team_id,
         "bug_window_start": bug_window_start,
         "bug_window_end": bug_window_end,
+        "filtered_properties": tuple(FILTERED_PERSON_UPDATE_PROPERTIES),
     }
 
     rows = sync_execute(query, params)

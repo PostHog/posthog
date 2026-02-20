@@ -20,6 +20,10 @@ export interface ChatViewProps {
     maxHeight?: string
     /** Whether to show the "Send as private" option in the message input */
     showPrivateOption?: boolean
+    /** Number of team messages that haven't been read by the customer */
+    unreadCustomerCount?: number
+    /** Whether to show delivery status on team messages */
+    showDeliveryStatus?: boolean
 }
 
 export function ChatView({
@@ -34,6 +38,8 @@ export function ChatView({
     minHeight,
     maxHeight,
     showPrivateOption = false,
+    unreadCustomerCount,
+    showDeliveryStatus = false,
 }: ChatViewProps): JSX.Element {
     const listMinHeight = minHeight ?? '400px'
     const listMaxHeight = maxHeight ?? '600px'
@@ -50,6 +56,8 @@ export function ChatView({
                 emptyMessage="No messages yet. Start the conversation!"
                 minHeight={listMinHeight}
                 maxHeight={listMaxHeight}
+                unreadCustomerCount={unreadCustomerCount}
+                showDeliveryStatus={showDeliveryStatus}
             />
             <div className="border-t pt-3">
                 <MessageInput

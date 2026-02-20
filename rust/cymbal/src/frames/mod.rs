@@ -20,7 +20,6 @@ use crate::{
 
 pub mod records;
 pub mod releases;
-pub mod resolver;
 
 // We consume a huge variety of differently shaped stack frames, which we have special-case
 // transformation for, to produce a single, unified representation of a frame.

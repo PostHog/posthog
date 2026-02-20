@@ -19,7 +19,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
-from posthog.hogql.property import operator_is_negative, property_to_expr
+from posthog.hogql.property import get_lowercase_index_hint, operator_is_negative, property_to_expr
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -123,6 +123,13 @@ def _generate_resource_attribute_filters(
 
 
 class LogsQueryRunnerMixin(QueryRunner):
+    @cached_property
+    def settings(self):
+        return HogQLGlobalSettings(
+            max_bytes_to_read=None,
+            read_overflow_mode=None,
+        )
+
     def __init__(self, query, *args, **kwargs):
         super().__init__(query, *args, **kwargs)
 
@@ -270,7 +277,10 @@ class LogsQueryRunnerMixin(QueryRunner):
                 exprs.append(property_to_expr(self.attribute_filters, team=self.team))
 
             if self.log_filters:
-                exprs.append(property_to_expr(self.log_filters, team=self.team))
+                for log_filter in self.log_filters:
+                    if log_filter.key == "message":
+                        exprs.append(get_lowercase_index_hint(log_filter, team=self.team))
+                    exprs.append(property_to_expr(log_filter, team=self.team))
 
         exprs.append(ast.Placeholder(expr=ast.Field(chain=["filters"])))
 
@@ -471,4 +481,6 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
             allow_experimental_join_condition=False,
             transform_null_in=False,
             allow_experimental_analyzer=True,
+            max_bytes_to_read=None,
+            read_overflow_mode=None,
         )

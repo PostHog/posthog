@@ -125,7 +125,7 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     const personRepository = new PostgresPersonRepository(postgres, personRepositoryOptions)
 
     const clickhouseGroupRepository = new ClickhouseGroupRepository(kafkaProducer)
-    const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool, teamManager)
+    const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool)
     const geoipService = new GeoIPService(serverConfig)
     await geoipService.get()
     const encryptedFields = new EncryptedFields(serverConfig.ENCRYPTION_SALT_KEYS)

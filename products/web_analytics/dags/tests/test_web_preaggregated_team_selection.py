@@ -7,17 +7,23 @@ from unittest.mock import Mock, patch
 import dagster
 
 from posthog.models.team.team import Team
-from posthog.models.web_preaggregated.team_selection import DEFAULT_ENABLED_TEAM_IDS
+from posthog.models.web_preaggregated.team_selection import (
+    DEFAULT_ENABLED_TEAM_IDS,
+    DEFAULT_WEEKLY_PAGEVIEWS_THRESHOLD,
+    get_teams_by_weekly_pageviews_sql,
+)
 from posthog.models.web_preaggregated.team_selection_strategies import (
     EnvironmentVariableStrategy,
     HighPageviewsStrategy,
     ProjectSettingsStrategy,
+    WeeklyHighVolumeStrategy,
 )
 
 from products.web_analytics.dags.web_preaggregated_team_selection import (
     get_team_ids_from_sources,
     store_team_selection_in_clickhouse,
     validate_team_ids,
+    web_analytics_high_volume_team_candidates,
     web_analytics_team_selection,
 )
 
@@ -473,3 +479,203 @@ class TestIntegrationScenarios(APIBaseTest):
 
         # Verify result is sorted list
         assert result == sorted(result)
+
+
+class TestGetTeamsByWeeklyPageviewsSql:
+    @pytest.mark.parametrize(
+        "threshold,expected_fragment",
+        [
+            (500_000, "avg_weekly_pageviews >= 500000"),
+            (1_000_000, "avg_weekly_pageviews >= 1000000"),
+            (1, "avg_weekly_pageviews >= 1"),
+        ],
+    )
+    def test_generates_sql_with_threshold(self, threshold, expected_fragment):
+        sql = get_teams_by_weekly_pageviews_sql(threshold)
+        assert expected_fragment in sql
+
+    def test_sql_includes_4_week_window(self):
+        sql = get_teams_by_weekly_pageviews_sql()
+        assert "INTERVAL 4 WEEK" in sql
+
+    def test_sql_requires_all_4_weeks(self):
+        sql = get_teams_by_weekly_pageviews_sql()
+        assert "count() = 4" in sql
+
+    def test_sql_groups_by_week(self):
+        sql = get_teams_by_weekly_pageviews_sql()
+        assert "toStartOfWeek(timestamp, 1)" in sql
+
+    def test_sql_filters_pageview_events(self):
+        sql = get_teams_by_weekly_pageviews_sql()
+        assert "$pageview" in sql
+
+    def test_sql_uses_default_threshold(self):
+        sql = get_teams_by_weekly_pageviews_sql()
+        assert f"avg_weekly_pageviews >= {DEFAULT_WEEKLY_PAGEVIEWS_THRESHOLD}" in sql
+
+    @pytest.mark.parametrize(
+        "invalid_threshold",
+        [0, -1, -100],
+    )
+    def test_rejects_invalid_threshold(self, invalid_threshold):
+        with pytest.raises(ValueError, match="Invalid threshold"):
+            get_teams_by_weekly_pageviews_sql(invalid_threshold)
+
+    def test_rejects_non_integer_threshold(self):
+        with pytest.raises(ValueError, match="Invalid threshold"):
+            get_teams_by_weekly_pageviews_sql("500000")  # type: ignore
+
+    def test_sql_returns_expected_columns(self):
+        sql = get_teams_by_weekly_pageviews_sql()
+        assert "avg_weekly_pageviews" in sql
+        assert "min_weekly_pageviews" in sql
+        assert "max_weekly_pageviews" in sql
+        assert "team_id" in sql
+
+
+class TestWeeklyHighVolumeStrategy:
+    def setup_method(self):
+        self.mock_context = Mock()
+        self.mock_context.log = Mock()
+
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.sync_execute")
+    def test_returns_teams_above_threshold(self, mock_execute):
+        strategy = WeeklyHighVolumeStrategy()
+        mock_execute.return_value = [
+            (100, 600_000, 550_000, 650_000),
+            (200, 750_000, 700_000, 800_000),
+        ]
+
+        result = strategy.get_teams(self.mock_context)
+
+        assert result == {100, 200}
+        mock_execute.assert_called_once()
+
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.sync_execute")
+    def test_returns_empty_when_no_teams_qualify(self, mock_execute):
+        strategy = WeeklyHighVolumeStrategy()
+        mock_execute.return_value = []
+
+        result = strategy.get_teams(self.mock_context)
+
+        assert result == set()
+
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.sync_execute")
+    def test_handles_clickhouse_errors(self, mock_execute):
+        strategy = WeeklyHighVolumeStrategy()
+        mock_execute.side_effect = Exception("ClickHouse timeout")
+
+        result = strategy.get_teams(self.mock_context)
+
+        assert result == set()
+        self.mock_context.log.warning.assert_called_once()
+
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.sync_execute")
+    def test_respects_custom_threshold_env_var(self, mock_execute):
+        strategy = WeeklyHighVolumeStrategy()
+        mock_execute.return_value = [(100, 1_500_000, 1_200_000, 1_800_000)]
+
+        with patch.dict(os.environ, {"WEB_ANALYTICS_WEEKLY_PAGEVIEWS_THRESHOLD": "1000000"}):
+            result = strategy.get_teams(self.mock_context)
+
+        assert result == {100}
+        call_sql = mock_execute.call_args[0][0]
+        assert "1000000" in call_sql
+
+    def test_handles_invalid_threshold_env_var(self):
+        strategy = WeeklyHighVolumeStrategy()
+
+        with patch.dict(os.environ, {"WEB_ANALYTICS_WEEKLY_PAGEVIEWS_THRESHOLD": "not_a_number"}):
+            result = strategy.get_teams(self.mock_context)
+
+        assert result == set()
+        self.mock_context.log.warning.assert_called_once()
+
+    def test_strategy_name(self):
+        strategy = WeeklyHighVolumeStrategy()
+        assert strategy.get_name() == "weekly_high_volume"
+
+    @patch("posthog.models.web_preaggregated.team_selection_strategies.WeeklyHighVolumeStrategy.get_teams")
+    def test_included_in_sources_when_strategy_enabled(self, mock_weekly):
+        mock_context = Mock(spec=dagster.OpExecutionContext)
+        mock_context.log = Mock()
+        mock_weekly.return_value = {777, 888}
+
+        with patch.dict(os.environ, {"WEB_ANALYTICS_TEAM_SELECTION_STRATEGIES": "weekly_high_volume"}):
+            result = get_team_ids_from_sources(mock_context)
+
+        assert 777 in result
+        assert 888 in result
+        mock_weekly.assert_called_once_with(mock_context)
+
+
+class TestHighVolumeTeamCandidatesAsset:
+    @patch("products.web_analytics.dags.web_preaggregated_team_selection.sync_execute")
+    def test_materializes_team_candidates(self, mock_execute):
+        mock_execute.return_value = [
+            (100, 600_000, 550_000, 650_000),
+            (200, 750_000, 700_000, 800_000),
+        ]
+
+        context = dagster.build_asset_context()
+        result = web_analytics_high_volume_team_candidates(context)
+
+        assert isinstance(result, dagster.MaterializeResult)
+        metadata = result.metadata
+        assert metadata is not None
+        assert metadata["team_count"] == 2
+        assert metadata["threshold"] == DEFAULT_WEEKLY_PAGEVIEWS_THRESHOLD
+        assert metadata["total_avg_weekly_pageviews"] == 1_350_000
+
+    @patch("products.web_analytics.dags.web_preaggregated_team_selection.sync_execute")
+    def test_handles_no_qualifying_teams(self, mock_execute):
+        mock_execute.return_value = []
+
+        context = dagster.build_asset_context()
+        result = web_analytics_high_volume_team_candidates(context)
+
+        assert isinstance(result, dagster.MaterializeResult)
+        metadata = result.metadata
+        assert metadata is not None
+        assert metadata["team_count"] == 0
+        assert metadata["total_avg_weekly_pageviews"] == 0
+
+    @patch("products.web_analytics.dags.web_preaggregated_team_selection.sync_execute")
+    def test_respects_custom_threshold(self, mock_execute):
+        mock_execute.return_value = [(100, 1_500_000, 1_200_000, 1_800_000)]
+
+        with patch.dict(os.environ, {"WEB_ANALYTICS_WEEKLY_PAGEVIEWS_THRESHOLD": "1000000"}):
+            context = dagster.build_asset_context()
+            result = web_analytics_high_volume_team_candidates(context)
+
+        assert isinstance(result, dagster.MaterializeResult)
+        assert result.metadata is not None
+        assert result.metadata["threshold"] == 1_000_000
+
+    @patch("products.web_analytics.dags.web_preaggregated_team_selection.sync_execute")
+    def test_handles_invalid_threshold_env_var(self, mock_execute):
+        mock_execute.return_value = [(100, 600_000, 550_000, 650_000)]
+
+        with patch.dict(os.environ, {"WEB_ANALYTICS_WEEKLY_PAGEVIEWS_THRESHOLD": "not_a_number"}):
+            context = dagster.build_asset_context()
+            result = web_analytics_high_volume_team_candidates(context)
+
+        assert isinstance(result, dagster.MaterializeResult)
+        assert result.metadata is not None
+        assert result.metadata["threshold"] == DEFAULT_WEEKLY_PAGEVIEWS_THRESHOLD
+
+    @patch("products.web_analytics.dags.web_preaggregated_team_selection.sync_execute")
+    def test_team_details_include_all_stats(self, mock_execute):
+        mock_execute.return_value = [(42, 800_000, 700_000, 900_000)]
+
+        context = dagster.build_asset_context()
+        result = web_analytics_high_volume_team_candidates(context)
+
+        assert isinstance(result, dagster.MaterializeResult)
+        metadata = result.metadata
+        assert metadata is not None
+        team_details = metadata["team_details"]
+        assert "800000" in str(team_details)
+        assert "700000" in str(team_details)
+        assert "900000" in str(team_details)

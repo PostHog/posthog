@@ -35,6 +35,7 @@ from ee.hogai.videos.utils import get_video_duration_s
 logger = structlog.get_logger(__name__)
 
 
+# TODO: Comment to trigger the workers re-deployment.
 # Timeout: 5 minutes (activity timeout is 10 minutes, leaving buffer for other operations)
 MAX_PROCESSING_WAIT_SECONDS = 300
 

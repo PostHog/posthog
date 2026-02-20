@@ -97,8 +97,7 @@ impl CheckpointExporter {
                     error!(
                         remote_path = plan.info.get_metadata_key(),
                         elapsed_seconds = upload_duration.as_secs_f64(),
-                        "Export failed: uploading checkpoint: {}",
-                        e
+                        "Export failed: uploading checkpoint: {e:#}"
                     );
                 }
                 Err(e)

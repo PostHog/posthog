@@ -1,5 +1,8 @@
 {
     "name": "@posthog/products-tasks",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests backend/services -v --tb=short"
+    },
     "peerDependencies": {
         "@dnd-kit/core": "*",
         "@dnd-kit/modifiers": "*",
@@ -10,10 +13,10 @@
         "@types/react": "*",
         "@types/react-dom": "*",
         "clsx": "*",
-        "kea": "*",
-        "kea-forms": "*",
-        "kea-loaders": "*",
-        "kea-router": "*",
+        "kea": "catalog:",
+        "kea-forms": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
         "react": "*",
         "react-dom": "*"
     },
@@ -22,6 +25,7 @@
     },
     "dependencies": {
         "fast-deep-equal": "catalog:",
-        "kea-subscriptions": "catalog:"
+        "kea-subscriptions": "catalog:",
+        "torph": "^0.0.5"
     }
 }

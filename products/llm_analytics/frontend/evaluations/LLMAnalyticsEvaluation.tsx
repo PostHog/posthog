@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
 import { IconArrowLeft, IconInfo } from '@posthog/icons'
@@ -51,6 +51,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         providerKeysLoading,
     } = useValues(llmEvaluationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { searchParams } = useValues(router)
     const {
         setEvaluationName,
         setEvaluationDescription,
@@ -94,7 +95,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         if (hasUnsavedChanges) {
             resetEvaluation()
         }
-        push(urls.llmAnalyticsEvaluations())
+        push(combineUrl(urls.llmAnalyticsEvaluations(), searchParams).url)
     }
 
     return (
@@ -226,6 +227,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                             { value: 'anthropic', label: LLM_PROVIDER_LABELS.anthropic },
                                             { value: 'gemini', label: LLM_PROVIDER_LABELS.gemini },
                                             { value: 'openrouter', label: LLM_PROVIDER_LABELS.openrouter },
+                                            { value: 'fireworks', label: LLM_PROVIDER_LABELS.fireworks },
                                         ]}
                                         fullWidth
                                     />
@@ -237,7 +239,9 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                         <div className="flex items-center gap-1">
                                             <span>API key</span>
                                             <span className="text-muted">-</span>
-                                            <Link to={`${urls.llmAnalyticsEvaluations()}?tab=settings`}>Manage</Link>
+                                            <Link to={urls.settings('environment-llm-analytics', 'llm-analytics-byok')}>
+                                                Manage
+                                            </Link>
                                         </div>
                                     }
                                 >

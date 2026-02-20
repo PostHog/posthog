@@ -1294,6 +1294,36 @@ def send_new_ticket_notification(ticket_id: str, team_id: int, first_message_con
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+def send_conversation_restore_email(email: str, team_id: int, restore_url: str) -> None:
+    """Send email with restore link to recover conversation tickets on a new device."""
+    if not is_email_available(with_absolute_urls=True):
+        logger.warning("Skipping conversation restore email: email service not available")
+        return
+
+    try:
+        team = Team.objects.get(pk=team_id)
+    except Team.DoesNotExist:
+        logger.warning(f"Skipping conversation restore email: team not found (team_id={team_id})")
+        return
+
+    campaign_key = f"conversation_restore_{team_id}_{email}_{timezone.now().timestamp()}"
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=campaign_key,
+        subject=f"Restore your conversations with {team.name}",
+        template_name="conversation_restore",
+        template_context={
+            "team_name": team.name,
+            "restore_url": restore_url,
+        },
+    )
+
+    message.add_recipient(email)
+    message.send()
+    logger.info(f"Sent conversation restore email to {email} for team {team.id}")
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
 def send_project_deleted_email(
     user_id: int,
     project_name: str,

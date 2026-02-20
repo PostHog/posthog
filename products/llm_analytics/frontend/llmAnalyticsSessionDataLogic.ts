@@ -171,7 +171,8 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
             (s) => [s.response],
             (response: AnyResponseType | null): LLMTrace[] => {
                 const tracesResponse = response as TracesQueryResponse | null
-                return tracesResponse?.results || []
+                // Reverse to chronological order (oldest first) for session view
+                return [...(tracesResponse?.results || [])].reverse()
             },
         ],
         summariesLoading: [
