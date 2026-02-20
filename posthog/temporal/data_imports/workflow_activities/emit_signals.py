@@ -155,7 +155,7 @@ def _query_new_records(
     placeholders: dict[str, Any] = {}
     partition_expr = (
         f"parseDateTimeBestEffort({config.partition_field})"
-        if config.partition_field_is_string
+        if config.partition_field_is_datetime_string
         else config.partition_field
     )
     # Continuous sync - need to analyze all that happened since the last one (based on the schema schedule)

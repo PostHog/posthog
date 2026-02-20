@@ -104,7 +104,7 @@ class TestQueryNewRecords:
         assert records == [{"id": 1, "name": "alice"}]
 
     def test_continuous_sync_wraps_string_partition_field(self):
-        config = _make_config(partition_field="updated_at", partition_field_is_string=True)
+        config = _make_config(partition_field="updated_at", partition_field_is_datetime_string=True)
         mock_result = MagicMock()
         mock_result.columns = ["id", "name"]
         mock_result.results = [(1, "alice")]
@@ -144,7 +144,9 @@ class TestQueryNewRecords:
         assert "placeholders" not in mock_parse.call_args.kwargs
 
     def test_first_sync_wraps_string_partition_field(self):
-        config = _make_config(partition_field="time", partition_field_is_string=True, first_sync_lookback_days=14)
+        config = _make_config(
+            partition_field="time", partition_field_is_datetime_string=True, first_sync_lookback_days=14
+        )
         mock_result = MagicMock()
         mock_result.results = []
         mock_result.columns = []
