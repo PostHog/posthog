@@ -1235,9 +1235,19 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             # Get the person object for serialization
             if distinct_id:
-                person = Person.objects.get(team_id=self.team_id, persondistinctid__distinct_id=distinct_id)
-            else:
-                person = Person.objects.get(team_id=self.team_id, uuid=str(person_id))
+            # Get the person object for serialization
+            try:
+                if distinct_id:
+                    person = Person.objects.get(team_id=self.team_id, persondistinctid__distinct_id=distinct_id)
+                else:
+                    person = Person.objects.get(team_id=self.team_id, uuid=str(person_id))
+            except Person.DoesNotExist:
+                identifier = distinct_id or person_id
+                identifier_type = "distinct_id" if distinct_id else "person_id"
+                return response.Response(
+                    {"error": f"Person with {identifier_type} '{identifier}' not found"},
+                    status=404,
+                )
 
             # Build point-in-time properties using the pre-fetched distinct_ids
             point_in_time_properties = build_person_properties_at_time(
