@@ -27,7 +27,6 @@ import { SidePanelContentContainer } from '../SidePanelContentContainer'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelLogic } from '../sidePanelLogic'
 import { sidePanelStatusIncidentIoLogic } from './sidePanelStatusIncidentIoLogic'
-import { sidePanelStatusLogic } from './sidePanelStatusLogic'
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }): React.ReactElement => {
     return (
@@ -41,21 +40,14 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 }
 
 const StatusPageAlert = (): JSX.Element | null => {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const useIncidentIo = !!featureFlags[FEATURE_FLAGS.INCIDENT_IO_STATUS_PAGE]
     const { openSidePanel } = useActions(sidePanelLogic)
-
-    const { status: atlassianStatus, statusPage } = useValues(sidePanelStatusLogic)
-    const { status: incidentIoStatus, statusDescription: incidentIoDescription } =
-        useValues(sidePanelStatusIncidentIoLogic)
-
-    const status = useIncidentIo ? incidentIoStatus : atlassianStatus
+    const { status, statusDescription } = useValues(sidePanelStatusIncidentIoLogic)
 
     if (status === 'operational') {
         return null
     }
 
-    const description = useIncidentIo ? incidentIoDescription : statusPage?.status.description || 'Active incident'
+    const description = statusDescription || 'Active incident'
 
     const severityClass = status.includes('outage')
         ? 'bg-danger-highlight border-danger'
@@ -264,6 +256,59 @@ const SupportResponseTimesTable = ({
     )
 }
 
+function SupportFormBlock({
+    onCancel,
+    billing,
+}: {
+    onCancel: () => void
+    billing: BillingType | null | undefined
+}): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    return (
+        <Section title="Email an engineer">
+            <SupportForm />
+            <LemonButton
+                form="support-modal-form"
+                htmlType="submit"
+                type="primary"
+                data-attr="submit"
+                fullWidth
+                center
+                className="mt-4"
+            >
+                Submit
+            </LemonButton>
+            <LemonButton
+                form="support-modal-form"
+                type="secondary"
+                onClick={onCancel}
+                fullWidth
+                center
+                className="mt-2 mb-4"
+            >
+                Cancel
+            </LemonButton>
+
+            <br />
+
+            {featureFlags[FEATURE_FLAGS.SUPPORT_MESSAGE_OVERRIDE] ? (
+                <div className="border bg-surface-primary p-2 rounded gap-2">
+                    <strong>{SUPPORT_MESSAGE_OVERRIDE_TITLE}</strong>
+                    <p className="mt-2 mb-0">{SUPPORT_MESSAGE_OVERRIDE_BODY}</p>
+                </div>
+            ) : (
+                <>
+                    <div className="mb-2">
+                        <strong>Support is open Monday - Friday</strong>
+                    </div>
+                    <SupportResponseTimesTable billing={billing} isCompact={true} />
+                </>
+            )}
+        </Section>
+    )
+}
+
 export function SidePanelSupport(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -299,55 +344,6 @@ export function SidePanelSupport(): JSX.Element {
         }
     }
 
-    const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element => {
-        const { featureFlags } = useValues(featureFlagLogic)
-
-        return (
-            <Section title="Email an engineer">
-                <SupportForm />
-                <LemonButton
-                    form="support-modal-form"
-                    htmlType="submit"
-                    type="primary"
-                    data-attr="submit"
-                    fullWidth
-                    center
-                    className="mt-4"
-                >
-                    Submit
-                </LemonButton>
-                <LemonButton
-                    form="support-modal-form"
-                    type="secondary"
-                    onClick={onCancel}
-                    fullWidth
-                    center
-                    className="mt-2 mb-4"
-                >
-                    Cancel
-                </LemonButton>
-
-                <br />
-
-                {featureFlags[FEATURE_FLAGS.SUPPORT_MESSAGE_OVERRIDE] ? (
-                    <div className="border bg-surface-primary p-2 rounded gap-2">
-                        <strong>{SUPPORT_MESSAGE_OVERRIDE_TITLE}</strong>
-                        <p className="mt-2 mb-0">{SUPPORT_MESSAGE_OVERRIDE_BODY}</p>
-                    </div>
-                ) : (
-                    <>
-                        <div className="mb-2">
-                            <strong>Support is open Monday - Friday</strong>
-                        </div>
-
-                        {/* Show response time information from billing plans */}
-                        <SupportResponseTimesTable billing={billing} isCompact={true} />
-                    </>
-                )}
-            </Section>
-        )
-    }
-
     return (
         <div
             className={cn('SidePanelSupport', {
@@ -370,6 +366,7 @@ export function SidePanelSupport(): JSX.Element {
                 >
                     {isEmailFormOpen && showEmailSupport && isBillingLoaded && !useProductSupportSidePanel ? (
                         <SupportFormBlock
+                            billing={billing}
                             onCancel={() => {
                                 closeEmailForm()
                                 closeSupportForm()

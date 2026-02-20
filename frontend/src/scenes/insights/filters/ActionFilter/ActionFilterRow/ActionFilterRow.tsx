@@ -7,7 +7,15 @@ import { BuiltLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useState } from 'react'
 
-import { IconCopy, IconEllipsis, IconFilter, IconPencil, IconStack, IconTrash, IconWarning } from '@posthog/icons'
+import {
+    IconCopy,
+    IconEllipsis,
+    IconFilter,
+    IconGroupIntersect,
+    IconPencil,
+    IconTrash,
+    IconWarning,
+} from '@posthog/icons'
 import {
     LemonBadge,
     LemonCheckbox,
@@ -359,7 +367,9 @@ export function ActionFilterRow({
         <TaxonomicPopover
             data-attr={'trend-element-subject-' + index}
             fullWidth
-            groupType={filter.type as TaxonomicFilterGroupType}
+            groupType={
+                showQuickFilters ? TaxonomicFilterGroupType.SuggestedFilters : (filter.type as TaxonomicFilterGroupType)
+            }
             value={getValue(value, filter)}
             filter={filter}
             onChange={(changedValue, taxonomicGroupType, item) => {
@@ -551,7 +561,7 @@ export function ActionFilterRow({
     const combineInlineButton = (
         <LemonButton
             key="combine-inline"
-            icon={<IconStack />}
+            icon={<IconGroupIntersect />}
             title="Count multiple events as a single event"
             data-attr={`show-prop-combine-${index}`}
             noPadding
