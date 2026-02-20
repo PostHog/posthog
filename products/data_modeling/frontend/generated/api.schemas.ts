@@ -36,9 +36,9 @@ export type NodeTypeEnumApi = typeof NodeTypeEnumApi[keyof typeof NodeTypeEnumAp
 
 
 export const NodeTypeEnumApi = {
-  table: 'table',
-  view: 'view',
-  matview: 'matview',
+  Table: 'table',
+  View: 'view',
+  Matview: 'matview',
 } as const;
 
 export interface NodeApi {

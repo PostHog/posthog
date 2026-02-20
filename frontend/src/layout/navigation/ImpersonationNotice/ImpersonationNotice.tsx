@@ -17,7 +17,7 @@ import { impersonationNoticeLogic } from './impersonationNoticeLogic'
 import { ImpersonationReasonModal } from './ImpersonationReasonModal'
 
 function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: () => void }): JSX.Element {
-    const [now, setNow] = useState(dayjs())
+    const [now, setNow] = useState(() => dayjs())
     const { isVisible: isPageVisible } = usePageVisibility()
 
     const duration = dayjs.duration(datetime.diff(now))

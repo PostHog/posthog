@@ -90,7 +90,13 @@ export function IntegrationChoice({
                     ? {
                           items: [
                               ...(integrationsOfKind?.map((integ) => ({
-                                  icon: <img src={integ.icon_url} className="w-6 h-6 rounded" />,
+                                  icon: (
+                                      <img
+                                          src={integ.icon_url}
+                                          alt={`${integ.display_name} icon`}
+                                          className="w-6 h-6 rounded"
+                                      />
+                                  ),
                                   onClick: () => onChange?.(integ.id),
                                   active: integ.id === value,
                                   label: integ.display_name,

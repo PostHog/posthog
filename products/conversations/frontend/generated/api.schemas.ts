@@ -16,9 +16,9 @@ export type ConversationStatusEnumApi = typeof ConversationStatusEnumApi[keyof t
 
 
 export const ConversationStatusEnumApi = {
-  idle: 'idle',
-  in_progress: 'in_progress',
-  canceling: 'canceling',
+  Idle: 'idle',
+  InProgress: 'in_progress',
+  Canceling: 'canceling',
 } as const;
 
 /**
@@ -35,14 +35,14 @@ export type RoleAtOrganizationEnumApi = typeof RoleAtOrganizationEnumApi[keyof t
 
 
 export const RoleAtOrganizationEnumApi = {
-  engineering: 'engineering',
-  data: 'data',
-  product: 'product',
-  founder: 'founder',
-  leadership: 'leadership',
-  marketing: 'marketing',
-  sales: 'sales',
-  other: 'other',
+  Engineering: 'engineering',
+  Data: 'data',
+  Product: 'product',
+  Founder: 'founder',
+  Leadership: 'leadership',
+  Marketing: 'marketing',
+  Sales: 'sales',
+  Other: 'other',
 } as const;
 
 export type BlankEnumApi = typeof BlankEnumApi[keyof typeof BlankEnumApi];
@@ -94,10 +94,10 @@ export type ConversationTypeEnumApi = typeof ConversationTypeEnumApi[keyof typeo
 
 
 export const ConversationTypeEnumApi = {
-  assistant: 'assistant',
-  tool_call: 'tool_call',
-  deep_research: 'deep_research',
-  slack: 'slack',
+  Assistant: 'assistant',
+  ToolCall: 'tool_call',
+  DeepResearch: 'deep_research',
+  Slack: 'slack',
 } as const;
 
 export type ConversationApiMessagesItem = {[key: string]: unknown};
@@ -171,16 +171,16 @@ export type AgentModeEnumApi = typeof AgentModeEnumApi[keyof typeof AgentModeEnu
 
 
 export const AgentModeEnumApi = {
-  product_analytics: 'product_analytics',
-  sql: 'sql',
-  session_replay: 'session_replay',
-  error_tracking: 'error_tracking',
-  plan: 'plan',
-  execution: 'execution',
-  survey: 'survey',
-  onboarding: 'onboarding',
-  research: 'research',
-  flags: 'flags',
+  ProductAnalytics: 'product_analytics',
+  Sql: 'sql',
+  SessionReplay: 'session_replay',
+  ErrorTracking: 'error_tracking',
+  Plan: 'plan',
+  Execution: 'execution',
+  Survey: 'survey',
+  Onboarding: 'onboarding',
+  Research: 'research',
+  Flags: 'flags',
 } as const;
 
 /**
@@ -263,9 +263,9 @@ export type ChannelSourceEnumApi = typeof ChannelSourceEnumApi[keyof typeof Chan
 
 
 export const ChannelSourceEnumApi = {
-  widget: 'widget',
-  email: 'email',
-  slack: 'slack',
+  Widget: 'widget',
+  Email: 'email',
+  Slack: 'slack',
 } as const;
 
 /**
@@ -279,11 +279,11 @@ export type TicketStatusEnumApi = typeof TicketStatusEnumApi[keyof typeof Ticket
 
 
 export const TicketStatusEnumApi = {
-  new: 'new',
-  open: 'open',
-  pending: 'pending',
-  on_hold: 'on_hold',
-  resolved: 'resolved',
+  New: 'new',
+  Open: 'open',
+  Pending: 'pending',
+  OnHold: 'on_hold',
+  Resolved: 'resolved',
 } as const;
 
 /**
@@ -295,9 +295,9 @@ export type PriorityEnumApi = typeof PriorityEnumApi[keyof typeof PriorityEnumAp
 
 
 export const PriorityEnumApi = {
-  low: 'low',
-  medium: 'medium',
-  high: 'high',
+  Low: 'low',
+  Medium: 'medium',
+  High: 'high',
 } as const;
 
 /**

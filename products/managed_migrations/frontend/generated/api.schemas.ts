@@ -17,10 +17,10 @@ export type BatchImportStatusEnumApi = typeof BatchImportStatusEnumApi[keyof typ
 
 
 export const BatchImportStatusEnumApi = {
-  completed: 'completed',
-  failed: 'failed',
-  paused: 'paused',
-  running: 'running',
+  Completed: 'completed',
+  Failed: 'failed',
+  Paused: 'paused',
+  Running: 'running',
 } as const;
 
 /**
@@ -94,9 +94,9 @@ export type ManagedMigrationsListStatus = typeof ManagedMigrationsListStatus[key
 
 
 export const ManagedMigrationsListStatus = {
-  completed: 'completed',
-  failed: 'failed',
-  paused: 'paused',
-  running: 'running',
+  Completed: 'completed',
+  Failed: 'failed',
+  Paused: 'paused',
+  Running: 'running',
 } as const;
 

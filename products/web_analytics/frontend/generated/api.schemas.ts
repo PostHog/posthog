@@ -99,7 +99,7 @@ export type WebAnalyticsBreakdownRetrieveBreakdownBy = typeof WebAnalyticsBreakd
 export const WebAnalyticsBreakdownRetrieveBreakdownBy = {
   DeviceType: 'DeviceType',
   Browser: 'Browser',
-  OS: 'OS',
+  Os: 'OS',
   Viewport: 'Viewport',
   InitialReferringDomain: 'InitialReferringDomain',
   InitialUTMSource: 'InitialUTMSource',

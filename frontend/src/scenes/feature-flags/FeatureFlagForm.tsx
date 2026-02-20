@@ -33,10 +33,12 @@ import {
 } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import 'lib/lemon-ui/Lettermark'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet } from 'lib/utils'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { urls } from 'scenes/urls'
@@ -50,7 +52,6 @@ import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
-import { FeatureFlagTemplates } from './FeatureFlagTemplates'
 
 export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const {
@@ -64,7 +65,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         showImplementation,
         openVariants,
         payloadExpanded,
-        highlightedFields,
     } = useValues(featureFlagLogic)
     const {
         setMultivariateEnabled,
@@ -78,10 +78,11 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         setShowImplementation,
         setOpenVariants,
         setPayloadExpanded,
-        clearHighlight,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
     const hasEvaluationTags = useFeatureFlag('FLAG_EVALUATION_TAGS')
+    const featureFlagsV2Enabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
 
     const isNewFeatureFlag = id === 'new' || id === undefined
     const implementationRef = useRef<HTMLDivElement>(null)
@@ -168,6 +169,11 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                     resourceType={{
                         type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
                     }}
+                    forceBackTo={
+                        isNewFeatureFlag && featureFlagsV2Enabled
+                            ? { key: 'FeatureFlagTemplates', name: 'Templates', path: urls.featureFlagTemplates() }
+                            : undefined
+                    }
                     actions={
                         <>
                             <LemonButton
@@ -199,9 +205,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                 />
 
                 <SceneContent>
-                    {/* Templates - only show for new flags */}
-                    {isNewFeatureFlag && <FeatureFlagTemplates />}
-
                     {/* Two-column layout */}
                     <div className="flex gap-4 flex-wrap items-start">
                         {/* Left column */}
@@ -211,17 +214,14 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 <LemonField
                                     name="key"
                                     label="Flag key"
-                                    info="The key is used to identify the feature flag in the code. Must be unique."
+                                    info="Unique identifier used in your code. Cannot be changed after creation."
                                 >
                                     {({ value, onChange }) => (
                                         <LemonInput
                                             value={value}
-                                            onChange={(newValue) => {
-                                                clearHighlight('key')
-                                                onChange(newValue)
-                                            }}
+                                            onChange={onChange}
                                             data-attr="feature-flag-key"
-                                            className={`ph-ignore-input ${highlightedFields.includes('key') ? 'template-highlight-glow' : ''}`}
+                                            className="ph-ignore-input"
                                             autoComplete="off"
                                             autoCapitalize="off"
                                             autoCorrect="off"
@@ -243,178 +243,220 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
 
                                 <LemonField name="active">
                                     {({ value, onChange }) => (
-                                        <Tooltip
-                                            title="When enabled, this flag evaluates according to your release conditions. When disabled, this flag will not be evaluated and PostHog SDKs default to returning false."
-                                            placement="top"
-                                        >
-                                            <LemonSwitch
-                                                checked={value}
-                                                onChange={onChange}
-                                                label={
-                                                    <span className="flex items-center">
-                                                        <span>Enabled</span>
-                                                        <IconInfo className="ml-1 text-lg" />
-                                                    </span>
-                                                }
-                                                bordered
-                                                fullWidth
-                                                data-attr="feature-flag-enabled"
-                                            />
-                                        </Tooltip>
-                                    )}
-                                </LemonField>
-                            </div>
-
-                            {/* Tags card */}
-                            <div className="rounded border p-3 bg-bg-light gap-2 flex flex-col">
-                                <LemonLabel
-                                    info={
-                                        hasEvaluationTags
-                                            ? 'Use tags to organize flags. Mark tags as evaluation contexts to control when flags evaluate – flags only evaluate when the SDK provides matching environment tags.'
-                                            : 'Use tags to organize and filter your feature flags.'
-                                    }
-                                >
-                                    {hasEvaluationTags ? 'Tags & evaluation contexts' : 'Tags'}
-                                </LemonLabel>
-                                {hasEvaluationTags ? (
-                                    <LemonField name="tags">
-                                        {({ value: formTags, onChange: onChangeTags }) => (
-                                            <LemonField name="evaluation_tags">
-                                                {({ value: formEvalTags, onChange: onChangeEvalTags }) => (
-                                                    <FeatureFlagEvaluationTags
-                                                        tags={formTags}
-                                                        evaluationTags={formEvalTags || []}
-                                                        context="form"
-                                                        onChange={(updatedTags, updatedEvaluationTags) => {
-                                                            onChangeTags(updatedTags)
-                                                            onChangeEvalTags(updatedEvaluationTags)
-                                                        }}
-                                                        tagsAvailable={availableTags.filter(
-                                                            (tag: string) => !formTags?.includes(tag)
-                                                        )}
-                                                    />
-                                                )}
-                                            </LemonField>
-                                        )}
-                                    </LemonField>
-                                ) : (
-                                    <LemonField name="tags">
-                                        {({ value: formTags, onChange: onChangeTags }) => (
-                                            <ObjectTags
-                                                tags={formTags}
-                                                onChange={onChangeTags}
-                                                saving={false}
-                                                tagsAvailable={availableTags.filter(
-                                                    (tag: string) => !formTags?.includes(tag)
-                                                )}
-                                            />
-                                        )}
-                                    </LemonField>
-                                )}
-                            </div>
-
-                            {/* Advanced options card */}
-                            <div className="rounded border p-3 bg-bg-light gap-2 flex flex-col">
-                                <LemonLabel>Advanced options</LemonLabel>
-                                <p className="text-xs text-muted mb-1">
-                                    Control where and how this flag is evaluated. Most flags work fine with the
-                                    defaults.
-                                </p>
-
-                                <LemonField
-                                    name="evaluation_runtime"
-                                    label="Evaluation runtime"
-                                    labelClassName="font-medium"
-                                    info={
-                                        <>
-                                            Controls where your feature flag can be evaluated. If you try to use a flag
-                                            in a runtime where it's not allowed (e.g., using a server-only flag in
-                                            client-side code), it won't evaluate.{' '}
-                                            <Link
-                                                to="https://posthog.com/docs/feature-flags/creating-feature-flags#step-5-configure-evaluation-runtime-and-environments-optional"
-                                                target="_blank"
-                                            >
-                                                Learn more
-                                            </Link>
-                                        </>
-                                    }
-                                >
-                                    <LemonSelect
-                                        fullWidth
-                                        options={[
-                                            {
-                                                label: (
-                                                    <div className="flex flex-col">
-                                                        <span className="font-medium">Both client and server</span>
-                                                        <span className="text-xs text-muted">
-                                                            Single-user apps + multi-user systems
-                                                        </span>
-                                                    </div>
-                                                ),
-                                                value: FeatureFlagEvaluationRuntime.ALL,
-                                                icon: <IconGlobe />,
-                                            },
-                                            {
-                                                label: (
-                                                    <div className="flex flex-col">
-                                                        <span className="font-medium">Client-side only</span>
-                                                        <span className="text-xs text-muted">
-                                                            Single-user apps (mobile, desktop, embedded)
-                                                        </span>
-                                                    </div>
-                                                ),
-                                                value: FeatureFlagEvaluationRuntime.CLIENT,
-                                                icon: <IconList />,
-                                            },
-                                            {
-                                                label: (
-                                                    <div className="flex flex-col">
-                                                        <span className="font-medium">Server-side only</span>
-                                                        <span className="text-xs text-muted">
-                                                            Multi-user systems in trusted environments
-                                                        </span>
-                                                    </div>
-                                                ),
-                                                value: FeatureFlagEvaluationRuntime.SERVER,
-                                                icon: <IconServer />,
-                                            },
-                                        ]}
-                                        data-attr="feature-flag-evaluation-runtime"
-                                    />
-                                </LemonField>
-
-                                <LemonDivider className="my-1" />
-
-                                <LemonField
-                                    name="ensure_experience_continuity"
-                                    label="Persistence"
-                                    labelClassName="font-medium"
-                                    info={
-                                        <>
-                                            If your feature flag is applied before identifying the user, use this to
-                                            ensure that the flag value remains consistent for the same user. This
-                                            requires creating profiles for anonymous users.{' '}
-                                            <Link
-                                                to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
-                                                target="_blank"
-                                            >
-                                                Learn more
-                                            </Link>
-                                        </>
-                                    }
-                                >
-                                    {({ value, onChange }) => (
                                         <LemonSwitch
                                             checked={value}
                                             onChange={onChange}
+                                            label={
+                                                <span className="flex items-center gap-1">
+                                                    <span>Enabled</span>
+                                                    <Tooltip title="When disabled, all SDKs return false without checking release conditions.">
+                                                        <IconInfo className="text-secondary text-base" />
+                                                    </Tooltip>
+                                                </span>
+                                            }
                                             bordered
                                             fullWidth
-                                            label="Persist flag across authentication steps"
-                                            data-attr="feature-flag-persist-across-auth"
+                                            data-attr="feature-flag-enabled"
                                         />
                                     )}
                                 </LemonField>
                             </div>
+
+                            {/* Advanced options - collapsed by default */}
+                            <LemonCollapse
+                                className="bg-bg-light"
+                                panels={[
+                                    {
+                                        key: 'advanced',
+                                        header: {
+                                            children: (
+                                                <div className="py-1">
+                                                    <div className="font-semibold">Advanced options</div>
+                                                    <div className="text-secondary text-sm font-normal">
+                                                        Tags, evaluation contexts, runtime settings, and persistence.
+                                                    </div>
+                                                </div>
+                                            ),
+                                        },
+                                        content: (
+                                            <div className="flex flex-col gap-4">
+                                                {/* Tags section */}
+                                                <div className="flex flex-col gap-2">
+                                                    <label className="text-sm font-medium flex items-center gap-1">
+                                                        {hasEvaluationTags ? 'Tags & evaluation contexts' : 'Tags'}
+                                                        <Tooltip
+                                                            title={
+                                                                hasEvaluationTags ? (
+                                                                    <>
+                                                                        Use tags to organize flags. Mark a tag as an
+                                                                        evaluation context to restrict where this flag
+                                                                        can evaluate.{' '}
+                                                                        <Link
+                                                                            to="https://posthog.com/docs/feature-flags/evaluation-contexts"
+                                                                            target="_blank"
+                                                                        >
+                                                                            Learn more
+                                                                        </Link>
+                                                                    </>
+                                                                ) : (
+                                                                    'Organize and filter your flags.'
+                                                                )
+                                                            }
+                                                            interactive={hasEvaluationTags}
+                                                        >
+                                                            <IconInfo className="text-secondary text-base" />
+                                                        </Tooltip>
+                                                    </label>
+                                                    {hasEvaluationTags ? (
+                                                        <LemonField name="tags">
+                                                            {({ value: formTags, onChange: onChangeTags }) => (
+                                                                <LemonField name="evaluation_tags">
+                                                                    {({
+                                                                        value: formEvalTags,
+                                                                        onChange: onChangeEvalTags,
+                                                                    }) => (
+                                                                        <FeatureFlagEvaluationTags
+                                                                            tags={formTags}
+                                                                            evaluationTags={formEvalTags || []}
+                                                                            context="form"
+                                                                            onChange={(
+                                                                                updatedTags,
+                                                                                updatedEvaluationTags
+                                                                            ) => {
+                                                                                onChangeTags(updatedTags)
+                                                                                onChangeEvalTags(updatedEvaluationTags)
+                                                                            }}
+                                                                            tagsAvailable={availableTags.filter(
+                                                                                (tag: string) =>
+                                                                                    !formTags?.includes(tag)
+                                                                            )}
+                                                                        />
+                                                                    )}
+                                                                </LemonField>
+                                                            )}
+                                                        </LemonField>
+                                                    ) : (
+                                                        <LemonField name="tags">
+                                                            {({ value: formTags, onChange: onChangeTags }) => (
+                                                                <ObjectTags
+                                                                    tags={formTags}
+                                                                    onChange={onChangeTags}
+                                                                    saving={false}
+                                                                    tagsAvailable={availableTags.filter(
+                                                                        (tag: string) => !formTags?.includes(tag)
+                                                                    )}
+                                                                />
+                                                            )}
+                                                        </LemonField>
+                                                    )}
+                                                </div>
+
+                                                <LemonDivider className="my-1" />
+
+                                                {/* Evaluation runtime */}
+                                                <LemonField
+                                                    name="evaluation_runtime"
+                                                    label="Evaluation runtime"
+                                                    labelClassName="text-sm font-medium"
+                                                    info={
+                                                        <>
+                                                            Control whether this flag evaluates on client, server, or
+                                                            both.{' '}
+                                                            <Link
+                                                                to="https://posthog.com/docs/feature-flags/creating-feature-flags#step-5-configure-evaluation-runtime-and-environments-optional"
+                                                                target="_blank"
+                                                            >
+                                                                Learn more
+                                                            </Link>
+                                                        </>
+                                                    }
+                                                >
+                                                    <LemonSelect
+                                                        fullWidth
+                                                        options={[
+                                                            {
+                                                                label: (
+                                                                    <div className="flex flex-col">
+                                                                        <span className="font-medium">
+                                                                            Both client and server
+                                                                        </span>
+                                                                        <span className="text-xs text-muted">
+                                                                            Single-user apps + multi-user systems
+                                                                        </span>
+                                                                    </div>
+                                                                ),
+                                                                value: FeatureFlagEvaluationRuntime.ALL,
+                                                                icon: <IconGlobe />,
+                                                            },
+                                                            {
+                                                                label: (
+                                                                    <div className="flex flex-col">
+                                                                        <span className="font-medium">
+                                                                            Client-side only
+                                                                        </span>
+                                                                        <span className="text-xs text-muted">
+                                                                            Single-user apps (mobile, desktop, embedded)
+                                                                        </span>
+                                                                    </div>
+                                                                ),
+                                                                value: FeatureFlagEvaluationRuntime.CLIENT,
+                                                                icon: <IconList />,
+                                                            },
+                                                            {
+                                                                label: (
+                                                                    <div className="flex flex-col">
+                                                                        <span className="font-medium">
+                                                                            Server-side only
+                                                                        </span>
+                                                                        <span className="text-xs text-muted">
+                                                                            Multi-user systems in trusted environments
+                                                                        </span>
+                                                                    </div>
+                                                                ),
+                                                                value: FeatureFlagEvaluationRuntime.SERVER,
+                                                                icon: <IconServer />,
+                                                            },
+                                                        ]}
+                                                        data-attr="feature-flag-evaluation-runtime"
+                                                    />
+                                                </LemonField>
+
+                                                <LemonDivider className="my-1" />
+
+                                                {/* Persistence */}
+                                                <LemonField
+                                                    name="ensure_experience_continuity"
+                                                    label="Persistence"
+                                                    labelClassName="text-sm font-medium"
+                                                    info={
+                                                        <>
+                                                            Keep flag values consistent before and after login. Requires
+                                                            anonymous user profiles.{' '}
+                                                            <Link
+                                                                to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
+                                                                target="_blank"
+                                                            >
+                                                                Learn more
+                                                            </Link>
+                                                        </>
+                                                    }
+                                                >
+                                                    {({ value, onChange }) => (
+                                                        <LemonSwitch
+                                                            checked={value}
+                                                            onChange={onChange}
+                                                            bordered
+                                                            fullWidth
+                                                            label="Persist flag across authentication steps"
+                                                            data-attr="feature-flag-persist-across-auth"
+                                                        />
+                                                    )}
+                                                </LemonField>
+                                            </div>
+                                        ),
+                                    },
+                                ]}
+                            />
                         </div>
 
                         {/* Right column */}
@@ -422,14 +464,11 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                             {/* Flag type card */}
                             <div className="rounded border p-3 bg-bg-light gap-4 flex flex-col">
                                 <div className="flex flex-col gap-2">
-                                    <LemonLabel info="Changing flag type may clear existing configuration. Switching from Multivariate will remove all variants and their payloads. Switching from Remote config or Boolean will remove the payload.">
+                                    <LemonLabel info="Changing type may remove existing variants or payloads.">
                                         Flag type
                                     </LemonLabel>
                                     <LemonSelect
                                         fullWidth
-                                        className={
-                                            highlightedFields.includes('flagType') ? 'template-highlight-glow' : ''
-                                        }
                                         value={
                                             featureFlag.is_remote_configuration
                                                 ? 'remote_config'
@@ -438,7 +477,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                   : 'boolean'
                                         }
                                         onChange={(value) => {
-                                            clearHighlight('flagType')
                                             if (value === 'remote_config') {
                                                 setFeatureFlag({
                                                     ...featureFlag,
@@ -524,8 +562,8 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                             <>
                                                 Returns <code className="text-xs">true</code> or{' '}
                                                 <code className="text-xs">false</code> based on targeting rules. You can
-                                                optionally attach a JSON payload when the flag is{' '}
-                                                <code className="text-xs">true</code>.
+                                                optionally attach a JSON payload that will be available on the flag when
+                                                it evaluates to <code className="text-xs">true</code>.
                                             </>
                                         )}
                                     </div>
@@ -606,7 +644,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                             data-attr={`feature-flag-variant-description-${index}`}
                                                         />
 
-                                                        <LemonLabel info="Optionally specify a JSON payload to be returned when this variant is selected.">
+                                                        <LemonLabel info="Optionally return JSON data when this variant matches.">
                                                             Payload
                                                         </LemonLabel>
                                                         <JSONEditorInput
@@ -667,7 +705,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 {/* Payload section - for boolean and remote config flags */}
                                 {!multivariateEnabled && featureFlag.is_remote_configuration && (
                                     <div className="flex flex-col gap-2">
-                                        <LemonLabel info="Specify a JSON payload to be returned for this remote config flag.">
+                                        <LemonLabel info="JSON data returned by this remote config.">
                                             Payload
                                         </LemonLabel>
                                         <div className="text-secondary text-xs mb-1">
@@ -695,7 +733,13 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                             When the flag evaluates to{' '}
                                                             <code className="text-xs">true</code>, this payload will be
                                                             available via{' '}
-                                                            <code className="text-xs">getFeatureFlagPayload</code>.
+                                                            <code className="text-xs">getFeatureFlagPayload</code>.{' '}
+                                                            <Link
+                                                                to="https://posthog.com/docs/feature-flags/creating-feature-flags#payloads"
+                                                                target="_blank"
+                                                            >
+                                                                Learn more
+                                                            </Link>
                                                         </div>
                                                         <Group name={['filters', 'payloads']}>
                                                             <LemonField name="true">
@@ -718,8 +762,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
                                         variants={nonEmptyVariants}
-                                        highlightedFields={highlightedFields}
-                                        onClearHighlight={clearHighlight}
                                     />
                                 </div>
                             )}

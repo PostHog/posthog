@@ -357,9 +357,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.abortAnyRunningQuery()
 
                     try {
+                        // Only persist sm layouts; xs layouts are derived on the fly
                         const layoutsToUpdate = (values.dashboard?.tiles || []).map((tile) => ({
                             id: tile.id,
-                            layouts: tile.layouts,
+                            layouts: tile.layouts?.sm ? { sm: tile.layouts.sm } : {},
                         }))
 
                         breakpoint()
@@ -568,9 +569,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 updateLayouts: (state, { layouts }) => {
                     const itemLayouts = layoutsByTile(layouts)
 
+                    // Only persist sm layouts; xs layouts are derived on the fly
                     return {
                         ...state,
-                        tiles: state?.tiles?.map((tile) => ({ ...tile, layouts: itemLayouts[tile.id] })),
+                        tiles: state?.tiles?.map((tile) => ({
+                            ...tile,
+                            layouts: itemLayouts[tile.id]?.sm ? { sm: itemLayouts[tile.id].sm } : {},
+                        })),
                     } as DashboardType<QueryBasedInsightModel>
                 },
                 [dashboardsModel.actionTypes.tileMovedToDashboard]: (state, { tile, dashboardId }) => {

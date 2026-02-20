@@ -1,6 +1,7 @@
 import '../../lib/components/Cards/InsightCard/InsightCard.scss'
 
 import posthog from 'posthog-js'
+import { Fragment } from 'react'
 
 import {
     ActivityChange,
@@ -194,7 +195,7 @@ const insightActionsMapping: Record<
                     </>
                 }
                 listParts={addedDashboards.map((d) => (
-                    <>{linkToDashboard(d)}</>
+                    <Fragment key={d.id}>{linkToDashboard(d)}</Fragment>
                 ))}
             />
         ) : null
@@ -208,7 +209,7 @@ const insightActionsMapping: Record<
                     </>
                 }
                 listParts={removedDashboards.map((d) => (
-                    <>{linkToDashboard(d)}</>
+                    <Fragment key={d.id}>{linkToDashboard(d)}</Fragment>
                 ))}
             />
         ) : null

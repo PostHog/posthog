@@ -21,14 +21,14 @@ export type RoleAtOrganizationEnumApi = typeof RoleAtOrganizationEnumApi[keyof t
 
 
 export const RoleAtOrganizationEnumApi = {
-  engineering: 'engineering',
-  data: 'data',
-  product: 'product',
-  founder: 'founder',
-  leadership: 'leadership',
-  marketing: 'marketing',
-  sales: 'sales',
-  other: 'other',
+  Engineering: 'engineering',
+  Data: 'data',
+  Product: 'product',
+  Founder: 'founder',
+  Leadership: 'leadership',
+  Marketing: 'marketing',
+  Sales: 'sales',
+  Other: 'other',
 } as const;
 
 export type BlankEnumApi = typeof BlankEnumApi[keyof typeof BlankEnumApi];
@@ -118,9 +118,9 @@ export type EvaluationRuntimeEnumApi = typeof EvaluationRuntimeEnumApi[keyof typ
 
 
 export const EvaluationRuntimeEnumApi = {
-  server: 'server',
-  client: 'client',
-  all: 'all',
+  Server: 'server',
+  Client: 'client',
+  All: 'all',
 } as const;
 
 /**
@@ -131,8 +131,8 @@ export type BucketingIdentifierEnumApi = typeof BucketingIdentifierEnumApi[keyof
 
 
 export const BucketingIdentifierEnumApi = {
-  distinct_id: 'distinct_id',
-  device_id: 'device_id',
+  DistinctId: 'distinct_id',
+  DeviceId: 'device_id',
 } as const;
 
 export type MinimalFeatureFlagApiFilters = {[key: string]: unknown};
@@ -188,8 +188,8 @@ export type ExperimentTypeEnumApi = typeof ExperimentTypeEnumApi[keyof typeof Ex
 
 
 export const ExperimentTypeEnumApi = {
-  web: 'web',
-  product: 'product',
+  Web: 'web',
+  Product: 'product',
 } as const;
 
 /**
@@ -203,11 +203,11 @@ export type ConclusionEnumApi = typeof ConclusionEnumApi[keyof typeof Conclusion
 
 
 export const ConclusionEnumApi = {
-  won: 'won',
-  lost: 'lost',
-  inconclusive: 'inconclusive',
-  stopped_early: 'stopped_early',
-  invalid: 'invalid',
+  Won: 'won',
+  Lost: 'lost',
+  Inconclusive: 'inconclusive',
+  StoppedEarly: 'stopped_early',
+  Invalid: 'invalid',
 } as const;
 
 /**

@@ -198,7 +198,7 @@ function DestinationEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX
                                     </LemonButton>
                                 </div>
 
-                                <iframe srcDoc={value} sandbox="" className="flex-1" />
+                                <iframe srcDoc={value} sandbox="" title="Email template preview" className="flex-1" />
                             </>
                         )}
                     </LemonField>
@@ -556,6 +556,7 @@ function NativeEmailTemplaterForm({
                                 <iframe
                                     srcDoc={previewTemplate?.content.email.html}
                                     sandbox=""
+                                    title="Email template preview"
                                     className="w-full h-full border-0"
                                 />
                             </div>
@@ -577,7 +578,7 @@ function NativeEmailTemplaterForm({
                                     </LemonButton>
                                 </div>
 
-                                <iframe srcDoc={value} sandbox="" className="flex-1" />
+                                <iframe srcDoc={value} sandbox="" title="Email template preview" className="flex-1" />
                             </>
                         )}
                     </LemonField>

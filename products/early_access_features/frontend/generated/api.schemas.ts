@@ -16,9 +16,9 @@ export type EvaluationRuntimeEnumApi = typeof EvaluationRuntimeEnumApi[keyof typ
 
 
 export const EvaluationRuntimeEnumApi = {
-  server: 'server',
-  client: 'client',
-  all: 'all',
+  Server: 'server',
+  Client: 'client',
+  All: 'all',
 } as const;
 
 export type BlankEnumApi = typeof BlankEnumApi[keyof typeof BlankEnumApi];
@@ -42,8 +42,8 @@ export type BucketingIdentifierEnumApi = typeof BucketingIdentifierEnumApi[keyof
 
 
 export const BucketingIdentifierEnumApi = {
-  distinct_id: 'distinct_id',
-  device_id: 'device_id',
+  DistinctId: 'distinct_id',
+  DeviceId: 'device_id',
 } as const;
 
 export type MinimalFeatureFlagApiFilters = {[key: string]: unknown};
@@ -93,12 +93,12 @@ export type StageEnumApi = typeof StageEnumApi[keyof typeof StageEnumApi];
 
 
 export const StageEnumApi = {
-  draft: 'draft',
-  concept: 'concept',
-  alpha: 'alpha',
-  beta: 'beta',
-  'general-availability': 'general-availability',
-  archived: 'archived',
+  Draft: 'draft',
+  Concept: 'concept',
+  Alpha: 'alpha',
+  Beta: 'beta',
+  GeneralAvailability: 'general-availability',
+  Archived: 'archived',
 } as const;
 
 export interface EarlyAccessFeatureApi {

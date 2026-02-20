@@ -84,7 +84,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
             <TextareaAutosize
                 minRows={minRows}
                 ref={textRef}
-                className={cn('LemonTextArea border w-full', hasFooter ? 'rounded-t' : 'rounded', className)}
+                className={cn('LemonTextArea w-full', hasFooter ? 'rounded-t' : 'rounded', className)}
                 onKeyDown={(e) => {
                     if (stopPropagation) {
                         e.stopPropagation()

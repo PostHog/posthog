@@ -614,7 +614,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     <div className="text-secondary text-sm mb-2">
                                         Use tags to organize and filter your feature flags. Mark specific tags as{' '}
                                         <strong>evaluation contexts</strong> to control when flags can be evaluated –
-                                        flags will only evaluate when the SDK provides matching environment tags.{' '}
+                                        flags will only evaluate when the SDK provides matching evaluation contexts.{' '}
                                         <Link
                                             to="https://posthog.com/docs/feature-flags/evaluation-environments"
                                             target="_blank"

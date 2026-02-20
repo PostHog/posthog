@@ -21,14 +21,14 @@ export type CategoryEnumApi = typeof CategoryEnumApi[keyof typeof CategoryEnumAp
 
 
 export const CategoryEnumApi = {
-  acquisition: 'acquisition',
-  activation: 'activation',
-  monetization: 'monetization',
-  expansion: 'expansion',
-  referral: 'referral',
-  retention: 'retention',
-  churn: 'churn',
-  reactivation: 'reactivation',
+  Acquisition: 'acquisition',
+  Activation: 'activation',
+  Monetization: 'monetization',
+  Expansion: 'expansion',
+  Referral: 'referral',
+  Retention: 'retention',
+  Churn: 'churn',
+  Reactivation: 'reactivation',
 } as const;
 
 export interface CoreEventApi {

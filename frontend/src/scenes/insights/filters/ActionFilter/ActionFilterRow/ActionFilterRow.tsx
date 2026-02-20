@@ -367,7 +367,9 @@ export function ActionFilterRow({
         <TaxonomicPopover
             data-attr={'trend-element-subject-' + index}
             fullWidth
-            groupType={filter.type as TaxonomicFilterGroupType}
+            groupType={
+                showQuickFilters ? TaxonomicFilterGroupType.SuggestedFilters : (filter.type as TaxonomicFilterGroupType)
+            }
             value={getValue(value, filter)}
             filter={filter}
             onChange={(changedValue, taxonomicGroupType, item) => {

@@ -359,9 +359,75 @@ function buildGroupedSchemasByOutput(schema, mappings) {
     return grouped
 }
 
+// ---------------------------------------------------------------------------
+// Schema preprocessing
+//
+// Orval's PascalCase enum key generation breaks certain schema patterns.
+// We fix this by rewriting the OpenAPI schema *before* orval sees it.
+//
+// Two cases:
+//
+// 1. Named schemas with meaningless PascalCase keys (SCHEMAS_TO_INLINE)
+//    TimezoneEnum has 596 IANA identifiers like "Africa/Abidjan" that become
+//    "AfricaAbidjan" — losing the path separator and making lookups impossible.
+//    We delete the schema and replace every $ref with {type: 'string'}.
+//
+// 2. Inline ordering enums with colliding keys (stripCollidingInlineEnums)
+//    DRF ordering params include both "created_at" and "-created_at", which
+//    both PascalCase to "CreatedAt" — producing an object with duplicate keys
+//    where the second silently overwrites the first. We detect this pattern
+//    (any enum with both "x" and "-x" values) and drop the enum constraint
+//    so orval emits string[] instead.
+// ---------------------------------------------------------------------------
+
+const SCHEMAS_TO_INLINE = new Set(['TimezoneEnum'])
+
+function inlineSchemaRefs(obj) {
+    if (!obj || typeof obj !== 'object') {
+        return obj
+    }
+    if (obj.$ref && SCHEMAS_TO_INLINE.has(obj.$ref.replace('#/components/schemas/', ''))) {
+        return { type: 'string' }
+    }
+    for (const [key, value] of Object.entries(obj)) {
+        obj[key] = inlineSchemaRefs(value)
+    }
+    return obj
+}
+
+function stripCollidingInlineEnums(obj) {
+    if (!obj || typeof obj !== 'object') {
+        return
+    }
+    if (Array.isArray(obj)) {
+        obj.forEach(stripCollidingInlineEnums)
+        return
+    }
+    if (obj.type === 'string' && Array.isArray(obj.enum)) {
+        const positives = new Set(obj.enum.filter((v) => !v.startsWith('-')))
+        if (obj.enum.some((v) => v.startsWith('-') && positives.has(v.slice(1)))) {
+            delete obj.enum
+        }
+    }
+    for (const value of Object.values(obj)) {
+        stripCollidingInlineEnums(value)
+    }
+}
+
+function preprocessSchema(schema) {
+    inlineSchemaRefs(schema)
+    for (const name of SCHEMAS_TO_INLINE) {
+        delete schema.components?.schemas?.[name]
+    }
+
+    stripCollidingInlineEnums(schema)
+
+    return schema
+}
+
 // Main execution
 
-const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'))
+const schema = preprocessSchema(JSON.parse(fs.readFileSync(schemaPath, 'utf8')))
 const mappings = loadProductMappings()
 const tmpDir = createTempDir()
 
@@ -463,6 +529,9 @@ export default defineConfig({
           ...(info?.title ? [info.title] : []),
           ...(info?.version ? ['OpenAPI spec version: ' + info.version] : []),
         ],
+        namingConvention: {
+          enum: 'PascalCase',
+        },
         fetch: {
           includeHttpResponseReturnType: false,
         },

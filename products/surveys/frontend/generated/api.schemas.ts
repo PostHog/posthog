@@ -17,10 +17,10 @@ export type SurveyTypeApi = typeof SurveyTypeApi[keyof typeof SurveyTypeApi];
 
 
 export const SurveyTypeApi = {
-  popover: 'popover',
-  widget: 'widget',
-  external_survey: 'external_survey',
-  api: 'api',
+  Popover: 'popover',
+  Widget: 'widget',
+  ExternalSurvey: 'external_survey',
+  Api: 'api',
 } as const;
 
 /**
@@ -32,9 +32,9 @@ export type EvaluationRuntimeEnumApi = typeof EvaluationRuntimeEnumApi[keyof typ
 
 
 export const EvaluationRuntimeEnumApi = {
-  server: 'server',
-  client: 'client',
-  all: 'all',
+  Server: 'server',
+  Client: 'client',
+  All: 'all',
 } as const;
 
 export type BlankEnumApi = typeof BlankEnumApi[keyof typeof BlankEnumApi];
@@ -58,8 +58,8 @@ export type BucketingIdentifierEnumApi = typeof BucketingIdentifierEnumApi[keyof
 
 
 export const BucketingIdentifierEnumApi = {
-  distinct_id: 'distinct_id',
-  device_id: 'device_id',
+  DistinctId: 'distinct_id',
+  DeviceId: 'device_id',
 } as const;
 
 export type MinimalFeatureFlagApiFilters = {[key: string]: unknown};
@@ -111,14 +111,14 @@ export type RoleAtOrganizationEnumApi = typeof RoleAtOrganizationEnumApi[keyof t
 
 
 export const RoleAtOrganizationEnumApi = {
-  engineering: 'engineering',
-  data: 'data',
-  product: 'product',
-  founder: 'founder',
-  leadership: 'leadership',
-  marketing: 'marketing',
-  sales: 'sales',
-  other: 'other',
+  Engineering: 'engineering',
+  Data: 'data',
+  Product: 'product',
+  Founder: 'founder',
+  Leadership: 'leadership',
+  Marketing: 'marketing',
+  Sales: 'sales',
+  Other: 'other',
 } as const;
 
 /**
@@ -156,9 +156,9 @@ export type ResponseSamplingIntervalTypeEnumApi = typeof ResponseSamplingInterva
 
 
 export const ResponseSamplingIntervalTypeEnumApi = {
-  day: 'day',
-  week: 'week',
-  month: 'month',
+  Day: 'day',
+  Week: 'week',
+  Month: 'month',
 } as const;
 
 /**

@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -102,19 +103,19 @@ const featureFlagActionsMapping: Record<
                             const newButtons =
                                 nonEmptyProperties.map((property, idx) => {
                                     return (
-                                        <>
+                                        <Fragment key={property.key ?? idx}>
                                             {' '}
                                             {idx === 0 && (
                                                 <span>
                                                     <strong>{rollout_percentage ?? 100}%</strong> of{' '}
                                                 </span>
                                             )}
-                                            <PropertyFilterButton key={property.key} item={property} />
-                                        </>
+                                            <PropertyFilterButton item={property} />
+                                        </Fragment>
                                     )
                                 }) || []
                             newButtons[0] = (
-                                <>
+                                <Fragment key={nonEmptyProperties[0].key ?? 0}>
                                     <span>
                                         <strong>{rollout_percentage ?? 100}%</strong> of{' '}
                                     </span>
@@ -122,7 +123,7 @@ const featureFlagActionsMapping: Record<
                                         key={nonEmptyProperties[0].key}
                                         item={nonEmptyProperties[0]}
                                     />
-                                </>
+                                </Fragment>
                             )
                             groupAdditions.push(...newButtons)
                         } else {

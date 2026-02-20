@@ -1042,7 +1042,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         FEATURE_FLAGS.TAXONOMIC_QUICK_FILTER_AUTOCAPTURE_EVENTS,
                 }
 
+                const mutuallyExclusivePairs: [TaxonomicFilterGroupType, TaxonomicFilterGroupType][] = [
+                    [TaxonomicFilterGroupType.PageviewUrls, TaxonomicFilterGroupType.PageviewEvents],
+                    [TaxonomicFilterGroupType.Screens, TaxonomicFilterGroupType.ScreenEvents],
+                ]
+                const excluded = new Set<TaxonomicFilterGroupType>()
+                for (const [a, b] of mutuallyExclusivePairs) {
+                    if (resolvedGroupTypes.includes(a) && resolvedGroupTypes.includes(b)) {
+                        console.warn(`TaxonomicFilter: ${a} and ${b} are mutually exclusive, ignoring ${b}`)
+                        excluded.add(b)
+                    }
+                }
+
                 return resolvedGroupTypes.filter((groupType) => {
+                    if (excluded.has(groupType)) {
+                        return false
+                    }
                     if (!availableGroupTypes.has(groupType)) {
                         return false
                     }

@@ -6,7 +6,7 @@ from django.conf import settings
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -46,6 +46,7 @@ from posthog.models.product_intent.product_intent import (
     calculate_product_activation,
 )
 from posthog.models.project import Project
+from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
@@ -80,6 +81,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     group_types = serializers.SerializerMethodField()  # Compat with TeamSerializer
     live_events_token = serializers.SerializerMethodField()  # Compat with TeamSerializer
     product_intents = serializers.SerializerMethodField()  # Compat with TeamSerializer
+    available_setup_task_ids = serializers.SerializerMethodField()  # Compat with TeamSerializer
 
     def validate_app_urls(self, value: list[str | None] | None) -> list[str] | None:
         if value is None:
@@ -176,6 +178,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "conversations_enabled",  # Compat with TeamSerializer
             "conversations_settings",  # Compat with TeamSerializer
             "logs_settings",  # Compat with TeamSerializer
+            "available_setup_task_ids",  # Compat with TeamSerializer
         )
         read_only_fields = (
             "id",
@@ -194,6 +197,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "product_intents",
             "secret_api_token",
             "secret_api_token_backup",
+            "available_setup_task_ids",
         )
 
         team_passthrough_fields = {
@@ -278,6 +282,12 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return ProductIntent.objects.filter(team=team).values(
             "product_type", "created_at", "onboarding_completed_at", "updated_at"
         )
+
+    @extend_schema_field(
+        serializers.ListField(child=serializers.ChoiceField(choices=[(e.value, e.value) for e in SetupTaskId]))
+    )
+    def get_available_setup_task_ids(self, obj) -> list[str]:
+        return [e.value for e in SetupTaskId]
 
     def validate_access_control(self, value) -> None:
         return TeamSerializer.validate_access_control(cast(TeamSerializer, self), value)

@@ -21,14 +21,14 @@ export type RoleAtOrganizationEnumApi = typeof RoleAtOrganizationEnumApi[keyof t
 
 
 export const RoleAtOrganizationEnumApi = {
-  engineering: 'engineering',
-  data: 'data',
-  product: 'product',
-  founder: 'founder',
-  leadership: 'leadership',
-  marketing: 'marketing',
-  sales: 'sales',
-  other: 'other',
+  Engineering: 'engineering',
+  Data: 'data',
+  Product: 'product',
+  Founder: 'founder',
+  Leadership: 'leadership',
+  Marketing: 'marketing',
+  Sales: 'sales',
+  Other: 'other',
 } as const;
 
 export type BlankEnumApi = typeof BlankEnumApi[keyof typeof BlankEnumApi];
@@ -78,8 +78,8 @@ export type SessionRecordingPlaylistTypeEnumApi = typeof SessionRecordingPlaylis
 
 
 export const SessionRecordingPlaylistTypeEnumApi = {
-  collection: 'collection',
-  filters: 'filters',
+  Collection: 'collection',
+  Filters: 'filters',
 } as const;
 
 export type SessionRecordingPlaylistApiRecordingsCounts = {[key: string]: {[key: string]: number | boolean | null}};

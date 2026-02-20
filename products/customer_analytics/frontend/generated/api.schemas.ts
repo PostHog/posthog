@@ -42,12 +42,12 @@ export type CustomerProfileConfigScopeEnumApi = typeof CustomerProfileConfigScop
 
 
 export const CustomerProfileConfigScopeEnumApi = {
-  person: 'person',
-  group_0: 'group_0',
-  group_1: 'group_1',
-  group_2: 'group_2',
-  group_3: 'group_3',
-  group_4: 'group_4',
+  Person: 'person',
+  Group0: 'group_0',
+  Group1: 'group_1',
+  Group2: 'group_2',
+  Group3: 'group_3',
+  Group4: 'group_4',
 } as const;
 
 export interface CustomerProfileConfigApi {
