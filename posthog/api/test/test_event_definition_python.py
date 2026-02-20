@@ -282,11 +282,51 @@ class TestPythonGenerator(APIBaseTest):
             code,
         )
 
-    def _create_mock_property(self, name: str, property_type: str, required: bool = False) -> MagicMock:
+    def test_generate_capture_method_with_optional_in_types(self):
+        method = self.generator._generate_capture_method(
+            "file_downloaded",
+            [
+                self._create_mock_property("file_name", "String", required=True),
+                self._create_mock_property("file_size", "Numeric", required=True, is_optional_in_types=True),
+                self._create_mock_property("label", "String", required=False),
+            ],
+            set(),
+        )
+
+        self.assertEqual(
+            method.strip(),
+            '''def capture_file_downloaded(
+        self,
+        *,
+        # Required event properties
+        file_name: str,
+        # Optional event properties
+        file_size: Optional[float] = None,
+        label: Optional[str] = None,
+        # Additional untyped properties
+        extra_properties: Optional[Dict[str, Any]] = None,
+        # SDK kwargs (distinct_id, timestamp, etc.)
+        **kwargs: Unpack[OptionalCaptureArgs],
+    ) -> Optional[str]:
+        """Capture a `file_downloaded` event with type-safe properties."""
+        properties: Dict[str, Any] = {"file_name": file_name}
+        if file_size is not None:
+            properties["file_size"] = file_size
+        if label is not None:
+            properties["label"] = label
+        if extra_properties is not None:
+            properties.update(extra_properties)
+        return self.capture("file_downloaded", properties=properties, **kwargs)''',
+        )
+
+    def _create_mock_property(
+        self, name: str, property_type: str, required: bool = False, is_optional_in_types: bool = False
+    ) -> MagicMock:
         prop = MagicMock()
         prop.name = name
         prop.property_type = property_type
         prop.is_required = required
+        prop.is_optional_in_types = is_optional_in_types
         return prop
 
 

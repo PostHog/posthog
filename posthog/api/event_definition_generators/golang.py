@@ -11,7 +11,7 @@ from .base import EventDefinitionGenerator
 
 class GolangGenerator(EventDefinitionGenerator):
     def generator_version(self) -> str:
-        return "1.0.0"
+        return "1.1.0"
 
     def language_name(self) -> str:
         return "Go"
@@ -142,8 +142,12 @@ func {func_name_from_base}(base posthog.Capture, properties ...posthog.Propertie
         option_type_name = f"{base_name}Option"
 
         # Split properties into required and optional
-        required_props = sorted([p for p in properties if p.is_required], key=lambda p: p.name)
-        optional_props = sorted([p for p in properties if not p.is_required], key=lambda p: p.name)
+        required_props = sorted(
+            [p for p in properties if p.is_required and not p.is_optional_in_types], key=lambda p: p.name
+        )
+        optional_props = sorted(
+            [p for p in properties if not p.is_required or p.is_optional_in_types], key=lambda p: p.name
+        )
 
         block_lines: list[str] = [
             f"// {option_type_name} configures optional properties for a {event_name} capture.",

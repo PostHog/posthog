@@ -124,6 +124,34 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
             ),
         },
         {
+            title: (
+                <Tooltip title="When enabled, this property will be optional in generated SDK types even if required. Useful when the property is set as a super property via posthog.register().">
+                    <span>Optional in types</span>
+                </Tooltip>
+            ),
+            key: 'is_optional_in_types',
+            width: 130,
+            align: 'center',
+            render: (_, property, index) => (
+                <div
+                    className="flex justify-center items-center cursor-pointer h-full py-2 -my-2"
+                    onClick={() =>
+                        property.is_required
+                            ? updatePropertyInForm(index, {
+                                  is_optional_in_types: !property.is_optional_in_types,
+                              })
+                            : undefined
+                    }
+                >
+                    <LemonCheckbox
+                        checked={property.is_optional_in_types}
+                        onChange={(checked) => updatePropertyInForm(index, { is_optional_in_types: checked })}
+                        disabledReason={!property.is_required ? 'Only applicable to required properties' : undefined}
+                    />
+                </div>
+            ),
+        },
+        {
             title: 'Description',
             key: 'description',
             render: (_, property, index) => (
