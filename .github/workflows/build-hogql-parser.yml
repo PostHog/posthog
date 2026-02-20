@@ -172,7 +172,6 @@ jobs:
               with:
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
-                  version: 0.9.9
 
             - name: Update hogql-parser in requirements
               shell: bash
