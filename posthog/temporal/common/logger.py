@@ -440,14 +440,14 @@ def merge_temporal_context(
 
         for k, v in ctx.items():
             event_dict.setdefault(k, v)
+            event_dict.setdefault("worker", socket.gethostname())
 
     elif temporalio.workflow.in_workflow():
         ctx = get_temporal_workflow_context()
 
         for k, v in ctx.items():
             event_dict.setdefault(k, v)
-
-    event_dict.setdefault("worker", socket.gethostname())
+            event_dict.setdefault("worker", socket.gethostname())
 
     return event_dict
 
