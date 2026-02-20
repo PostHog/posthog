@@ -27,7 +27,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
+import { clearDOMTextSelection, getJSHeapMemory, objectsEqual, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { BREAKPOINTS } from 'scenes/dashboard/dashboardUtils'
@@ -916,6 +916,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         filtersOverrideForLoad: [
             (s) => [s.externalFilters, s.urlFilters],
             (externalFilters, urlFilters) => combineDashboardFilters(externalFilters, urlFilters),
+            { resultEqualityCheck: objectsEqual },
         ],
         effectiveEditBarFilters: [
             (s) => [s.dashboard, s.externalFilters, s.urlFilters, s.intermittentFilters],
@@ -928,6 +929,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 )
                 return effectiveEditBarFilters
             },
+            { resultEqualityCheck: objectsEqual },
         ],
         effectiveRefreshFilters: [
             (s) => [s.dashboard, s.externalFilters, s.urlFilters],
@@ -938,10 +940,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             ): DashboardFilter => {
                 return combineDashboardFilters(dashboard?.persisted_filters || {}, externalFilters, urlFilters)
             },
+            { resultEqualityCheck: objectsEqual },
         ],
         effectiveDashboardVariableOverrides: [
             (s) => [s.dashboard, s.urlVariables],
             (dashboard, urlVariables) => ({ ...dashboard?.persisted_variables, ...urlVariables }),
+            { resultEqualityCheck: objectsEqual },
         ],
         effectiveVariablesAndAssociatedInsights: [
             (s) => [s.dashboard, s.variables, s.urlVariables],

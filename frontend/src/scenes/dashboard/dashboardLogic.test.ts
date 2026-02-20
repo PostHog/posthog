@@ -811,4 +811,46 @@ describe('dashboardLogic', () => {
         // Ensuring we do go back to the API for 800, which was added to dashboard 5
         expectLogic(fiveLogic).toDispatchActions(['loadDashboard']).toFinishAllListeners()
     })
+
+    describe('selector memoization', () => {
+        it('effectiveEditBarFilters returns same reference when inputs unchanged', async () => {
+            logic = dashboardLogic({ id: 11 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const first = logic.values.effectiveEditBarFilters
+            const second = logic.values.effectiveEditBarFilters
+            expect(first).toBe(second)
+        })
+
+        it('effectiveEditBarFilters returns same reference when combineDashboardFilters produces identical output', async () => {
+            logic = dashboardLogic({ id: 11 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // set a date that matches persisted_filters
+            logic.actions.setDates('-24h', undefined)
+            const first = logic.values.effectiveEditBarFilters
+
+            // reset and set the same date again — the output is deep-equal
+            logic.actions.resetIntermittentFilters()
+            logic.actions.setDates('-24h', undefined)
+            const second = logic.values.effectiveEditBarFilters
+
+            expect(first).toBe(second)
+        })
+
+        it('effectiveEditBarFilters returns new reference when filters actually change', async () => {
+            logic = dashboardLogic({ id: 11 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const first = logic.values.effectiveEditBarFilters
+
+            logic.actions.setDates('-7d', null)
+            const second = logic.values.effectiveEditBarFilters
+            expect(first).not.toBe(second)
+            expect(second.date_from).toEqual('-7d')
+        })
+    })
 })
