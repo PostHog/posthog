@@ -12,21 +12,14 @@ import { urls } from 'scenes/urls'
 
 import { SurveyEventName } from '~/types'
 
-import { registerTriggerType } from 'products/workflows/frontend/Workflows/hogflows/registry/triggers/triggerTypeRegistry'
+import {
+    type EventTriggerConfig,
+    registerTriggerType,
+} from 'products/workflows/frontend/Workflows/hogflows/registry/triggers/triggerTypeRegistry'
 import { workflowLogic } from 'products/workflows/frontend/Workflows/workflowLogic'
 
 import { surveyTriggerLogic } from '../../steps/surveyTriggerLogic'
 import { HogFlowAction } from '../../types'
-
-type EventTriggerConfig = {
-    type: 'event'
-    filters: {
-        events?: any[]
-        properties?: any[]
-        actions?: any[]
-        filter_test_accounts?: boolean
-    }
-}
 
 export function isSurveyTriggerConfig(config: Extract<HogFlowAction, { type: 'trigger' }>['config']): boolean {
     if (config.type !== 'event') {

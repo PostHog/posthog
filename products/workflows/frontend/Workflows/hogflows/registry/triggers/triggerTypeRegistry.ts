@@ -1,5 +1,15 @@
 import { FeatureFlagKey } from 'lib/constants'
 
+export type EventTriggerConfig = {
+    type: 'event'
+    filters: {
+        events?: any[]
+        properties?: any[]
+        actions?: any[]
+        filter_test_accounts?: boolean
+    }
+}
+
 export type TriggerTypeDefinition = {
     value: string
     label: string
@@ -19,6 +29,9 @@ export type TriggerTypeDefinition = {
 const triggerTypeDefinitions: TriggerTypeDefinition[] = []
 
 export function registerTriggerType(definition: TriggerTypeDefinition): void {
+    if (triggerTypeDefinitions.some((d) => d.value === definition.value)) {
+        return
+    }
     triggerTypeDefinitions.push(definition)
 }
 

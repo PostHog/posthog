@@ -371,9 +371,7 @@ export const workflowLogic = kea<workflowLogicType>([
                                         filters: 'At least one event or action is required',
                                     }
                                 }
-                            }
-
-                            if (action.config.type === 'schedule') {
+                            } else if (action.config.type === 'schedule') {
                                 if (!action.config.scheduled_at) {
                                     result.valid = false
                                     result.errors = {

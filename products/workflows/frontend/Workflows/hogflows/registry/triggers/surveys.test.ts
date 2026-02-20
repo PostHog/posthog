@@ -152,4 +152,10 @@ describe('surveys', () => {
             expect(surveyType.validate!(config as any)).toEqual(expected)
         })
     })
+
+    it('buildConfig produces a config recognized by matchConfig', () => {
+        const surveyType = getSurveyTriggerType()
+        const config = surveyType.buildConfig()
+        expect(surveyType.matchConfig!(config)).toBe(true)
+    })
 })
