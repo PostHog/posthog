@@ -76,10 +76,7 @@ fn spawn_connection_handler(
             "stage" => stage,
         )
         .increment(1);
-        warn!(
-            "Hyper accept loop ({}): error setting TCP_NODELAY: {}",
-            stage, e
-        );
+        warn!("Hyper accept loop ({stage}): error setting TCP_NODELAY: {e:#}");
     }
 
     let service = hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
@@ -495,13 +492,13 @@ where
                                 "err_type" => "connection",
                                 "stage" => "accept",
                             ).increment(1);
-                            error!("Hyper accept loop: connection error: {}", e);
+                            error!("Hyper accept loop: connection error: {e:#}");
                         } else {
                             metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
                                 "err_type" => "resources",
                                 "stage" => "accept",
                             ).increment(1);
-                            error!("Hyper accept loop: resource error: {}", e);
+                            error!("Hyper accept loop: resource error: {e:#}");
                             tokio::time::sleep(Duration::from_secs(1)).await;
                         }
                         continue;
@@ -564,8 +561,7 @@ where
                     error!(
                         error_type = "connection",
                         pause = "none",
-                        "Hyper accept loop (draining): {}",
-                        e
+                        "Hyper accept loop (draining): {e:#}"
                     );
                 } else {
                     metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
@@ -576,8 +572,7 @@ where
                     error!(
                         error_type = "resources",
                         pause = "none",
-                        "Hyper accept loop (draining): {}",
-                        e
+                        "Hyper accept loop (draining): {e:#}"
                     );
                 }
             }
@@ -604,7 +599,7 @@ where
         info!("Shutting down event restrictions refresh task...");
         cancel_token.cancel();
         if let Err(e) = handle.await {
-            warn!("Event restrictions refresh task failed: {}", e);
+            warn!("Event restrictions refresh task failed: {e:#}");
         }
         info!("Event restrictions refresh task stopped");
     }

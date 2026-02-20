@@ -3750,7 +3750,8 @@ export interface BreakdownFilter {
     breakdown_normalize_url?: boolean
     breakdown_path_cleaning?: boolean
     /**
-     * @maxLength 3
+     * @type array
+     * @maxItems 3
      */
     breakdowns?: Breakdown[] // We want to limit maximum count of breakdowns avoiding overloading.
     breakdown_group_type_index?: integer | null
@@ -4675,9 +4676,10 @@ export enum MarketingAnalyticsBaseColumns {
     ReportedROAS = 'Reported ROAS',
 }
 
-export enum MarketingAnalyticsHelperForColumnNames {
+export enum MarketingAnalyticsConstants {
     Goal = 'Goal',
     CostPer = 'Cost per',
+    ConstantValuePrefix = 'const:',
 }
 
 /** Category for core events (lifecycle stages) */
@@ -4954,6 +4956,7 @@ export const externalDataSources = [
     'Brevo',
     'Postmark',
     'Granola',
+    'BuildBetter',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

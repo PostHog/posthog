@@ -108,43 +108,43 @@ describe('createParseMessageStep', () => {
         }
     })
 
-    it('should drop messages with no value', async () => {
+    it('should send messages with no value to DLQ', async () => {
         const step = createParseMessageStep()
         const input = createInput(0, 1, undefined)
 
         const result = await step(input)
 
-        expect(result.type).toBe(PipelineResultType.DROP)
-        if (result.type === PipelineResultType.DROP) {
+        expect(result.type).toBe(PipelineResultType.DLQ)
+        if (result.type === PipelineResultType.DLQ) {
             expect(result.reason).toBe('message_value_or_timestamp_is_empty')
         }
     })
 
-    it('should drop messages with invalid JSON', async () => {
+    it('should send messages with invalid JSON to DLQ', async () => {
         const step = createParseMessageStep()
         const input = createInput(0, 1, 'not valid json')
 
         const result = await step(input)
 
-        expect(result.type).toBe(PipelineResultType.DROP)
-        if (result.type === PipelineResultType.DROP) {
+        expect(result.type).toBe(PipelineResultType.DLQ)
+        if (result.type === PipelineResultType.DLQ) {
             expect(result.reason).toBe('invalid_json')
         }
     })
 
-    it('should drop messages with invalid message payload schema', async () => {
+    it('should send messages with invalid message payload schema to DLQ', async () => {
         const step = createParseMessageStep()
         const input = createInput(0, 1, JSON.stringify({ invalid: 'schema' }))
 
         const result = await step(input)
 
-        expect(result.type).toBe(PipelineResultType.DROP)
-        if (result.type === PipelineResultType.DROP) {
+        expect(result.type).toBe(PipelineResultType.DLQ)
+        if (result.type === PipelineResultType.DLQ) {
             expect(result.reason).toBe('invalid_message_payload')
         }
     })
 
-    it('should drop non-snapshot messages', async () => {
+    it('should send non-snapshot messages to DLQ', async () => {
         const step = createParseMessageStep()
         const payload = JSON.stringify({
             distinct_id: 'user-123',
@@ -154,13 +154,13 @@ describe('createParseMessageStep', () => {
 
         const result = await step(input)
 
-        expect(result.type).toBe(PipelineResultType.DROP)
-        if (result.type === PipelineResultType.DROP) {
+        expect(result.type).toBe(PipelineResultType.DLQ)
+        if (result.type === PipelineResultType.DLQ) {
             expect(result.reason).toBe('received_non_snapshot_message')
         }
     })
 
-    it('should drop messages with no valid rrweb events', async () => {
+    it('should drop messages with no valid rrweb events with ingestion warning', async () => {
         const step = createParseMessageStep()
         const event = {
             event: '$snapshot_items',
@@ -181,6 +181,11 @@ describe('createParseMessageStep', () => {
         expect(result.type).toBe(PipelineResultType.DROP)
         if (result.type === PipelineResultType.DROP) {
             expect(result.reason).toBe('message_contained_no_valid_rrweb_events')
+            expect(result.warnings).toHaveLength(1)
+            expect(result.warnings[0]).toEqual({
+                type: 'message_contained_no_valid_rrweb_events',
+                details: {},
+            })
         }
     })
 
@@ -292,20 +297,20 @@ describe('createParseMessageStep', () => {
         // No error thrown when topTracker is not provided
     })
 
-    it('should drop messages with missing timestamp', async () => {
+    it('should send messages with missing timestamp to DLQ', async () => {
         const step = createParseMessageStep()
         const payload = createValidSnapshotPayload('session-1')
         const input = createInput(0, 1, payload, undefined, { timestamp: undefined })
 
         const result = await step(input)
 
-        expect(result.type).toBe(PipelineResultType.DROP)
-        if (result.type === PipelineResultType.DROP) {
+        expect(result.type).toBe(PipelineResultType.DLQ)
+        if (result.type === PipelineResultType.DLQ) {
             expect(result.reason).toBe('message_value_or_timestamp_is_empty')
         }
     })
 
-    it('should drop messages with invalid gzip data', async () => {
+    it('should send messages with invalid gzip data to DLQ', async () => {
         const step = createParseMessageStep()
         // Create a message with gzip magic bytes but invalid content
         const message: Message = {
@@ -321,13 +326,13 @@ describe('createParseMessageStep', () => {
 
         const result = await step({ message })
 
-        expect(result.type).toBe(PipelineResultType.DROP)
-        if (result.type === PipelineResultType.DROP) {
+        expect(result.type).toBe(PipelineResultType.DLQ)
+        if (result.type === PipelineResultType.DLQ) {
             expect(result.reason).toBe('invalid_gzip_data')
         }
     })
 
-    it('should drop messages with missing distinct_id', async () => {
+    it('should send messages with missing distinct_id to DLQ', async () => {
         const step = createParseMessageStep()
         const payload = createSnapshotPayload({
             sessionId: 'session-1',
@@ -338,8 +343,8 @@ describe('createParseMessageStep', () => {
 
         const result = await step(input)
 
-        expect(result.type).toBe(PipelineResultType.DROP)
-        if (result.type === PipelineResultType.DROP) {
+        expect(result.type).toBe(PipelineResultType.DLQ)
+        if (result.type === PipelineResultType.DLQ) {
             expect(result.reason).toBe('invalid_message_payload')
         }
     })
@@ -519,5 +524,37 @@ describe('createParseMessageStep', () => {
             expect(result.value.parsedMessage.eventsRange.start.toMillis()).toBe(sixDaysInPast)
             expect(result.value.parsedMessage.eventsRange.end.toMillis()).toBe(sixDaysInFuture)
         }
+    })
+
+    it('should include ingestion warning when dropping messages with timestamp diff too large', async () => {
+        jest.useFakeTimers()
+        jest.setSystemTime(fixedTime)
+
+        const step = createParseMessageStep()
+        const eightDaysInFuture = fixedTimeMs + 8 * 24 * 60 * 60 * 1000
+        const payload = createSnapshotPayload({
+            sessionId: 'session-1',
+            snapshotItems: [
+                { type: 1, timestamp: fixedTimeMs },
+                { type: 2, timestamp: eightDaysInFuture },
+            ],
+            distinctId: 'user-123',
+        })
+        const input = createInput(0, 1, payload)
+
+        const result = await step(input)
+
+        expect(result.type).toBe(PipelineResultType.DROP)
+        expect(result.warnings).toHaveLength(1)
+        expect(result.warnings[0]).toEqual({
+            type: 'message_timestamp_diff_too_large',
+            details: {
+                startDiffDays: expect.any(Number),
+                endDiffDays: expect.any(Number),
+                thresholdDays: 7,
+            },
+        })
+        // The end timestamp is 8 days in the future
+        expect(result.warnings[0].details.endDiffDays).toBeGreaterThanOrEqual(8)
     })
 })
