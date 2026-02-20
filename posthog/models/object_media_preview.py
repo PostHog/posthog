@@ -32,7 +32,7 @@ class ObjectMediaPreview(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     # Previews for other objects could be added here later (e.g. property_definition, feature_flag)
     # When adding, update the constraint below to ensure exactly one is set
     event_definition = models.ForeignKey(
-        "EventDefinition",
+        "event_definitions.EventDefinition",
         on_delete=models.CASCADE,
         null=True,
         blank=True,

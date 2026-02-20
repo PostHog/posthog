@@ -64,6 +64,7 @@ depends_on = [
     "products.desktop_recordings",
     "products.early_access_features",
     "products.endpoints",
+    "products.event_definitions",
     "products.error_tracking",
     "products.experiments",
     "products.links",
@@ -147,6 +148,13 @@ path = "products.endpoints"
 depends_on = [
     "posthog",
     "products.data_warehouse",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.event_definitions"
+depends_on = [
+    "posthog",
 ]
 layer = "non_isolated"
 
