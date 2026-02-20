@@ -59,7 +59,13 @@ function LinkedIssueDisplay({
                     </Link>{' '}
                     to group errors into issues. This can take a moment while we fingerprint the error.
                 </p>
-                <LemonButton type="secondary" size="small" onClick={onEmailEngineer} className="mt-1">
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={onEmailEngineer}
+                    className="mt-1"
+                    data-ph-capture-attribute-error-boundary-interaction="email-engineer-polling"
+                >
                     Email an engineer
                 </LemonButton>
             </div>
@@ -70,7 +76,12 @@ function LinkedIssueDisplay({
         return (
             <div className="my-3 p-3 rounded border space-y-3">
                 <p className="text-muted text-sm mb-2">No public issue found for this error.</p>
-                <LemonButton type="secondary" size="small" onClick={onEmailEngineer}>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={onEmailEngineer}
+                    data-ph-capture-attribute-error-boundary-interaction="email-engineer-timed-out"
+                >
                     Email an engineer
                 </LemonButton>
             </div>
@@ -88,12 +99,18 @@ function LinkedIssueDisplay({
                     targetBlank
                     tooltip="Track this issue on GitHub. Add any extra context about what you were doing when the crash happened in the issue comments!"
                     icon={<img src={ICONS.github} className="w-4 h-4 rounded-sm" />}
+                    data-ph-capture-attribute-error-boundary-interaction="track-github"
                 >
                     Track via GitHub
                 </LemonButton>
             ))}
             <span className="text-muted text-sm">or</span>
-            <LemonButton type="secondary" size="small" onClick={onEmailEngineer}>
+            <LemonButton
+                type="secondary"
+                size="small"
+                onClick={onEmailEngineer}
+                data-ph-capture-attribute-error-boundary-interaction="email-engineer-linked-issue"
+            >
                 Email an engineer
             </LemonButton>
         </div>
@@ -105,7 +122,10 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
     const { openSupportForm } = useActions(supportLogic)
     const showLinkedIssue = useFeatureFlag('ERROR_BOUNDARY_ISSUE_LINK', 'test')
 
-    const additionalProperties = { ...exceptionProps }
+    const additionalProperties: ErrorBoundaryProps['exceptionProps'] = {
+        ...exceptionProps,
+        is_error_boundary_error: true,
+    }
 
     if (currentTeamId !== undefined) {
         additionalProperties.team_id = currentTeamId
@@ -182,6 +202,7 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                                         onClick={emailEngineer}
                                         targetBlank
                                         className="mt-2"
+                                        data-ph-capture-attribute-error-boundary-interaction="email-engineer-control"
                                     >
                                         Email an engineer
                                     </LemonButton>

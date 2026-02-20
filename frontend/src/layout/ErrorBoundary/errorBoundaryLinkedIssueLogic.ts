@@ -1,4 +1,5 @@
 import { actions, events, kea, key, listeners, path, props, reducers } from 'kea'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { retryWithBackoff } from 'lib/utils'
@@ -63,8 +64,17 @@ export const errorBoundaryLinkedIssueLogic = kea<errorBoundaryLinkedIssueLogicTy
                     }
                 )
                 actions.setExternalUrls(result.external_urls)
+                posthog.capture('error_boundary_issue_lookup_completed', {
+                    error_boundary_exception_id: props.eventUuid,
+                    error_boundary_linked_issue_result: 'found_issue',
+                    error_boundary_linked_issues: result.external_urls,
+                })
             } catch {
                 actions.setTimedOut()
+                posthog.capture('error_boundary_issue_lookup_completed', {
+                    error_boundary_exception_id: props.eventUuid,
+                    error_boundary_linked_issue_result: 'timed_out',
+                })
             }
         },
     })),
