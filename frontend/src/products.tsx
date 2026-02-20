@@ -187,8 +187,8 @@ export const productRedirects: Record<
         combineUrl('/customer_analytics/dashboard', searchParams, hashParams).url,
     '/llm-analytics': (_params, searchParams, hashParams) =>
         combineUrl(`/llm-analytics/dashboard`, searchParams, hashParams).url,
-    '/llm-analytics/settings': (_params, searchParams, hashParams) =>
-        combineUrl(urls.settings('environment-llm-analytics', 'llm-analytics-byok'), searchParams, hashParams).url,
+    '/llm-analytics/settings': (_params, searchParams) =>
+        combineUrl(urls.settings('environment-llm-analytics', 'llm-analytics-byok'), searchParams).url,
     '/llm-observability': (_params, searchParams, hashParams) =>
         combineUrl(`/llm-analytics/dashboard`, searchParams, hashParams).url,
     '/llm-observability/dashboard': (_params, searchParams, hashParams) =>
