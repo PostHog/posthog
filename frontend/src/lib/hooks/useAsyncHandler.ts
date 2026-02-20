@@ -1,32 +1,33 @@
-import { useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 
 /**
  * Wraps an event handler to set a loading state while the handler is running.
- * @param onEvent The event handler to wrap.
- * @returns The wrapped event handler and a loading state.
+ * Returns a stable function reference via ref pattern to avoid unnecessary re-renders.
+ *
  * @example
  * const { loading, onEvent } = useAsyncHandler(() => await api.doSomething())
- * return <LemonButton onClick={onEvent} loading={loading}>Click me</button>
+ * return <LemonButton onClick={onEvent} loading={loading}>Click me</LemonButton>
  */
 export function useAsyncHandler<E extends React.UIEvent>(
     onEvent: ((e: E) => any) | undefined
 ): { loading: boolean; onEvent: ((e: E) => void) | undefined } {
     const [loading, setLoading] = useState(false)
+    const onEventRef = useRef(onEvent)
+    onEventRef.current = onEvent
 
-    const onEventWrapper = onEvent
-        ? (e: E) => {
-              if (onEvent) {
-                  const result = onEvent(e)
-                  if (result instanceof Promise) {
-                      setLoading(true)
-                      void result.finally(() => setLoading(false))
-                  }
-              }
-          }
-        : undefined
+    const stableWrapper = useCallback((e: E) => {
+        const handler = onEventRef.current
+        if (handler) {
+            const result = handler(e)
+            if (result instanceof Promise) {
+                setLoading(true)
+                void result.finally(() => setLoading(false))
+            }
+        }
+    }, [])
 
     return {
-        loading: loading,
-        onEvent: onEventWrapper,
+        loading,
+        onEvent: onEvent ? stableWrapper : undefined,
     }
 }
