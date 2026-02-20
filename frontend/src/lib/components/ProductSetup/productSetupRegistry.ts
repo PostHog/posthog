@@ -421,7 +421,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.RunFirstQuery],
                 getUrl: () => urls.sqlEditor(),
-                targetSelector: '[data-attr="sql-editor-save-view-button"]',
+                targetSelector: '[data-attr="sql-editor-save-options-button"]',
             },
         ],
     },

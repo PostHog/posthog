@@ -336,6 +336,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 onClick={() => saveAsInsight()}
                                 sideIcon={<IconChevronDown />}
                                 sideAction={{
+                                    'data-attr': 'sql-editor-save-options-button',
                                     dropdown: {
                                         placement: 'bottom-end',
                                         overlay: (
@@ -343,6 +344,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                 items={[
                                                     {
                                                         label: 'Save as view',
+                                                        'data-attr': 'sql-editor-save-view-button',
                                                         onClick: () => saveAsView(),
                                                     },
                                                     {
