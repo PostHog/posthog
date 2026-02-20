@@ -160,6 +160,11 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                 return errors[currentStep]?.length > 0
             },
         ],
+        hasFormErrors: [
+            (s) => [s.stepValidationErrors],
+            (errors: Record<ExperimentWizardStep, string[]>): boolean =>
+                WIZARD_STEPS.some((step) => errors[step]?.length > 0),
+        ],
     }),
 
     listeners(({ actions, values }) => ({
