@@ -330,8 +330,7 @@ mod tests {
             total_busy_delta += busy_now.saturating_sub(busy_before[i]);
         }
 
-        let ratio =
-            total_busy_delta.as_secs_f64() / (elapsed.as_secs_f64() * num_workers as f64);
+        let ratio = total_busy_delta.as_secs_f64() / (elapsed.as_secs_f64() * num_workers as f64);
         assert!(
             (0.0..=1.0).contains(&ratio),
             "busy ratio should be in [0, 1], got {ratio}"
