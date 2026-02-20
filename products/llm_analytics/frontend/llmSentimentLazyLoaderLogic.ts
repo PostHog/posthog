@@ -202,7 +202,7 @@ export const llmSentimentLazyLoaderLogic = kea<llmSentimentLazyLoaderLogicType>(
                     for (const batch of chunks) {
                         try {
                             const response = await api.create<BatchSentimentResponse>(
-                                `api/environments/${teamId}/llm_analytics/sentiment/batch/`,
+                                `api/environments/${teamId}/llm_analytics/sentiment/`,
                                 {
                                     trace_ids: batch,
                                     date_from: dateRangeForBatch?.dateFrom || undefined,
