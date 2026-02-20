@@ -24,24 +24,21 @@ class TestZendeskTicketEmitter:
         assert result is not None
         assert result.description == f"{zendesk_ticket_record['subject']}\n{zendesk_ticket_record['description']}"
 
-    @pytest.mark.parametrize(
-        "missing_field",
-        ["id", "subject", "description"],
-    )
-    def test_returns_none_when_required_field_missing(self, zendesk_ticket_record, missing_field):
+    @pytest.mark.parametrize("missing_field", ["id", "subject", "description"])
+    def test_raises_when_required_field_falsy(self, zendesk_ticket_record, missing_field):
         zendesk_ticket_record[missing_field] = None
-        assert zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record) is None
+        with pytest.raises(ValueError, match="empty required field"):
+            zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)
 
-    @pytest.mark.parametrize(
-        "missing_field",
-        ["id", "subject", "description"],
-    )
-    def test_returns_none_when_required_field_empty(self, zendesk_ticket_record, missing_field):
+    @pytest.mark.parametrize("missing_field", ["id", "subject", "description"])
+    def test_raises_when_required_field_empty(self, zendesk_ticket_record, missing_field):
         zendesk_ticket_record[missing_field] = ""
-        assert zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record) is None
+        with pytest.raises(ValueError, match="empty required field"):
+            zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)
 
-    def test_returns_none_for_empty_record(self):
-        assert zendesk_ticket_emitter(team_id=1, record={}) is None
+    def test_raises_for_empty_record(self):
+        with pytest.raises(ValueError, match="missing required field"):
+            zendesk_ticket_emitter(team_id=1, record={})
 
     def test_extra_contains_only_meaningful_fields(self, zendesk_ticket_record):
         result = zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)

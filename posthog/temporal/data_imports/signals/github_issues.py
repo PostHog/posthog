@@ -52,18 +52,21 @@ EXTRA_FIELDS = ("html_url", "number", "labels", "created_at", "updated_at", "loc
 
 
 def github_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterOutput | None:
-    issue_id = record.get("id")
-    title = record.get("title")
+    try:
+        issue_id = record["id"]
+        title = record["title"]
+        body = record["body"]
+    except KeyError as e:
+        msg = f"GitHub issue record missing required field {e}"
+        logger.exception(msg, record=record, team_id=team_id)
+        raise ValueError(msg) from e
     if not issue_id or not title:
-        logger.warning(
-            f"Not enough meaningful data to emit a signal for issue {issue_id}",
-            record=record,
-            signals_type="github_issue",
-        )
-        return None
-    body = record.get("body")
+        msg = f"GitHub issue record has empty required field: id={issue_id!r}, title={title!r}"
+        logger.exception(msg, record=record, team_id=team_id)
+        raise ValueError(msg)
     signal_description = title
     if body:
+        # Issues could have empty bodies, it's not a validation error
         signal_description += f"\n{body}"
     return SignalEmitterOutput(
         source_type="github_issue",

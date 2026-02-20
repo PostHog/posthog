@@ -35,17 +35,20 @@ class TestGithubIssueEmitter:
         assert result.description == "Charts fail to render when filter contains special characters"
 
     @pytest.mark.parametrize("missing_field", ["id", "title"])
-    def test_returns_none_when_required_field_missing(self, github_issue_record, missing_field):
+    def test_raises_when_required_field_falsy(self, github_issue_record, missing_field):
         github_issue_record[missing_field] = None
-        assert github_issue_emitter(team_id=1, record=github_issue_record) is None
+        with pytest.raises(ValueError, match="empty required field"):
+            github_issue_emitter(team_id=1, record=github_issue_record)
 
     @pytest.mark.parametrize("missing_field", ["id", "title"])
-    def test_returns_none_when_required_field_empty(self, github_issue_record, missing_field):
+    def test_raises_when_required_field_empty(self, github_issue_record, missing_field):
         github_issue_record[missing_field] = ""
-        assert github_issue_emitter(team_id=1, record=github_issue_record) is None
+        with pytest.raises(ValueError, match="empty required field"):
+            github_issue_emitter(team_id=1, record=github_issue_record)
 
-    def test_returns_none_for_empty_record(self):
-        assert github_issue_emitter(team_id=1, record={}) is None
+    def test_raises_for_empty_record(self):
+        with pytest.raises(ValueError, match="missing required field"):
+            github_issue_emitter(team_id=1, record={})
 
     def test_extra_contains_only_expected_fields(self, github_issue_record):
         result = github_issue_emitter(team_id=1, record=github_issue_record)

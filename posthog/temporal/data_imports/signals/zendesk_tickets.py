@@ -63,19 +63,18 @@ EXTRA_FIELDS = (
 
 
 def zendesk_ticket_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterOutput | None:
-    # Required fields based on `zendesk_tickets` table definition
-    ticket_id = record.get("id")
-    subject = record.get("subject")
-    description = record.get("description")
-    # Not enough meaningful data to emit a signal
+    try:
+        ticket_id = record["id"]
+        subject = record["subject"]
+        description = record["description"]
+    except KeyError as e:
+        msg = f"Zendesk ticket record missing required field {e}"
+        logger.exception(msg, record=record, team_id=team_id)
+        raise ValueError(msg) from e
     if not ticket_id or not subject or not description:
-        logger.warning(
-            f"Not enough meaningful data to emit a signal for ticket {ticket_id}",
-            # Including full record for proper context
-            record=record,
-            signals_type="zendesk_ticket",
-        )
-        return None
+        msg = f"Zendesk ticket record has empty required field: id={ticket_id!r}, subject={subject!r}, description={description!r}"
+        logger.exception(msg, record=record, team_id=team_id)
+        raise ValueError(msg)
     signal_description = f"{subject}\n{description}"
     return SignalEmitterOutput(
         source_type="zendesk_ticket",
