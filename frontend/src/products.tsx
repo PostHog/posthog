@@ -360,16 +360,18 @@ export const productConfiguration: Record<string, any> = {
     },
     LLMAnalyticsDatasets: {
         projectBased: true,
-        name: 'LLM analytics datasets',
+        name: 'Datasets',
         description: 'Manage datasets for testing and evaluation.',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
+        iconType: 'llm_datasets',
     },
     LLMAnalyticsDataset: {
         projectBased: true,
         name: 'LLM analytics dataset',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
+        iconType: 'llm_datasets',
     },
     LLMAnalyticsEvaluations: {
         projectBased: true,
@@ -378,6 +380,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/evaluations',
+        iconType: 'llm_evaluations',
     },
     LLMAnalyticsEvaluation: {
         projectBased: true,
@@ -385,6 +388,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
+        iconType: 'llm_evaluations',
     },
     LLMAnalyticsEvaluationTemplates: {
         projectBased: true,
@@ -392,6 +396,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
+        iconType: 'llm_evaluations',
     },
     LLMAnalyticsPrompts: {
         projectBased: true,
@@ -399,12 +404,14 @@ export const productConfiguration: Record<string, any> = {
         description: 'Track and manage your LLM prompts.',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/prompts',
+        iconType: 'llm_prompts',
     },
     LLMAnalyticsPrompt: {
         projectBased: true,
         name: 'LLM analytics prompt',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
+        iconType: 'llm_prompts',
     },
     LLMAnalyticsClusters: {
         projectBased: true,
@@ -412,12 +419,14 @@ export const productConfiguration: Record<string, any> = {
         description: 'Discover patterns and clusters in your LLM usage.',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/clusters',
+        iconType: 'llm_clusters',
     },
     LLMAnalyticsCluster: {
         projectBased: true,
         name: 'LLM analytics cluster',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
+        iconType: 'llm_clusters',
     },
     Logs: {
         projectBased: true,

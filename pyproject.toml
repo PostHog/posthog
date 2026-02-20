@@ -271,6 +271,10 @@ dev = [
     # Developer CLI
     "hogli",
 ]
+sentiment = [
+    "optimum[onnxruntime]~=1.25.0",
+    "torch~=2.7.0",
+]
 
 [tool.uv]
 required-version = "~=0.10.2"

@@ -195,7 +195,7 @@ Uses `signal_with_start` to atomically create the per-team `TeamSignalGroupingWo
 
 ### REST Endpoints
 
-Registered via `register_signal_report_routes()` in `backend/urls.py`.
+Registered directly in `posthog/api/__init__.py` (imported as `products.signals.backend.views`).
 
 #### `SignalViewSet` (DEBUG only)
 
@@ -205,7 +205,7 @@ Registered via `register_signal_report_routes()` in `backend/urls.py`.
 
 #### `SignalReportViewSet` (read-only)
 
-Feature-flagged behind `product-autonomy`.
+Uses `IsAuthenticated` + `APIScopePermission` (scope: `task`).
 
 | Method | Path                                | Description                                                               |
 | ------ | ----------------------------------- | ------------------------------------------------------------------------- |
