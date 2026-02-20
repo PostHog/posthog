@@ -209,27 +209,26 @@ async def _summarize_description(
 ) -> SignalEmitterOutput:
     prompt_parts = [types.Part(text=summarization_prompt.format(description=output.description, max_length=threshold))]
     for attempt in range(SUMMARIZATION_MAX_ATTEMPTS):
-        try:
-            response = await asyncio.wait_for(
-                client.models.generate_content(
-                    model=GEMINI_MODEL,
-                    contents=prompt_parts,
-                    config=types.GenerateContentConfig(
-                        max_output_tokens=max(threshold // 4, 256),
-                        thinking_config=types.ThinkingConfig(
-                            thinking_budget=LLM_THINKING_BUDGET_TOKENS,
-                            include_thoughts=True,
-                        ),
+        response = await asyncio.wait_for(
+            client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt_parts,
+                config=types.GenerateContentConfig(
+                    max_output_tokens=max(threshold // 4, 256),
+                    thinking_config=types.ThinkingConfig(
+                        thinking_budget=LLM_THINKING_BUDGET_TOKENS,
+                        include_thoughts=True,
                     ),
                 ),
-                timeout=LLM_CALL_TIMEOUT_SECONDS,
-            )
+            ),
+            timeout=LLM_CALL_TIMEOUT_SECONDS,
+        )
+        try:
             summary = (response.text or "").strip()
             if not summary:
                 raise ValueError("Empty response from LLM")
             if len(summary) >= threshold:
                 raise ValueError(f"Summary is {len(summary)} characters, must be under {threshold}")
-            # Continue if the updated summary is under the threshold
             return dataclasses.replace(output, description=summary)
         except Exception as e:
             posthoganalytics.capture_exception(
@@ -311,29 +310,26 @@ async def _check_actionability(
 
     Returns (is_actionable, thoughts) where thoughts is the model's reasoning.
     """
-    try:
-        # One-shotting it, as the task is simple, so adding retry logic would be excessive
-        prompt = actionability_prompt.format(description=output.description)
-        response = await asyncio.wait_for(
-            client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=[prompt],
-                config=types.GenerateContentConfig(
-                    max_output_tokens=128,
-                    thinking_config=types.ThinkingConfig(
-                        thinking_budget=LLM_THINKING_BUDGET_TOKENS,
-                        # Logging thoughts to get more context for evals
-                        include_thoughts=True,
-                    ),
+    prompt = actionability_prompt.format(description=output.description)
+    response = await asyncio.wait_for(
+        client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=[prompt],
+            config=types.GenerateContentConfig(
+                max_output_tokens=128,
+                thinking_config=types.ThinkingConfig(
+                    thinking_budget=LLM_THINKING_BUDGET_TOKENS,
+                    include_thoughts=True,
                 ),
             ),
-            timeout=LLM_CALL_TIMEOUT_SECONDS,
-        )
+        ),
+        timeout=LLM_CALL_TIMEOUT_SECONDS,
+    )
+    try:
         thoughts = _extract_thoughts(response)
         response_text = (response.text or "").strip().upper()
         return "NOT_ACTION" not in response_text, thoughts
     except Exception as e:
-        # If LLM call fails, allow to pass to not block the emission, as fails should not happen often
         posthoganalytics.capture_exception(
             e,
             properties={

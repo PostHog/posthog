@@ -232,15 +232,12 @@ class TestCheckActionability:
         assert thoughts == "Just a billing question, not a bug."
 
     @pytest.mark.asyncio
-    async def test_returns_true_on_llm_error(self):
+    async def test_propagates_llm_error(self):
         mock_client = MagicMock()
         mock_client.models.generate_content = AsyncMock(side_effect=Exception("API error"))
 
-        with patch(f"{MODULE_PATH}.posthoganalytics"):
-            is_actionable, thoughts = await _check_actionability(mock_client, _make_output(), "prompt {description}")
-
-        assert is_actionable is True
-        assert thoughts is None
+        with pytest.raises(Exception, match="API error"):
+            await _check_actionability(mock_client, _make_output(), "prompt {description}")
 
     @pytest.mark.asyncio
     async def test_returns_true_on_none_response_text(self):
