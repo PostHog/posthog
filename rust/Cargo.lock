@@ -4761,6 +4761,7 @@ version = "0.1.0"
 dependencies = [
  "assignment-coordination",
  "dashmap 6.1.0",
+ "envconfig",
  "etcd-client",
  "kafka-assigner-proto",
  "prost 0.13.5",

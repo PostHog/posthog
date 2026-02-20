@@ -12,18 +12,47 @@ use crate::grpc::convert;
 use crate::store::KafkaAssignerStore;
 use crate::types::{AssignmentEvent, ConsumerStatus, RegisteredConsumer};
 
-const STREAM_CHANNEL_SIZE: usize = 64;
-const DEFAULT_LEASE_TTL: i64 = 30;
-const DEFAULT_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(10);
-
 pub struct KafkaAssignerService {
     registry: Arc<ConsumerRegistry>,
     store: Arc<KafkaAssignerStore>,
+    stream_channel_size: usize,
+    consumer_lease_ttl: i64,
+    consumer_keepalive_interval: Duration,
 }
 
 impl KafkaAssignerService {
     pub fn new(store: Arc<KafkaAssignerStore>, registry: Arc<ConsumerRegistry>) -> Self {
-        Self { registry, store }
+        Self::with_config(store, registry, 64, 30, Duration::from_secs(10))
+    }
+
+    pub fn from_config(
+        store: Arc<KafkaAssignerStore>,
+        registry: Arc<ConsumerRegistry>,
+        config: &crate::config::Config,
+    ) -> Self {
+        Self::with_config(
+            store,
+            registry,
+            config.stream_channel_size,
+            config.consumer_lease_ttl_secs,
+            config.consumer_keepalive_interval(),
+        )
+    }
+
+    fn with_config(
+        store: Arc<KafkaAssignerStore>,
+        registry: Arc<ConsumerRegistry>,
+        stream_channel_size: usize,
+        consumer_lease_ttl: i64,
+        consumer_keepalive_interval: Duration,
+    ) -> Self {
+        Self {
+            registry,
+            store,
+            stream_channel_size,
+            consumer_lease_ttl,
+            consumer_keepalive_interval,
+        }
     }
 }
 
@@ -44,7 +73,7 @@ impl KafkaAssigner for KafkaAssignerService {
         // Grant an etcd lease for this consumer's registration.
         let lease_id = self
             .store
-            .grant_lease(DEFAULT_LEASE_TTL)
+            .grant_lease(self.consumer_lease_ttl)
             .await
             .map_err(|e| Status::internal(format!("failed to grant lease: {e}")))?;
 
@@ -61,7 +90,7 @@ impl KafkaAssigner for KafkaAssignerService {
             .map_err(|e| Status::internal(format!("failed to register consumer: {e}")))?;
 
         // Create the channel that bridges the registry to the gRPC stream.
-        let (event_tx, event_rx) = mpsc::channel::<AssignmentEvent>(STREAM_CHANNEL_SIZE);
+        let (event_tx, event_rx) = mpsc::channel::<AssignmentEvent>(self.stream_channel_size);
 
         // If the consumer already owns partitions (e.g. reconnecting), send them
         // as the first message. New consumers get an empty set — skip the no-op.
@@ -95,10 +124,11 @@ impl KafkaAssigner for KafkaAssignerService {
         let store = Arc::clone(&self.store);
         let registry = Arc::clone(&self.registry);
         let name = consumer_name.clone();
+        let keepalive_interval = self.consumer_keepalive_interval;
 
         // Create a proto stream that converts AssignmentEvent -> proto::AssignmentCommand.
         let (proto_tx, proto_rx) =
-            mpsc::channel::<Result<proto::AssignmentCommand, Status>>(STREAM_CHANNEL_SIZE);
+            mpsc::channel::<Result<proto::AssignmentCommand, Status>>(self.stream_channel_size);
 
         // Bridge: read domain events, convert to proto, forward to the gRPC stream.
         // When the event channel closes (consumer unregistered), this task exits,
@@ -121,8 +151,7 @@ impl KafkaAssigner for KafkaAssignerService {
         // task detects it via the closed channel and cleans up.
         tokio::spawn(async move {
             let result =
-                run_consumer_keepalive(&store, lease_id, DEFAULT_KEEPALIVE_INTERVAL, &proto_tx)
-                    .await;
+                run_consumer_keepalive(&store, lease_id, keepalive_interval, &proto_tx).await;
 
             if let Err(e) = &result {
                 tracing::warn!(consumer = %name, error = %e, "consumer keepalive ended");

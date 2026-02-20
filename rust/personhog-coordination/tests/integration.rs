@@ -733,8 +733,7 @@ async fn rapid_pod_joins(
                 .map(|a| (a.partition, a.owner.clone()))
                 .collect();
             let desired = strategy.compute_assignments(&current, &pods, MANY_PARTITIONS);
-            assignment_coordination::util::compute_required_handoffs(&current, &desired)
-                .is_empty()
+            assignment_coordination::util::compute_required_handoffs(&current, &desired).is_empty()
         }
     })
     .await;
@@ -1022,8 +1021,7 @@ async fn debounce_batches_rapid_pod_changes(
                 .map(|a| (a.partition, a.owner.clone()))
                 .collect();
             let desired = strategy.compute_assignments(&current, &pods, MANY_PARTITIONS);
-            assignment_coordination::util::compute_required_handoffs(&current, &desired)
-                .is_empty()
+            assignment_coordination::util::compute_required_handoffs(&current, &desired).is_empty()
         }
     })
     .await;

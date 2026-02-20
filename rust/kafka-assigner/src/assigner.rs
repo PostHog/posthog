@@ -42,6 +42,19 @@ impl Default for AssignerConfig {
     }
 }
 
+impl From<&crate::config::Config> for AssignerConfig {
+    fn from(config: &crate::config::Config) -> Self {
+        Self {
+            name: config.assigner_name.clone(),
+            leader_lease_ttl: config.leader_lease_ttl_secs,
+            keepalive_interval: config.leader_keepalive_interval(),
+            election_retry_interval: config.election_retry_interval(),
+            rebalance_debounce_interval: config.rebalance_debounce_interval(),
+            handoff_timeout: config.handoff_timeout(),
+        }
+    }
+}
+
 pub struct Assigner {
     store: Arc<KafkaAssignerStore>,
     config: AssignerConfig,
