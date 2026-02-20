@@ -29,7 +29,11 @@ import { urls } from '~/scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LLMProvider, LLM_PROVIDER_LABELS } from '../settings/llmProviderKeysLogic'
-import { providerKeyStateLabel, providerKeyStateSuffix, providerLabel } from '../settings/providerKeyStateUtils'
+import {
+    providerKeyStateIssueDescription,
+    providerKeyStateSuffix,
+    providerLabel,
+} from '../settings/providerKeyStateUtils'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
@@ -148,8 +152,8 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                         <p>
                             This evaluation uses API key{' '}
                             <span className="font-semibold">{evaluationProviderKeyIssue.name}</span> (
-                            {providerLabel(evaluationProviderKeyIssue.provider)}) in{' '}
-                            {providerKeyStateLabel(evaluationProviderKeyIssue.state)} state.
+                            {providerLabel(evaluationProviderKeyIssue.provider)}){' '}
+                            {providerKeyStateIssueDescription(evaluationProviderKeyIssue.state)}.
                         </p>
                         <p>Error: {evaluationProviderKeyIssue.error_message || 'Unknown error'}</p>
                         <Link to={settingsUrl}>Go to settings to fix this key.</Link>

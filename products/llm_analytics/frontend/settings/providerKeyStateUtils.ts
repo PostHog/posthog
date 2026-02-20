@@ -19,6 +19,19 @@ export function providerKeyStateLabel(state: LLMProviderKeyState): string {
     }
 }
 
+export function providerKeyStateIssueDescription(state: LLMProviderKeyState): string {
+    switch (state) {
+        case 'invalid':
+            return 'is invalid'
+        case 'error':
+            return 'had an error'
+        case 'ok':
+            return 'is valid'
+        case 'unknown':
+            return 'has unknown status'
+    }
+}
+
 export function providerKeyStateSuffix(state: LLMProviderKeyState): string {
     if (state === 'invalid') {
         return ' (Invalid)'
