@@ -78,7 +78,7 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
         event_filters=inputs.event_filters if inputs.event_filters else None,
     )
 
-    logger.debug(
+    logger.info(
         "perform_clustering_compute_fetched_embeddings",
         num_items=len(item_ids),
         analysis_level=inputs.analysis_level,
@@ -141,6 +141,27 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
             "Skipped generations missing trace_id",
             skipped_count=skipped_missing_trace_id,
             team_id=inputs.team_id,
+        )
+
+    if not items:
+        logger.warning(
+            "All items filtered out after summary join",
+            team_id=inputs.team_id,
+            analysis_level=inputs.analysis_level,
+            original_item_count=len(item_ids),
+        )
+        return ClusteringComputeResult(
+            clustering_run_id=clustering_run_id,
+            items=[],
+            labels=[],
+            centroids=[],
+            distances=[],
+            coords_2d=[],
+            centroid_coords_2d=[],
+            probabilities=[],
+            analysis_level=inputs.analysis_level,
+            num_noise_points=0,
+            batch_run_ids={},
         )
 
     embeddings_array = np.array(filtered_embeddings)
