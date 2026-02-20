@@ -29,6 +29,7 @@ import {
     LLMProviderKeyState,
     LLM_PROVIDER_LABELS,
     llmProviderKeysLogic,
+    normalizeProvider,
 } from './llmProviderKeysLogic'
 
 function StateTag({ state, errorMessage }: { state: LLMProviderKeyState; errorMessage: string | null }): JSX.Element {
@@ -84,8 +85,8 @@ function getKeyPlaceholder(provider: LLMProvider): string {
             return 'sk-...'
         case 'anthropic':
             return 'sk-ant-...'
-        case 'gemini':
-            return 'Enter your Gemini API key'
+        case 'google':
+            return 'Enter your Google API key'
         case 'openrouter':
             return 'Enter your OpenRouter API key'
         case 'fireworks':
@@ -242,7 +243,7 @@ function AddKeyModal(): JSX.Element {
                         options={[
                             { value: 'openai', label: 'OpenAI' },
                             { value: 'anthropic', label: 'Anthropic' },
-                            { value: 'gemini', label: 'Google Gemini' },
+                            { value: 'google', label: 'Google' },
                             { value: 'openrouter', label: 'OpenRouter' },
                             { value: 'fireworks', label: 'Fireworks' },
                         ]}
@@ -309,7 +310,7 @@ function EditKeyModal({ keyToEdit }: { keyToEdit: LLMProviderKey }): JSX.Element
 
     const handleApiKeyBlur = (): void => {
         if (apiKey.length > 0) {
-            preValidateKey({ apiKey, provider: keyToEdit.provider })
+            preValidateKey({ apiKey, provider: normalizeProvider(keyToEdit.provider) })
         }
     }
 
@@ -372,7 +373,7 @@ function EditKeyModal({ keyToEdit }: { keyToEdit: LLMProviderKey }): JSX.Element
                         <KeyValidationStatus
                             result={preValidationResult}
                             isValidating={preValidationResultLoading}
-                            provider={keyToEdit.provider}
+                            provider={normalizeProvider(keyToEdit.provider)}
                         />
                     ) : (
                         <p className="text-xs text-muted mt-1">Leave empty to keep the current key</p>

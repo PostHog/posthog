@@ -349,6 +349,21 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    @patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key")
+    def test_legacy_gemini_provider_is_stored_as_google(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {"provider": "gemini", "name": "Google Key", "api_key": "test-key"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        key = LLMProviderKey.objects.first()
+        assert key is not None
+        self.assertEqual(key.provider, "google")
+        mock_validate.assert_called_once_with("google", "test-key")
+
     def test_keys_ordered_by_created_at_descending(self):
         key1 = LLMProviderKey.objects.create(
             team=self.team,
@@ -430,6 +445,18 @@ class TestLLMProviderKeyValidationViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["state"], "ok")
         mock_validate.assert_called_once_with("fireworks", "fw-test-key")
+
+    @patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key")
+    def test_can_pre_validate_legacy_gemini_provider(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_key_validations/",
+            {"api_key": "test-key", "provider": "gemini"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["state"], "ok")
+        mock_validate.assert_called_once_with("google", "test-key")
 
     def test_pre_validate_requires_api_key(self):
         response = self.client.post(

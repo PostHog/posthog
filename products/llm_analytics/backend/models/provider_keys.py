@@ -9,9 +9,18 @@ class LLMProvider(models.TextChoices):
 
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
-    GEMINI = "gemini"
+    GOOGLE = "google"
     OPENROUTER = "openrouter"
     FIREWORKS = "fireworks"
+
+
+LLM_PROVIDER_ALIASES: dict[str, str] = {
+    "gemini": LLMProvider.GOOGLE,
+}
+
+
+def canonicalize_llm_provider(provider: str) -> str:
+    return LLM_PROVIDER_ALIASES.get(provider, provider)
 
 
 class LLMProviderKey(UUIDTModel):

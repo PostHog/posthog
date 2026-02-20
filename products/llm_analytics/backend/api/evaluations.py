@@ -22,6 +22,7 @@ from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from .metrics import llma_track_latency
+from .provider_keys import LLMProviderChoiceField
 
 logger = structlog.get_logger(__name__)
 
@@ -29,7 +30,7 @@ logger = structlog.get_logger(__name__)
 class ModelConfigurationSerializer(serializers.Serializer):
     """Nested serializer for model configuration."""
 
-    provider = serializers.ChoiceField(choices=LLMProvider.choices)
+    provider = LLMProviderChoiceField(choices=LLMProvider.choices)
     model = serializers.CharField(max_length=100)
     provider_key_id = serializers.UUIDField(required=False, allow_null=True)
     provider_key_name = serializers.SerializerMethodField(read_only=True)

@@ -15,4 +15,5 @@ class Tool:
 class ToolFormat(Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
-    GEMINI = "gemini"
+    GOOGLE = "google"
+    GEMINI = "google"

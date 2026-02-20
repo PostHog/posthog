@@ -169,7 +169,7 @@ class TestFormatTools:
         assert "third line" not in result
 
     def test_google_gemini_format(self):
-        """Should handle Google/Gemini functionDeclarations format."""
+        """Should handle Google functionDeclarations format."""
         tools = [
             {
                 "functionDeclarations": [

@@ -19,9 +19,9 @@ import {
     AnthropicToolResultMessage,
     CompatMessage,
     CompatToolCall,
-    GeminiAudioMessage,
-    GeminiDocumentMessage,
-    GeminiImageMessage,
+    GoogleAudioMessage,
+    GoogleDocumentMessage,
+    GoogleImageMessage,
     LiteLLMChoice,
     LiteLLMResponse,
     OpenAIAudioMessage,
@@ -432,10 +432,10 @@ export function isAnthropicDocumentMessage(input: unknown): input is AnthropicDo
 }
 
 /**
- * Extracts inline data from Gemini messages, supporting both snake_case (Python SDK)
+ * Extracts inline data from Google messages, supporting both snake_case (Python SDK)
  * and camelCase (Node SDK) property naming conventions.
  */
-export function getGeminiInlineData(input: unknown): { data: string; mime_type: string } | null {
+export function getGoogleInlineData(input: unknown): { data: string; mime_type: string } | null {
     if (!input || typeof input !== 'object') {
         return null
     }
@@ -463,19 +463,19 @@ export function getGeminiInlineData(input: unknown): { data: string; mime_type: 
     return null
 }
 
-export function isGeminiImageMessage(input: unknown): input is GeminiImageMessage {
+export function isGoogleImageMessage(input: unknown): input is GoogleImageMessage {
     if (!input || typeof input !== 'object' || !('type' in input) || input.type !== 'image') {
         return false
     }
-    const inlineData = getGeminiInlineData(input)
+    const inlineData = getGoogleInlineData(input)
     return inlineData !== null && inlineData.mime_type.startsWith('image/')
 }
 
-export function isGeminiDocumentMessage(input: unknown): input is GeminiDocumentMessage {
+export function isGoogleDocumentMessage(input: unknown): input is GoogleDocumentMessage {
     if (!input || typeof input !== 'object' || !('type' in input)) {
         return false
     }
-    const inlineData = getGeminiInlineData(input)
+    const inlineData = getGoogleInlineData(input)
     if (!inlineData) {
         return false
     }
@@ -490,7 +490,7 @@ export function isGeminiDocumentMessage(input: unknown): input is GeminiDocument
     return false
 }
 
-export function isGeminiAudioMessage(input: unknown): input is GeminiAudioMessage {
+export function isGoogleAudioMessage(input: unknown): input is GoogleAudioMessage {
     return (
         !!input &&
         typeof input === 'object' &&

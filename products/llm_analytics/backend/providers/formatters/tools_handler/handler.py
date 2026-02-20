@@ -1,7 +1,7 @@
 from typing import Any
 
 from .anthropic import AnthropicToolFormatter
-from .gemini import GeminiToolFormatter
+from .google import GoogleToolFormatter
 from .models import ToolFormat
 from .openai import OpenAIToolFormatter
 
@@ -12,7 +12,7 @@ class LLMToolsHandler:
     _formatters = {
         ToolFormat.OPENAI: OpenAIToolFormatter(),
         ToolFormat.ANTHROPIC: AnthropicToolFormatter(),
-        ToolFormat.GEMINI: GeminiToolFormatter(),
+        ToolFormat.GOOGLE: GoogleToolFormatter(),
     }
 
     def __init__(self, tools_data: Any):

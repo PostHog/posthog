@@ -22,10 +22,15 @@ from ..llm.client import Client
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
-from ..models.provider_keys import LLMProvider, LLMProviderKey
+from ..models.provider_keys import LLMProvider, LLMProviderKey, canonicalize_llm_provider
 from .metrics import llma_track_latency
 
 logger = logging.getLogger(__name__)
+
+
+class LLMProviderChoiceField(serializers.ChoiceField):
+    def to_internal_value(self, data):
+        return super().to_internal_value(canonicalize_llm_provider(str(data)))
 
 
 def validate_provider_key(provider: str, api_key: str) -> tuple[str, str | None]:
@@ -38,6 +43,7 @@ def validate_provider_key(provider: str, api_key: str) -> tuple[str, str | None]
 
 
 class LLMProviderKeySerializer(serializers.ModelSerializer):
+    provider = LLMProviderChoiceField(choices=LLMProvider.choices)
     api_key = serializers.CharField(write_only=True, required=False)
     api_key_masked = serializers.SerializerMethodField()
     set_as_active = serializers.BooleanField(write_only=True, required=False, default=False)
@@ -67,7 +73,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         return "****"
 
     def validate_api_key(self, value: str) -> str:
-        provider = self.initial_data.get("provider", LLMProvider.OPENAI)
+        provider = canonicalize_llm_provider(self.initial_data.get("provider", LLMProvider.OPENAI))
 
         if provider == LLMProvider.OPENAI:
             if not value.startswith(("sk-", "sk-proj-")):
@@ -77,9 +83,12 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         elif provider == LLMProvider.ANTHROPIC:
             if not value.startswith("sk-ant-"):
                 raise serializers.ValidationError("Invalid Anthropic API key format. Key should start with 'sk-ant-'.")
-        # Gemini, OpenRouter, and Fireworks keys have no standard prefix, so no format validation needed
+        # Google, OpenRouter, and Fireworks keys have no standard prefix, so no format validation needed
 
         return value
+
+    def validate_provider(self, value: str) -> str:
+        return canonicalize_llm_provider(value)
 
     def validate(self, data):
         if self.instance is None and "api_key" not in data:
@@ -283,7 +292,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
             except LLMProviderKey.DoesNotExist:
                 return Response({"detail": "Replacement key not found"}, status=status.HTTP_400_BAD_REQUEST)
 
-            if replacement_key.provider != instance.provider:
+            if canonicalize_llm_provider(replacement_key.provider) != canonicalize_llm_provider(instance.provider):
                 return Response(
                     {"detail": "Replacement key must be from the same provider"}, status=status.HTTP_400_BAD_REQUEST
                 )
@@ -316,7 +325,7 @@ class LLMProviderKeyValidationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @monitor(feature=None, endpoint="llma_provider_key_validations_create", method="POST")
     def create(self, request: Request, **_kwargs) -> Response:
         api_key = request.data.get("api_key")
-        provider = request.data.get("provider", LLMProvider.OPENAI)
+        provider = canonicalize_llm_provider(request.data.get("provider", LLMProvider.OPENAI))
 
         if not api_key:
             return Response(

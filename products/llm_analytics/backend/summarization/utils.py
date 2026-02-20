@@ -20,5 +20,5 @@ def load_summarization_template(template_path: str, context: dict) -> str:
     engine = Engine(dirs=[str(templates_dir)])
     template = engine.get_template(template_path)
     # Disable autoescape since we're generating LLM prompts, not HTML
-    # Use [:] to convert SafeString to plain str (Gemini API doesn't handle SafeString properly)
+    # Use [:] to convert SafeString to plain str (Google API doesn't handle SafeString properly)
     return template.render(Context(context, autoescape=False))[:]

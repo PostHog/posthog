@@ -2,7 +2,7 @@
 Format available tools section for text view.
 
 Handles formatting of LLM tool/function definitions into human-readable signatures.
-Supports multiple provider formats (OpenAI, Anthropic, Google/Gemini) with
+Supports multiple provider formats (OpenAI, Anthropic, Google) with
 automatic collapsing for long tool lists.
 """
 
@@ -25,8 +25,8 @@ class Tool(TypedDict, total=False):
     description: str
     input_schema: dict[str, Any]  # Anthropic format (snake_case)
     inputSchema: dict[str, Any]  # OpenAI format (camelCase)
-    functionDeclarations: list[Any]  # Google/Gemini format
-    parameters: dict[str, Any]  # Google/Gemini format (unwrapped)
+    functionDeclarations: list[Any]  # Google format
+    parameters: dict[str, Any]  # Google format (unwrapped)
 
 
 def _format_tools_list(tools_list: list[Any]) -> str:
@@ -41,7 +41,7 @@ def _format_tools_list(tools_list: list[Any]) -> str:
         if not isinstance(tool, dict):
             continue
 
-        # Handle Google/Gemini format: {functionDeclarations: [{name, description, parameters}]}
+        # Handle Google format: {functionDeclarations: [{name, description, parameters}]}
         tools_to_process: list[Any] = []
         if "functionDeclarations" in tool and isinstance(tool["functionDeclarations"], list):
             tools_to_process = tool["functionDeclarations"]
@@ -66,7 +66,7 @@ def _format_tools_list(tools_list: list[Any]) -> str:
                 # Multiple formats:
                 # - Anthropic: {name, description, input_schema} (snake_case)
                 # - OpenAI: {name, description, inputSchema} (camelCase)
-                # - Google/Gemini unwrapped: {name, description, parameters}
+                # - Google unwrapped: {name, description, parameters}
                 name = t["name"]
                 desc = t.get("description", "N/A")
                 schema = t.get("input_schema") or t.get("inputSchema") or t.get("parameters")
@@ -117,7 +117,7 @@ def format_tools(ai_tools: Any, options: "FormatterOptions | None" = None) -> li
     Supports multiple LLM provider formats:
     - OpenAI: {type: 'function', function: {name, description, parameters}}
     - Anthropic: {name, description, input_schema}
-    - Google/Gemini: {functionDeclarations: [...]} or unwrapped
+    - Google: {functionDeclarations: [...]} or unwrapped
     - Dictionary format: {"tool_name": {name, description, ...}, ...}
 
     For tool lists > 5 items, creates a collapsed/expandable section by default.

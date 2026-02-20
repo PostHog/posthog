@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { LLMProvider, LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { LLMProvider, LLMProviderKey, llmProviderKeysLogic, normalizeProvider } from '../settings/llmProviderKeysLogic'
 import { queryEvaluationRuns } from '../utils'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
@@ -179,7 +179,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             'openai' as LLMProvider,
             {
                 setSelectedProvider: (_, { provider }) => provider,
-                loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.provider || 'openai',
+                loadEvaluationSuccess: (_, { evaluation }) =>
+                    normalizeProvider(
+                        (evaluation?.model_configuration?.provider as LLMProvider | 'gemini') || 'openai'
+                    ),
             },
         ],
         selectedKeyId: [
@@ -313,7 +316,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         loadEvaluationSuccess: ({ evaluation }) => {
             // Load available models for the current provider/key combination
             if (evaluation) {
-                const provider = evaluation.model_configuration?.provider || 'openai'
+                const provider = normalizeProvider(
+                    (evaluation.model_configuration?.provider as LLMProvider | 'gemini') || 'openai'
+                )
                 let keyId = evaluation.model_configuration?.provider_key_id || null
 
                 // Auto-select user's first key if none set (for new OR existing evals)
@@ -514,7 +519,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 const byProvider: Record<LLMProvider, LLMProviderKey[]> = {
                     openai: [],
                     anthropic: [],
-                    gemini: [],
+                    google: [],
                     openrouter: [],
                     fireworks: [],
                 }

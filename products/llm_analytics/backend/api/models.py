@@ -8,7 +8,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import AccessControlPermission
 
 from ..models.model_configuration import POSTHOG_ALLOWED_MODELS, LLMModelConfiguration
-from ..models.provider_keys import LLMProvider, LLMProviderKey
+from ..models.provider_keys import LLMProvider, LLMProviderKey, canonicalize_llm_provider
 from .metrics import llma_track_latency
 
 
@@ -29,6 +29,7 @@ class LLMModelsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 {"detail": "provider query param is required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        provider = canonicalize_llm_provider(provider)
 
         if provider not in [choice[0] for choice in LLMProvider.choices]:
             return Response(
@@ -40,7 +41,7 @@ class LLMModelsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if key_id:
             try:
                 provider_key = LLMProviderKey.objects.get(id=key_id, team_id=self.team_id)
-                if provider_key.provider != provider:
+                if canonicalize_llm_provider(provider_key.provider) != provider:
                     return Response(
                         {
                             "detail": f"Key provider '{provider_key.provider}' does not match requested provider '{provider}'"

@@ -38,18 +38,19 @@ class TestClientInitialization(SimpleTestCase):
 class TestProviderRouting(SimpleTestCase):
     @parameterized.expand(
         [
-            ("openai",),
-            ("anthropic",),
-            ("gemini",),
-            ("openrouter",),
-            ("fireworks",),
+            ("openai", "openai"),
+            ("anthropic", "anthropic"),
+            ("google", "google"),
+            ("gemini", "google"),
+            ("openrouter", "openrouter"),
+            ("fireworks", "fireworks"),
         ]
     )
-    def test_get_provider_returns_correct_adapter(self, provider_name):
+    def test_get_provider_returns_correct_adapter(self, provider_name, expected_adapter_name):
         from products.llm_analytics.backend.llm.client import _get_provider
 
         provider = _get_provider(provider_name)
-        assert provider.name == provider_name
+        assert provider.name == expected_adapter_name
 
     def test_get_provider_raises_for_unsupported(self):
         from products.llm_analytics.backend.llm.client import _get_provider
@@ -91,9 +92,18 @@ class TestProviderMismatchValidation(SimpleTestCase):
         client = Client()
         client._validate_provider("openai")
         client._validate_provider("anthropic")
+        client._validate_provider("google")
         client._validate_provider("gemini")
         client._validate_provider("openrouter")
         client._validate_provider("fireworks")
+
+    def test_google_and_gemini_are_treated_as_the_same_provider(self):
+        mock_key = MagicMock()
+        mock_key.provider = "google"
+        mock_key.encrypted_config = {"api_key": "test-key"}
+
+        client = Client(provider_key=mock_key)
+        client._validate_provider("gemini")
 
 
 class TestApiKeyExtraction(SimpleTestCase):
