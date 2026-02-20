@@ -30,7 +30,7 @@ export const DatabaseTree = memo(function DatabaseTree({
     return (
         <div
             className={cn(
-                'relative bg-primary border-primary transition-opacity duration-100 flex flex-col',
+                'relative bg-primary border-primary transition-opacity duration-100 flex flex-col shrink-0 w-[var(--database-tree-width)]',
                 databaseTreeWillCollapse && 'opacity-50'
             )}
             // eslint-disable-next-line react/forbid-dom-props
