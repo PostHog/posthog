@@ -71,6 +71,7 @@ function EmbedNodeView({ node }: { node: { attrs: Record<string, any> } }): JSX.
             >
                 <iframe
                     src={embedUrl}
+                    title="Embedded media"
                     style={{
                         position: 'absolute',
                         top: 0,

@@ -216,6 +216,7 @@ describe('session-replay-pipeline', () => {
                 overflowTopic: 'overflow-topic',
                 dlqTopic: 'dlq-topic',
                 promiseScheduler,
+                teamService: mockTeamService,
             })
 
             // Create a message with invalid payload
@@ -450,6 +451,7 @@ describe('session-replay-pipeline', () => {
                 eventIngestionRestrictionManager: mockRestrictionManager,
                 overflowEnabled: true,
                 overflowTopic: 'overflow-topic',
+                dlqTopic: 'dlq-topic',
                 promiseScheduler,
                 teamService: mockTeamService,
             })

@@ -14,8 +14,8 @@
 export type CategoryTypeEnumApi = (typeof CategoryTypeEnumApi)[keyof typeof CategoryTypeEnumApi]
 
 export const CategoryTypeEnumApi = {
-    marketing: 'marketing',
-    transactional: 'transactional',
+    Marketing: 'marketing',
+    Transactional: 'transactional',
 } as const
 
 export interface MessageCategoryApi {
@@ -50,8 +50,8 @@ export interface PaginatedMessageCategoryListApi {
 export type Templating186EnumApi = (typeof Templating186EnumApi)[keyof typeof Templating186EnumApi]
 
 export const Templating186EnumApi = {
-    hog: 'hog',
-    liquid: 'liquid',
+    Hog: 'hog',
+    Liquid: 'liquid',
 } as const
 
 export interface EmailTemplateApi {
@@ -79,14 +79,14 @@ export interface MessageTemplateContentApi {
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
 export const RoleAtOrganizationEnumApi = {
-    engineering: 'engineering',
-    data: 'data',
-    product: 'product',
-    founder: 'founder',
-    leadership: 'leadership',
-    marketing: 'marketing',
-    sales: 'sales',
-    other: 'other',
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
 } as const
 
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
