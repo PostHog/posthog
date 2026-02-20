@@ -12,6 +12,8 @@ export type TriggerTypeDefinition = {
     buildConfig: () => Record<string, any>
     /** Render the configuration panel (or undefined for no extra config) */
     ConfigComponent?: React.ComponentType<{ node: any }>
+    /** Validate the trigger config, returning errors if invalid. Triggers without this use generic validation. */
+    validate?: (config: any) => { valid: boolean; errors: Record<string, string> } | null
 }
 
 const triggerTypeDefinitions: TriggerTypeDefinition[] = []

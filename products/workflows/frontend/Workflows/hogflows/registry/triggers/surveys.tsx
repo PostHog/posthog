@@ -16,7 +16,7 @@ import { registerTriggerType } from 'products/workflows/frontend/Workflows/hogfl
 import { workflowLogic } from 'products/workflows/frontend/Workflows/workflowLogic'
 
 import { surveyTriggerLogic } from '../../steps/surveyTriggerLogic'
-import { HogFlowAction } from '../../steps/types'
+import { HogFlowAction } from '../../types'
 
 type EventTriggerConfig = {
     type: 'event'
@@ -262,8 +262,18 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
                     )
                 }
 
-                const survey = selectedSurveyId ? allSurveys.find((s) => s.id === selectedSurveyId) : null
-                if (survey && !survey.start_date) {
+                if (selectedSurveyId && selectedSurveyId !== 'any' && !surveysLoading && !selectedSurvey) {
+                    return (
+                        <LemonBanner type="warning" className="w-full">
+                            <p>
+                                The selected survey could not be found. It may have been deleted. Please select another
+                                survey.
+                            </p>
+                        </LemonBanner>
+                    )
+                }
+
+                if (selectedSurvey && !selectedSurvey.start_date) {
                     return (
                         <LemonBanner type="warning" className="w-full">
                             <p>
@@ -303,5 +313,15 @@ registerTriggerType({
             properties: [],
         },
     }),
+    validate: (config): { valid: boolean; errors: Record<string, string> } | null => {
+        if (config.type !== 'event') {
+            return null
+        }
+        const surveyIdProp = config.filters?.properties?.find((p: any) => p.key === '$survey_id')
+        if (!surveyIdProp) {
+            return { valid: false, errors: { filters: 'Please select a survey' } }
+        }
+        return { valid: true, errors: {} }
+    },
     ConfigComponent: StepTriggerConfigurationSurvey,
 })

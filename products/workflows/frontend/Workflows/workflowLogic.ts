@@ -18,9 +18,9 @@ import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { HogFunctionTemplateType, SurveyEventName } from '~/types'
+import { HogFunctionTemplateType } from '~/types'
 
-import { surveyTriggerLogic } from './hogflows/steps/surveyTriggerLogic'
+import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
 import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import { type HogFlow, type HogFlowAction, HogFlowActionValidationResult, type HogFlowEdge } from './hogflows/types'
 import type { workflowLogicType } from './workflowLogicType'
@@ -118,14 +118,7 @@ export const workflowLogic = kea<workflowLogicType>([
     props({ id: 'new', tabId: 'default' } as WorkflowLogicProps),
     key((props) => `workflow-${props.id || 'new'}-${props.tabId}`),
     connect(() => ({
-        values: [
-            userLogic,
-            ['user'],
-            projectLogic,
-            ['currentProjectId'],
-            surveyTriggerLogic,
-            ['allSurveys', 'surveysLoading'],
-        ],
+        values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
         actions: [workflowsLogic, ['archiveWorkflow']],
     })),
     actions({
@@ -283,19 +276,11 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
 
         actionValidationErrorsById: [
-            (s) => [
-                s.workflow,
-                s.hogFunctionTemplatesById,
-                s.hogFunctionTemplatesByIdLoading,
-                s.allSurveys,
-                s.surveysLoading,
-            ],
+            (s) => [s.workflow, s.hogFunctionTemplatesById, s.hogFunctionTemplatesByIdLoading],
             (
                 workflow,
                 hogFunctionTemplatesById,
-                hogFunctionTemplatesByIdLoading,
-                allSurveys,
-                surveysLoading
+                hogFunctionTemplatesByIdLoading
             ): Record<string, HogFlowActionValidationResult | null> => {
                 return workflow.actions.reduce(
                     (acc, action) => {
@@ -370,39 +355,25 @@ export const workflowLogic = kea<workflowLogicType>([
                         }
 
                         if (action.type === 'trigger') {
-                            // custom validation here that we can't easily express in the schema
-                            if (action.config.type === 'event') {
-                                const events = action.config.filters?.events ?? []
-                                const isSurveyTrigger = events.some((e: any) => e.id === SurveyEventName.SENT)
+                            const registeredTypes = getRegisteredTriggerTypes()
+                            const matchingType = registeredTypes.find((t) => t.matchConfig?.(action.config))
 
-                                if (isSurveyTrigger) {
-                                    // Survey trigger requires a survey selection (specific or "any")
-                                    const surveyIdProp = action.config.filters?.properties?.find(
-                                        (p: any) => p.key === '$survey_id'
-                                    )
-                                    const noSurveys =
-                                        surveysLoading === false && Array.isArray(allSurveys) && allSurveys.length === 0
-                                    if (noSurveys) {
-                                        result.valid = false
-                                        result.errors = {
-                                            filters: 'Create a survey to use this trigger',
-                                        }
-                                    } else if (!surveyIdProp) {
-                                        result.valid = false
-                                        result.errors = {
-                                            filters: 'Please select a survey',
-                                        }
-                                    }
-                                } else if (
-                                    !action.config.filters?.events?.length &&
-                                    !action.config.filters?.actions?.length
-                                ) {
+                            if (matchingType?.validate) {
+                                const triggerValidation = matchingType.validate(action.config)
+                                if (triggerValidation && !triggerValidation.valid) {
+                                    result.valid = false
+                                    result.errors = { ...result.errors, ...triggerValidation.errors }
+                                }
+                            } else if (action.config.type === 'event') {
+                                if (!action.config.filters?.events?.length && !action.config.filters?.actions?.length) {
                                     result.valid = false
                                     result.errors = {
                                         filters: 'At least one event or action is required',
                                     }
                                 }
-                            } else if (action.config.type === 'schedule') {
+                            }
+
+                            if (action.config.type === 'schedule') {
                                 if (!action.config.scheduled_at) {
                                     result.valid = false
                                     result.errors = {
@@ -452,32 +423,6 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        [surveyTriggerLogic.actionTypes.loadSurveysSuccess]: ({ surveys }: { surveys: { id: string }[] }) => {
-            const trigger = values.triggerAction
-            if (!trigger || !('type' in trigger.config) || trigger.config.type !== 'event') {
-                return
-            }
-            const events = trigger.config.filters?.events ?? []
-            if (events.length !== 1 || events[0]?.id !== SurveyEventName.SENT) {
-                return
-            }
-            const surveyIdProp = trigger.config.filters?.properties?.find((p: any) => p.key === '$survey_id')
-            if (!surveyIdProp || surveyIdProp.operator === 'is_set') {
-                return
-            }
-            const surveyId = surveyIdProp.value
-            if (surveys.some((s) => s.id === surveyId)) {
-                return
-            }
-            const properties = (trigger.config.filters?.properties ?? []).filter((p: any) => p.key !== '$survey_id')
-            actions.setWorkflowActionConfig(trigger.id, {
-                type: 'event',
-                filters: {
-                    ...trigger.config.filters,
-                    properties,
-                },
-            })
-        },
         saveWorkflowPartial: async ({ workflow }) => {
             const merged = { ...values.workflow, ...workflow }
             if (merged.status === 'active' && values.workflowHasActionErrors) {

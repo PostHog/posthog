@@ -1,8 +1,17 @@
 import { SurveyEventName } from '~/types'
 
 import { getSelectedSurveyId, isSurveyTriggerConfig } from './surveys'
+import { getRegisteredTriggerTypes } from './triggerTypeRegistry'
 
 describe('surveys', () => {
+    const getSurveyTriggerType = (): ReturnType<typeof getRegisteredTriggerTypes>[number] => {
+        const types = getRegisteredTriggerTypes()
+        const surveyType = types.find((t) => t.value === 'survey_response')
+        if (!surveyType) {
+            throw new Error('Survey trigger type not registered')
+        }
+        return surveyType
+    }
     describe('isSurveyTriggerConfig', () => {
         it.each([
             {
@@ -95,6 +104,52 @@ describe('surveys', () => {
             },
         ])('returns $expected for $name', ({ config, expected }) => {
             expect(getSelectedSurveyId(config as any)).toBe(expected)
+        })
+    })
+
+    describe('validate', () => {
+        it.each([
+            {
+                name: 'no $survey_id property',
+                config: {
+                    type: 'event',
+                    filters: {
+                        events: [{ id: SurveyEventName.SENT }],
+                        properties: [],
+                    },
+                },
+                expected: { valid: false, errors: { filters: 'Please select a survey' } },
+            },
+            {
+                name: 'specific survey selected',
+                config: {
+                    type: 'event',
+                    filters: {
+                        events: [{ id: SurveyEventName.SENT }],
+                        properties: [{ key: '$survey_id', value: 'survey-123', operator: 'exact' }],
+                    },
+                },
+                expected: { valid: true, errors: {} },
+            },
+            {
+                name: 'any survey (is_set)',
+                config: {
+                    type: 'event',
+                    filters: {
+                        events: [{ id: SurveyEventName.SENT }],
+                        properties: [{ key: '$survey_id', operator: 'is_set' }],
+                    },
+                },
+                expected: { valid: true, errors: {} },
+            },
+            {
+                name: 'non-event config',
+                config: { type: 'schedule', scheduled_at: '2026-01-01' },
+                expected: null,
+            },
+        ])('returns $expected for $name', ({ config, expected }) => {
+            const surveyType = getSurveyTriggerType()
+            expect(surveyType.validate!(config as any)).toEqual(expected)
         })
     })
 })
