@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconFlag, IconStar } from '@posthog/icons'
 import { LemonDropdown, ProfilePicture } from '@posthog/lemon-ui'
@@ -15,19 +16,30 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 
+export type QuickFilterKind = 'insightType' | 'tags' | 'createdBy' | 'favorites' | 'featureFlags'
+const ALL_QUICK_FILTERS: QuickFilterKind[] = ['insightType', 'tags', 'createdBy', 'favorites', 'featureFlags']
+
 export function SavedInsightsFilters({
     filters,
     setFilters,
-    showQuickFilters = true,
+    quickFilters = ALL_QUICK_FILTERS,
+    borderless = false,
 }: {
     filters: SavedInsightFilters
     setFilters: (filters: Partial<SavedInsightFilters>) => void
-    showQuickFilters?: boolean
+    quickFilters?: QuickFilterKind[]
+    /** When true, inactive filters appear borderless. */
+    borderless?: boolean
 }): JSX.Element {
-    const { search, hideFeatureFlagInsights, createdBy, favorited, tags, insightType } = filters
-
+    const { search, hideFeatureFlagInsights, favorited, tags, insightType, createdBy } = filters
     const { meFirstMembers, filteredMembers, membersLoading, search: memberSearch } = useValues(membersLogic)
     const { setSearch: setMemberSearch, ensureAllMembersLoaded } = useActions(membersLogic)
+    const quickFilterSet = new Set(quickFilters)
+    const hasInsightTypeSelection = !!insightType && insightType !== 'All types'
+    const hasCreatedBySelection = createdBy !== 'All users' && (createdBy as number[]).length > 0
+    const currentUserId = meFirstMembers[0]?.user.id
+    const isFilteredToCurrentUser =
+        hasCreatedBySelection && (createdBy as number[]).length === 1 && (createdBy as number[])[0] === currentUserId
 
     const handleMemberToggle = (userId: number): void => {
         const currentUsers = createdBy !== 'All users' ? (createdBy as number[]) : []
@@ -38,7 +50,9 @@ export function SavedInsightsFilters({
             selected.add(userId)
         }
         const newValue = Array.from(selected)
-        setFilters({ createdBy: newValue.length > 0 ? newValue : 'All users' })
+        const createdByValue = newValue.length > 0 ? newValue : 'All users'
+        setFilters({ createdBy: createdByValue })
+        posthog.capture('saved insights filtered', { filter_type: 'created_by', value: createdByValue })
     }
 
     return (
@@ -51,31 +65,43 @@ export function SavedInsightsFilters({
                 autoFocus
                 data-attr="insight-dashboard-modal-search"
             />
-            <div className="flex items-center gap-2 flex-wrap">
-                {showQuickFilters && (
-                    <>
+            {quickFilters.length > 0 && (
+                <div className="flex gap-2 items-center flex-wrap ml-auto">
+                    {quickFilterSet.has('insightType') && (
                         <LemonSelect
                             dropdownMatchSelectWidth={false}
                             size="small"
+                            active={hasInsightTypeSelection}
+                            status={borderless && !hasInsightTypeSelection ? 'alt' : 'default'}
                             onChange={(value) => {
                                 setFilters({ insightType: value as string })
+                                posthog.capture('saved insights filtered', { filter_type: 'insight_type', value })
                             }}
                             options={INSIGHT_TYPE_OPTIONS}
                             value={insightType || 'All types'}
                         />
+                    )}
+                    {quickFilterSet.has('tags') && (
                         <TagSelect
                             value={tags || []}
                             onChange={(tags) => {
                                 setFilters({ tags: tags.length > 0 ? tags : [] })
+                                posthog.capture('saved insights filtered', { filter_type: 'tags', value: tags })
                             }}
                         >
                             {(selectedTags) => (
-                                <LemonButton size="small" type="secondary">
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    active={selectedTags.length > 0}
+                                    status={borderless && selectedTags.length === 0 ? 'alt' : 'default'}
+                                >
                                     {selectedTags.length > 0 ? `Tags (${selectedTags.length})` : 'Tags'}
                                 </LemonButton>
                             )}
                         </TagSelect>
-
+                    )}
+                    {quickFilterSet.has('createdBy') && (
                         <LemonDropdown
                             closeOnClickInside={false}
                             matchWidth={false}
@@ -136,7 +162,7 @@ export function SavedInsightsFilters({
                                                 {memberSearch ? <span>No matches</span> : <span>No users</span>}
                                             </div>
                                         ) : null}
-                                        {createdBy !== 'All users' && (createdBy as number[]).length > 0 && (
+                                        {hasCreatedBySelection && (
                                             <>
                                                 <div className="my-1 border-t" />
                                                 <li>
@@ -156,14 +182,24 @@ export function SavedInsightsFilters({
                                 </div>
                             }
                         >
-                            <LemonButton size="small" type="secondary">
-                                {createdBy !== 'All users' && (createdBy as number[]).length > 0
-                                    ? `Created by (${(createdBy as number[]).length})`
-                                    : 'Created by'}
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                status={borderless && !hasCreatedBySelection ? 'alt' : 'default'}
+                                active={hasCreatedBySelection}
+                            >
+                                {isFilteredToCurrentUser
+                                    ? 'Created by you'
+                                    : hasCreatedBySelection
+                                      ? `Created by (${(createdBy as number[]).length})`
+                                      : 'Created by'}
                             </LemonButton>
                         </LemonDropdown>
+                    )}
+                    {quickFilterSet.has('favorites') && (
                         <LemonButton
                             type="secondary"
+                            status={borderless && !favorited ? 'alt' : 'default'}
                             active={favorited || false}
                             onClick={() => setFilters({ favorited: !favorited })}
                             size="small"
@@ -171,13 +207,15 @@ export function SavedInsightsFilters({
                         >
                             Favorites
                         </LemonButton>
+                    )}
+                    {quickFilterSet.has('featureFlags') && (
                         <FeatureFlagInsightsToggle
                             hideFeatureFlagInsights={hideFeatureFlagInsights ?? undefined}
                             onToggle={(checked) => setFilters({ hideFeatureFlagInsights: checked })}
                         />
-                    </>
-                )}
-            </div>
+                    )}
+                </div>
+            )}
         </div>
     )
 }
