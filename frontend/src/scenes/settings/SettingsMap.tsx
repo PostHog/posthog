@@ -3,6 +3,7 @@ import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
 import { AutoAssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/AutoAssignmentRules'
 import { CustomGroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/CustomGroupingRules'
+import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
 import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
@@ -79,6 +80,7 @@ import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyt
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
 import { ReplayIntegrations } from './environment/ReplayIntegrations'
+import { SDKSetupInstructions } from './environment/SDKSetupInstructions'
 import {
     CanvasCaptureSettings,
     LogCaptureSettings,
@@ -99,7 +101,6 @@ import {
     TeamDisplayName,
     TeamTimezone,
     TeamVariables,
-    WebSnippet,
     WebSnippetV2,
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
@@ -152,12 +153,52 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'snippet',
-                title: 'Web snippet',
+                title: 'SDK setup',
                 description:
-                    "Add this JavaScript snippet to your website's HTML, ideally just above the </head> tag, to start capturing events, recording sessions, and more.",
-                docsUrl: 'https://posthog.com/docs/getting-started/install?tab=snippet',
-                component: <WebSnippet />,
-                keywords: ['javascript', 'install', 'setup', 'tracking', 'code'],
+                    'Install PostHog in your app using one of our SDKs. Select your platform to see the setup instructions.',
+                docsUrl: 'https://posthog.com/docs/getting-started/install',
+                component: <SDKSetupInstructions />,
+                keywords: [
+                    'install',
+                    'setup',
+                    'tracking',
+                    'code',
+                    'sdk',
+                    'snippet',
+                    'javascript',
+                    'html',
+                    'react',
+                    'next.js',
+                    'nextjs',
+                    'python',
+                    'node',
+                    'nodejs',
+                    'react native',
+                    'angular',
+                    'astro',
+                    'bubble',
+                    'framer',
+                    'nuxt',
+                    'remix',
+                    'svelte',
+                    'tanstack',
+                    'vue',
+                    'webflow',
+                    'android',
+                    'ios',
+                    'flutter',
+                    'django',
+                    'elixir',
+                    'go',
+                    'laravel',
+                    'php',
+                    'ruby',
+                    'rails',
+                    'api',
+                    'docusaurus',
+                    'google tag manager',
+                    'gtm',
+                ],
             },
             {
                 id: 'snippet-v2',
@@ -174,15 +215,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 flag: 'REMOTE_CONFIG',
                 component: <WebSnippetV2 />,
                 keywords: ['javascript', 'install', 'setup', 'v2', 'fast'],
-            },
-            {
-                id: 'authorized-urls',
-                title: 'Toolbar authorized URLs',
-                description:
-                    'URLs where the PostHog toolbar will load and where web analytics and web experiments data is collected from. Wildcards are not allowed — URLs must be concrete and launchable.',
-                docsUrl: 'https://posthog.com/docs/toolbar',
-                component: <TeamAuthorizedURLs />,
-                keywords: ['domain', 'whitelist', 'allowlist'],
             },
         ],
     },
@@ -255,7 +287,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/web-analytics/web-vitals',
                 platformSupport: FEATURE_SUPPORT.webVitals,
                 component: <WebVitalsAutocaptureSettings />,
-                keywords: ['lcp', 'cls', 'fid', 'inp', 'fcp', 'performance', 'core web vitals'],
+                keywords: ['lcp', 'cls', 'inp', 'fcp', 'performance', 'core web vitals'],
             },
             {
                 id: 'dead-clicks-autocapture',
@@ -940,6 +972,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['notification', 'alert', 'threshold', 'spike'],
             },
             {
+                id: 'error-tracking-spike-detection',
+                title: 'Spike detection',
+                component: <SpikeDetectionSettings />,
+                flag: 'ERROR_TRACKING_SPIKE_ALERTING',
+            },
+            {
                 id: 'error-tracking-auto-assignment',
                 title: 'Auto assignment rules',
                 description: 'Automatically assign errors to team members based on rules you define.',
@@ -1070,6 +1108,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'approval-policies',
                 title: 'Policies',
                 description: 'Configure which actions require approval before being applied.',
+                docsUrl: 'https://posthog.com/docs/settings/approvals#policies',
                 component: <ApprovalPolicies />,
                 keywords: ['approval', 'policy', 'review', 'gate'],
             },
@@ -1077,6 +1116,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'change-requests',
                 title: 'Change requests',
                 description: 'Review and approve pending change requests.',
+                docsUrl: 'https://posthog.com/docs/settings/approvals#change-requests',
                 component: <ChangeRequestsList />,
                 keywords: ['approval', 'review', 'pending', 'request'],
             },

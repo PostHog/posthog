@@ -103,6 +103,15 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<CdpSourceWebhooks
             return { hogFunction }
         }
 
+        if (hogFunction?.type === 'warehouse_source_webhook' && hogFunction?.enabled) {
+            const templateId = hogFunction.template_id ?? 'template-warehouse-source-default'
+            const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(templateId)
+            if (template) {
+                hogFunction.bytecode = template.bytecode
+                return { hogFunction }
+            }
+        }
+
         // Otherwise check for hog flows
         const hogFlow = await this.hogFlowManager.getHogFlow(webhookId)
         if (

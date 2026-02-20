@@ -11,6 +11,7 @@ import { eventWithTime } from '@posthog/rrweb-types'
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { PaginatedResponse } from 'lib/api'
 import { AlertType } from 'lib/components/Alerts/types'
+import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
 import { UrlTriggerConfig } from 'lib/components/IngestionControls/types'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
@@ -358,7 +359,7 @@ export interface UserType extends UserBaseType {
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
-    hedgehog_config?: Partial<HedgehogConfig>
+    hedgehog_config?: HedgehogConfig
     allow_sidebar_suggestions?: boolean
     role_at_organization?: UserRole | null
     passkeys_enabled_for_2fa?: boolean
@@ -376,24 +377,19 @@ export type HedgehogColorOptions =
     | 'invert-hue'
     | 'greyscale'
 
-export interface MinimalHedgehogConfig {
+export type MinimalHedgehogConfig = {
     use_as_profile: boolean
-    color: HedgehogColorOptions | null
-    accessories: string[]
+    color: HedgehogActorOptions['color']
+    skin: HedgehogActorOptions['skin']
+    accessories: HedgehogActorOptions['accessories']
 }
 
-export type HedgehogSkin = 'default' | 'spiderhog' | 'robohog'
-
-export interface HedgehogConfig extends MinimalHedgehogConfig {
-    enabled: boolean
-    color: HedgehogColorOptions | null
-    skin?: HedgehogSkin
-    accessories: string[]
-    walking_enabled: boolean
-    interactions_enabled: boolean
-    controls_enabled: boolean
+export type HedgehogConfig = {
+    version: 2
+    use_as_profile: boolean
     party_mode_enabled: boolean
-    fixed_direction?: 'left' | 'right'
+    enabled: boolean
+    actor_options: HedgehogActorOptions
 }
 
 export interface NotificationSettings {
@@ -1422,7 +1418,7 @@ export type SearchableEntity =
     | 'property_definition'
     | 'survey'
 
-export type SearchListParams = { q: string; entities?: SearchableEntity[] }
+export type SearchListParams = { q: string; entities?: SearchableEntity[]; include_counts?: boolean }
 
 export type SearchResultType = {
     result_id: string
@@ -1433,7 +1429,7 @@ export type SearchResultType = {
 
 export type SearchResponse = {
     results: SearchResultType[]
-    counts: Record<SearchableEntity, number | null>
+    counts?: Record<SearchableEntity, number | null>
 }
 
 export type GroupListParams = { group_type_index: GroupTypeIndex; search: string; limit?: number }
@@ -2264,6 +2260,7 @@ export interface EndpointType extends WithAccessControl {
     /** Last execution time from ClickHouse query_log table */
     last_executed_at?: string
     materialization?: EndpointVersionMaterializationType
+    columns?: { name: string; type: string }[]
 }
 
 /** Extends EndpointType with version-specific fields when fetching a specific version */
@@ -3813,6 +3810,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     bucketing_identifier?: FeatureFlagBucketingIdentifier | null
     _should_create_usage_dashboard?: boolean
     last_called_at?: string | null
+    is_used_in_replay_settings?: boolean
 }
 
 export interface OrganizationFeatureFlag {
@@ -4073,6 +4071,11 @@ export type HotKey =
     | 'delete'
 export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
 
+export enum SchemaEnforcementMode {
+    Allow = 'allow',
+    Reject = 'reject',
+}
+
 export interface EventDefinition {
     id: string
     name: string
@@ -4090,6 +4093,7 @@ export interface EventDefinition {
     is_action?: boolean
     hidden?: boolean
     default_columns?: string[]
+    enforcement_mode?: SchemaEnforcementMode
     media_preview_urls?: string[]
 }
 

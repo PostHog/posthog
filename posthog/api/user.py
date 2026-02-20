@@ -492,6 +492,7 @@ class UserViewSet(
         "hedgehog_config",
         "scene_personalisation",
     ]
+    time_sensitive_allow_actions = ["hedgehog_config"]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
     queryset = User.objects.filter(is_active=True)

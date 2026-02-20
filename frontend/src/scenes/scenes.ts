@@ -88,6 +88,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         organizationBased: false,
         layout: 'plain',
     },
+    [Scene.CLILive]: {
+        name: 'Authorize Live',
+        projectBased: false,
+        organizationBased: false,
+        layout: 'plain',
+    },
     [Scene.Cohort]: { projectBased: true, name: 'Cohort', defaultDocsPath: '/docs/data/cohorts' },
     [Scene.CohortCalculationHistory]: { projectBased: true, name: 'Cohort Calculation History' },
     [Scene.Cohorts]: {
@@ -848,6 +854,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.approval(':id')]: [Scene.Approval, 'approval'],
     [urls.sqlEditor()]: [Scene.SQLEditor, 'sqlEditor'],
     [urls.featureFlags()]: [Scene.FeatureFlags, 'featureFlags'],
+    [urls.featureFlagTemplates()]: ['FeatureFlagTemplates' as Scene, 'featureFlagTemplates'],
     [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],
     [urls.annotations()]: [Scene.DataManagement, 'annotations'],
     [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],
@@ -887,6 +894,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.login()]: [Scene.Login, 'login'],
     [urls.login2FA()]: [Scene.Login2FA, 'login2FA'],
     [urls.cliAuthorize()]: [Scene.CLIAuthorize, 'cliAuthorize'],
+    [urls.cliLive()]: [Scene.CLILive, 'cliLive'],
     [urls.emailMFAVerify()]: [Scene.EmailMFAVerify, 'emailMFAVerify'],
     [urls.preflight()]: [Scene.PreflightCheck, 'preflight'],
     [urls.signup()]: [Scene.Signup, 'signup'],
