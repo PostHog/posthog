@@ -1093,8 +1093,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             kind: 'query',
                             tileId: TileId.WEB_VITALS,
                             layout: {
-                                colSpanClassName: 'lg:col-span-full',
-                                orderWhenLargeClassName: 'xxl:order-0',
+                                colSpanClassName: '@4xl/main-content:col-span-full',
+                                orderWhenLargeClassName: '@7xl/main-content:order-0',
                             },
                             query: {
                                 kind: NodeKind.WebVitalsQuery,
@@ -1123,8 +1123,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             kind: 'query',
                             tileId: TileId.WEB_VITALS_PATH_BREAKDOWN,
                             layout: {
-                                colSpanClassName: 'lg:col-span-full',
-                                orderWhenLargeClassName: 'xxl:order-0',
+                                colSpanClassName: '@4xl/main-content:col-span-full',
+                                orderWhenLargeClassName: '@7xl/main-content:order-0',
                             },
                             query: {
                                 kind: NodeKind.WebVitalsPathBreakdownQuery,
@@ -1157,8 +1157,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'query',
                         tileId: TileId.OVERVIEW,
                         layout: {
-                            colSpanClassName: 'lg:col-span-full',
-                            orderWhenLargeClassName: 'xxl:order-0',
+                            colSpanClassName: '@4xl/main-content:col-span-full',
+                            orderWhenLargeClassName: '@7xl/main-content:order-0',
                             className: '-mt-2',
                         },
                         query: {
@@ -1179,8 +1179,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.GRAPHS,
                         layout: {
-                            colSpanClassName: `lg:col-span-2`,
-                            orderWhenLargeClassName: 'xxl:order-1',
+                            colSpanClassName: `@4xl/main-content:col-span-2`,
+                            orderWhenLargeClassName: '@7xl/main-content:order-1',
                         },
                         activeTabId: graphsTab,
                         setTabId: actions.setGraphsTab,
@@ -1253,8 +1253,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.PATHS,
                         layout: {
-                            colSpanClassName: `lg:col-span-2`,
-                            orderWhenLargeClassName: 'xxl:order-4',
+                            colSpanClassName: `@4xl/main-content:col-span-2`,
+                            orderWhenLargeClassName: '@7xl/main-content:order-4',
                         },
                         activeTabId: pathTab,
                         setTabId: actions.setPathTab,
@@ -1419,8 +1419,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.SOURCES,
                         layout: {
-                            colSpanClassName: `lg:col-span-1`,
-                            orderWhenLargeClassName: 'xxl:order-2',
+                            colSpanClassName: `@4xl/main-content:col-span-1`,
+                            orderWhenLargeClassName: '@7xl/main-content:order-2',
                         },
                         activeTabId: sourceTab,
                         setTabId: actions.setSourceTab,
@@ -1618,8 +1618,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.DEVICES,
                         layout: {
-                            colSpanClassName: `lg:col-span-1`,
-                            orderWhenLargeClassName: 'xxl:order-3',
+                            colSpanClassName: `@4xl/main-content:col-span-1`,
+                            orderWhenLargeClassName: '@7xl/main-content:order-3',
                         },
                         activeTabId: deviceTab,
                         setTabId: actions.setDeviceTab,
@@ -1653,7 +1653,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.GEOGRAPHY,
                         layout: {
-                            colSpanClassName: 'lg:col-span-full',
+                            colSpanClassName: '@4xl/main-content:col-span-full',
                         },
                         activeTabId:
                             geographyTab || (shouldShowGeoIPQueries ? GeographyTab.MAP : GeographyTab.LANGUAGES),
@@ -1748,7 +1748,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               tileId: TileId.RETENTION,
                               title: 'Retention',
                               layout: {
-                                  colSpanClassName: 'lg:col-span-2',
+                                  colSpanClassName: '@4xl/main-content:col-span-2',
                               },
                               query: {
                                   kind: NodeKind.InsightVizNode,
@@ -1805,7 +1805,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.ACTIVE_HOURS,
                         layout: {
-                            colSpanClassName: 'lg:col-span-full',
+                            colSpanClassName: '@4xl/main-content:col-span-full',
                         },
                         activeTabId: activeHoursTab,
                         setTabId: actions.setActiveHoursTab,
@@ -1942,7 +1942,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               tileId: TileId.GOALS,
                               title: 'Goals',
                               layout: {
-                                  colSpanClassName: 'lg:col-span-2',
+                                  colSpanClassName: '@4xl/main-content:col-span-2',
                               },
                               query: {
                                   full: true,
@@ -1990,7 +1990,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               kind: 'replay',
                               tileId: TileId.REPLAY,
                               layout: {
-                                  colSpanClassName: conversionGoal ? 'lg:col-span-full' : 'lg:col-span-1',
+                                  colSpanClassName: conversionGoal
+                                      ? '@4xl/main-content:col-span-full'
+                                      : '@4xl/main-content:col-span-1',
                               },
                               docs: {
                                   url: 'https://posthog.com/docs/session-replay',
@@ -2005,7 +2007,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               kind: 'error_tracking',
                               tileId: TileId.ERROR_TRACKING,
                               layout: {
-                                  colSpanClassName: 'lg:col-span-1',
+                                  colSpanClassName: '@4xl/main-content:col-span-1',
                               },
                               query: errorTrackingQ,
                               docs: {
@@ -2035,7 +2037,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               title: 'Frustrating Pages',
                               tileId: TileId.FRUSTRATING_PAGES,
                               layout: {
-                                  colSpanClassName: 'lg:col-span-2',
+                                  colSpanClassName: '@4xl/main-content:col-span-2',
                               },
                               query: {
                                   full: true,
