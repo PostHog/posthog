@@ -761,6 +761,39 @@ jobs:
                       exit 1
                   fi
 
+                  echo "::notice::Committing updated OpenAPI types to PR branch"
+
+                  # Verify branch hasn't advanced since CI started
+                  CURRENT_SHA=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
+                  if [ "$CURRENT_SHA" != "$HEAD_SHA" ]; then
+                      echo "::warning::Branch advanced during workflow ($HEAD_SHA -> $CURRENT_SHA) — skipping auto-commit"
+                      echo "The new commit will trigger its own workflow run."
+                      exit 0
+                  fi
+
+                  # Disable auto-merge before pushing to prevent unreviewed code from merging
+                  gh pr merge --disable-auto "$PR_NUMBER" || echo "Auto-merge was not enabled"
+
+                  git remote set-url origin "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git"
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+
+                  # Switch to PR branch and regenerate types there
+                  git fetch origin "$BRANCH"
+                  git checkout -f -B "$BRANCH" "origin/$BRANCH"
+                  ./bin/hogli build:openapi
+
+                  if git diff --exit-code; then
+                      echo "Types already up to date on PR branch"
+                      exit 0
+                  fi
+
+                  git add frontend/src/generated/
+                  git add products/*/frontend/generated/ 2>/dev/null || true
+                  git commit -m "chore: update OpenAPI generated types"
+                  git push origin "$BRANCH"
+                  echo "::notice::Pushed updated OpenAPI types to $BRANCH"
+
     check-migrations-full-branch:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
@@ -844,39 +877,6 @@ jobs:
                     echo ""
                     echo "- elapsed: ${elapsed}s"
                   } >> "$GITHUB_STEP_SUMMARY"
-
-                  echo "::notice::Committing updated OpenAPI types to PR branch"
-
-                  # Verify branch hasn't advanced since CI started
-                  CURRENT_SHA=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
-                  if [ "$CURRENT_SHA" != "$HEAD_SHA" ]; then
-                      echo "::warning::Branch advanced during workflow ($HEAD_SHA -> $CURRENT_SHA) — skipping auto-commit"
-                      echo "The new commit will trigger its own workflow run."
-                      exit 0
-                  fi
-
-                  # Disable auto-merge before pushing to prevent unreviewed code from merging
-                  gh pr merge --disable-auto "$PR_NUMBER" || echo "Auto-merge was not enabled"
-
-                  git remote set-url origin "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git"
-                  git config user.name "github-actions[bot]"
-                  git config user.email "github-actions[bot]@users.noreply.github.com"
-
-                  # Switch to PR branch and regenerate types there
-                  git fetch origin "$BRANCH"
-                  git checkout -f -B "$BRANCH" "origin/$BRANCH"
-                  ./bin/hogli build:openapi
-
-                  if git diff --exit-code; then
-                      echo "Types already up to date on PR branch"
-                      exit 0
-                  fi
-
-                  git add frontend/src/generated/
-                  git add products/*/frontend/generated/ 2>/dev/null || true
-                  git commit -m "chore: update OpenAPI generated types"
-                  git push origin "$BRANCH"
-                  echo "::notice::Pushed updated OpenAPI types to $BRANCH"
 
     django:
         needs: [changes, turbo-discover, detect-snapshot-mode, get_clickhouse_versions]
