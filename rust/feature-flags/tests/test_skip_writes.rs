@@ -104,11 +104,12 @@ async fn test_skip_writes_prevents_hash_key_override_write() -> Result<()> {
 
     // Step 4: Verify the posthog_featureflaghashkeyoverride table has no rows for this team
     let mut conn = context.get_persons_connection().await?;
-    let row_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM posthog_featureflaghashkeyoverride WHERE team_id = $1")
-            .bind(team.id)
-            .fetch_one(&mut *conn)
-            .await?;
+    let row_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM posthog_featureflaghashkeyoverride WHERE team_id = $1",
+    )
+    .bind(team.id)
+    .fetch_one(&mut *conn)
+    .await?;
 
     assert_eq!(
         row_count, 0,
