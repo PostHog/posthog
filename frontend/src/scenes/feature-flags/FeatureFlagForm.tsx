@@ -562,8 +562,8 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                             <>
                                                 Returns <code className="text-xs">true</code> or{' '}
                                                 <code className="text-xs">false</code> based on targeting rules. You can
-                                                optionally attach a JSON payload when the flag is{' '}
-                                                <code className="text-xs">true</code>.
+                                                optionally attach a JSON payload that will be available on the flag when
+                                                it evaluates to <code className="text-xs">true</code>.
                                             </>
                                         )}
                                     </div>
@@ -733,7 +733,13 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                             When the flag evaluates to{' '}
                                                             <code className="text-xs">true</code>, this payload will be
                                                             available via{' '}
-                                                            <code className="text-xs">getFeatureFlagPayload</code>.
+                                                            <code className="text-xs">getFeatureFlagPayload</code>.{' '}
+                                                            <Link
+                                                                to="https://posthog.com/docs/feature-flags/creating-feature-flags#payloads"
+                                                                target="_blank"
+                                                            >
+                                                                Learn more
+                                                            </Link>
                                                         </div>
                                                         <Group name={['filters', 'payloads']}>
                                                             <LemonField name="true">
