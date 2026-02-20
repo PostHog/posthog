@@ -322,6 +322,7 @@ function TraceMetadata({
     const { featureFlags } = useValues(featureFlagLogic)
     const { personsCache } = useValues(llmPersonsLazyLoaderLogic)
     const { getTraceSentiment, isTraceLoading } = useValues(llmSentimentLazyLoaderLogic)
+    const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
 
     const showSentiment = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
     const sentimentResult = showSentiment ? getTraceSentiment(trace.id) : undefined
