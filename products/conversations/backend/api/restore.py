@@ -98,7 +98,9 @@ class WidgetRestoreRequestView(APIView):
 
         # Validate request_url domain against team's allowlist to prevent phishing
         if not validate_url_domain(request_url, team):
-            logger.warning(f"Restore request_url domain not in allowlist: {request_url}")
+            logger.warning(
+                "Restore request_url domain not in allowlist", extra={"domain": urlparse(request_url).netloc}
+            )
             return Response({"error": "URL domain not allowed"}, status=status.HTTP_403_FORBIDDEN)
 
         # Request restore link (may return None if no tickets found)

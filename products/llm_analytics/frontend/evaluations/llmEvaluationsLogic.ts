@@ -211,6 +211,11 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
 
     urlToAction(({ actions, values }) => ({
         [urls.llmAnalyticsEvaluations()]: (_, searchParams) => {
+            if (searchParams.tab === 'settings') {
+                router.actions.replace(urls.settings('environment-llm-analytics', 'llm-analytics-byok'))
+                return
+            }
+
             const dateFrom = (searchParams.date_from as string | null) || INITIAL_DATE_FROM
             const dateTo = (searchParams.date_to as string | null) || INITIAL_DATE_TO
 

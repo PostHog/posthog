@@ -236,8 +236,6 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
             />
             {duplicateEndpoint && (
                 <EndpointFromInsightModal
-                    isOpen={!!duplicateEndpoint}
-                    closeModal={() => setDuplicateEndpoint(null)}
                     tabId={tabId}
                     insightQuery={duplicateEndpoint.query}
                     insightShortId={duplicateEndpoint.derived_from_insight ?? undefined}

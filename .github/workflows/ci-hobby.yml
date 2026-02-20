@@ -603,8 +603,8 @@ jobs:
         name: Cleanup preview on label removal
         needs: changes
         if: needs.changes.outputs.label_removed == 'true'
-        uses: ./.github/workflows/cleanup-hobby-preview.yml
-        # these permissions are required by cleanup-hobby-preview.yml
+        uses: ./.github/workflows/pr-cleanup.yml
+        # these permissions are required by pr-cleanup.yml
         permissions:
             deployments: write
         with:

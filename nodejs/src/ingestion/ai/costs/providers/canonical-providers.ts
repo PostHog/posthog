@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-02-19 20:05:46 UTC
+// Generated at: 2026-02-20 10:10:56 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -22,7 +22,6 @@ export type CanonicalProvider =
     | 'baseten-fp4'
     | 'baseten-fp8'
     | 'cerebras-fp16'
-    | 'chutes'
     | 'chutes-bf16'
     | 'chutes-fp8'
     | 'chutes-int4'
@@ -112,7 +111,6 @@ export type CanonicalProvider =
     | 'seed-fp8'
     | 'siliconflow-fp8'
     | 'siliconflow-int4'
-    | 'stealth'
     | 'stepfun-fp8'
     | 'streamlake-fp16'
     | 'switchpoint'

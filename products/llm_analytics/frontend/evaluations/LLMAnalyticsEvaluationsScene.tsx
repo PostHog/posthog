@@ -27,7 +27,6 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { LLMProviderKeysSettings } from '../settings/LLMProviderKeysSettings'
 import { TrialUsageMeter } from '../settings/TrialUsageMeter'
 import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
 import {
@@ -270,8 +269,6 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
 export function LLMAnalyticsEvaluationsScene(): JSX.Element {
     const { searchParams } = useValues(router)
 
-    const activeTab = searchParams.tab || 'evaluations'
-
     const tabs: LemonTab<string>[] = [
         {
             key: 'evaluations',
@@ -289,8 +286,8 @@ export function LLMAnalyticsEvaluationsScene(): JSX.Element {
         {
             key: 'settings',
             label: 'Settings',
-            content: <LLMProviderKeysSettings />,
-            link: combineUrl(urls.llmAnalyticsEvaluations(), { ...searchParams, tab: 'settings' }).url,
+            link: urls.settings('environment-llm-analytics', 'llm-analytics-byok'),
+            content: <></>,
             'data-attr': 'settings-tab',
         },
     ]
@@ -314,8 +311,7 @@ export function LLMAnalyticsEvaluationsScene(): JSX.Element {
                     </LemonButton>
                 }
             />
-
-            <LemonTabs activeKey={activeTab} data-attr="evaluations-tabs" tabs={tabs} sceneInset />
+            <LemonTabs activeKey="evaluations" data-attr="evaluations-tabs" tabs={tabs} sceneInset />
         </SceneContent>
     )
 }
