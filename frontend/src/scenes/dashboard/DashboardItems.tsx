@@ -131,6 +131,10 @@ export function DashboardItems(): JSX.Element {
                         scrollContainerRectRef.current = scrollContainerRef.current?.getBoundingClientRect() ?? null
                     }}
                     onDrag={(_layout, _oldItem, _newItem, _placeholder, e) => {
+                        if (!(e instanceof MouseEvent)) {
+                            return
+                        }
+
                         isDragging.current = true
                         if (dragEndTimeout.current) {
                             window.clearTimeout(dragEndTimeout.current)
