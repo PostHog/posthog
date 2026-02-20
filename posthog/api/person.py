@@ -1234,7 +1234,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
             # Get the person object for serialization
-            if distinct_id:
+
             # Get the person object for serialization
             try:
                 if distinct_id:
@@ -1248,6 +1248,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     {"error": f"Person with {identifier_type} '{identifier}' not found"},
                     status=404,
                 )
+
 
             # Build point-in-time properties using the pre-fetched distinct_ids
             point_in_time_properties = build_person_properties_at_time(
