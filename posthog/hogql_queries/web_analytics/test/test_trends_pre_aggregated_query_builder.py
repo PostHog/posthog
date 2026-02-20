@@ -49,7 +49,7 @@ class TestTrendsPreAggregatedQueryBuilder(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("SELECT", hogql_query)
         self.assertIn("toStartOfDay(period_bucket) AS bucket", hogql_query)
         self.assertIn("uniqMerge(persons_uniq_state) AS unique_users", hogql_query)
-        self.assertIn("FROM web_bounces_combined", hogql_query)
+        self.assertIn("FROM web_pre_aggregated_bounces", hogql_query)
         self.assertIn("GROUP BY bucket", hogql_query)
         self.assertIn("ORDER BY bucket ASC", hogql_query)
 

@@ -1,0 +1,123 @@
+# syntax=docker/dockerfile:1
+#
+# Docker image for the LLM Analytics Temporal worker.
+#
+# Includes ML dependencies (transformers, ONNX Runtime, torch) that are too
+# large (~2GB) for the shared PostHog image. These deps live in the `sentiment`
+# dependency group in pyproject.toml and are installed via `uv sync --group sentiment`.
+#
+
+# Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
+FROM ghcr.io/astral-sh/uv:0.9.9 AS uv
+
+FROM python:3.12.12-slim-bookworm
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+# Copy uv
+COPY --from=uv /uv /uvx /bin/
+
+# Set working directory
+WORKDIR /code
+
+# uv settings for Docker builds
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
+ENV UV_PROJECT_ENVIRONMENT=/python-runtime
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "build-essential" \
+    "git" \
+    "libpq-dev" \
+    "libxmlsec1" \
+    "libxmlsec1-dev" \
+    "libffi-dev" \
+    "zlib1g-dev" \
+    "pkg-config" \
+    && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies including sentiment ML deps
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-dev --no-install-project --group sentiment --no-binary-package lxml --no-binary-package xmlsec
+
+# Copy project files
+COPY manage.py manage.py
+COPY common/esbuilder common/esbuilder
+COPY common/hogvm common/hogvm/
+COPY common/migration_utils common/migration_utils/
+COPY posthog posthog/
+COPY products/ products/
+COPY ee ee/
+COPY bin/temporal-django-worker bin/temporal-django-worker
+
+ENV PATH=/python-runtime/bin:$PATH \
+    PYTHONPATH=/python-runtime \
+    POSTHOG_SENTIMENT_MODEL_CACHE=/opt/posthog-sentiment-model
+
+# Pre-bake the sentiment ONNX model so workers don't download from HuggingFace on startup.
+# Downloads from a pinned HuggingFace revision, exports to ONNX, verifies file integrity
+# via SHA256 checksums, and runs a smoke test to confirm correct inference output.
+#
+# To update the model:
+#   1. Update MODEL_REVISION to the new commit SHA from HuggingFace
+#   2. Run the export locally to compute new SHA256 hashes for config.json and tokenizer.json
+#   3. Update EXPECTED_HASHES below
+#   4. Rebuild the image
+RUN <<'BAKE_MODEL'
+python -c "
+import hashlib, os, sys, torch
+from transformers import AutoTokenizer, pipeline
+from optimum.onnxruntime import ORTModelForSequenceClassification
+
+MODEL_NAME = 'cardiffnlp/twitter-roberta-base-sentiment-latest'
+MODEL_REVISION = '3216a57f2a0d9c45a2e6c20157c20c49fb4bf9c7'
+
+EXPECTED_HASHES = {
+    'config.json': '6f9c837680f529dd63871255651ca177bc259fd7c7f64cd5a4d6fcf0c36b8863',
+    'tokenizer.json': '727009a8214ddfa5af1deedf1006d4d06e8e51e54aa5f03566263d4e19bfcdce',
+}
+
+cache_dir = os.environ['POSTHOG_SENTIMENT_MODEL_CACHE']
+os.makedirs(cache_dir, exist_ok=True)
+
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, revision=MODEL_REVISION)
+
+# PyTorch 2.9+ defaults torch.onnx.export to dynamo=True which breaks optimum
+original_export = torch.onnx.export
+def export_with_dynamo_disabled(*args, **kwargs):
+    kwargs.setdefault('dynamo', False)
+    return original_export(*args, **kwargs)
+torch.onnx.export = export_with_dynamo_disabled
+
+model = ORTModelForSequenceClassification.from_pretrained(MODEL_NAME, revision=MODEL_REVISION, export=True)
+torch.onnx.export = original_export
+
+model.save_pretrained(cache_dir)
+tokenizer.save_pretrained(cache_dir)
+
+for filename, expected_sha in EXPECTED_HASHES.items():
+    filepath = os.path.join(cache_dir, filename)
+    actual_sha = hashlib.sha256(open(filepath, 'rb').read()).hexdigest()
+    if actual_sha != expected_sha:
+        print(f'HASH MISMATCH for {filename}:', file=sys.stderr)
+        print(f'  expected: {expected_sha}', file=sys.stderr)
+        print(f'  actual:   {actual_sha}', file=sys.stderr)
+        sys.exit(1)
+    print(f'  verified {filename}: {actual_sha}')
+
+pipe = pipeline('sentiment-analysis', model=model, tokenizer=tokenizer, top_k=None, truncation=True, max_length=512)
+result = pipe('I love this product')[0]
+labels = {r['label']: r['score'] for r in result}
+assert labels.get('positive', 0) > 0.5, f'Smoke test failed: expected positive > 0.5, got {labels}'
+print(f'  smoke test passed: positive={labels[\"positive\"]:.4f}')
+print(f'Model baked into {cache_dir}')
+"
+BAKE_MODEL
+
+RUN chmod +x bin/temporal-django-worker
+
+CMD ["bin/temporal-django-worker"]

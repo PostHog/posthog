@@ -772,7 +772,7 @@ export function DataTable({
 
     const secondRowRight = [
         sourceFeatures.has(QueryFeature.linkDataButton) && hasCustomerAnalyticsEnabled ? (
-            <ViewLinkButton tableName="groups" />
+            <ViewLinkButton key="view-link-button" tableName="groups" />
         ) : null,
         (showColumnConfigurator || showPersistentColumnConfigurator) &&
         sourceFeatures.has(QueryFeature.columnConfigurator) ? (

@@ -25,6 +25,8 @@ import type { sessionRecordingDataCoordinatorLogicType } from './sessionRecordin
 import { sessionRecordingMetaLogic } from './sessionRecordingMetaLogic'
 import { getHrefFromSnapshot } from './snapshot-processing/patch-meta-event'
 import { processAllSnapshots } from './snapshot-processing/process-all-snapshots'
+import { SnapshotStore } from './snapshot-store/SnapshotStore'
+import { snapshotDataLogic } from './snapshotDataLogic'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
 export interface SessionRecordingDataCoordinatorLogicProps {
@@ -52,6 +54,11 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         })
         const commentsLogic = sessionRecordingCommentsLogic({
             sessionRecordingId,
+        })
+        const snapLogic = snapshotDataLogic({
+            sessionRecordingId,
+            blobV2PollingDisabled,
+            accessToken,
         })
         return {
             actions: [
@@ -98,6 +105,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'isLoadingSnapshots',
                     'uuidToIndex',
                     'getWindowId',
+                    'isRecordingDeleted',
+                    'recordingDeletedAt',
                 ],
                 eventsLogic,
                 [
@@ -114,6 +123,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'sessionNotebookComments',
                     'sessionNotebookCommentsLoading',
                 ],
+                snapLogic,
+                ['snapshotStore', 'storeVersion', 'sourceLoadingStates'],
             ],
         }
     }),
@@ -160,7 +171,10 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
         loadSnapshotsForSourceSuccess: () => {
             actions.reportUsageIfFullyLoaded()
-            actions.processSnapshotsAsync()
+            // Skip legacy processing when SnapshotStore handles snapshots directly
+            if (!values.snapshotStore) {
+                actions.processSnapshotsAsync()
+            }
         },
 
         loadRecordingCommentsSuccess: () => {
@@ -199,7 +213,15 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         },
     })),
     selectors(({ cache }) => ({
-        snapshots: [(s) => [s.processedSnapshots], (processedSnapshots): RecordingSnapshot[] => processedSnapshots],
+        snapshots: [
+            (s) => [s.processedSnapshots, s.snapshotStore, s.storeVersion],
+            (processedSnapshots: RecordingSnapshot[], snapshotStore: SnapshotStore | null): RecordingSnapshot[] => {
+                if (snapshotStore) {
+                    return snapshotStore.getAllLoadedSnapshots()
+                }
+                return processedSnapshots
+            },
+        ],
 
         start: [
             (s) => [s.snapshots, s.sessionPlayerMetaData],
@@ -237,19 +259,40 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         ],
 
         segments: [
-            (s) => [s.snapshots, s.start, s.end, s.trackedWindow, s.snapshotsByWindowId, s.isLoadingSnapshots],
+            (s) => [
+                s.snapshots,
+                s.start,
+                s.end,
+                s.trackedWindow,
+                s.snapshotsByWindowId,
+                s.isLoadingSnapshots,
+                s.snapshotStore,
+                s.storeVersion,
+            ],
             (
                 snapshots: RecordingSnapshot[],
                 start: Dayjs | null,
                 end: Dayjs | null,
                 trackedWindow: number | null,
                 snapshotsByWindowId: Record<number, eventWithTime[]>,
-                isLoadingSnapshots: boolean
+                isLoadingSnapshots: boolean,
+                snapshotStore: SnapshotStore | null
             ): RecordingSegment[] => {
                 const segments = createSegments(snapshots || [], start, end, trackedWindow, snapshotsByWindowId)
 
                 return segments.map((segment) => {
                     if (segment.kind === 'buffer') {
+                        // Store path: if all sources covering this buffer range are already
+                        // loaded, the data isn't pending — it's a gap with no events.
+                        // Guard on sourceCount > 0: an empty store has no entries, so
+                        // getUnloadedIndicesInRange returns [] which would falsely convert.
+                        if (snapshotStore && snapshotStore.sourceCount > 0) {
+                            const startIdx = snapshotStore.getSourceIndexForTimestamp(segment.startTimestamp)
+                            const endIdx = snapshotStore.getSourceIndexForTimestamp(segment.endTimestamp)
+                            if (snapshotStore.getUnloadedIndicesInRange(startIdx, endIdx).length === 0) {
+                                return { ...segment, kind: 'gap' as const }
+                            }
+                        }
                         return {
                             ...segment,
                             isLoading: isLoadingSnapshots,
@@ -261,8 +304,11 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         ],
 
         snapshotsByWindowId: [
-            (s) => [s.snapshots],
-            (snapshots) => {
+            (s) => [s.snapshots, s.snapshotStore, s.storeVersion],
+            (snapshots: RecordingSnapshot[], snapshotStore: SnapshotStore | null): Record<number, eventWithTime[]> => {
+                if (snapshotStore) {
+                    return snapshotStore.getSnapshotsByWindowId()
+                }
                 return mapSnapshotsToWindowId(snapshots || [])
             },
         ],

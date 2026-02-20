@@ -39,7 +39,7 @@ export function VariantsPanel({ experiment, updateFeatureFlag, disabled = false 
         clearFeatureFlagKeyValidation,
     } = useActions(variantsPanelLogic({ experiment, disabled }))
 
-    const { openSelectExistingFeatureFlagModal, closeSelectExistingFeatureFlagModal } = useActions(
+    const { openSelectExistingFeatureFlagModal, closeSelectExistingFeatureFlagModal, setFilters } = useActions(
         selectExistingFeatureFlagModalLogic
     )
     const { reportExperimentFeatureFlagSelected } = useActions(eventUsageLogic)
@@ -191,6 +191,7 @@ export function VariantsPanel({ experiment, updateFeatureFlag, disabled = false 
                         options={featureFlagOptions}
                         value={currentAutocompleteValue}
                         onChange={handleFeatureFlagSelection}
+                        onInputChange={(value) => setFilters({ search: value || undefined, page: 1 })}
                         inputTransform={(value) => value.replace(/\s+/g, '-')}
                         allowCustomValues
                         formatCreateLabel={(input) => (

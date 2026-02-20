@@ -181,9 +181,9 @@ def test_create_external_job_activity(activity_environment, team, **kwargs):
         team_id=team.id, source_id=new_source.pk, schema_id=test_1_schema.id, billable=True
     )
 
-    run_id, _, __ = activity_environment.run(create_external_data_job_model_activity, inputs)
+    result = activity_environment.run(create_external_data_job_model_activity, inputs)
 
-    runs = ExternalDataJob.objects.filter(id=run_id)
+    runs = ExternalDataJob.objects.filter(id=result.job_id)
     assert runs.exists()
 
 
@@ -208,9 +208,9 @@ def test_create_external_job_activity_schemas_exist(activity_environment, team, 
         team_id=team.id, source_id=new_source.pk, schema_id=schema.id, billable=True
     )
 
-    run_id, _, __ = activity_environment.run(create_external_data_job_model_activity, inputs)
+    result = activity_environment.run(create_external_data_job_model_activity, inputs)
 
-    runs = ExternalDataJob.objects.filter(id=run_id)
+    runs = ExternalDataJob.objects.filter(id=result.job_id)
     assert runs.exists()
 
 

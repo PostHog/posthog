@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-02-17 10:15:44 UTC
+// Generated at: 2026-02-20 10:10:56 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -11,8 +11,9 @@ export type CanonicalProvider =
     | 'amazon-bedrock'
     | 'ambient-bf16'
     | 'anthropic'
-    | 'arcee-ai'
     | 'arcee-ai-bf16'
+    | 'arcee-ai-modal'
+    | 'arcee-ai-prime'
     | 'atlas-cloud-bf16'
     | 'atlas-cloud-fp16'
     | 'atlas-cloud-fp8'
@@ -21,7 +22,6 @@ export type CanonicalProvider =
     | 'baseten-fp4'
     | 'baseten-fp8'
     | 'cerebras-fp16'
-    | 'chutes'
     | 'chutes-bf16'
     | 'chutes-fp8'
     | 'chutes-int4'
@@ -76,6 +76,7 @@ export type CanonicalProvider =
     | 'morph'
     | 'nebius'
     | 'nebius-base'
+    | 'nebius-bf16'
     | 'nebius-fast'
     | 'nebius-fp4'
     | 'nebius-fp8'
@@ -110,7 +111,6 @@ export type CanonicalProvider =
     | 'seed-fp8'
     | 'siliconflow-fp8'
     | 'siliconflow-int4'
-    | 'stealth'
     | 'stepfun-fp8'
     | 'streamlake-fp16'
     | 'switchpoint'
