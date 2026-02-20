@@ -98,7 +98,18 @@ fun truncateIfNeeded(s) {
     return substring(s, 1, limit)
 }
 
-let distinctId := f'vercel_{sha256Hex(f'{logs[1].deploymentId}:{logs[1].requestId ?? logs[1].id}')}'
+// Distinct ID generation approaches:
+// ┌────────────────────┬──────────────────────────────────┬────────────────────────────┐
+// │ Approach           │ Hash Input                       │ Grouping                   │
+// ├────────────────────┼──────────────────────────────────┼────────────────────────────┤
+// │ Request-level      │ deploymentId:requestId           │ Each request is unique     │
+// │ User-level         │ projectId:clientIp:userAgent     │ Same user across requests  │
+// │ Cookieless-like    │ salt:teamId:ip:host:userAgent    │ Daily rotating, reversible │
+// └────────────────────┴──────────────────────────────────┴────────────────────────────┘
+// Using: User-level grouping
+let clientIp := logs[1].proxy.clientIp ?? ''
+let userAgent := logs[1].proxy.userAgent[1] ?? ''
+let distinctId := f'vercel_{sha256Hex(f'{logs[1].projectId}:{clientIp}:{userAgent}')}'
 
 // Build array of log entries
 let logEntries := []
