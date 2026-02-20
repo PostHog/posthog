@@ -66,13 +66,13 @@ class SentimentBatchRequestSerializer(serializers.Serializer):
 
 
 class MessageSentimentSerializer(serializers.Serializer):
-    label = serializers.CharField()
+    label = serializers.CharField()  # type: ignore[assignment]
     score = serializers.FloatField()
     scores = serializers.DictField(child=serializers.FloatField())
 
 
 class GenerationSentimentSerializer(serializers.Serializer):
-    label = serializers.CharField()
+    label = serializers.CharField()  # type: ignore[assignment]
     score = serializers.FloatField()
     scores = serializers.DictField(child=serializers.FloatField())
     messages = serializers.DictField(child=MessageSentimentSerializer())
@@ -80,7 +80,7 @@ class GenerationSentimentSerializer(serializers.Serializer):
 
 class SentimentResponseSerializer(serializers.Serializer):
     trace_id = serializers.CharField()
-    label = serializers.CharField()
+    label = serializers.CharField()  # type: ignore[assignment]
     score = serializers.FloatField()
     scores = serializers.DictField(child=serializers.FloatField())
     generations = serializers.DictField(child=GenerationSentimentSerializer())
