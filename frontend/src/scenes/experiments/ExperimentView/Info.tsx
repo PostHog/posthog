@@ -75,11 +75,11 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
 
     return (
         <>
-            <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1100px]:grid-cols-[2fr_3fr]">
+            <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1100px]:grid-cols-[1fr_1fr]">
                 {/* Column 1 */}
                 <div className="flex flex-col gap-0 overflow-hidden min-w-0">
                     {/* Row 1: Status, Feature flag, Stats engine */}
-                    <div className="flex flex-wrap gap-x-8 gap-y-2">
+                    <div className="flex flex-wrap gap-x-4 gap-y-2">
                         <div className="flex flex-col" data-attr="experiment-status">
                             <Label intent="menu">Status</Label>
                             <div className="flex gap-1">
