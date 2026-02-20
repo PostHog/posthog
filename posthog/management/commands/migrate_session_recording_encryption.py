@@ -79,7 +79,7 @@ class Command(BaseCommand):
                 sample_size = min(int(len(target_ids) * percentage / 100), len(target_ids))
                 if seed is not None:
                     random.seed(seed)
-                target_ids = random.sample(target_ids, sample_size)
+                target_ids = random.sample(target_ids, sample_size) if sample_size > 0 else []
 
             total_teams_migrated = 0
 
