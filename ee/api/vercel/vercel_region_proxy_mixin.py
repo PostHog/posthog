@@ -114,11 +114,14 @@ class VercelRegionProxyMixin:
         parsed_url = urlparse(request.build_absolute_uri())
         target_url = urlunparse(parsed_url._replace(netloc=self.EU_DOMAIN))
 
+        headers = dict(request.headers)
+        headers["Host"] = self.EU_DOMAIN
+
         try:
             response = requests.request(
                 method=request.method or "GET",
                 url=target_url,
-                headers=dict(request.headers),  # Django's headers object works directly
+                headers=headers,
                 params=dict(request.GET.lists()) if request.GET else None,
                 data=request.body or None,
                 timeout=self.PROXY_TIMEOUT,
