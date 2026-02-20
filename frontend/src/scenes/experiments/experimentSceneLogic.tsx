@@ -1,4 +1,5 @@
 import { BuiltLogic, actions, kea, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
+import { router } from 'kea-router'
 
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
@@ -233,6 +234,15 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
 
         return {
             setSceneState: actionToUrl,
+            setActiveTabKey: ({ activeTabKey }) => {
+                const searchParams = { ...router.values.searchParams }
+                if (activeTabKey && activeTabKey !== 'metrics') {
+                    searchParams.tab = activeTabKey
+                } else {
+                    delete searchParams.tab
+                }
+                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+            },
         }
     }),
     tabAwareUrlToAction(({ actions, values }) => ({
@@ -274,8 +284,15 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                     }
                 }
             }
+
+            // Handle tab query parameter
+            const tabFromUrl = query?.tab as string | undefined
+            const targetTab = tabFromUrl || 'metrics'
+            if (targetTab !== values.activeTabKey) {
+                actions.setActiveTabKey(targetTab)
+            }
         },
-        '/experiments/:id/:formMode': ({ id, formMode }, _, __, currentLocation, previousLocation) => {
+        '/experiments/:id/:formMode': ({ id, formMode }, query, __, currentLocation, previousLocation) => {
             // Ignore routes where id is not a valid experiment identifier (number or 'new')
             // This prevents matching routes like /experiments/shared-metrics/new
             if (!id || (id !== 'new' && isNaN(parseInt(id, 10)))) {
@@ -304,6 +321,13 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                 }
 
                 actions.setSceneState(parsedId, parsedFormMode)
+            }
+
+            // Handle tab query parameter
+            const tabFromUrl = query?.tab as string | undefined
+            const targetTab = tabFromUrl || 'metrics'
+            if (targetTab !== values.activeTabKey) {
+                actions.setActiveTabKey(targetTab)
             }
         },
     })),
