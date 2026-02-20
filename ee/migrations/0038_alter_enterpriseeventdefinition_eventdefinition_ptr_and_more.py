@@ -27,7 +27,7 @@ class UpdateParentLink(migrations.operations.base.Operation):
         model_state = state.models[app_label, self.model_name.lower()]
         model_state.bases = tuple(self.old_base if b == self.new_base else b for b in model_state.bases)
         # Reconstruct the old field pointing to the old base
-        old_field = models.OneToOneField(
+        old_field: models.Field = models.OneToOneField(
             auto_created=True,
             on_delete=django.db.models.deletion.CASCADE,
             parent_link=True,
