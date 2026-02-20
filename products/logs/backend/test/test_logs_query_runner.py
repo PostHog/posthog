@@ -370,6 +370,7 @@ class TestAttributeFilters(APIBaseTest):
 
         self.assertIn("body", query_str)
         self.assertIn("timeout error", query_str)
+        self.assertIn("indexHint", query_str)
 
     def test_no_search_term_filter(self):
         """Test that omitting searchTerm does not add a body filter"""
