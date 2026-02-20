@@ -954,106 +954,6 @@ export interface PatchedDashboardTemplateApi {
 }
 
 /**
- * * `allow` - Allow
- * `reject` - Reject
- */
-export type EnforcementModeEnumApi = (typeof EnforcementModeEnumApi)[keyof typeof EnforcementModeEnumApi]
-
-export const EnforcementModeEnumApi = {
-    Allow: 'allow',
-    Reject: 'reject',
-} as const
-
-/**
- * Serializer mixin that handles tags for objects.
- */
-export interface EnterpriseEventDefinitionApi {
-    readonly id: string
-    /** @maxLength 400 */
-    name: string
-    /** @nullable */
-    owner?: number | null
-    /** @nullable */
-    description?: string | null
-    tags?: unknown[]
-    /** @nullable */
-    readonly created_at: string | null
-    readonly updated_at: string
-    readonly updated_by: UserBasicApi
-    /** @nullable */
-    readonly last_seen_at: string | null
-    readonly last_updated_at: string
-    verified?: boolean
-    /** @nullable */
-    readonly verified_at: string | null
-    readonly verified_by: UserBasicApi
-    /** @nullable */
-    hidden?: boolean | null
-    enforcement_mode?: EnforcementModeEnumApi
-    readonly is_action: boolean
-    readonly action_id: number
-    readonly is_calculating: boolean
-    readonly last_calculated_at: string
-    readonly created_by: UserBasicApi
-    post_to_slack?: boolean
-    default_columns?: string[]
-    readonly media_preview_urls: readonly string[]
-}
-
-export interface PaginatedEnterpriseEventDefinitionListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: EnterpriseEventDefinitionApi[]
-}
-
-/**
- * Serializer mixin that handles tags for objects.
- */
-export interface PatchedEnterpriseEventDefinitionApi {
-    readonly id?: string
-    /** @maxLength 400 */
-    name?: string
-    /** @nullable */
-    owner?: number | null
-    /** @nullable */
-    description?: string | null
-    tags?: unknown[]
-    /** @nullable */
-    readonly created_at?: string | null
-    readonly updated_at?: string
-    readonly updated_by?: UserBasicApi
-    /** @nullable */
-    readonly last_seen_at?: string | null
-    readonly last_updated_at?: string
-    verified?: boolean
-    /** @nullable */
-    readonly verified_at?: string | null
-    readonly verified_by?: UserBasicApi
-    /** @nullable */
-    hidden?: boolean | null
-    enforcement_mode?: EnforcementModeEnumApi
-    readonly is_action?: boolean
-    readonly action_id?: number
-    readonly is_calculating?: boolean
-    readonly last_calculated_at?: string
-    readonly created_by?: UserBasicApi
-    post_to_slack?: boolean
-    default_columns?: string[]
-    readonly media_preview_urls?: readonly string[]
-}
-
-export type EventDefinitionApiProperties = { [key: string]: unknown }
-
-export interface EventDefinitionApi {
-    elements: unknown[]
-    event: string
-    properties: EventDefinitionApiProperties
-}
-
-/**
  * * `image/png` - image/png
  * `application/pdf` - application/pdf
  * `text/csv` - text/csv
@@ -1986,24 +1886,6 @@ export type DashboardTemplatesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
-}
-
-export type EventDefinitionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type EventDefinitionsByNameRetrieveParams = {
-    /**
-     * The exact event name to look up
-     */
-    name: string
 }
 
 export type ExportsListParams = {
