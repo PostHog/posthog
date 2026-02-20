@@ -1,0 +1,30 @@
+[package]
+name = "kafka-assigner"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+assignment-coordination = { path = "../common/assignment-coordination" }
+dashmap = { workspace = true }
+etcd-client = "0.18"
+kafka-assigner-proto = { path = "../kafka-assigner-proto" }
+prost = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { version = "0.1", features = ["net"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tonic = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "test-util"] }
+uuid = { version = "1", features = ["v4"] }
+
+[package.metadata.cargo-shear]
+ignored = ["prost"]
+
+[lints]
+workspace = true
