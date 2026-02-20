@@ -182,7 +182,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
 
         if (typeof uuid === 'string' && typeof traceId === 'string') {
             const parsedTimestamp =
-                timestampValue !== null && timestampValue !== undefined && dayjs(timestampValue as any).isValid()
+                timestampValue != null && dayjs(String(timestampValue)).isValid()
                     ? getTraceTimestamp(String(timestampValue))
                     : undefined
             return { uuid, traceId, traceTimestamp: parsedTimestamp }
