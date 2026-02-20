@@ -1,10 +1,12 @@
 import uuid
+import asyncio
 import logging
 from typing import cast
 
 from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import Count
+from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema, extend_schema_view
@@ -15,10 +17,12 @@ from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from temporalio.common import RetryPolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission
+from posthog.temporal.common.client import sync_connect
 
 from products.signals.backend.api import emit_signal
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalSourceConfig
@@ -77,11 +81,40 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         try:
-            serializer.save(team_id=self.team_id, created_by=self.request.user)
+            instance = serializer.save(team_id=self.team_id, created_by=self.request.user)
         except IntegrityError:
             raise serializers.ValidationError(
                 {"source_type": "A configuration for this source type already exists for this team."}
             )
+
+        if instance.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS and instance.enabled:
+            self._trigger_initial_clustering(instance)
+
+    def _trigger_initial_clustering(self, config: SignalSourceConfig) -> None:
+        """Fire-and-forget the clustering workflow and mark the config as running."""
+        from posthog.temporal.ai.video_segment_clustering.models import ClusteringWorkflowInputs
+
+        try:
+            config.status = SignalSourceConfig.Status.RUNNING
+            config.triggered_at = timezone.now()
+            config.save(update_fields=["status", "triggered_at"])
+
+            workflow_id = f"video-segment-clustering-team-{self.team_id}-initial-{config.id}"
+            client = sync_connect()
+            asyncio.run(
+                client.start_workflow(
+                    "video-segment-clustering",
+                    ClusteringWorkflowInputs(team_id=self.team_id),
+                    id=workflow_id,
+                    task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            )
+            logger.info(f"Started initial clustering workflow for team {self.team_id}")
+        except Exception:
+            logger.exception(f"Failed to start initial clustering workflow for team {self.team_id}")
+            config.status = SignalSourceConfig.Status.FAILED
+            config.save(update_fields=["status"])
 
     def perform_update(self, serializer):
         serializer.save()

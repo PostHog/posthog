@@ -97,3 +97,8 @@ def render_signals_to_text(signals: list[SignalData]) -> str:
     for i, signal in enumerate(signals):
         blocks.append(render_signal_to_text(signal, index=i + 1))
     return "\n\n".join(blocks)
+
+@dataclass
+class InitialClusteringTriggerInputs:
+    team_id: int
+    signal_source_config_id: str

@@ -38,8 +38,16 @@ export interface SignalSourceConfig {
     config: Record<string, any>
     created_at: string
     updated_at: string
+    status: SignalSourceConfigStatus | null
+    triggered_at: string | null
 }
 
 export enum SignalSourceType {
     SESSION_ANALYSIS = 'session_analysis',
+}
+
+export enum SignalSourceConfigStatus {
+    RUNNING = 'running',
+    COMPLETED = 'completed',
+    FAILED = 'failed',
 }

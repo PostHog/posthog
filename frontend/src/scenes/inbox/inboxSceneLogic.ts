@@ -17,8 +17,11 @@ import {
     SignalReportArtefact,
     SignalReportArtefactResponse,
     SignalSourceConfig,
+    SignalSourceConfigStatus,
     SignalSourceType,
 } from './types'
+
+const CLUSTERING_POLL_INTERVAL_MS = 5000
 
 export const inboxSceneLogic = kea<inboxSceneLogicType>([
     path(['scenes', 'inbox', 'inboxSceneLogic']),
@@ -124,6 +127,8 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                         config: {},
                         created_at: new Date().toISOString(),
                         updated_at: new Date().toISOString(),
+                        status: null,
+                        triggered_at: null,
                     },
                 ]
             },
@@ -175,12 +180,26 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             (s) => [s.sourceConfigs],
             (sourceConfigs: SignalSourceConfig[] | null): number => sourceConfigs?.filter((c) => c.enabled).length ?? 0,
         ],
+        isClusteringRunning: [
+            (s) => [s.sessionAnalysisConfig],
+            (config: SignalSourceConfig | null): boolean => config?.status === SignalSourceConfigStatus.RUNNING,
+        ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         setSelectedReportId: ({ id }) => {
             if (id && !values.artefacts[id]) {
                 actions.loadArtefacts({ reportId: id })
+            }
+        },
+        loadSourceConfigsSuccess: () => {
+            // Poll for updates while clustering is running
+            clearTimeout(cache.clusteringPollTimeout)
+            if (values.isClusteringRunning) {
+                cache.clusteringPollTimeout = setTimeout(() => {
+                    actions.loadSourceConfigs()
+                    actions.loadReports()
+                }, CLUSTERING_POLL_INTERVAL_MS)
             }
         },
         runSessionAnalysis: async () => {
@@ -258,10 +277,13 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         },
     })),
 
-    events(({ actions }) => ({
+    events(({ actions, cache }) => ({
         afterMount: () => {
             actions.loadReports()
             actions.loadSourceConfigs()
+        },
+        beforeUnmount: () => {
+            clearTimeout(cache.clusteringPollTimeout)
         },
     })),
 
