@@ -3899,6 +3899,7 @@ class Branching(BaseModel):
 class Display1(StrEnum):
     NUMBER = "number"
     EMOJI = "emoji"
+    STAR = "star"
 
 
 class SurveyQuestionType(StrEnum):

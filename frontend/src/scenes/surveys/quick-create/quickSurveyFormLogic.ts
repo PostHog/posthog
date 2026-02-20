@@ -39,7 +39,7 @@ export interface QuickSurveyFormValues {
     question: string
     description?: string
     questionType: QuickSurveyQuestionType
-    scaleType?: 'number' | 'emoji'
+    scaleType?: 'number' | 'emoji' | 'star'
     ratingLowerBound?: string
     ratingUpperBound?: string
     buttonText?: string
