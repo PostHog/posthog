@@ -349,6 +349,15 @@ export const productTourLogic = kea<productTourLogicType>([
                     }
                 }
 
+                const waitPeriod = content.conditions?.seenTourWaitPeriod
+                if (waitPeriod) {
+                    if (!waitPeriod.types || waitPeriod.types.length === 0) {
+                        errors._form = 'Wait period requires at least one type selected'
+                    } else if (!waitPeriod.days || waitPeriod.days < 1) {
+                        errors._form = 'Wait period requires a number of days'
+                    }
+                }
+
                 return errors
             },
             submit: async (formValues: ProductTourForm) => {
