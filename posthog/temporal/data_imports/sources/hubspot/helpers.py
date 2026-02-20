@@ -130,10 +130,13 @@ def fetch_data(
         r = requests.get(url, headers=headers, params=params)
     except http_requests.exceptions.HTTPError as e:
         if e.response.status_code == 401:
-            # refresh token
+            # refresh token and retry
             api_key = hubspot_refresh_access_token(refresh_token)
             headers = _get_headers(api_key)
-            r = requests.get(url, headers=headers, params=params)
+            try:
+                r = requests.get(url, headers=headers, params=params)
+            except http_requests.exceptions.HTTPError:
+                raise e
         else:
             raise
     # Parse the API response and yield the properties of each result
@@ -176,10 +179,13 @@ def fetch_data(
                 r = requests.get(next_url, headers=headers)
             except http_requests.exceptions.HTTPError as e:
                 if e.response.status_code == 401:
-                    # refresh token
+                    # refresh token and retry
                     api_key = hubspot_refresh_access_token(refresh_token)
                     headers = _get_headers(api_key)
-                    r = requests.get(next_url, headers=headers)
+                    try:
+                        r = requests.get(next_url, headers=headers)
+                    except http_requests.exceptions.HTTPError:
+                        raise e
                 else:
                     raise
             _data = r.json()

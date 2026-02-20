@@ -55,6 +55,7 @@ class HubspotSource(SimpleSource[HubspotSourceConfig | HubspotSourceOldConfig], 
         return {
             "missing or invalid refresh token": "Your HubSpot connection is invalid or expired. Please reconnect it.",
             "missing or unknown hub id": None,
+            "401 Client Error": "Your HubSpot connection is invalid or expired. Please reconnect it.",
         }
 
     # TODO: clean up hubspot job inputs to not have two auth config options
