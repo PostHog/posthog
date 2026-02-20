@@ -133,7 +133,16 @@ export function createParseMessageStep(
 
         const result = getValidEvents($snapshot_items)
         if (!result) {
-            return dlq('message_contained_no_valid_rrweb_events')
+            return drop(
+                'message_contained_no_valid_rrweb_events',
+                [],
+                [
+                    {
+                        type: 'message_contained_no_valid_rrweb_events',
+                        details: {},
+                    },
+                ]
+            )
         }
         const { validEvents, startDateTime, endDateTime } = result
 

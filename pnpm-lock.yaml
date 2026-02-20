@@ -2169,8 +2169,6 @@ importers:
 
   products/growth: {}
 
-  products/hasburger: {}
-
   products/links:
     dependencies:
       '@posthog/icons':
