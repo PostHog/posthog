@@ -1,0 +1,95 @@
+syntax = "proto3";
+package kafka_assigner.v1;
+
+// KafkaAssigner is the coordination API for Kafka partition consumers.
+//
+// Consumers call the Register RPC to receive assignment commands.
+// All coordination state lives in etcd; this gRPC API is a relay layer
+// that removes the etcd dependency from consumer code.
+//
+// Every assigner instance serves gRPC. Consumers can connect to any
+// instance. Each instance watches etcd and relays commands to its
+// locally-connected consumers.
+service KafkaAssigner {
+  // Register registers a consumer and opens a server-side stream of
+  // assignment commands. The first message is always a Snapshot
+  // containing the consumer's current partition assignments.
+  //
+  // The stream remains open for the lifetime of the consumer.
+  // If the stream drops, the consumer's etcd lease expires and
+  // its partitions are reassigned.
+  rpc Register(RegisterRequest) returns (stream AssignmentCommand);
+
+  // PartitionReady signals that the consumer has finished warming
+  // a partition and is ready to take ownership.
+  rpc PartitionReady(PartitionReadyRequest) returns (PartitionReadyResponse);
+
+  // PartitionReleased signals that the consumer has released a
+  // partition after a handoff completion.
+  rpc PartitionReleased(PartitionReleasedRequest) returns (PartitionReleasedResponse);
+}
+
+// ── Register ─────────────────────────────────────────────
+
+message RegisterRequest {
+  // Unique consumer name (e.g., pod name or hostname).
+  string consumer_name = 1;
+}
+
+// AssignmentCommand is a server-pushed command on the Register stream.
+message AssignmentCommand {
+  oneof command {
+    // Batch assignment update: partitions added and/or removed.
+    // The first message on connect is an assignment with the consumer's
+    // current partitions in `assigned` and an empty `unassigned`.
+    AssignmentUpdate assignment = 1;
+
+    // Warm a partition in preparation for taking ownership.
+    // Consumer should call PartitionReady when warming completes.
+    WarmPartition warm = 2;
+
+    // Release a partition. The handoff is complete and the consumer
+    // should stop processing this partition.
+    ReleasePartition release = 3;
+  }
+}
+
+message AssignmentUpdate {
+  repeated TopicPartition assigned = 1;
+  repeated TopicPartition unassigned = 2;
+}
+
+message WarmPartition {
+  TopicPartition partition = 1;
+  // The current owner of the partition (for diagnostics).
+  string current_owner = 2;
+}
+
+message ReleasePartition {
+  TopicPartition partition = 1;
+  // The new owner taking over (for diagnostics).
+  string new_owner = 2;
+}
+
+message TopicPartition {
+  string topic = 1;
+  uint32 partition = 2;
+}
+
+// ── PartitionReady ───────────────────────────────────────
+
+message PartitionReadyRequest {
+  string consumer_name = 1;
+  TopicPartition partition = 2;
+}
+
+message PartitionReadyResponse {}
+
+// ── PartitionReleased ────────────────────────────────────
+
+message PartitionReleasedRequest {
+  string consumer_name = 1;
+  TopicPartition partition = 2;
+}
+
+message PartitionReleasedResponse {}

@@ -41,6 +41,10 @@ impl EtcdStore {
         &self.config.prefix
     }
 
+    pub fn client(&self) -> &Client {
+        &self.client
+    }
+
     // ── Raw (non-JSON) helpers ────────────────────────────────────
 
     pub async fn get_raw(&self, key: &str) -> Result<Option<Vec<u8>>> {

@@ -58,6 +58,7 @@ jobs:
                   import json, os
 
                   packages = {
+                      "assignment-coordination": 5,
                       "batch-import-worker": 137,
                       "capture": 198,
                       "capture-logs": 130,
@@ -84,6 +85,7 @@ jobs:
                       "hook-common": 73,
                       "hook-janitor": 94,
                       "hook-worker": 100,
+                      "kafka-assigner": 30,
                       "kafka-deduplicator": 239,
                       "limiters": 23,
                       "personhog-coordination": 30,
