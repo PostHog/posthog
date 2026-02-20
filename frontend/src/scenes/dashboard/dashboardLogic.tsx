@@ -31,6 +31,7 @@ import { clearDOMTextSelection, getJSHeapMemory, objectsEqual, shouldCancelQuery
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardFiltersLogic } from 'scenes/dashboard/dashboardFiltersLogic'
+import { dashboardQueryCacheLogic, hashFilters } from 'scenes/dashboard/dashboardQueryCacheLogic'
 import { BREAKPOINTS } from 'scenes/dashboard/dashboardUtils'
 import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
@@ -1517,6 +1518,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 if (refreshedInsight) {
                     dashboardsModel.actions.updateDashboardInsight(refreshedInsight)
                     actions.setRefreshStatus(insight.short_id)
+
+                    if (values.featureFlags[FEATURE_FLAGS.DASHBOARD_DENSITY_V2]) {
+                        const filtersHash = hashFilters(
+                            values.effectiveRefreshFilters,
+                            values.effectiveDashboardVariableOverrides
+                        )
+                        dashboardQueryCacheLogic({ id: dashboardId }).actions.setCachedResult(
+                            refreshedInsight.id,
+                            filtersHash,
+                            refreshedInsight.result
+                        )
+                    }
                 } else {
                     actions.setRefreshError(insight.short_id)
                 }
@@ -1596,6 +1609,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             dashboardsModel.actions.updateDashboardInsight(refreshedInsight)
                             actions.setRefreshStatus(insight.short_id)
                             tilesRefreshedCount++
+
+                            if (values.featureFlags[FEATURE_FLAGS.DASHBOARD_DENSITY_V2]) {
+                                const filtersHash = hashFilters(
+                                    values.effectiveRefreshFilters,
+                                    values.effectiveDashboardVariableOverrides
+                                )
+                                dashboardQueryCacheLogic({ id: dashboardId }).actions.setCachedResult(
+                                    refreshedInsight.id,
+                                    filtersHash,
+                                    refreshedInsight.result
+                                )
+                            }
 
                             eventUsageLogic.actions.reportDashboardTileRefreshed(
                                 dashboardId,
