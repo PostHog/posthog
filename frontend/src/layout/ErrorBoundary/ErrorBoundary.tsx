@@ -5,9 +5,15 @@ import { useActions, useValues } from 'kea'
 import { PostHogErrorBoundary, type PostHogErrorBoundaryFallbackProps } from 'posthog-js/react'
 
 import { SupportTicketExceptionEvent, supportLogic } from 'lib/components/Support/supportLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { ICONS } from 'lib/integrations/utils'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Link } from 'lib/lemon-ui/Link'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { errorBoundaryLinkedIssueLogic } from './errorBoundaryLinkedIssueLogic'
 
 const DOM_MUTATION_PATTERNS = [
     "Failed to execute 'removeChild' on 'Node'",
@@ -26,9 +32,78 @@ interface ErrorBoundaryProps {
     className?: string
 }
 
+function LinkedIssueDisplay({
+    eventUuid,
+    timestamp,
+    onEmailEngineer,
+}: {
+    eventUuid: string
+    timestamp: string
+    onEmailEngineer: () => void
+}): JSX.Element | null {
+    const { externalUrls, polling, timedOut } = useValues(errorBoundaryLinkedIssueLogic({ eventUuid, timestamp }))
+
+    const docsLink = 'https://posthog.com/docs/error-tracking/fingerprints'
+
+    if (polling) {
+        return (
+            <div className="my-3 p-3 rounded border space-y-1">
+                <div className="flex items-center gap-2 font-semibold">
+                    <Spinner className="text-lg" />
+                    Checking PostHog Error Tracking for a linked issue...
+                </div>
+                <p className="text-muted text-xs mb-2">
+                    We use{' '}
+                    <Link to={docsLink} target="_blank" className="text-link">
+                        PostHog Error tracking
+                    </Link>{' '}
+                    to group errors into issues. This can take a moment while we fingerprint the error.
+                </p>
+                <LemonButton type="secondary" size="small" onClick={onEmailEngineer} className="mt-1">
+                    Email an engineer
+                </LemonButton>
+            </div>
+        )
+    }
+
+    if (timedOut || externalUrls.length === 0) {
+        return (
+            <div className="my-3 p-3 rounded border space-y-3">
+                <p className="text-muted text-sm mb-2">No public issue found for this error.</p>
+                <LemonButton type="secondary" size="small" onClick={onEmailEngineer}>
+                    Email an engineer
+                </LemonButton>
+            </div>
+        )
+    }
+
+    return (
+        <div className="my-3 p-3 rounded border flex items-center gap-2 flex-wrap">
+            {externalUrls.map((externalUrl) => (
+                <LemonButton
+                    key={externalUrl.url}
+                    type="primary"
+                    size="small"
+                    to={externalUrl.url}
+                    targetBlank
+                    tooltip="Track this issue on GitHub. Add any extra context about what you were doing when the crash happened in the issue comments!"
+                    icon={<img src={ICONS.github} className="w-4 h-4 rounded-sm" />}
+                >
+                    Track via GitHub
+                </LemonButton>
+            ))}
+            <span className="text-muted text-sm">or</span>
+            <LemonButton type="secondary" size="small" onClick={onEmailEngineer}>
+                Email an engineer
+            </LemonButton>
+        </div>
+    )
+}
+
 export function ErrorBoundary({ children, exceptionProps = {}, className }: ErrorBoundaryProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const showLinkedIssue = useFeatureFlag('ERROR_BOUNDARY_ISSUE_LINK', 'test')
 
     const additionalProperties = { ...exceptionProps }
 
@@ -51,6 +126,14 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
 
                 const isBrowserExtensionError = isDOMModificationError(normalizedError)
 
+                const emailEngineer = (): void => {
+                    openSupportForm({
+                        kind: 'bug',
+                        isEmailFormOpen: true,
+                        exception_event: exceptionEvent ?? null,
+                    })
+                }
+
                 return (
                     <div className={clsx('ErrorBoundary', className)}>
                         <h2>An error has occurred</h2>
@@ -60,13 +143,7 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                                 className="mb-2"
                                 action={{
                                     children: 'Email an engineer',
-                                    onClick: () => {
-                                        openSupportForm({
-                                            kind: 'bug',
-                                            isEmailFormOpen: true,
-                                            exception_event: exceptionEvent ?? null,
-                                        })
-                                    },
+                                    onClick: emailEngineer,
                                 }}
                             >
                                 This error is commonly caused by browser extensions (such as translation or ad-blocking
@@ -88,26 +165,28 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                         {exceptionEvent?.uuid && (
                             <div className="text-muted text-xs mb-2">Exception ID: {exceptionEvent.uuid}</div>
                         )}
-                        {!isBrowserExtensionError && (
-                            <>
-                                Please help us resolve the issue by sending a screenshot of this message.
-                                <LemonButton
-                                    type="primary"
-                                    fullWidth
-                                    center
-                                    onClick={() => {
-                                        openSupportForm({
-                                            kind: 'bug',
-                                            isEmailFormOpen: true,
-                                            exception_event: exceptionEvent ?? null,
-                                        })
-                                    }}
-                                    targetBlank
-                                    className="mt-2"
-                                >
-                                    Email an engineer
-                                </LemonButton>
-                            </>
+                        {showLinkedIssue && exceptionEvent?.uuid ? (
+                            <LinkedIssueDisplay
+                                eventUuid={exceptionEvent.uuid}
+                                timestamp={new Date().toISOString()}
+                                onEmailEngineer={emailEngineer}
+                            />
+                        ) : (
+                            !isBrowserExtensionError && (
+                                <>
+                                    Please help us resolve the issue by sending a screenshot of this message.
+                                    <LemonButton
+                                        type="primary"
+                                        fullWidth
+                                        center
+                                        onClick={emailEngineer}
+                                        targetBlank
+                                        className="mt-2"
+                                    >
+                                        Email an engineer
+                                    </LemonButton>
+                                </>
+                            )
                         )}
                     </div>
                 )
