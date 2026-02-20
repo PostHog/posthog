@@ -314,7 +314,12 @@ class InsightBasicSerializer(
 
 
 class _InsightQuerySchema(RootModel):
-    """Schema-only model for OpenAPI documentation of the insight query field."""
+    """The query definition for this insight. The `kind` field determines the query type:
+    - `InsightVizNode` — product analytics (trends, funnels, retention, paths, stickiness, lifecycle)
+    - `DataVisualizationNode` — SQL insights using HogQL
+    - `DataTableNode` — raw data tables
+    - `HogQuery` — Hog language queries
+    """
 
     root: schema.InsightVizNode | schema.DataTableNode | schema.DataVisualizationNode | schema.HogQuery = PydanticField(
         discriminator="kind"
