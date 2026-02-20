@@ -363,8 +363,7 @@ mod tests {
         let elapsed = start.elapsed();
 
         let mut total_busy_delta = Duration::ZERO;
-        for i in 0..num_workers {
-            let busy_now = metrics.worker_total_busy_duration(i);
+        for (i, busy_now) in busy_before.iter().enumerate().take(num_workers) {
             total_busy_delta += busy_now.saturating_sub(busy_before[i]);
         }
 
