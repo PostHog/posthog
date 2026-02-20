@@ -3490,6 +3490,7 @@ class RetentionValue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_value: float | None = None
     count: float
     label: str | None = None
 

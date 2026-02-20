@@ -2380,6 +2380,8 @@ export const RetentionQueryApiKind = {
 } as const
 
 export interface RetentionValueApi {
+    /** @nullable */
+    aggregation_value?: number | null
     count: number
     /** @nullable */
     label?: string | null

@@ -222,11 +222,12 @@ export const retentionLogic = kea<retentionLogicType>([
         ],
 
         retentionMeans: [
-            (s) => [s.results, s.retentionFilter, s.hasValidBreakdown],
+            (s) => [s.results, s.retentionFilter, s.hasValidBreakdown, s.isPropertyValueAggregation],
             (
                 results: ProcessedRetentionPayload[],
                 retentionFilter: RetentionFilter | undefined,
-                hasValidBreakdown: boolean
+                hasValidBreakdown: boolean,
+                isPropertyValueAggregation: boolean
             ): Record<string, MeanRetentionValue> => {
                 if (!results.length || !retentionFilter) {
                     return {}
@@ -283,7 +284,10 @@ export const retentionLogic = kea<retentionLogicType>([
                                 )
                                 const weightedCountSum = sum(
                                     validRows,
-                                    (row) => (row.values[intervalIndex]?.count || 0) * (row.values[0]?.count || 0)
+                                    (row) =>
+                                        (isPropertyValueAggregation
+                                            ? row.values[intervalIndex]?.aggregation_value
+                                            : row.values[intervalIndex]?.count || 0) * (row.values[0]?.count || 0)
                                 )
                                 const totalWeight = sum(validRows, (row) => row.values[0]?.count || 0)
                                 currentIntervalMean = totalWeight > 0 ? weightedValueSum / totalWeight : 0
@@ -293,7 +297,13 @@ export const retentionLogic = kea<retentionLogicType>([
                                 currentIntervalMean =
                                     mean(validRows.map((row) => row.values[intervalIndex]?.percentage || 0)) || 0
                                 currentIntervalMeanValue =
-                                    mean(validRows.map((row) => row.values[intervalIndex]?.count || 0)) || 0
+                                    mean(
+                                        validRows.map((row) =>
+                                            isPropertyValueAggregation
+                                                ? row.values[intervalIndex]?.aggregation_value || 0
+                                                : row.values[intervalIndex]?.count || 0
+                                        )
+                                    ) || 0
                             }
                         }
                         meanPercentagesForBreakdown.push(currentIntervalMean)
