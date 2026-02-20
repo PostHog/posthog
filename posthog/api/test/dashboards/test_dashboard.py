@@ -2205,6 +2205,36 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(regular_response["persisted_variables"], dashboard_variables)
         self.assertEqual(sse_dashboard["persisted_variables"], dashboard_variables)
 
+    def test_stream_tiles_with_refresh_param(self):
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Refresh Test Dashboard",
+            created_by=self.user,
+        )
+        insight = Insight.objects.create(
+            filters={},
+            query={
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+            },
+            team=self.team,
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        # Without refresh param - should return cached
+        sse_response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/stream_tiles/")
+        self.assertEqual(sse_response.status_code, 200)
+        content_without_refresh = b"".join(sse_response.streaming_content).decode("utf-8")  # type: ignore
+        self.assertIn('"type":"metadata"', content_without_refresh.replace(" ", "").replace("'", '"'))
+
+        # With refresh=force_blocking - should return fresh results
+        sse_response_refresh = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/stream_tiles/?refresh=force_blocking"
+        )
+        self.assertEqual(sse_response_refresh.status_code, 200)
+        content_with_refresh = b"".join(sse_response_refresh.streaming_content).decode("utf-8")  # type: ignore
+        self.assertIn('"type":"metadata"', content_with_refresh.replace(" ", "").replace("'", '"'))
+
     def test_create_unlisted_dashboard_creates_tags(self):
         """Test that unlisted dashboards get tags"""
         response = self.client.post(

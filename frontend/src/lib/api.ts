@@ -2933,6 +2933,7 @@ const api = {
                 layoutSize?: 'sm' | 'xs'
                 filtersOverride?: DashboardFilter
                 variablesOverride?: Record<string, HogQLVariable>
+                refresh?: 'force_blocking' | 'force_cache' | 'blocking'
             } = {},
             onMessage: (data: any) => void,
             onComplete: () => void,
@@ -2946,6 +2947,7 @@ const api = {
                         layout_size: params.layoutSize,
                         filters_override: params.filtersOverride,
                         variables_override: params.variablesOverride,
+                        refresh: params.refresh,
                     })
                 )
                 .assembleFullUrl(true)

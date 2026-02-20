@@ -16,6 +16,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import uniqBy from 'lodash.uniqby'
+import posthog from 'posthog-js'
 import { Layout, Layouts } from 'react-grid-layout'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
@@ -347,7 +348,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         },
                         // onError callback
                         (error) => {
-                            console.error('❌ Tile streaming error:', error)
+                            posthog.captureException(error instanceof Error ? error : new Error(String(error)))
                             actions.tileStreamingFailure(error)
                         }
                     )
@@ -1474,7 +1475,62 @@ export const dashboardLogic = kea<dashboardLogicType>([
         triggerDashboardRefresh: () => {
             // reset auto refresh interval
             actions.resetInterval()
-            actions.refreshDashboardItems({ action: RefreshDashboardItemsAction.Refresh, forceRefresh: true })
+
+            if (values.featureFlags[FEATURE_FLAGS.DASHBOARD_DENSITY_V2] && values.shouldUseStreaming) {
+                // Use streaming endpoint for batch refresh — single SSE connection
+                // instead of N individual API calls
+                actions.abortAnyRunningQuery()
+
+                const allInsightTiles = values.insightTiles || []
+                actions.setRefreshStatuses(
+                    allInsightTiles.filter((t) => !!t.insight).map((t) => t.insight!.short_id),
+                    false,
+                    true
+                )
+
+                api.dashboards.streamTiles(
+                    props.id,
+                    {
+                        layoutSize: values.currentLayoutSize,
+                        filtersOverride: values.effectiveRefreshFilters,
+                        variablesOverride: values.urlVariables,
+                        refresh: 'force_blocking',
+                    },
+                    (data) => {
+                        if (data.type === 'metadata') {
+                            // metadata already contains initial tiles
+                            const dashboard = getQueryBasedDashboard(data.dashboard as DashboardType<InsightModel>)
+                            if (dashboard) {
+                                actions.loadDashboardMetadataSuccess(dashboard)
+                            }
+                        } else if (data.type === 'tile') {
+                            actions.receiveTileFromStream(data)
+                            // also write to query cache
+                            const tileInsight = data.tile?.insight
+                            if (tileInsight && values.featureFlags[FEATURE_FLAGS.DASHBOARD_DENSITY_V2]) {
+                                const filtersHash = hashFilters(
+                                    values.effectiveRefreshFilters,
+                                    values.effectiveDashboardVariableOverrides
+                                )
+                                dashboardQueryCacheLogic({ id: props.id }).actions.setCachedResult(
+                                    tileInsight.id,
+                                    filtersHash,
+                                    tileInsight.result
+                                )
+                            }
+                        }
+                    },
+                    () => {
+                        actions.tileStreamingComplete()
+                    },
+                    (error) => {
+                        posthog.captureException(error instanceof Error ? error : new Error(String(error)))
+                        actions.tileStreamingFailure(error)
+                    }
+                )
+            } else {
+                actions.refreshDashboardItems({ action: RefreshDashboardItemsAction.Refresh, forceRefresh: true })
+            }
         },
         /** Called when a single insight is refreshed manually on the dashboard */
         refreshDashboardItem: async ({ tile }, breakpoint) => {
