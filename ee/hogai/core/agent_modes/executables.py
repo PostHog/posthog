@@ -219,8 +219,12 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         ]
 
     def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
+        model_name = "claude-sonnet-4-6"
+        if self._has_legacy_summarize_sessions_messages(state.messages):
+            model_name = "claude-sonnet-4-5"
+
         base_model = MaxChatAnthropic(
-            model="claude-sonnet-4-6",
+            model=model_name,
             streaming=True,
             stream_usage=True,
             user=self._user,
@@ -320,6 +324,28 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
     def _process_output_message(self, message: LangchainAIMessage) -> list[AssistantMessage]:
         """Process the output message."""
         return normalize_ai_message(message)
+
+    @staticmethod
+    def _has_legacy_summarize_sessions_messages(messages: Sequence[AssistantMessageUnion]) -> bool:
+        """Detect pre-migration summarize_sessions AssistantMessages with meta.form.
+
+        Before the migration, summarize_sessions returned a ToolMessagesArtifact containing
+        an AssistantMessage with meta.form (the "Open report" button). This AssistantMessage
+        converts to a trailing AIMessage, causing a prefill error with Sonnet 4.6.
+        Sonnet 4.5 handles this gracefully, so we fall back to it for legacy conversations.
+        """
+        for message in messages:
+            if (
+                isinstance(message, AssistantMessage)
+                and message.meta
+                and message.meta.form
+                and any(
+                    option.href and option.href.startswith("/session-summaries/")
+                    for option in message.meta.form.options
+                )
+            ):
+                return True
+        return False
 
 
 class AgentToolsExecutable(BaseAgentLoopExecutable):
