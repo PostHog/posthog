@@ -1,7 +1,7 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 template: HogFunctionTemplateDC = HogFunctionTemplateDC(
-    status="stable",
+    status="beta",
     free=False,
     type="destination",
     id="template-klime",
