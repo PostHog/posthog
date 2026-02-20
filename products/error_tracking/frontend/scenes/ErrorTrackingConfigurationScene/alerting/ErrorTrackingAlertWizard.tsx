@@ -67,12 +67,15 @@ function DestinationStep({ onBack }: { onBack: () => void }): JSX.Element {
                 </div>
                 <div className="space-y-3">
                     {[1, 2, 3].map((i) => (
-                        <div key={i} className="rounded-lg border border-border bg-bg-light animate-pulse p-5 w-full">
+                        <div
+                            key={i}
+                            className="group relative text-left rounded-lg border border-border bg-bg-light p-5 w-full animate-pulse"
+                        >
                             <div className="flex items-center gap-4">
                                 <div className="shrink-0 w-10 h-10 rounded bg-border" />
-                                <div className="flex-1 space-y-2">
-                                    <div className="h-4 w-24 rounded bg-border" />
-                                    <div className="h-3 w-48 rounded bg-border" />
+                                <div>
+                                    <h3 className="font-semibold text-base mb-0.5 invisible">Placeholder</h3>
+                                    <p className="text-sm mb-0 invisible">Placeholder description text</p>
                                 </div>
                             </div>
                         </div>
