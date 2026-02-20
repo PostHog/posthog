@@ -626,6 +626,16 @@ class SymbolSetUploadSustainedRateThrottle(PersonalApiKeyRateThrottle):
     rate = "12000/hour"
 
 
+class MCPOAuthBurstThrottle(UserRateThrottle):
+    scope = "mcp_oauth_burst"
+    rate = "10/minute"
+
+
+class MCPOAuthSustainedThrottle(UserRateThrottle):
+    scope = "mcp_oauth_sustained"
+    rate = "50/hour"
+
+
 class RestoreRequestThrottle(SimpleRateThrottle):
     """Rate limit restore link requests per email hash to prevent abuse."""
 

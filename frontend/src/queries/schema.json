@@ -1999,6 +1999,7 @@
                 "create_notebook",
                 "list_data",
                 "finalize_plan",
+                "call_mcp_server",
                 "recommend_products"
             ],
             "type": "string"

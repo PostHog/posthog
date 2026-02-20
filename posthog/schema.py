@@ -371,6 +371,7 @@ class AssistantTool(StrEnum):
     CREATE_NOTEBOOK = "create_notebook"
     LIST_DATA = "list_data"
     FINALIZE_PLAN = "finalize_plan"
+    CALL_MCP_SERVER = "call_mcp_server"
     RECOMMEND_PRODUCTS = "recommend_products"
 
 
@@ -3147,6 +3148,7 @@ class ProductKey(StrEnum):
     LOGS = "logs"
     MARKETING_ANALYTICS = "marketing_analytics"
     MAX = "max"
+    MCP_STORE = "mcp_store"
     MOBILE_REPLAY = "mobile_replay"
     NOTEBOOKS = "notebooks"
     PERSONS = "persons"
