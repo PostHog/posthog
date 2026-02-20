@@ -12,6 +12,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { dashboardFiltersLogic } from 'scenes/dashboard/dashboardFiltersLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -19,25 +20,67 @@ import { Scene } from 'scenes/sceneTypes'
 
 import { groupsModel } from '~/models/groupsModel'
 import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
-import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
-import { DashboardMode, InsightLogicProps } from '~/types'
+import { BreakdownFilter, DashboardFilter, NodeKind } from '~/queries/schema/schema-general'
+import { AnyPropertyFilter, DashboardMode, InsightLogicProps } from '~/types'
+
+function useDashboardFilters(
+    dashboardId: number | undefined,
+    useDensityV2: boolean
+): {
+    effectiveEditBarFilters: DashboardFilter
+    showEditBarApplyPopover: boolean
+    hasUrlFilters: boolean
+    setDates: (dateFrom: string | null, dateTo: string | null | undefined, explicitDate?: boolean) => void
+    setProperties: (properties: AnyPropertyFilter[] | null) => void
+    setBreakdownFilter: (breakdownFilter: BreakdownFilter | null) => void
+    applyFilters: () => void
+} {
+    const filtersLogicProps = dashboardId ? { id: dashboardId } : { id: 0 }
+    const v2Values = useValues(dashboardFiltersLogic(filtersLogicProps))
+    const v2Actions = useActions(dashboardFiltersLogic(filtersLogicProps))
+    const v1Values = useValues(dashboardLogic)
+    const v1Actions = useActions(dashboardLogic)
+
+    if (useDensityV2 && dashboardId) {
+        return {
+            effectiveEditBarFilters: v2Values.effectiveEditBarFilters,
+            showEditBarApplyPopover: v2Values.showEditBarApplyPopover,
+            hasUrlFilters: v2Values.hasUrlFilters,
+            setDates: v2Actions.setDates,
+            setProperties: v2Actions.setProperties,
+            setBreakdownFilter: v2Actions.setBreakdownFilter,
+            applyFilters: v2Actions.applyFilters,
+        }
+    }
+    return {
+        effectiveEditBarFilters: v1Values.effectiveEditBarFilters,
+        showEditBarApplyPopover: v1Values.showEditBarApplyPopover,
+        hasUrlFilters: v1Values.hasUrlFilters,
+        setDates: v1Actions.setDates,
+        setProperties: v1Actions.setProperties,
+        setBreakdownFilter: v1Actions.setBreakdownFilter,
+        applyFilters: v1Actions.applyFilters,
+    }
+}
 
 export function DashboardEditBar(): JSX.Element {
-    const {
-        dashboard,
-        dashboardMode,
-        hasVariables,
-        effectiveEditBarFilters,
-        showEditBarApplyPopover,
-        loadingPreview,
-        cancellingPreview,
-        hasUrlFilters,
-    } = useValues(dashboardLogic)
-    const { setDates, setProperties, setBreakdownFilter, setDashboardMode, applyFilters } = useActions(dashboardLogic)
+    const { dashboard, dashboardMode, hasVariables, loadingPreview, cancellingPreview } = useValues(dashboardLogic)
+    const { setDashboardMode } = useActions(dashboardLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const { featureFlags } = useValues(featureFlagLogic)
+    const useDensityV2 = !!featureFlags[FEATURE_FLAGS.DASHBOARD_DENSITY_V2]
     const canAccessExplicitDateToggle = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DATE_PICKER_EXPLICIT_DATE_TOGGLE]
+
+    const {
+        effectiveEditBarFilters,
+        showEditBarApplyPopover,
+        hasUrlFilters,
+        setDates,
+        setProperties,
+        setBreakdownFilter,
+        applyFilters,
+    } = useDashboardFilters(dashboard?.id, useDensityV2)
 
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new',
@@ -104,7 +147,7 @@ export function DashboardEditBar(): JSX.Element {
                             dateTo={effectiveEditBarFilters.date_to}
                             explicitDate={effectiveEditBarFilters.explicitDate}
                             onChange={(from_date, to_date, explicitDate) => {
-                                if (dashboardMode !== DashboardMode.Edit) {
+                                if (!useDensityV2 && dashboardMode !== DashboardMode.Edit) {
                                     setDashboardMode(DashboardMode.Edit, null)
                                 }
                                 setDates(from_date, to_date, explicitDate)
@@ -121,7 +164,7 @@ export function DashboardEditBar(): JSX.Element {
                 <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
                     <PropertyFilters
                         onChange={(properties) => {
-                            if (dashboardMode !== DashboardMode.Edit) {
+                            if (!useDensityV2 && dashboardMode !== DashboardMode.Edit) {
                                 setDashboardMode(DashboardMode.Edit, null)
                             }
                             setProperties(properties)
@@ -150,7 +193,7 @@ export function DashboardEditBar(): JSX.Element {
                             isTrends={false}
                             showLabel={false}
                             updateBreakdownFilter={(breakdown_filter) => {
-                                if (dashboardMode !== DashboardMode.Edit) {
+                                if (!useDensityV2 && dashboardMode !== DashboardMode.Edit) {
                                     setDashboardMode(DashboardMode.Edit, null)
                                 }
                                 let saved_breakdown_filter: BreakdownFilter | null = breakdown_filter

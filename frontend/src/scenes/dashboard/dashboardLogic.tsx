@@ -30,6 +30,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clearDOMTextSelection, getJSHeapMemory, objectsEqual, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { dashboardFiltersLogic } from 'scenes/dashboard/dashboardFiltersLogic'
 import { BREAKPOINTS } from 'scenes/dashboard/dashboardUtils'
 import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
@@ -1952,11 +1953,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
 
-    subscriptions(() => ({
+    subscriptions(({ props }) => ({
         dashboardMode: (dashboardMode, previousDashboardMode) => {
             if (previousDashboardMode !== DashboardMode.Edit && dashboardMode === DashboardMode.Edit) {
                 clearDOMTextSelection()
                 lemonToast.info('Now editing the dashboard – save to persist changes')
+            }
+        },
+        dashboard: (dashboard) => {
+            if (dashboard) {
+                const filtersLogic = dashboardFiltersLogic({ id: props.id })
+                filtersLogic.actions.setPersistedFilters(dashboard.persisted_filters || {})
+                filtersLogic.actions.setPersistedVariables(dashboard.persisted_variables || {})
+                filtersLogic.actions.setTileCount(dashboard.tiles?.length ?? 0)
             }
         },
     })),

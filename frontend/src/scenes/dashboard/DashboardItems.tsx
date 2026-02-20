@@ -8,9 +8,12 @@ import { Responsive as ReactGridLayout } from 'react-grid-layout'
 
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { dashboardFiltersLogic } from 'scenes/dashboard/dashboardFiltersLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
@@ -38,11 +41,23 @@ export function DashboardItems(): JSX.Element {
         refreshStatus,
         itemsLoading,
         dashboardStreaming,
-        effectiveEditBarFilters,
-        effectiveDashboardVariableOverrides,
         temporaryBreakdownColors,
         dataColorThemeId,
     } = useValues(dashboardLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const useDensityV2 = !!featureFlags[FEATURE_FLAGS.DASHBOARD_DENSITY_V2] && !!dashboard?.id
+
+    const filtersLogicProps = dashboard?.id ? { id: dashboard.id } : { id: 0 }
+    const v2FiltersValues = useValues(dashboardFiltersLogic(filtersLogicProps))
+    const v1Values = useValues(dashboardLogic)
+
+    const effectiveEditBarFilters = useDensityV2
+        ? v2FiltersValues.effectiveEditBarFilters
+        : v1Values.effectiveEditBarFilters
+    const effectiveDashboardVariableOverrides = useDensityV2
+        ? v2FiltersValues.effectiveDashboardVariableOverrides
+        : v1Values.effectiveDashboardVariableOverrides
     const {
         updateLayouts,
         updateContainerWidth,
