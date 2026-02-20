@@ -1155,7 +1155,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         },
         tags=["persons"],
     )
-    @action(methods=["GET"], detail=False, required_scopes=["person:read"], permission_classes=[IsAuthenticated])
+    @action(methods=["GET"], detail=False, required_scopes=["person:read"])
     def properties_at_time(self, request: request.Request) -> response.Response:
         """
         Get person properties as they existed at a specific point in time.
