@@ -11,9 +11,9 @@ def get_eval_config(provider: str) -> ProviderConfig | None:
     """Get eval-specific provider config with fallback to general settings."""
     from django.conf import settings
 
-    canonical_provider = "google" if provider == "gemini" else provider
+    from products.llm_analytics.backend.models.provider_keys import canonicalize_llm_provider
 
-    match canonical_provider:
+    match canonicalize_llm_provider(provider):
         case "openai":
             api_key = settings.LLMA_EVAL_OPENAI_API_KEY or settings.OPENAI_API_KEY
             base_url = settings.LLMA_EVAL_OPENAI_BASE_URL or settings.OPENAI_BASE_URL

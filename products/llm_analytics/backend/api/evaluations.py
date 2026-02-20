@@ -20,15 +20,11 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from ..models.evaluation_configs import validate_evaluation_configs
 from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
-from ..models.provider_keys import LLMProvider, LLMProviderKey, canonicalize_llm_provider
+from ..models.provider_keys import LLMProvider, LLMProviderKey
 from .metrics import llma_track_latency
+from .provider_keys import LLMProviderChoiceField
 
 logger = structlog.get_logger(__name__)
-
-
-class LLMProviderChoiceField(serializers.ChoiceField):
-    def to_internal_value(self, data):
-        return super().to_internal_value(canonicalize_llm_provider(str(data)))
 
 
 class ModelConfigurationSerializer(serializers.Serializer):

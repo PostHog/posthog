@@ -29,6 +29,7 @@ import {
     LLMProviderKeyState,
     LLM_PROVIDER_LABELS,
     llmProviderKeysLogic,
+    normalizeProvider,
 } from './llmProviderKeysLogic'
 
 function StateTag({ state, errorMessage }: { state: LLMProviderKeyState; errorMessage: string | null }): JSX.Element {
@@ -309,7 +310,7 @@ function EditKeyModal({ keyToEdit }: { keyToEdit: LLMProviderKey }): JSX.Element
 
     const handleApiKeyBlur = (): void => {
         if (apiKey.length > 0) {
-            preValidateKey({ apiKey, provider: keyToEdit.provider })
+            preValidateKey({ apiKey, provider: normalizeProvider(keyToEdit.provider) })
         }
     }
 
@@ -372,7 +373,7 @@ function EditKeyModal({ keyToEdit }: { keyToEdit: LLMProviderKey }): JSX.Element
                         <KeyValidationStatus
                             result={preValidationResult}
                             isValidating={preValidationResultLoading}
-                            provider={keyToEdit.provider}
+                            provider={normalizeProvider(keyToEdit.provider)}
                         />
                     ) : (
                         <p className="text-xs text-muted mt-1">Leave empty to keep the current key</p>
