@@ -1,0 +1,10 @@
+{
+    "supported": true,
+    "provider_name": "Cloudflare",
+    "available_providers": [
+        {
+            "name": "Cloudflare",
+            "endpoint": "api.cloudflare.com/client/v4/dns/domainconnect"
+        }
+    ]
+}
