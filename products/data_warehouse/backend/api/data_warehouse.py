@@ -530,11 +530,12 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             results = []
 
             # Get failed materializations from DataWarehouseSavedQuery
+            # Only show views that are actively materialized but failing
             failed_materializations = DataWarehouseSavedQuery.objects.filter(
                 team_id=self.team_id,
                 deleted=False,
-            ).filter(
-                Q(status=DataWarehouseSavedQuery.Status.FAILED) | Q(is_materialized=False, latest_error__isnull=False)
+                is_materialized=True,
+                status=DataWarehouseSavedQuery.Status.FAILED,
             )
 
             for query in failed_materializations:
@@ -550,15 +551,16 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     }
                 )
 
-            # Get failed or disabled syncs from ExternalDataSchema
+            # Get failed syncs from ExternalDataSchema
+            # Only show syncs that are actively enabled but failing
             problem_syncs = (
                 ExternalDataSchema.objects.filter(
                     team_id=self.team_id,
                     deleted=False,
+                    should_sync=True,
                 )
                 .filter(
                     Q(status=ExternalDataSchema.Status.FAILED)
-                    | Q(should_sync=False, latest_error__isnull=False)
                     | Q(status=ExternalDataSchema.Status.BILLING_LIMIT_REACHED)
                 )
                 .select_related("source")
@@ -566,9 +568,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             for schema in problem_syncs:
                 sync_status = "failed"
-                if not schema.should_sync:
-                    sync_status = "disabled"
-                elif schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:
+                if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:
                     sync_status = "billing_limit"
 
                 results.append(
@@ -607,10 +607,12 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             # Get failed batch exports
             # get latest run per export, then filter for failures
+            # Exclude paused exports since their last failure is no longer actionable
             latest_run_ids = (
                 BatchExportRun.objects.filter(
                     batch_export__team_id=self.team_id,
                     batch_export__deleted=False,
+                    batch_export__paused=False,
                 )
                 .order_by("batch_export_id", "-created_at")
                 .distinct("batch_export_id")
