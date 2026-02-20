@@ -14,8 +14,8 @@ export interface TileLayout {
 }
 
 export interface DuplicateLayoutResult {
-    duplicateLayouts: { sm?: TileLayout; xs?: TileLayout }
-    tilesToUpdate: Array<{ id: number; layouts: { sm?: TileLayout; xs?: TileLayout } }>
+    duplicateLayouts: { sm?: TileLayout }
+    tilesToUpdate: Array<{ id: number; layouts: { sm?: TileLayout } }>
 }
 
 export function calculateDuplicateLayout(
@@ -25,7 +25,6 @@ export function calculateDuplicateLayout(
     const result: DuplicateLayoutResult = { duplicateLayouts: {}, tilesToUpdate: [] }
 
     const originalSmLayout = currentLayouts?.sm?.find((l) => String(l.i) === String(tileId))
-    const originalXsLayout = currentLayouts?.xs?.find((l) => String(l.i) === String(tileId))
 
     if (!originalSmLayout) {
         return result
@@ -34,21 +33,10 @@ export function calculateDuplicateLayout(
     const { x, y, w, h } = originalSmLayout
     const columnCount = BREAKPOINT_COLUMN_COUNTS.sm
 
-    // for the xs layout, we can always place the tile just below the original
-    const xsLayoutForDuplicate = originalXsLayout
-        ? {
-              x: originalXsLayout.x,
-              y: originalXsLayout.y + originalXsLayout.h,
-              w: originalXsLayout.w,
-              h: originalXsLayout.h,
-          }
-        : undefined
-
     // place the tile on the right if there's space
     if (canPlaceToRight(currentLayouts?.sm || [], tileId, x, y, w, h, columnCount)) {
         result.duplicateLayouts = {
             sm: { x: x + w, y, w, h },
-            xs: xsLayoutForDuplicate,
         }
         return result
     }
@@ -57,7 +45,6 @@ export function calculateDuplicateLayout(
     const insertY = y + h
     result.duplicateLayouts = {
         sm: { x, y: insertY, w, h },
-        xs: xsLayoutForDuplicate,
     }
 
     // shift down any tiles that would overlap with the new placement
@@ -67,18 +54,10 @@ export function calculateDuplicateLayout(
             continue
         }
 
-        const xsLayout = currentLayouts?.xs?.find((l) => l.i === smLayout.i)
-        const xsInsertY = originalXsLayout ? originalXsLayout.y + originalXsLayout.h : undefined
         result.tilesToUpdate.push({
             id: parseInt(smLayout.i),
             layouts: {
                 sm: { x: smLayout.x, y: smLayout.y + h, w: smLayout.w, h: smLayout.h },
-                xs:
-                    xsLayout && xsInsertY !== undefined && xsLayout.y >= xsInsertY
-                        ? { x: xsLayout.x, y: xsLayout.y + originalXsLayout!.h, w: xsLayout.w, h: xsLayout.h }
-                        : xsLayout
-                          ? { x: xsLayout.x, y: xsLayout.y, w: xsLayout.w, h: xsLayout.h }
-                          : undefined,
             },
         })
     }
@@ -133,6 +112,7 @@ export const calculateLayouts = (
 ): Partial<Record<DashboardLayoutSize, Layout[]>> => {
     const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout[]>> = {}
 
+    // Always calculate sm layout first to establish reference order
     let referenceOrder: number[] | undefined = undefined
 
     for (const breakpoint of Object.keys(BREAKPOINT_COLUMN_COUNTS) as (keyof typeof BREAKPOINT_COLUMN_COUNTS)[]) {
@@ -140,9 +120,11 @@ export const calculateLayouts = (
 
         let sortedDashboardTiles: DashboardTile<QueryBasedInsightModel>[] | undefined
         if (referenceOrder === undefined) {
-            sortedDashboardTiles = sortTilesByLayout(tiles, breakpoint)
+            // First pass: calculate sm layout and establish order
+            sortedDashboardTiles = sortTilesByLayout(tiles, 'sm')
             referenceOrder = sortedDashboardTiles.map((tile) => tile.id)
         } else {
+            // Subsequent passes: follow the reference order from sm layout
             sortedDashboardTiles = tiles.sort((a, b) => {
                 return (referenceOrder?.indexOf(a.id) || 0) - (referenceOrder?.indexOf(b.id) || 0)
             })
@@ -175,7 +157,9 @@ export const calculateLayouts = (
                 defaultW = 1
             }
 
-            const layout = tile.layouts && tile.layouts[breakpoint]
+            // For xs layout, ignore stored layout and derive from sm order
+            // For sm layout, use stored layout if available
+            const layout = breakpoint === 'xs' ? undefined : tile.layouts?.[breakpoint]
             const { x, y, w, h } = layout || {}
 
             const realW = Math.min(w || defaultW, columnCount)

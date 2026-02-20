@@ -10,8 +10,10 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { EntityTypes } from '~/types'
 import {
     ActionFilter,
+    EventPropertyFilter,
     FeaturePropertyFilter,
     FilterLogicalOperator,
+    PersonPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
     UniversalFiltersGroup,
@@ -123,6 +125,9 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                         TaxonomicFilterGroupType.Elements,
                         TaxonomicFilterGroupType.HogQLExpression,
                         TaxonomicFilterGroupType.FeatureFlags,
+                        TaxonomicFilterGroupType.PageviewUrls,
+                        TaxonomicFilterGroupType.Screens,
+                        TaxonomicFilterGroupType.EmailAddresses,
                         TaxonomicFilterGroupType.Logs,
                         TaxonomicFilterGroupType.LogAttributes,
                         TaxonomicFilterGroupType.LogResourceAttributes,
@@ -154,6 +159,86 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                         newValues.push(propertyFilter)
                     }
                 }
+                actions.setGroupValues(newValues)
+                return
+            }
+
+            if (
+                taxonomicGroup.type === TaxonomicFilterGroupType.PageviewEvents ||
+                taxonomicGroup.type === TaxonomicFilterGroupType.PageviewUrls
+            ) {
+                const urlFilter: EventPropertyFilter = {
+                    key: '$current_url',
+                    value: propertyKey ? String(propertyKey) : '',
+                    operator: PropertyOperator.IContains,
+                    type: PropertyFilterType.Event,
+                }
+                if (taxonomicGroup.type === TaxonomicFilterGroupType.PageviewEvents) {
+                    const eventFilter: ActionFilter = {
+                        id: '$pageview',
+                        name: '$pageview',
+                        type: EntityTypes.EVENTS,
+                        properties: [urlFilter],
+                    }
+                    newValues.push(eventFilter)
+                } else {
+                    newValues.push(urlFilter)
+                }
+                actions.setGroupValues(newValues)
+                return
+            }
+
+            if (
+                taxonomicGroup.type === TaxonomicFilterGroupType.ScreenEvents ||
+                taxonomicGroup.type === TaxonomicFilterGroupType.Screens
+            ) {
+                const screenNameFilter: EventPropertyFilter = {
+                    key: '$screen_name',
+                    value: propertyKey ? String(propertyKey) : '',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                }
+                if (taxonomicGroup.type === TaxonomicFilterGroupType.ScreenEvents) {
+                    const eventFilter: ActionFilter = {
+                        id: '$screen',
+                        name: '$screen',
+                        type: EntityTypes.EVENTS,
+                        properties: [screenNameFilter],
+                    }
+                    newValues.push(eventFilter)
+                } else {
+                    newValues.push(screenNameFilter)
+                }
+                actions.setGroupValues(newValues)
+                return
+            }
+
+            if (taxonomicGroup.type === TaxonomicFilterGroupType.AutocaptureEvents) {
+                const elTextFilter: EventPropertyFilter = {
+                    key: '$el_text',
+                    value: propertyKey ? String(propertyKey) : '',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                }
+                const eventFilter: ActionFilter = {
+                    id: '$autocapture',
+                    name: '$autocapture',
+                    type: EntityTypes.EVENTS,
+                    properties: [elTextFilter],
+                }
+                newValues.push(eventFilter)
+                actions.setGroupValues(newValues)
+                return
+            }
+
+            if (taxonomicGroup.type === TaxonomicFilterGroupType.EmailAddresses) {
+                const emailFilter: PersonPropertyFilter = {
+                    key: 'email',
+                    value: propertyKey ? String(propertyKey) : '',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Person,
+                }
+                newValues.push(emailFilter)
                 actions.setGroupValues(newValues)
                 return
             }

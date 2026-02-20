@@ -1416,7 +1416,7 @@ export type SearchableEntity =
     | 'property_definition'
     | 'survey'
 
-export type SearchListParams = { q: string; entities?: SearchableEntity[] }
+export type SearchListParams = { q: string; entities?: SearchableEntity[]; include_counts?: boolean }
 
 export type SearchResultType = {
     result_id: string
@@ -1427,7 +1427,7 @@ export type SearchResultType = {
 
 export type SearchResponse = {
     results: SearchResultType[]
-    counts: Record<SearchableEntity, number | null>
+    counts?: Record<SearchableEntity, number | null>
 }
 
 export type GroupListParams = { group_type_index: GroupTypeIndex; search: string; limit?: number }
@@ -2258,6 +2258,7 @@ export interface EndpointType extends WithAccessControl {
     /** Last execution time from ClickHouse query_log table */
     last_executed_at?: string
     materialization?: EndpointVersionMaterializationType
+    columns?: { name: string; type: string }[]
 }
 
 /** Extends EndpointType with version-specific fields when fetching a specific version */

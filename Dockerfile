@@ -109,7 +109,7 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/astral-sh/uv:0.9.9 AS uv
+FROM ghcr.io/astral-sh/uv:0.10.2 AS uv
 
 # Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
 FROM python:3.12.12-slim-bookworm@sha256:78e702aee4d693e769430f0d7b4f4858d8ea3f1118dc3f57fee3f757d0ca64b1 AS posthog-build
@@ -205,8 +205,8 @@ RUN apt-get update && \
     "libxmlsec1-dev=1.2.37-2" \
     "libxml2" \
     "ffmpeg=7:5.1.8-0+deb12u1" \
-    "libssl-dev=3.0.17-1~deb12u2" \
-    "libssl3=3.0.17-1~deb12u2" \
+    "libssl-dev=3.0.18-1~deb12u2" \
+    "libssl3=3.0.18-1~deb12u2" \
     "libjemalloc2" \
     && \
     rm -rf /var/lib/apt/lists/*

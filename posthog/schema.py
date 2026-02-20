@@ -1738,6 +1738,7 @@ class ExternalDataSourceType(StrEnum):
     BREVO = "Brevo"
     POSTMARK = "Postmark"
     GRANOLA = "Granola"
+    BUILD_BETTER = "BuildBetter"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2384,9 +2385,10 @@ class MarketingAnalyticsColumnsSchemaNames(StrEnum):
     REPORTED_CONVERSION_VALUE = "reported_conversion_value"
 
 
-class MarketingAnalyticsHelperForColumnNames(StrEnum):
+class MarketingAnalyticsConstants(StrEnum):
     GOAL = "Goal"
     COST_PER = "Cost per"
+    CONST_ = "const:"
 
 
 class MarketingAnalyticsOrderByEnum(StrEnum):
@@ -3953,7 +3955,11 @@ class TaxonomicFilterGroupType(StrEnum):
     NUMERICAL_EVENT_PROPERTIES = "numerical_event_properties"
     PERSON_PROPERTIES = "person_properties"
     PAGEVIEW_URLS = "pageview_urls"
+    PAGEVIEW_EVENTS = "pageview_events"
     SCREENS = "screens"
+    SCREEN_EVENTS = "screen_events"
+    EMAIL_ADDRESSES = "email_addresses"
+    AUTOCAPTURE_EVENTS = "autocapture_events"
     CUSTOM_EVENTS = "custom_events"
     WILDCARD = "wildcard"
     GROUPS = "groups"

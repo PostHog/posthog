@@ -68,6 +68,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import(
             '../../products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/ErrorTrackingConfigurationScene'
         ),
+    FeatureFlagTemplates: () => import('../../products/feature_flags/frontend/FeatureFlagTemplatesScene'),
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
     FlappyHog: () => import('../../products/games/FlappyHog/FlappyHog'),
     Links: () => import('../../products/links/frontend/LinksScene'),
@@ -130,6 +131,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
     '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
     '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
+    '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
     '/games/flappyhog': ['FlappyHog', 'flappyHog'],
     '/links': ['Links', 'links'],
@@ -307,6 +309,11 @@ export const productConfiguration: Record<string, any> = {
     ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue', layout: 'app-raw' },
     ErrorTrackingIssueFingerprints: { projectBased: true, name: 'Error tracking issue fingerprints' },
     ErrorTrackingConfiguration: { projectBased: true, name: 'Error tracking configuration' },
+    FeatureFlagTemplates: {
+        projectBased: true,
+        name: 'Feature flag templates',
+        defaultDocsPath: '/docs/feature-flags/creating-feature-flags',
+    },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
     FlappyHog: { name: 'FlappyHog', projectBased: true, activityScope: 'Games' },
     Links: {
@@ -353,16 +360,18 @@ export const productConfiguration: Record<string, any> = {
     },
     LLMAnalyticsDatasets: {
         projectBased: true,
-        name: 'LLM analytics datasets',
+        name: 'Datasets',
         description: 'Manage datasets for testing and evaluation.',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
+        iconType: 'llm_datasets',
     },
     LLMAnalyticsDataset: {
         projectBased: true,
         name: 'LLM analytics dataset',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
+        iconType: 'llm_datasets',
     },
     LLMAnalyticsEvaluations: {
         projectBased: true,
@@ -371,6 +380,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/evaluations',
+        iconType: 'llm_evaluations',
     },
     LLMAnalyticsEvaluation: {
         projectBased: true,
@@ -378,6 +388,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
+        iconType: 'llm_evaluations',
     },
     LLMAnalyticsEvaluationTemplates: {
         projectBased: true,
@@ -385,6 +396,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
+        iconType: 'llm_evaluations',
     },
     LLMAnalyticsPrompts: {
         projectBased: true,
@@ -392,12 +404,14 @@ export const productConfiguration: Record<string, any> = {
         description: 'Track and manage your LLM prompts.',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/prompts',
+        iconType: 'llm_prompts',
     },
     LLMAnalyticsPrompt: {
         projectBased: true,
         name: 'LLM analytics prompt',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
+        iconType: 'llm_prompts',
     },
     LLMAnalyticsClusters: {
         projectBased: true,
@@ -405,12 +419,14 @@ export const productConfiguration: Record<string, any> = {
         description: 'Discover patterns and clusters in your LLM usage.',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/clusters',
+        iconType: 'llm_clusters',
     },
     LLMAnalyticsCluster: {
         projectBased: true,
         name: 'LLM analytics cluster',
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
+        iconType: 'llm_clusters',
     },
     Logs: {
         projectBased: true,
@@ -584,6 +600,7 @@ export const productUrls = {
         action ? `/experiments/shared-metrics/${id}/${action}` : `/experiments/shared-metrics/${id}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
+    featureFlagTemplates: (): string => '/feature_flags/templates',
     featureFlagNew: ({
         type,
         sourceId,
