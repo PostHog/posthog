@@ -3,9 +3,9 @@ import { useActions, useValues } from 'kea'
 
 import { IconCloud, IconCode, IconDatabase, IconStethoscope, IconWarning } from '@posthog/icons'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link/Link'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'

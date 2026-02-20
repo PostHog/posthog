@@ -14,8 +14,8 @@ import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotke
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { RecordingDeleted } from 'scenes/session-recordings/player/RecordingDeleted'
 import { PlayerFrameCommentOverlay } from 'scenes/session-recordings/player/commenting/PlayerFrameCommentOverlay'
+import { RecordingDeleted } from 'scenes/session-recordings/player/RecordingDeleted'
 import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
 import { urls } from 'scenes/urls'
 

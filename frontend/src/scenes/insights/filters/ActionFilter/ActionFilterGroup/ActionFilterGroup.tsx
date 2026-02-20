@@ -21,8 +21,8 @@ import {
     TaxonomicStringPopover,
 } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
+import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { teamLogic } from 'scenes/teamLogic'
 import { MathCategory, mathsLogic } from 'scenes/trends/mathsLogic'
 
