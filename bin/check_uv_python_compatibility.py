@@ -6,15 +6,17 @@ Validate uv configuration for local development and CI.
 Performs three checks:
 1. Verify the uv version from pyproject.toml can download the required Python
    (critical for local development and CI)
-2. Verify no CI workflow overrides the uv version with an explicit pin
-   (pyproject.toml required-version is the single source of truth)
+2. Verify all CI workflow version pins match pyproject.toml
+   Pins are required: without them, setup-uv queries the GitHub API on every
+   job to resolve the required-version range, exhausting the installation
+   token rate limit under concurrent load.
 3. Verify flox manifest uv version is compatible with pyproject.toml
 
 Run in CI via .github/workflows/ci-python.yml to catch issues early.
 
 Exit codes:
     0: All checks passed
-    1: uv cannot download required Python, config error, or workflow overrides found
+    1: uv cannot download required Python, config error, or workflow pins missing/mismatched
 """
 
 import re
@@ -83,29 +85,35 @@ def get_uv_version_from_flox() -> str | None:
     return match.group(1) if match else None
 
 
-def get_uv_versions_from_workflows() -> dict[str, set[str]]:
-    """Find CI workflows that override the uv version.
+def get_uv_versions_from_workflows() -> dict[str, list[str | None]]:
+    """Find all setup-uv usages in CI workflows and their version pins.
 
-    Returns a dict mapping workflow filename to set of uv versions found.
-    Ideally this should be empty — pyproject.toml is the single source of truth.
+    Returns a dict mapping workflow filename to list of version strings (or None
+    if a usage has no pin). Every usage must be pinned to the pyproject.toml
+    version — without a pin, setup-uv queries the GitHub API on every job to
+    resolve the required-version range, exhausting the installation token rate
+    limit under concurrent load.
     """
     workflows_dir = Path(__file__).parent.parent / ".github" / "workflows"
-    uv_versions: dict[str, set[str]] = {}
+    uv_usages: dict[str, list[str | None]] = {}
 
     for workflow_file in sorted(workflows_dir.glob("*.yml")):
         lines = workflow_file.read_text().splitlines()
         for i, line in enumerate(lines):
             if "setup-uv@" not in line:
                 continue
+            version: str | None = None
             # Check the next few lines for a version: key within the same with: block
             for lookahead in lines[i + 1 : i + 6]:
                 if re.match(r"^\s+-\s+name:", lookahead):
                     break  # next step, stop looking
-                m = re.match(r"^\s+version:\s*([0-9.]+)", lookahead)
+                m = re.match(r"^\s+version:\s*['\"]?([0-9.]+)['\"]?", lookahead)
                 if m:
-                    uv_versions.setdefault(workflow_file.name, set()).add(m.group(1))
+                    version = m.group(1)
+                    break
+            uv_usages.setdefault(workflow_file.name, []).append(version)
 
-    return uv_versions
+    return uv_usages
 
 
 def check_uv_python_compatibility(uv_version: str, python_version: str) -> tuple[bool, str]:
@@ -200,22 +208,39 @@ def main() -> int:
     print("=" * 60)
     print()
 
-    # Check 2: No workflow version overrides
-    print("Check 2: No CI workflow uv version overrides")
+    # Check 2: All workflow pins present and match pyproject.toml
+    print("Check 2: CI workflow uv version pins")
     print("-" * 60)
 
-    workflow_overrides = get_uv_versions_from_workflows()
-    if not workflow_overrides:
-        print("✓ No workflow overrides (pyproject.toml is single source of truth)")
-        no_overrides = True
+    workflow_usages = get_uv_versions_from_workflows()
+    missing_pins: list[str] = []
+    wrong_pins: list[str] = []
+
+    for workflow_name, versions in sorted(workflow_usages.items()):
+        for i, version in enumerate(versions):
+            usage = f"{workflow_name} (usage {i + 1})" if len(versions) > 1 else workflow_name
+            if version is None:
+                missing_pins.append(usage)
+            elif uv_version and version != uv_version:
+                wrong_pins.append(f"{usage}: {version} (expected {uv_version})")
+
+    if not missing_pins and not wrong_pins:
+        print(f"✓ All setup-uv usages pinned to {uv_version}")
+        pins_ok = True
     else:
-        print("✗ Found workflow uv version overrides (remove these):")
-        for workflow_name, versions in sorted(workflow_overrides.items()):
-            for version in sorted(versions):
-                print(f"  - {workflow_name}: version: {version}")
-        print()
-        print("  setup-uv reads required-version from pyproject.toml automatically")
-        no_overrides = False
+        if missing_pins:
+            print("✗ setup-uv usages missing version pin (add version: 'x.y.z'):")
+            for name in missing_pins:
+                print(f"  - {name}")
+            print()
+            print("  Without a pin, setup-uv queries the GitHub API on every job")
+            print("  to resolve the required-version range, which exhausts the")
+            print("  installation token rate limit under concurrent load.")
+        if wrong_pins:
+            print(f"✗ setup-uv usages with wrong version (expected {uv_version}):")
+            for name in wrong_pins:
+                print(f"  - {name}")
+        pins_ok = False
 
     print()
     print("=" * 60)
@@ -249,15 +274,15 @@ def main() -> int:
     print()
 
     # Summary
-    if uv_compatible and no_overrides and flox_aligned:
+    if uv_compatible and pins_ok and flox_aligned:
         print("✓ All checks passed")
         return 0
     else:
         failures = []
         if not uv_compatible:
             failures.append("uv cannot download required Python version")
-        if not no_overrides:
-            failures.append("workflow uv version overrides found")
+        if not pins_ok:
+            failures.append("workflow uv version pins missing or mismatched")
         if not flox_aligned:
             failures.append("flox uv version diverges from pyproject.toml")
         print(f"✗ Failed: {'; '.join(failures)}")
