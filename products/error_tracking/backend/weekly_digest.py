@@ -5,6 +5,9 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.schema import ProductKey
+
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
@@ -13,6 +16,8 @@ logger = structlog.get_logger(__name__)
 def get_exception_counts(team_ids: list[int] | None = None) -> list:
     """Exception counts and ingestion failures for the last 7 days"""
     from posthog.clickhouse.client import sync_execute
+
+    tag_queries(product=ProductKey.ERROR_TRACKING, name="weekly_digest:exception_counts")
 
     team_filter = ""
     query_params: dict = {}
@@ -42,6 +47,8 @@ def get_exception_counts(team_ids: list[int] | None = None) -> list:
 def get_crash_free_sessions(team: Team) -> dict:
     """Calculate crash free sessions rate for the last 7 days."""
     from posthog.hogql.query import execute_hogql_query
+
+    tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:crash_free_sessions")
 
     try:
         response = execute_hogql_query(
@@ -78,6 +85,8 @@ def get_crash_free_sessions(team: Team) -> dict:
 def get_daily_exception_counts(team_id: int) -> list[dict]:
     """Get exception counts per day for the last 7 days"""
     from posthog.clickhouse.client import sync_execute
+
+    tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team_id, name="weekly_digest:daily_exception_counts")
 
     try:
         results = sync_execute(
@@ -123,6 +132,8 @@ def get_top_issues_for_team(team: Team) -> list[dict]:
 
     from products.error_tracking.backend.models import ErrorTrackingIssue
 
+    tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:top_issues")
+
     try:
         response = execute_hogql_query(
             query="""
@@ -165,6 +176,8 @@ def get_new_issues_for_team(team: Team) -> list[dict]:
     from posthog.hogql.query import execute_hogql_query
 
     from products.error_tracking.backend.models import ErrorTrackingIssue
+
+    tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:new_issues")
 
     week_ago = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - datetime.timedelta(days=7)
     new_issue_objects = list(
