@@ -165,6 +165,10 @@
         </form>
     </div>
 
+    {% if error %}
+        <p class="errornote">{{ error }}</p>
+    {% endif %}
+
     {% if metrics %}
         {% for metric_name, entries in metrics.items %}
         <div class="module" style="margin-bottom: 20px;">

@@ -1,3 +1,4 @@
+import logging
 from collections import OrderedDict, defaultdict
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
@@ -7,6 +8,8 @@ from django.core.exceptions import PermissionDenied
 from django.shortcuts import render
 
 from posthog.clickhouse.client import sync_execute
+
+logger = logging.getLogger(__name__)
 
 PRESETS = OrderedDict(
     [
@@ -98,37 +101,44 @@ def tophog_dashboard_view(request):
 
     time_params: dict[str, datetime] = {"date_from": date_from, "date_to": date_to}
 
-    filter_options = sync_execute(FILTER_OPTIONS_QUERY, time_params)
-    pipelines = sorted({row[0] for row in filter_options})
-    lanes = sorted({row[1] for row in filter_options})
-
     selected_pipeline = request.GET.get("pipeline", "")
     selected_lane = request.GET.get("lane", "")
-
-    filters = []
-    params: dict[str, object] = {**time_params}
-    if selected_pipeline:
-        filters.append("AND pipeline = %(pipeline)s")
-        params["pipeline"] = selected_pipeline
-    if selected_lane:
-        filters.append("AND lane = %(lane)s")
-        params["lane"] = selected_lane
-
-    query = TOPHOG_QUERY.format(filters=" ".join(filters))
-    rows = sync_execute(query, params)
-
+    pipelines: list[str] = []
+    lanes: list[str] = []
     metrics: dict[str, list[dict]] = defaultdict(list)
-    for metric, type_, key, total, obs, pipeline, lane in rows:
-        metrics[metric].append(
-            {
-                "type": type_,
-                "key": _format_key(key),
-                "value": total,
-                "count": obs,
-                "pipeline": pipeline,
-                "lane": lane,
-            }
-        )
+    error = ""
+
+    try:
+        filter_options = sync_execute(FILTER_OPTIONS_QUERY, time_params)
+        pipelines = sorted({row[0] for row in filter_options})
+        lanes = sorted({row[1] for row in filter_options})
+
+        filters = []
+        params: dict[str, object] = {**time_params}
+        if selected_pipeline:
+            filters.append("AND pipeline = %(pipeline)s")
+            params["pipeline"] = selected_pipeline
+        if selected_lane:
+            filters.append("AND lane = %(lane)s")
+            params["lane"] = selected_lane
+
+        query = TOPHOG_QUERY.format(filters=" ".join(filters))
+        rows = sync_execute(query, params)
+
+        for metric, type_, key, total, obs, pipeline, lane in rows:
+            metrics[metric].append(
+                {
+                    "type": type_,
+                    "key": _format_key(key),
+                    "value": total,
+                    "count": obs,
+                    "pipeline": pipeline,
+                    "lane": lane,
+                }
+            )
+    except Exception as e:
+        logger.exception("TopHog dashboard query failed")
+        error = str(e)
 
     # Build query string fragment for pipeline/lane filters (used in preset/mode links)
     filter_params = {}
@@ -144,6 +154,7 @@ def tophog_dashboard_view(request):
     context = {
         **admin.site.each_context(request),
         "title": "TopHog Dashboard",
+        "error": error,
         "metrics": dict(metrics),
         "pipelines": pipelines,
         "lanes": lanes,
