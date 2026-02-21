@@ -322,6 +322,7 @@ export interface SurveyApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    form_content?: unknown | null
 }
 
 export interface PaginatedSurveyListApi {
@@ -497,6 +498,7 @@ export interface SurveySerializerCreateUpdateOnlyApi {
     /** @nullable */
     enable_iframe_embedding?: boolean | null
     _create_in_folder?: string
+    form_content?: unknown | null
 }
 
 export interface PatchedSurveySerializerCreateUpdateOnlyApi {
@@ -663,6 +665,7 @@ export interface PatchedSurveySerializerCreateUpdateOnlyApi {
     /** @nullable */
     enable_iframe_embedding?: boolean | null
     _create_in_folder?: string
+    form_content?: unknown | null
 }
 
 export type SurveysListParams = {

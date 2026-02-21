@@ -147,8 +147,8 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'variables',
-                title: 'Project API key & ID',
-                description: 'Your project API key and ID used to connect SDKs and APIs to this environment.',
+                title: 'Project token & ID',
+                description: 'Your project token and ID used to connect SDKs and APIs to this environment.',
                 component: <TeamVariables />,
                 keywords: ['api key', 'token', 'project id'],
             },

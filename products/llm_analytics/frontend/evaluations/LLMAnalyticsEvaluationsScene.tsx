@@ -29,6 +29,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { TrialUsageMeter } from '../settings/TrialUsageMeter'
+import { providerKeyStateLabel, providerLabel } from '../settings/providerKeyStateUtils'
 import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
 import {
     EvaluationMetrics,
@@ -48,8 +49,14 @@ export const scene: SceneExport = {
 function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Element {
     const evaluationsLogic = llmEvaluationsLogic({ tabId })
     const metricsLogic = evaluationMetricsLogic({ tabId })
-    const { evaluations, filteredEvaluations, evaluationsLoading, evaluationsFilter, dateFilter } =
-        useValues(evaluationsLogic)
+    const {
+        evaluations,
+        filteredEvaluations,
+        evaluationsLoading,
+        evaluationsFilter,
+        dateFilter,
+        unhealthyProviderKeysUsedByEvaluations,
+    } = useValues(evaluationsLogic)
     const { setEvaluationsFilter, toggleEvaluationEnabled, duplicateEvaluation, loadEvaluations, setDates } =
         useActions(evaluationsLogic)
     const { evaluationsWithMetrics } = useValues(metricsLogic)
@@ -57,6 +64,7 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
     const evaluationUrl = (id: string): string => combineUrl(urls.llmAnalyticsEvaluation(id), searchParams).url
+    const settingsUrl = combineUrl(urls.llmAnalyticsEvaluations(), { ...searchParams, tab: 'settings' }).url
 
     const filteredEvaluationsWithMetrics = evaluationsWithMetrics.filter((evaluation: EvaluationConfig) =>
         filteredEvaluations.some((filtered) => filtered.id === evaluation.id)
@@ -211,6 +219,24 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
     return (
         <div className="space-y-4">
             <TrialUsageMeter showSettingsLink={false} />
+
+            {unhealthyProviderKeysUsedByEvaluations.length > 0 && (
+                <LemonBanner type="warning">
+                    <div className="space-y-2">
+                        <p>Some evaluations are using API keys that need attention.</p>
+                        <ul className="list-disc pl-5 space-y-1">
+                            {unhealthyProviderKeysUsedByEvaluations.map((providerKey) => (
+                                <li key={providerKey.id}>
+                                    <span className="font-semibold">{providerKey.name}</span> (
+                                    {providerLabel(providerKey.provider)}) - {providerKeyStateLabel(providerKey.state)}:{' '}
+                                    {providerKey.error_message || 'Unknown error'}
+                                </li>
+                            ))}
+                        </ul>
+                        <Link to={settingsUrl}>Go to settings to fix API keys.</Link>
+                    </div>
+                </LemonBanner>
+            )}
 
             <LemonBanner type="info" dismissKey="evals-billing-notice">
                 Each evaluation run counts as an LLM analytics event.
