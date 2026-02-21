@@ -1,5 +1,5 @@
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { MetricTracker } from './metric-tracker'
+import { AddingMetricTracker, AverageMetricTracker, Tracker } from './metric-tracker'
 
 export interface MetricConfig {
     topN?: number
@@ -25,7 +25,7 @@ const DEFAULT_TOP_N = 10
 const DEFAULT_MAX_KEYS = 1_000
 
 export class TopHog {
-    private trackers: Map<string, MetricTracker> = new Map()
+    private trackers: Map<string, Tracker> = new Map()
     private flushInterval: ReturnType<typeof setInterval> | null = null
     private readonly config: TopHogRequiredConfig & TopHogOptionalConfig
 
@@ -39,17 +39,28 @@ export class TopHog {
         }
     }
 
-    register(name: string, opts?: MetricConfig): MetricTracker {
-        let tracker = this.trackers.get(name)
-        if (!tracker) {
-            tracker = new MetricTracker(
-                name,
-                opts?.topN ?? this.config.defaultTopN,
-                opts?.maxKeys ?? this.config.maxKeys
-            )
-            this.trackers.set(name, tracker)
-        }
-        return tracker
+    register(name: string, opts?: MetricConfig): AddingMetricTracker {
+        return this.getOrCreate(
+            name,
+            () =>
+                new AddingMetricTracker(
+                    name,
+                    opts?.topN ?? this.config.defaultTopN,
+                    opts?.maxKeys ?? this.config.maxKeys
+                )
+        )
+    }
+
+    registerAverage(name: string, opts?: MetricConfig): AverageMetricTracker {
+        return this.getOrCreate(
+            name,
+            () =>
+                new AverageMetricTracker(
+                    name,
+                    opts?.topN ?? this.config.defaultTopN,
+                    opts?.maxKeys ?? this.config.maxKeys
+                )
+        )
     }
 
     async flush(): Promise<void> {
@@ -95,5 +106,14 @@ export class TopHog {
             this.flushInterval = null
         }
         await this.flush()
+    }
+
+    private getOrCreate<T extends Tracker>(name: string, create: () => T): T {
+        let tracker = this.trackers.get(name)
+        if (!tracker) {
+            tracker = create()
+            this.trackers.set(name, tracker)
+        }
+        return tracker as T
     }
 }

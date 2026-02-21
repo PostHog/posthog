@@ -54,6 +54,13 @@ describe('TopHog', () => {
             expect(tophog.register('events').metricName).toBe('events')
             expect(tophog.register('latency').metricName).toBe('latency')
         })
+
+        it('should return the same average tracker instance for the same name', () => {
+            const tophog = new TopHog(createOptions())
+            const a = tophog.registerAverage('latency')
+            const b = tophog.registerAverage('latency')
+            expect(a).toBe(b)
+        })
     })
 
     describe('flush collects from all trackers', () => {
