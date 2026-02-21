@@ -600,6 +600,16 @@ class TestSSORegionRedirect:
         assert qs["code"] == [TestConstants.AUTH_CODE]
         assert qs["state"] == [TestConstants.STATE]
 
+    def test_us_region_redirects_for_non_integer_resource_id(self, sso_setup):
+        with self.settings(SITE_URL=US_SITE_URL, DEBUG=False):
+            response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"], resource_id="not-a-number")
+
+        assert response.status_code == status.HTTP_302_FOUND
+        parsed = urlparse(response.url)
+        assert parsed.netloc == "eu.posthog.com"
+        qs = parse_qs(parsed.query)
+        assert qs["resource_id"] == ["not-a-number"]
+
     @staticmethod
     def settings(**kwargs):
         from django.test import override_settings

@@ -1,5 +1,5 @@
 from typing import Any
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlparse
 
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 
@@ -65,7 +65,10 @@ class VercelSSOViewSet(VercelErrorResponseMixin, VercelRegionProxyMixin, viewset
     def _should_redirect_to_eu(self, resource_id: str | None) -> bool:
         if self.is_dev_env or self.current_region != "us" or not resource_id:
             return False
-        return not Integration.objects.filter(pk=resource_id, kind=Integration.IntegrationKind.VERCEL).exists()
+        try:
+            return not Integration.objects.filter(pk=resource_id, kind=Integration.IntegrationKind.VERCEL).exists()
+        except (ValueError, TypeError):
+            return True
 
     @decorators.action(detail=False, methods=["get"], url_path="redirect")
     def sso_redirect(self, request: Request) -> HttpResponse:
@@ -79,7 +82,7 @@ class VercelSSOViewSet(VercelErrorResponseMixin, VercelRegionProxyMixin, viewset
 
         params: SSOParams = serializer.validated_data
         if self._should_redirect_to_eu(params.resource_id):
-            eu_url = f"https://{self.EU_DOMAIN}/login/vercel/?{urlencode(request.query_params)}"
+            eu_url = f"https://{self.EU_DOMAIN}/login/vercel/?{request.query_params.urlencode()}"
             logger.info(
                 "Redirecting SSO to EU region",
                 resource_id=params.resource_id,
