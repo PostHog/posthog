@@ -426,7 +426,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
 
             actions.setOptionsSearchInput(propertyKey, newInput || '')
 
-            const responseData: PropValue[] | { results: PropValue[]; refreshing: boolean } = await api.get(
+            const responseData: { results: PropValue[]; refreshing: boolean } = await api.get(
                 constructValuesEndpoint(
                     endpoint,
                     values.currentTeamId,
@@ -440,8 +440,8 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             )
             breakpoint()
 
-            const propValues = Array.isArray(responseData) ? responseData : responseData.results
-            const refreshing = Array.isArray(responseData) ? false : responseData.refreshing
+            const propValues = responseData.results
+            const refreshing = responseData.refreshing
 
             actions.setOptions(propertyKey, propValues, type !== PropertyDefinitionType.FlagValue, refreshing)
             cache.abortController = null

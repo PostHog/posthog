@@ -67,7 +67,9 @@ class SessionViewSet(
                     flattened.append(json.loads(value[0]))
                 except json.decoder.JSONDecodeError:
                     flattened.append(value[0])
-            return response.Response([{"name": convert_property_value(value)} for value in flatten(flattened)])
+            return response.Response(
+                {"results": [{"name": convert_property_value(value)} for value in flatten(flattened)], "refreshing": False}
+            )
 
     @action(methods=["GET"], detail=False)
     def property_definitions(self, request: request.Request, **kwargs) -> response.Response:

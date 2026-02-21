@@ -705,7 +705,9 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             rows = sync_execute(query, params)
 
             span.set_attribute("result_count", len(rows))
-            return response.Response([{"name": name, "count": count} for name, count in rows])
+            return response.Response(
+                {"results": [{"name": name, "count": count} for name, count in rows], "refreshing": False}
+            )
 
     def _is_crm_enabled(self, user: User) -> bool:
         return posthoganalytics.feature_enabled(
