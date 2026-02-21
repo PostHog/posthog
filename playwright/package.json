@@ -5,7 +5,7 @@
         "test": "pnpm build:products && playwright test"
     },
     "dependencies": {
-        "@playwright/test": "1.45.0",
+        "@playwright/test": "1.58.2",
         "@posthog/frontend": "workspace:*"
     },
     "peerDependencies": {}
