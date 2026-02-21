@@ -540,7 +540,13 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     property_key=key,
                     search_value=value,
                 )
-                if not on_cooldown:
+                task_in_flight = is_task_running(
+                    team_id=self.team.pk,
+                    property_type="person",
+                    property_key=key,
+                    search_value=value,
+                )
+                if not on_cooldown and not task_in_flight:
                     set_refresh_cooldown(
                         team_id=self.team.pk,
                         property_type="person",
@@ -554,16 +560,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         search_value=value,
                     )
                     refresh_person_property_values_cache.delay(self.team.pk, key, value)  # type: ignore[operator]
-                    refreshing = True
-                else:
-                    refreshing = is_task_running(
-                        team_id=self.team.pk,
-                        property_type="person",
-                        property_key=key,
-                        search_value=value,
-                    )
                 span.set_attribute("result_count", len(cached))
-                return response.Response({"results": cached, "refreshing": refreshing})
+                return response.Response({"results": cached, "refreshing": task_in_flight or not on_cooldown})
 
             result = run_person_property_query_and_cache(self.team.pk, key, value)
             span.set_attribute("result_count", len(result))

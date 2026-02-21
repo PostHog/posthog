@@ -484,7 +484,14 @@ class EventViewSet(
                     search_value=query_params.value,
                     event_names=query_params.event_names,
                 )
-                if not on_cooldown:
+                task_in_flight = is_task_running(
+                    team_id=query_params.team.pk,
+                    property_type="event",
+                    property_key=query_params.key,
+                    search_value=query_params.value,
+                    event_names=query_params.event_names,
+                )
+                if not on_cooldown and not task_in_flight:
                     set_refresh_cooldown(
                         team_id=query_params.team.pk,
                         property_type="event",
@@ -507,16 +514,9 @@ class EventViewSet(
                         query_params.event_names,
                         property_filters,
                     )
-                    refreshing = True
-                else:
-                    refreshing = is_task_running(
-                        team_id=query_params.team.pk,
-                        property_type="event",
-                        property_key=query_params.key,
-                        search_value=query_params.value,
-                        event_names=query_params.event_names,
-                    )
-                return self._return_with_short_cache({"results": cached, "refreshing": refreshing})
+                return self._return_with_short_cache(
+                    {"results": cached, "refreshing": task_in_flight or not on_cooldown}
+                )
 
         result = run_event_property_query_and_cache(
             query_params.team.pk,
