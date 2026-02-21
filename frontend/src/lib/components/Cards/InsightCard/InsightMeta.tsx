@@ -113,6 +113,12 @@ export function InsightMeta({
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
 
+    const compact =
+        !!featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_REDESIGN] &&
+        (placement === DashboardPlacement.Dashboard ||
+            placement === DashboardPlacement.ProjectHomepage ||
+            placement === DashboardPlacement.Public)
+
     const otherDashboards = nameSortedDashboards.filter((d) => !dashboards?.includes(d.id))
 
     const canViewInsight = insight.user_access_level
@@ -175,6 +181,7 @@ export function InsightMeta({
     if (!canViewInsight) {
         return (
             <CardMeta
+                compact={compact}
                 ribbonColor={ribbonColor}
                 showEditingControls={false}
                 showDetailsControls={false}
@@ -208,6 +215,7 @@ export function InsightMeta({
 
     return (
         <CardMeta
+            compact={compact}
             ribbonColor={ribbonColor}
             showEditingControls={showEditingControls}
             showDetailsControls={showDetailsControls}

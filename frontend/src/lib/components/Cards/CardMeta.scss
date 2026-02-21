@@ -104,6 +104,25 @@
         }
     }
 
+    &.CardMeta--compact {
+        .CardMeta__primary {
+            padding: 0.5rem 0.75rem;
+        }
+
+        .CardMeta__main {
+            min-height: unset;
+        }
+
+        h4 {
+            height: auto;
+            line-height: 1.25;
+        }
+
+        .CardMeta__top {
+            height: 1.25rem;
+        }
+    }
+
     &.CardMeta--details-shown {
         .CardMeta__details {
             margin-top: 0;

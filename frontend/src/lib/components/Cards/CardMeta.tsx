@@ -21,6 +21,8 @@ export interface Resizeable {
 }
 
 export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className'> {
+    /** Whether to use compact styling (reduced padding, tighter line heights). */
+    compact?: boolean
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
     ribbonColor?: InsightColor | null
@@ -43,6 +45,7 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
 }
 
 export function CardMeta({
+    compact,
     ribbonColor,
     showEditingControls,
     showDetailsControls,
@@ -79,7 +82,14 @@ export function CardMeta({
         (!!primaryWidth && primaryWidth > 480 && controlsAvailableSpace >= neededWidth)
 
     return (
-        <div className={clsx('CardMeta', className, areDetailsShown && 'CardMeta--details-shown')}>
+        <div
+            className={clsx(
+                'CardMeta',
+                className,
+                compact && 'CardMeta--compact',
+                areDetailsShown && 'CardMeta--details-shown'
+            )}
+        >
             <div className="CardMeta__primary" ref={primaryRef}>
                 {ribbonColor &&
                     ribbonColor !==
