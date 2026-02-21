@@ -1456,7 +1456,7 @@ def send_error_tracking_weekly_digest_for_team(
     crash_free = get_crash_free_sessions(team)
 
     date_suffix = timezone.now().strftime("%Y-%W")
-    error_tracking_url = f"{settings.SITE_URL}/project/{team_id}/error_tracking"
+    error_tracking_url = f"{settings.SITE_URL}/project/{team_id}/error_tracking?utm_source=error_tracking_weekly_digest"
     ingestion_failures_url = build_ingestion_failures_url(team_id)
 
     for membership in memberships_to_email:
@@ -1476,6 +1476,7 @@ def send_error_tracking_weekly_digest_for_team(
                 "error_tracking_url": error_tracking_url,
                 "ingestion_failures_url": ingestion_failures_url,
                 "contact_support_url": "https://posthog.com/support",
+                "feedback_survey_url": f"https://us.posthog.com/external_surveys/019c7fd6-7cfa-0000-2b03-a8e5d4c03743?distinct_id={membership.user.distinct_id}",
             },
         )
         message.add_user_recipient(membership.user)
