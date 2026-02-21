@@ -179,11 +179,11 @@ class RestoreService:
 
             if migrated_ids:
                 Ticket.objects.filter(team=token.team, id__in=migrated_ids).update(widget_session_id=widget_session_id)
-
-            RestoreService.invalidate_existing_tokens(token.team, token.recipient_email, exclude_token_id=token.id)
         except Exception:
             logger.exception(f"Failed to migrate tickets after consuming token {token.id}")
             return RestoreResult(status="success", code="migration_failed", widget_session_id=widget_session_id)
+        finally:
+            RestoreService.invalidate_existing_tokens(token.team, token.recipient_email, exclude_token_id=token.id)
 
         logger.info(
             f"Restore token {token.id} redeemed, migrated {len(migrated_ids)} tickets",
