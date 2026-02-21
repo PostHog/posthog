@@ -76,13 +76,15 @@ export class TopHog {
         const messages: { value: string }[] = []
 
         for (const tracker of this.trackers.values()) {
-            for (const { key, value } of tracker.flush()) {
+            for (const { key, value, count } of tracker.flush()) {
                 messages.push({
                     value: JSON.stringify({
                         timestamp,
                         metric: tracker.metricName,
+                        type: tracker.type,
                         key,
                         value,
+                        count,
                         pipeline: this.config.pipeline,
                         lane: this.config.lane,
                         labels: this.config.labels,
