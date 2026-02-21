@@ -5,7 +5,6 @@ import { IconBook, IconTerminal } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconDocumentExpand } from 'lib/lemon-ui/icons'
@@ -96,9 +95,8 @@ interface NotebookExpandButtonProps extends Pick<LemonButtonProps, 'size' | 'typ
 export const NotebookExpandButton = (props: NotebookExpandButtonProps): JSX.Element => {
     const { isExpanded } = useValues(notebookSettingsLogic)
     const { setIsExpanded } = useActions(notebookSettingsLogic)
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
-    if (isRemovingSidePanelFlag && props.inPanel) {
+    if (props.inPanel) {
         return (
             <ButtonPrimitive
                 onClick={() => setIsExpanded(!isExpanded)}

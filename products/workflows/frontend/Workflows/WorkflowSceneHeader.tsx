@@ -5,8 +5,6 @@ import { useEffect, useRef, useState } from 'react'
 import { IconArchive, IconCopy, IconScreen } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { ScenePanel, ScenePanelActionsSection, ScenePanelDivider } from '~/layout/scenes/SceneLayout'
@@ -42,8 +40,6 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
     const [displayStatus, setDisplayStatus] = useState(workflow?.status)
     const [isTransitioning, setIsTransitioning] = useState(false)
     const prevStatusRef = useRef(workflow?.status)
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
-
     useEffect(() => {
         // Only transition if status actually changed (not on initial mount)
         if (workflow?.status !== displayStatus && prevStatusRef.current !== undefined) {
@@ -105,53 +101,29 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                     </span>
                                 </LemonButton>
                                 <LemonDivider vertical />
-                                {isRemovingSidePanelFlag ? (
-                                    <ScenePanel>
-                                        <ScenePanelActionsSection>
-                                            <ButtonPrimitive menuItem onClick={() => duplicate()}>
-                                                <IconCopy />
-                                                Duplicate
-                                            </ButtonPrimitive>
-                                            <ButtonPrimitive menuItem onClick={showSaveAsTemplateModal}>
-                                                <IconScreen />
-                                                Save as template
-                                            </ButtonPrimitive>
-                                        </ScenePanelActionsSection>
-                                        <ScenePanelDivider />
-                                        <ScenePanelActionsSection>
-                                            <ButtonPrimitive
-                                                menuItem
-                                                onClick={() => archiveWorkflow(workflow)}
-                                                variant="danger"
-                                            >
-                                                <IconArchive />
-                                                Archive
-                                            </ButtonPrimitive>
-                                        </ScenePanelActionsSection>
-                                    </ScenePanel>
-                                ) : (
-                                    <More
-                                        size="small"
-                                        overlay={
-                                            <>
-                                                <LemonButton fullWidth onClick={() => duplicate()}>
-                                                    Duplicate
-                                                </LemonButton>
-                                                <LemonButton fullWidth onClick={showSaveAsTemplateModal}>
-                                                    Save as template
-                                                </LemonButton>
-                                                <LemonDivider />
-                                                <LemonButton
-                                                    status="danger"
-                                                    fullWidth
-                                                    onClick={() => archiveWorkflow(workflow)}
-                                                >
-                                                    Archive
-                                                </LemonButton>
-                                            </>
-                                        }
-                                    />
-                                )}
+                                <ScenePanel>
+                                    <ScenePanelActionsSection>
+                                        <ButtonPrimitive menuItem onClick={() => duplicate()}>
+                                            <IconCopy />
+                                            Duplicate
+                                        </ButtonPrimitive>
+                                        <ButtonPrimitive menuItem onClick={showSaveAsTemplateModal}>
+                                            <IconScreen />
+                                            Save as template
+                                        </ButtonPrimitive>
+                                    </ScenePanelActionsSection>
+                                    <ScenePanelDivider />
+                                    <ScenePanelActionsSection>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            onClick={() => archiveWorkflow(workflow)}
+                                            variant="danger"
+                                        >
+                                            <IconArchive />
+                                            Archive
+                                        </ButtonPrimitive>
+                                    </ScenePanelActionsSection>
+                                </ScenePanel>
                             </>
                         )}
                         {workflowChanged && (

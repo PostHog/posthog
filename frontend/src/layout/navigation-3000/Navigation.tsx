@@ -5,7 +5,6 @@ import { ReactNode, useEffect, useRef } from 'react'
 
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
@@ -51,8 +50,6 @@ export function Navigation({
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
-
     // Set container ref so we can measure the width of the scene layout in logic
     useEffect(() => {
         if (mainRef.current) {
@@ -85,7 +82,6 @@ export function Navigation({
             <div
                 className={cn('app-layout bg-surface-tertiary', {
                     'app-layout--mobile': mobileLayout,
-                    'app-layout--scene-side-panel reduce-visual-noise': isRemovingSidePanelFlag,
                 })}
                 style={
                     {
@@ -115,11 +111,10 @@ export function Navigation({
 
                     <div
                         className={cn(
-                            '@container/main-content-container main-content-container flex overflow-hidden lg:rounded border-t lg:border border-primary lg:mb-2 relative',
+                            '@container/main-content-container main-content-container flex overflow-hidden lg:rounded border-t lg:border border-primary lg:mb-2 relative lg:mr-1 lg:mb-1',
                             {
                                 'lg:rounded-tl-none': firstTabIsActive,
-                                'lg:mr-1 lg:mb-1': isRemovingSidePanelFlag,
-                                'rounded-r-none': isRemovingSidePanelFlag && sidePanelOpen,
+                                'rounded-r-none': sidePanelOpen,
                             }
                         )}
                     >
@@ -129,15 +124,13 @@ export function Navigation({
                             tabIndex={0}
                             id="main-content"
                             className={cn(
-                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 pb-0 h-full flex-1 rounded-t',
+                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 pb-0 h-full flex-1 rounded-t focus-visible:outline-none',
                                 {
                                     'p-0':
                                         sceneConfig?.layout === 'app-raw-no-header' ||
                                         sceneConfig?.layout === 'app-raw',
                                     'rounded-tl-none': firstTabIsActive,
-                                    'focus-visible:outline-none': isRemovingSidePanelFlag,
-                                    'lg:max-w-[calc(100%-var(--side-panel-width))] rounded-r-none':
-                                        isRemovingSidePanelFlag && sidePanelOpen,
+                                    'lg:max-w-[calc(100%-var(--side-panel-width))] rounded-r-none': sidePanelOpen,
                                 }
                             )}
                             onScroll={(e) => {
@@ -160,7 +153,7 @@ export function Navigation({
                                     </div>
                                 )}
                                 {children}
-                                {isRemovingSidePanelFlag && <SidePanel />}
+                                <SidePanel />
                             </SceneLayout>
                         </main>
 
@@ -177,7 +170,7 @@ export function Navigation({
                                     )}
                                 >
                                     <div className="h-[50px] flex items-center justify-end gap-2 -mx-2 px-4 py-2 border-b border-primary shrink-0">
-                                        <SceneTitlePanelButton inPanel />
+                                        <SceneTitlePanelButton />
                                     </div>
                                     <ScrollableShadows
                                         direction="vertical"
@@ -191,10 +184,9 @@ export function Navigation({
                             </>
                         )}
                     </div>
-                    {!isRemovingSidePanelFlag && <SidePanel className="right-nav" />}
                 </ProjectDragAndDropProvider>
             </div>
-            {isRemovingSidePanelFlag && <SidePanelOfframpModal />}
+            <SidePanelOfframpModal />
         </>
     )
 }
