@@ -33,14 +33,10 @@ class RestoreService:
     def _find_distinct_ids_by_person_email(team: Team, email_lower: str) -> list[str]:
         """
         Find distinct_ids of persons whose email matches via HogQL (ClickHouse).
-        This is fast because ClickHouse has indexed person properties.
+        Uses the persons table's built-in pdi lazy join to person_distinct_ids.
         """
         query = parse_select(
-            "SELECT DISTINCT pdi.distinct_id "
-            "FROM person_distinct_ids pdi "
-            "INNER JOIN persons p ON p.id = pdi.person_id "
-            "WHERE p.properties.email = {email} "
-            "LIMIT 1000",
+            "SELECT DISTINCT pdi.distinct_id FROM persons WHERE properties.email = {email} LIMIT 1000",
             placeholders={"email": ast.Constant(value=email_lower)},
         )
         response = execute_hogql_query(query=query, team=team)
