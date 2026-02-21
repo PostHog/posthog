@@ -259,6 +259,51 @@ mod tests {
         assert_eq!(get_min_txn_duration(500, 1000), Duration::from_secs(2));
     }
 
+    #[tokio::test]
+    async fn test_batch_payload_preserves_uuid_and_lib_properties() {
+        let expected_uuid = Uuid::parse_str("019c7d2c-5f84-7000-dd7f-9295cfe7993f").unwrap();
+        let mut ice = make_internally_captured_event(
+            "test_event",
+            "user123",
+            serde_json::json!({
+                "$lib": "posthog-python",
+                "$lib_version": "3.0.0",
+                "custom_prop": "hello"
+            }),
+            None,
+            None,
+        );
+        ice.inner.uuid = expected_uuid;
+
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/batch/")
+            .match_body(mockito::Matcher::PartialJson(serde_json::json!({
+                "batch": [{
+                    "uuid": expected_uuid.to_string(),
+                    "event": "test_event",
+                    "$distinct_id": "user123",
+                    "properties": {
+                        "$lib": "posthog-python",
+                        "$lib_version": "3.0.0",
+                        "custom_prop": "hello",
+                        "$geoip_disable": true
+                    }
+                }]
+            })))
+            .with_status(200)
+            .expect(1)
+            .create();
+
+        let client = make_client(&server.url()).await;
+        let mut emitter = CaptureEmitter::new(client, 10_000);
+        let txn = emitter.begin_write().await.unwrap();
+        txn.emit(&[ice]).await.unwrap();
+        txn.commit_write().await.unwrap();
+
+        mock.assert();
+    }
+
     #[test]
     fn test_is_retryable() {
         assert!(is_retryable(&posthog_rs::Error::RateLimit));
