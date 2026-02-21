@@ -11,7 +11,7 @@ export class StartPipelineBuilder<T, C> {
     }
 
     retry<U>(
-        callback: (builder: StartPipelineBuilder<T, C>) => { build(): Pipeline<T, U, C> },
+        callback: (builder: StartPipelineBuilder<T, C>) => PipelineBuilder<T, U, C>,
         options?: RetryingPipelineOptions
     ): PipelineBuilder<T, U, C> {
         const innerPipeline = callback(new StartPipelineBuilder<T, C>()).build()
@@ -62,9 +62,7 @@ export class BranchingPipelineBuilder<TInput, TIntermediate, TOutput, C, TBranch
 
     branch(
         branchName: TBranch,
-        callback: (builder: StartPipelineBuilder<TIntermediate, C>) => {
-            build(): Pipeline<TIntermediate, TOutput, C>
-        }
+        callback: (builder: StartPipelineBuilder<TIntermediate, C>) => PipelineBuilder<TIntermediate, TOutput, C>
     ): BranchingPipelineBuilder<TInput, TIntermediate, TOutput, C, TBranch> {
         const branchPipeline = callback(new StartPipelineBuilder<TIntermediate, C>()).build()
         this.branches[branchName] = branchPipeline
