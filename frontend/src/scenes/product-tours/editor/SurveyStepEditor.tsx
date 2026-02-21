@@ -150,6 +150,28 @@ export function SurveyStepEditor({ survey, onChange, isEditingTranslation }: Sur
                     </div>
                 </div>
             )}
+
+            {currentSurvey.type === 'open' && (
+                <div className="space-y-1">
+                    <label className="text-xs font-medium">Submit button text</label>
+                    <LemonInput
+                        value={currentSurvey.submitButtonText ?? 'Submit'}
+                        onChange={(value) => updateSurvey({ submitButtonText: value })}
+                        size="small"
+                        fullWidth
+                    />
+                </div>
+            )}
+
+            <div className="space-y-1">
+                <label className="text-xs font-medium">Back button text</label>
+                <LemonInput
+                    value={currentSurvey.backButtonText ?? 'Back'}
+                    onChange={(value) => updateSurvey({ backButtonText: value })}
+                    size="small"
+                    fullWidth
+                />
+            </div>
         </div>
     )
 }
