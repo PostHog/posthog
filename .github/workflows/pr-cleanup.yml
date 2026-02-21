@@ -57,7 +57,7 @@ jobs:
               run: uv run bin/hobby-ci.py cleanup-stale
 
             - name: Cleanup GitHub deployments and environments
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8
               with:
                   script: |
                       const fs = require('fs');
@@ -134,7 +134,7 @@ jobs:
         name: Cleanup Cloudflare Pages playwright reports
         runs-on: ubuntu-24.04
         steps:
-            - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+            - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8
               env:
                   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
                   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

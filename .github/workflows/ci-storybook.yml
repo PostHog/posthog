@@ -64,7 +64,7 @@ jobs:
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Set up Node.js
-              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238  # v6.2.0
               with:
                   node-version: 24.13.0
                   cache: pnpm
@@ -79,7 +79,7 @@ jobs:
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
             - name: Restore webpack build cache
-              uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306  # v5
               with:
                   path: common/storybook/node_modules/.cache/
                   key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
@@ -94,7 +94,7 @@ jobs:
 
             - name: Save webpack build cache
               if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306  # v5
               with:
                   path: common/storybook/node_modules/.cache/
                   key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
@@ -239,7 +239,7 @@ jobs:
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
 
             - name: Set up Node.js
-              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238  # v6.2.0
               with:
                   node-version: 24.13.0
                   cache: pnpm
