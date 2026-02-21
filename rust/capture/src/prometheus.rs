@@ -77,6 +77,21 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
     ];
     // Blob count per event (2x increments)
     const BLOB_COUNTS: &[f64] = &[1.0, 2.0, 4.0, 8.0, 16.0, 32.0];
+    // Global rate limiter latency buckets (in milliseconds)
+    // Sub-ms granularity at low end, extending to 10s for timeout detection
+    const GLOBAL_RATE_LIMITER_LATENCY_MS: &[f64] = &[
+        0.1,     // 100 microseconds
+        0.5,     // 500 microseconds
+        1.0,     // 1ms
+        2.0,     // 2ms
+        5.0,     // 5ms
+        10.0,    // 10ms
+        100.0,   // 100ms
+        1000.0,  // 1 second
+        2000.0,  // 2 seconds
+        4000.0,  // 4 seconds
+        10000.0, // 10 seconds
+    ];
 
     PrometheusBuilder::new()
         .add_global_label("role", role)
@@ -116,6 +131,11 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
         .set_buckets_for_metric(
             Matcher::Full("capture_ai_blob_total_bytes_per_event".to_string()),
             S3_BODY_SIZES, // Reuse same buckets as S3 body sizes
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Prefix("global_rate_limiter_batch_".to_string()),
+            GLOBAL_RATE_LIMITER_LATENCY_MS,
         )
         .unwrap()
         .install_recorder()
