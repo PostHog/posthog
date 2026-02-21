@@ -9,24 +9,23 @@ use lifecycle::{ComponentOptions, LifecycleError, Manager, ManagerOptions};
 // ---------------------------------------------------------------------------
 
 fn test_manager() -> Manager {
-    Manager::new(ManagerOptions {
-        name: "test".into(),
-        global_shutdown_timeout: Duration::from_secs(5),
-        trap_signals: false,
-        enable_prestop_check: false,
-        health_poll_interval: Duration::from_secs(5),
-    })
+    Manager::new(
+        ManagerOptions::new("test")
+            .with_global_shutdown_timeout(Duration::from_secs(5))
+            .with_trap_signals(false)
+            .with_prestop_check(false),
+    )
 }
 
 /// Manager with fast health polling for stall detection tests.
 fn fast_poll_manager(poll_ms: u64) -> Manager {
-    Manager::new(ManagerOptions {
-        name: "test".into(),
-        global_shutdown_timeout: Duration::from_secs(5),
-        trap_signals: false,
-        enable_prestop_check: false,
-        health_poll_interval: Duration::from_millis(poll_ms),
-    })
+    Manager::new(
+        ManagerOptions::new("test")
+            .with_global_shutdown_timeout(Duration::from_secs(5))
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .with_health_poll_interval(Duration::from_millis(poll_ms)),
+    )
 }
 
 fn liveness_opts() -> ComponentOptions {

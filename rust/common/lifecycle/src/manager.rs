@@ -35,6 +35,43 @@ pub struct ManagerOptions {
     pub health_poll_interval: Duration,
 }
 
+impl ManagerOptions {
+    /// Create options with the given service name and all other fields set to defaults.
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            ..Default::default()
+        }
+    }
+
+    /// Hard ceiling on total shutdown duration. If all components haven't finished
+    /// within this window, monitor returns [`LifecycleError::ShutdownTimeout`].
+    /// Default: 60s.
+    pub fn with_global_shutdown_timeout(mut self, d: Duration) -> Self {
+        self.global_shutdown_timeout = d;
+        self
+    }
+
+    /// Install SIGINT/SIGTERM handlers. Default: true. Set false in tests.
+    pub fn with_trap_signals(mut self, enabled: bool) -> Self {
+        self.trap_signals = enabled;
+        self
+    }
+
+    /// Poll for `/tmp/shutdown` file (K8s pre-stop hook pattern). Default: true.
+    pub fn with_prestop_check(mut self, enabled: bool) -> Self {
+        self.enable_prestop_check = enabled;
+        self
+    }
+
+    /// How often the health monitor polls component heartbeats. Default: 5s.
+    /// Lower values detect stalls faster but use more CPU.
+    pub fn with_health_poll_interval(mut self, d: Duration) -> Self {
+        self.health_poll_interval = d;
+        self
+    }
+}
+
 impl Default for ManagerOptions {
     fn default() -> Self {
         Self {

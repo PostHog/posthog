@@ -12,11 +12,10 @@ use lifecycle::{ComponentOptions, Manager, ManagerOptions};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut manager = Manager::new(ManagerOptions {
-        name: "my-service".into(),                      // emitted as service_name on all metrics
-        global_shutdown_timeout: Duration::from_secs(30), // hard ceiling on total shutdown
-        ..Default::default()                              // trap_signals: true, enable_prestop_check: true
-    });
+    let mut manager = Manager::new(
+        ManagerOptions::new("my-service")                       // service_name label on all metrics
+            .with_global_shutdown_timeout(Duration::from_secs(30)), // hard ceiling on total shutdown
+    );
 
     let handle = manager.register(
         "consumer",
@@ -42,13 +41,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### ManagerOptions
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `name` | `String` | `"app"` | Emitted as `service_name` label on all lifecycle metrics. Use your K8s service name. |
-| `global_shutdown_timeout` | `Duration` | `60s` | Hard ceiling on total shutdown. Monitor returns `ShutdownTimeout` if exceeded. |
-| `trap_signals` | `bool` | `true` | Install SIGINT/SIGTERM handlers. Set `false` in tests. |
-| `enable_prestop_check` | `bool` | `true` | Poll for `/tmp/shutdown` file (K8s pre-stop hook pattern). |
-| `health_poll_interval` | `Duration` | `5s` | How often the health monitor polls component heartbeats. Lower = faster stall detection. |
+| Method | Effect | Default |
+|--------|--------|---------|
+| `ManagerOptions::new(name)` | Create options with the given service name (`service_name` label on all metrics). | `"app"` |
+| `.with_global_shutdown_timeout(duration)` | Hard ceiling on total shutdown. Monitor returns `ShutdownTimeout` if exceeded. | `60s` |
+| `.with_trap_signals(bool)` | Install SIGINT/SIGTERM handlers. Set `false` in tests. | `true` |
+| `.with_prestop_check(bool)` | Poll for `/tmp/shutdown` file (K8s pre-stop hook pattern). | `true` |
+| `.with_health_poll_interval(duration)` | How often the health monitor polls component heartbeats. Lower = faster stall detection. | `5s` |
 
 ### register() / ComponentOptions
 
@@ -56,10 +55,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 | Method | Effect | Default |
 |--------|--------|---------|
-| `ComponentOptions::new()` | No shutdown timeout, no liveness deadline, stall threshold 1. | — |
-| `.with_graceful_shutdown(duration)` | Max time for this component to clean up after shutdown begins. Exceeded = marked timed out. (see test `component_timeout_then_late_drop_preserves_timeout`) | `None` (waits until `global_shutdown_timeout`) |
-| `.with_liveness_deadline(duration)` | Component must call `report_healthy()` within this interval or the health monitor considers it stalled. After `stall_threshold` consecutive stalled checks, the manager triggers global shutdown. (see test `stall_triggers_shutdown`) | `None` (no health monitoring) |
-| `.with_stall_threshold(n)` | Number of consecutive stalled health checks before the manager triggers global shutdown. Set higher for tolerance of transient hiccups. (see test `stall_threshold_allows_recovery`) | `1` (immediate) |
+| `ComponentOptions::new()` | Base options with defaults for all fields. | — |
+| `.with_graceful_shutdown(duration)` | Max time for this component to clean up after shutdown begins. Exceeded = marked timed out. (see test `component_timeout_then_late_drop_preserves_timeout`) | `None` — waits until `global_shutdown_timeout` |
+| `.with_liveness_deadline(duration)` | Component must call `report_healthy()` within this interval or the health monitor considers it stalled. After `stall_threshold` consecutive stalled checks, the manager triggers global shutdown. (see test `stall_triggers_shutdown`) | `None` — no health monitoring |
+| `.with_stall_threshold(n)` | Number of consecutive stalled health checks before the manager triggers global shutdown. Set higher for tolerance of transient hiccups. Only meaningful with `with_liveness_deadline`. (see test `stall_threshold_allows_recovery`) | `1` — immediate shutdown on first stall |
 
 ## K8s readiness and liveness
 
