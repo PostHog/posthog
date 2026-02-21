@@ -1,4 +1,5 @@
 import { KafkaProducerWrapper } from '../../kafka/producer'
+import { logger } from '../../utils/logger'
 import { AddingMetricTracker, AverageMetricTracker, MaxMetricTracker, Tracker } from './metric-tracker'
 
 export interface MetricConfig {
@@ -106,7 +107,9 @@ export class TopHog {
             return
         }
         this.flushInterval = setInterval(() => {
-            void this.flush()
+            void this.flush().catch((error) => {
+                logger.error('TopHog flush failed', { error })
+            })
         }, this.config.flushIntervalMs)
     }
 
