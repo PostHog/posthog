@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -14,6 +15,7 @@ type BooleanNotificationSettings = Omit<NotificationSettings, 'project_weekly_di
 const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     plugin_disabled: true,
     error_tracking_issue_assigned: true,
+    error_tracking_weekly_digest: true,
     discussions_mentioned: true,
     all_weekly_digest_disabled: false,
     project_api_key_exposed: true,
@@ -184,6 +186,17 @@ export function UpdateEmailPreferences(): JSX.Element {
                     dataAttr="error_tracking_issue_assigned_enabled"
                 />
             </div>
+
+            {useFeatureFlag('ERROR_TRACKING_WEEKLY_DIGEST') && (
+                <div className="border rounded p-4">
+                    <SimpleSwitch
+                        setting="error_tracking_weekly_digest"
+                        label="Error tracking weekly digest"
+                        description="Get a weekly summary of exceptions caught across your projects every Monday"
+                        dataAttr="error_tracking_weekly_digest_enabled"
+                    />
+                </div>
+            )}
 
             <div className="border rounded p-4">
                 <SimpleSwitch
