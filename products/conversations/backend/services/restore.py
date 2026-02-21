@@ -36,7 +36,7 @@ class RestoreService:
         Uses the persons table's built-in pdi lazy join to person_distinct_ids.
         """
         query = parse_select(
-            "SELECT DISTINCT pdi.distinct_id FROM persons WHERE properties.email = {email} LIMIT 1000",
+            "SELECT DISTINCT pdi.distinct_id FROM persons WHERE lower(properties.email) = {email} LIMIT 1000",
             placeholders={"email": ast.Constant(value=email_lower)},
         )
         response = execute_hogql_query(query=query, team=team)
