@@ -1,14 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArrowLeft } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-
 import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
 
 import { WizardDestination, errorTrackingAlertWizardLogic } from '../errorTrackingAlertWizardLogic'
 import { WizardCard } from './WizardCard'
 
-export function DestinationStep({ onBack }: { onBack: () => void }): JSX.Element {
+export function DestinationStep(): JSX.Element {
     const { destinations, usedDestinationKeys, existingAlertsLoading } = useValues(errorTrackingAlertWizardLogic)
     const { setDestinationKey } = useActions(errorTrackingAlertWizardLogic)
 
@@ -16,10 +13,7 @@ export function DestinationStep({ onBack }: { onBack: () => void }): JSX.Element
         return (
             <div className="space-y-4">
                 <div>
-                    <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} onClick={onBack}>
-                        Alerts list
-                    </LemonButton>
-                    <h2 className="text-xl font-semibold mb-1 mt-2">Where should we send alerts?</h2>
+                    <h2 className="text-xl font-semibold mb-1">Where should we send alerts?</h2>
                     <p className="text-secondary text-sm">Choose your preferred notification channel</p>
                 </div>
                 <div className="space-y-3">
@@ -55,10 +49,7 @@ export function DestinationStep({ onBack }: { onBack: () => void }): JSX.Element
     return (
         <div className="space-y-4">
             <div>
-                <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} onClick={onBack}>
-                    Alerts list
-                </LemonButton>
-                <h2 className="text-xl font-semibold mb-1 mt-2">Where should we send alerts?</h2>
+                <h2 className="text-xl font-semibold mb-1">Where should we send alerts?</h2>
                 <p className="text-secondary text-sm">Choose your preferred notification channel</p>
             </div>
             <div className="space-y-3">

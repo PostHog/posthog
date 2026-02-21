@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { CyclotronJobInputIntegration } from 'lib/components/CyclotronJob/integrations/CyclotronJobInputIntegration'
@@ -15,15 +14,12 @@ import { errorTrackingAlertWizardLogic } from '../errorTrackingAlertWizardLogic'
 export function ConfigureStep(): JSX.Element {
     const { requiredInputsSchema, configuration, selectedTemplateLoading, submitting, testing } =
         useValues(errorTrackingAlertWizardLogic)
-    const { setStep, setInputValue, submitConfiguration, testConfiguration } = useActions(errorTrackingAlertWizardLogic)
+    const { setInputValue, submitConfiguration, testConfiguration } = useActions(errorTrackingAlertWizardLogic)
 
     if (selectedTemplateLoading) {
         return (
             <div className="space-y-4">
-                <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} onClick={() => setStep('trigger')}>
-                    Choose trigger
-                </LemonButton>
-                <h2 className="text-xl font-semibold mb-1 mt-2">Configure your alert</h2>
+                <h2 className="text-xl font-semibold mb-1">Configure your alert</h2>
                 <LemonSkeleton className="h-10" />
                 <LemonSkeleton className="h-10" />
             </div>
@@ -33,10 +29,7 @@ export function ConfigureStep(): JSX.Element {
     return (
         <div className="space-y-4">
             <div>
-                <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} onClick={() => setStep('trigger')}>
-                    Choose trigger
-                </LemonButton>
-                <h2 className="text-xl font-semibold mb-1 mt-2">Configure your alert</h2>
+                <h2 className="text-xl font-semibold mb-1">Configure your alert</h2>
                 <p className="text-secondary text-sm">Fill in the details to complete setup</p>
             </div>
 
