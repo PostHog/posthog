@@ -1,7 +1,7 @@
 from typing import Any
 from urllib.parse import urlparse
 
-from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponse, HttpResponseBase, HttpResponseRedirect
 
 import structlog
 from rest_framework import decorators, exceptions, permissions, serializers, viewsets
@@ -58,7 +58,7 @@ class VercelSSOSerializer(DataclassSerializer[SSOParams]):
 class VercelSSOViewSet(VercelErrorResponseMixin, VercelRegionProxyMixin, viewsets.GenericViewSet):
     permission_classes = [permissions.AllowAny]
 
-    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
         # Skip VercelRegionProxyMixin.dispatch — we do browser redirects, not server-side proxying
         return viewsets.GenericViewSet.dispatch(self, request, *args, **kwargs)
 
@@ -66,9 +66,11 @@ class VercelSSOViewSet(VercelErrorResponseMixin, VercelRegionProxyMixin, viewset
         if self.is_dev_env or self.current_region != "us" or not resource_id:
             return False
         try:
-            return not Integration.objects.filter(pk=resource_id, kind=Integration.IntegrationKind.VERCEL).exists()
+            resource_pk = int(resource_id)
         except (ValueError, TypeError):
-            return True
+            return False
+        # nosemgrep: idor-lookup-without-team — intentionally cross-team: checking if resource exists anywhere in this region
+        return not Integration.objects.filter(pk=resource_pk, kind=Integration.IntegrationKind.VERCEL).exists()
 
     @decorators.action(detail=False, methods=["get"], url_path="redirect")
     def sso_redirect(self, request: Request) -> HttpResponse:
