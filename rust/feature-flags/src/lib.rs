@@ -9,6 +9,7 @@ pub mod db_monitor;
 pub mod flags;
 pub mod handler;
 pub mod metrics;
+pub mod personhog_client;
 pub mod properties;
 pub mod rayon_dispatcher;
 pub mod router;

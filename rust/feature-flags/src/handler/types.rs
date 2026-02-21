@@ -7,7 +7,8 @@ use uuid::Uuid;
 
 use crate::{
     api::types::FlagsQueryParams, cohorts::cohort_cache_manager::CohortCacheManager,
-    flags::flag_models::FeatureFlagList, rayon_dispatcher::RayonDispatcher, router,
+    flags::flag_models::FeatureFlagList, personhog_client::PersonhogFetcher,
+    rayon_dispatcher::RayonDispatcher, router,
     utils::user_agent::UserAgentInfo,
 };
 
@@ -67,6 +68,8 @@ pub struct FeatureFlagEvaluationContext {
     pub rayon_dispatcher: RayonDispatcher,
     /// When true, skip all writes to PostgreSQL and Redis.
     pub skip_writes: bool,
+    /// Optional personhog gRPC client for fetching person data
+    pub personhog_client: Option<Arc<dyn PersonhogFetcher>>,
 }
 
 /// SDK type classification based on user-agent parsing.

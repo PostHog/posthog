@@ -328,6 +328,7 @@ impl ServerHandle {
                 team_hypercache_reader,
                 config_hypercache_reader,
                 RayonDispatcher::new(2),
+                None, // personhog_client
                 config,
             );
 

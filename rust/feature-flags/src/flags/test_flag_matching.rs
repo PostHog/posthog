@@ -94,6 +94,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         matcher
@@ -115,6 +116,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         matcher
@@ -136,6 +138,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         matcher
@@ -199,6 +202,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            None, // personhog_client
         );
 
         let flags = FeatureFlagList {
@@ -289,6 +293,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             Some(groups),
+            None, // personhog_client
         );
 
         let flags = FeatureFlagList {
@@ -373,6 +378,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            None, // personhog_client
         );
 
         let flags = FeatureFlagList {
@@ -540,6 +546,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            None, // personhog_client
         );
         let flags = FeatureFlagList {
             flags: vec![leaf_flag.clone(), parent_flag.clone()],
@@ -699,6 +706,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            None, // personhog_client
         );
 
         let flags = FeatureFlagList {
@@ -831,6 +839,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            None, // personhog_client
         );
 
         let flags = FeatureFlagList {
@@ -1003,6 +1012,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            None, // personhog_client
         );
         let flags = FeatureFlagList {
             flags: vec![leaf_flag.clone(), parent_flag.clone()],
@@ -1105,6 +1115,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             Some(groups),
+            None, // personhog_client
         );
         let variant = matcher.get_matching_variant(&flag, None, &None).unwrap();
         assert!(variant.is_some(), "No variant was selected");
@@ -1141,6 +1152,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
+            None, // personhog_client
         );
 
         let variant = matcher.get_matching_variant(&flag, None, &None).unwrap();
@@ -1192,6 +1204,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            None, // personhog_client
         );
         let (is_match, reason) = matcher
             .is_condition_match(&flag, &condition, &HashMap::new(), None, &None)
@@ -1251,6 +1264,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            None, // personhog_client
         );
         matcher
             .flag_evaluation_state
@@ -1359,6 +1373,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         reset_fetch_calls_count();
@@ -1439,6 +1454,7 @@ mod tests {
                     cohort_cache_clone,
                     None,
                     None,
+                    None, // personhog_client
                 );
                 matcher.get_match(&flag_clone, None, None, &None).unwrap()
             }));
@@ -1521,6 +1537,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         matcher
@@ -1571,6 +1588,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            None, // personhog_client
         );
 
         let result = matcher.get_match(&flag, None, None, &None).unwrap();
@@ -1618,6 +1636,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            None, // personhog_client
         );
 
         let result = matcher.get_match(&flag, None, None, &None).unwrap();
@@ -1672,6 +1691,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            None, // personhog_client
         );
 
         let mut control_count = 0;
@@ -1750,6 +1770,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            None, // personhog_client
         );
 
         let result = matcher.get_match(&flag, None, None, &None).unwrap();
@@ -1814,6 +1835,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            None, // personhog_client
         );
 
         let result = matcher.get_match(&flag, None, None, &None).unwrap();
@@ -1860,6 +1882,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            None, // personhog_client
         );
 
         let (is_match, reason) = matcher
@@ -1940,6 +1963,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            None, // personhog_client
         );
 
         matcher
@@ -2173,6 +2197,7 @@ mod tests {
                 cohort_cache.clone(),
                 None,
                 None,
+                None, // personhog_client
             );
 
             matcher
@@ -2288,6 +2313,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         let mut matcher_example_id = FeatureFlagMatcher::new(
@@ -2298,6 +2324,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         let mut matcher_another_id = FeatureFlagMatcher::new(
@@ -2308,6 +2335,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         matcher_test_id
@@ -2428,6 +2456,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         matcher
@@ -2539,6 +2568,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         let mut matcher_example_id = FeatureFlagMatcher::new(
@@ -2549,6 +2579,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         let mut matcher_another_id = FeatureFlagMatcher::new(
@@ -2559,6 +2590,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         matcher_test_id
@@ -2690,6 +2722,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         matcher
@@ -2786,6 +2819,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         matcher
@@ -2882,6 +2916,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         let result = matcher.get_match(&flag, None, None, &None).unwrap();
@@ -2999,6 +3034,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         matcher
@@ -3095,6 +3131,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         matcher
@@ -3191,6 +3228,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         matcher
@@ -3279,6 +3317,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         let result = matcher.get_match(&flag, None, None, &None).unwrap();
@@ -3362,6 +3401,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         matcher
@@ -3460,6 +3500,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         let result = matcher.get_match(&flag, None, None, &None).unwrap();
@@ -3534,6 +3575,7 @@ mod tests {
             team.id,
             vec![distinct_id.clone()],
             "hash_key_continuity".to_string(),
+            None,
         )
         .await
         .unwrap();
@@ -3551,6 +3593,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
+            None, // personhog_client
         )
         .evaluate_all_feature_flags(
             flags,
@@ -3644,6 +3687,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
+            None, // personhog_client
         )
         .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None, false)
         .await;
@@ -3755,6 +3799,7 @@ mod tests {
             team.id,
             vec![distinct_id.clone()],
             "hash_key_mixed".to_string(),
+            None,
         )
         .await
         .unwrap();
@@ -3772,6 +3817,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
+            None, // personhog_client
         )
         .evaluate_all_feature_flags(
             flags,
@@ -3879,6 +3925,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         matcher
@@ -4110,6 +4157,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         matcher
@@ -4134,6 +4182,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         matcher2
@@ -4250,6 +4299,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
         let result = matcher.get_match(&flag, None, None, &None).unwrap();
         assert_eq!(
@@ -4273,6 +4323,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
         let result = matcher.get_match(&flag, None, None, &None).unwrap();
         assert_eq!(
@@ -4296,6 +4347,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
         let result = matcher.get_match(&flag, None, None, &None).unwrap();
         assert_eq!(
@@ -4391,6 +4443,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         matcher
@@ -4457,6 +4510,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         let result = matcher
@@ -4529,6 +4583,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_numeric),
+            None, // personhog_client
         );
 
         matcher_numeric
@@ -4549,6 +4604,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_string),
+            None, // personhog_client
         );
 
         matcher_string
@@ -4581,6 +4637,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_float),
+            None, // personhog_client
         );
 
         matcher_float
@@ -4602,6 +4659,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_bool),
+            None, // personhog_client
         );
 
         matcher_bool
@@ -4746,6 +4804,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         matcher
@@ -4771,6 +4830,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         matcher
@@ -4796,6 +4856,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         matcher
@@ -4869,6 +4930,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         matcher
@@ -4926,6 +4988,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
         matcher
             .prepare_flag_evaluation_state(&[&flag])
@@ -4947,6 +5010,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
         matcher_same_device
             .prepare_flag_evaluation_state(&[&flag])
@@ -4970,6 +5034,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            None, // personhog_client
         );
         matcher_low
             .prepare_flag_evaluation_state(&[&flag])
@@ -5003,6 +5068,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
         matcher
             .prepare_flag_evaluation_state(&[&flag])
@@ -5024,6 +5090,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            None, // personhog_client
         );
         matcher_high
             .prepare_flag_evaluation_state(&[&flag])
@@ -5059,6 +5126,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
         matcher
             .prepare_flag_evaluation_state(&[&flag])
@@ -5080,6 +5148,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            None, // personhog_client
         );
         matcher_low
             .prepare_flag_evaluation_state(&[&flag])
@@ -5200,6 +5269,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         let flags = FeatureFlagList {
@@ -5246,6 +5316,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         let result2 = matcher2
@@ -5281,6 +5352,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         let result3 = matcher3
@@ -5318,6 +5390,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         let result4 = matcher4
@@ -5472,6 +5545,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups.clone()),
+            None, // personhog_client
         );
 
         let flags = FeatureFlagList {
@@ -5517,6 +5591,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups.clone()),
+            None, // personhog_client
         );
 
         let result2 = matcher2
@@ -5558,6 +5633,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups.clone()),
+            None, // personhog_client
         );
 
         let result3 = matcher3
@@ -5595,6 +5671,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups.clone()),
+            None, // personhog_client
         );
 
         let result4 = matcher4
@@ -5636,6 +5713,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             Some(groups),
+            None, // personhog_client
         );
 
         let result5 = matcher5
@@ -5741,6 +5819,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         // Pass email as a property override to avoid database lookup
@@ -5771,6 +5850,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         );
 
         let mut other_properties = HashMap::new();
@@ -5816,6 +5896,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            None, // personhog_client
         );
 
         // Create flags: one with experience continuity enabled, one without
@@ -5941,6 +6022,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            None, // personhog_client
         );
 
         let match_result = matcher.get_match(&flag, None, None, &None).unwrap();
@@ -6022,6 +6104,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            None, // personhog_client
         );
 
         let result = matcher
@@ -6123,6 +6206,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            None, // personhog_client
         );
 
         let result = matcher
@@ -6207,6 +6291,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         )
         .evaluate_all_feature_flags(
             flags,
@@ -6297,6 +6382,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         )
         .evaluate_all_feature_flags(
             flags,
@@ -6400,6 +6486,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         )
         .evaluate_all_feature_flags(
             flags,
@@ -6508,6 +6595,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         )
         .evaluate_all_feature_flags(
             flags,
@@ -6600,6 +6688,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         )
         .evaluate_all_feature_flags(
             flags,
@@ -6732,6 +6821,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         )
         .evaluate_all_feature_flags(
             flags,
@@ -6868,6 +6958,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         )
         .evaluate_all_feature_flags(
             flags,
@@ -7010,6 +7101,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         )
         .evaluate_all_feature_flags(
             flags,
@@ -7110,6 +7202,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         )
         .evaluate_all_feature_flags(
             flags,
@@ -7219,6 +7312,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         )
         .evaluate_all_feature_flags(
             flags,
@@ -7321,6 +7415,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            None, // personhog_client
         )
         .evaluate_all_feature_flags(
             flags,

@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 axum = { workspace = true }
 axum-client-ip = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
@@ -63,6 +64,8 @@ tracing-opentelemetry = { workspace = true }
 tokio-retry = "0.3"
 serde-pickle = { version = "1.1.1" }
 semver = "1.0.27"
+personhog-proto = { path = "../personhog-proto" }
+tonic = { workspace = true }
 
 [lints]
 workspace = true

@@ -38,6 +38,7 @@ use crate::{
         consts::{FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_REQUESTS_COUNTER},
         utils::team_id_label_filter,
     },
+    personhog_client::PersonhogFetcher,
     rayon_dispatcher::RayonDispatcher,
 };
 
@@ -76,6 +77,9 @@ pub struct State {
     pub config_hypercache_reader: Arc<HyperCacheReader>,
     /// Bounds concurrent large-batch dispatches to the Rayon pool
     pub rayon_dispatcher: RayonDispatcher,
+    /// Optional personhog gRPC client for fetching person data via the personhog-router
+    /// instead of direct SQL queries. Controlled by USE_PERSONHOG env var.
+    pub personhog_client: Option<Arc<dyn PersonhogFetcher>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -94,6 +98,7 @@ pub fn router(
     team_hypercache_reader: Arc<HyperCacheReader>,
     config_hypercache_reader: Arc<HyperCacheReader>,
     rayon_dispatcher: RayonDispatcher,
+    personhog_client: Option<Arc<dyn PersonhogFetcher>>,
     config: Config,
 ) -> Router {
     // Initialize flag definitions rate limiter with default and custom team rates
@@ -159,6 +164,7 @@ pub fn router(
         team_hypercache_reader,
         config_hypercache_reader,
         rayon_dispatcher,
+        personhog_client,
     };
 
     // Very permissive CORS policy, as old SDK versions

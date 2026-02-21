@@ -27,6 +27,7 @@ use crate::metrics::consts::{
     FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER, PROPERTY_CACHE_HITS_COUNTER,
     PROPERTY_CACHE_MISSES_COUNTER,
 };
+use crate::personhog_client::PersonhogFetcher;
 use crate::properties::property_models::PropertyFilter;
 use crate::rayon_dispatcher::RayonDispatcher;
 use crate::utils::graph_utils::{
@@ -228,6 +229,8 @@ pub struct FeatureFlagMatcher {
     rayon_dispatcher: Option<RayonDispatcher>,
     /// When true, skip all writes to PostgreSQL and Redis.
     skip_writes: bool,
+    /// Optional personhog gRPC client for fetching person data
+    pub personhog_client: Option<Arc<dyn PersonhogFetcher>>,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -261,6 +264,7 @@ impl FeatureFlagMatcher {
         cohort_cache: Arc<CohortCacheManager>,
         group_type_mapping_cache: Option<GroupTypeMappingCache>,
         groups: Option<HashMap<String, Value>>,
+        personhog_client: Option<Arc<dyn PersonhogFetcher>>,
     ) -> Self {
         FeatureFlagMatcher {
             distinct_id,
@@ -275,6 +279,7 @@ impl FeatureFlagMatcher {
             parallel_eval_threshold: DEFAULT_PARALLEL_EVAL_THRESHOLD,
             rayon_dispatcher: None,
             skip_writes: false,
+            personhog_client,
         }
     }
 
@@ -474,6 +479,7 @@ impl FeatureFlagMatcher {
             self.team_id,
             self.distinct_id.clone(),
             hash_key.clone(),
+            self.personhog_client.as_deref(),
         )
         .await
         {
@@ -508,6 +514,7 @@ impl FeatureFlagMatcher {
                     self.team_id,
                     target_distinct_ids.clone(),
                     hash_key.clone(),
+                    self.personhog_client.as_deref(),
                 )
                 .await
                 {
@@ -545,6 +552,7 @@ impl FeatureFlagMatcher {
             database_for_reading,
             self.team_id,
             target_distinct_ids,
+            self.personhog_client.as_deref(),
         )
         .await
         {
@@ -1824,6 +1832,7 @@ impl FeatureFlagMatcher {
             &group_data.type_indexes,
             &group_data.keys,
             static_cohort_ids,
+            self.personhog_client.as_deref(),
         )
         .await
         {
@@ -1985,6 +1994,7 @@ impl FeatureFlagMatcher {
                             self.router.get_persons_reader().clone(),
                             self.team_id,
                             vec![self.distinct_id.clone()],
+                            self.personhog_client.as_deref(),
                         )
                         .await
                         {
