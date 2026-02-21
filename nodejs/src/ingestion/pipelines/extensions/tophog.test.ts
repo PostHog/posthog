@@ -1,7 +1,7 @@
 import { newPipelineBuilder } from '../builders/helpers'
 import { createContext } from '../helpers'
 import { dlq, isOkResult, ok } from '../results'
-import { TopHogRegistry, counter, createTopHogWrapper, timing } from './tophog'
+import { TopHogRegistry, counter, createTopHogWrapper, timer } from './tophog'
 
 describe('topHog wrapper', () => {
     function createMockTopHog(): TopHogRegistry & { record: jest.Mock; register: jest.Mock } {
@@ -37,7 +37,7 @@ describe('topHog wrapper', () => {
         }
 
         const pipeline = newPipelineBuilder<{ teamId: number }>()
-            .pipe(topHog(myStep, [timing('events', (input) => ({ team_id: String(input.teamId) }))]))
+            .pipe(topHog(myStep, [timer('events', (input) => ({ team_id: String(input.teamId) }))]))
             .build()
 
         await pipeline.process(createContext(ok({ teamId: 42 })))
@@ -58,7 +58,7 @@ describe('topHog wrapper', () => {
             .pipe(
                 topHog(myStep, [
                     counter('by_team', (input) => ({ team_id: String(input.teamId) })),
-                    timing('by_user', (input) => ({ user_id: input.userId })),
+                    timer('by_user', (input) => ({ user_id: input.userId })),
                 ])
             )
             .build()

@@ -16,12 +16,13 @@ export type TopHogMetricFactory<T> = (registry: TopHogRegistry) => TopHogMetric<
 export function counter<T>(
     name: string,
     key: (input: T) => Record<string, string>,
+    value?: (input: T) => number,
     opts?: MetricConfig
 ): TopHogMetricFactory<T> {
-    return (registry) => new CounterMetric(registry.register(name, opts), key)
+    return (registry) => new CounterMetric(registry.register(name, opts), key, value ?? (() => 1))
 }
 
-export function timing<T>(
+export function timer<T>(
     name: string,
     key: (input: T) => Record<string, string>,
     opts?: MetricConfig
@@ -52,14 +53,13 @@ export function createTopHogWrapper(tracker: TopHogRegistry): TopHogWrapper {
 class CounterMetric<T> implements TopHogMetric<T> {
     constructor(
         private readonly tracker: { record(key: Record<string, string>, value: number): void },
-        private readonly key: (input: T) => Record<string, string>
+        private readonly key: (input: T) => Record<string, string>,
+        private readonly value: (input: T) => number
     ) {}
 
     start(input: T): () => void {
-        const k = this.key(input)
-        return () => {
-            this.tracker.record(k, 1)
-        }
+        this.tracker.record(this.key(input), this.value(input))
+        return noop
     }
 }
 
@@ -77,3 +77,5 @@ class TimingMetric<T> implements TopHogMetric<T> {
         }
     }
 }
+
+function noop(): void {}
