@@ -16,8 +16,8 @@ const GLOBAL_RATE_LIMITER_EVAL_COUNTER: &str = "global_rate_limiter_eval_counts_
 const GLOBAL_RATE_LIMITER_CACHE_COUNTER: &str = "global_rate_limiter_cache_counts_total";
 const GLOBAL_RATE_LIMITER_RECORDS_COUNTER: &str = "global_rate_limiter_records_total";
 const GLOBAL_RATE_LIMITER_ERROR_COUNTER: &str = "global_rate_limiter_error_total";
-const GLOBAL_RATE_LIMITER_BATCH_WRITE_HISTOGRAM: &str = "global_rate_limiter_batch_write_seconds";
-const GLOBAL_RATE_LIMITER_BATCH_READ_HISTOGRAM: &str = "global_rate_limiter_batch_read_seconds";
+const GLOBAL_RATE_LIMITER_BATCH_WRITE_HISTOGRAM: &str = "global_rate_limiter_batch_write_ms";
+const GLOBAL_RATE_LIMITER_BATCH_READ_HISTOGRAM: &str = "global_rate_limiter_batch_read_ms";
 
 /// Trait for global rate limiting
 #[async_trait]
@@ -506,7 +506,7 @@ impl GlobalRateLimiterImpl {
                     GLOBAL_RATE_LIMITER_BATCH_READ_HISTOGRAM,
                     "redis_idx" => redis_idx_str.clone(),
                 )
-                .record(read_start.elapsed().as_millis() as f64);
+                .record(read_start.elapsed().as_micros() as f64 / 1000.0);
                 counts
             }
             Ok(Err(e)) => {
@@ -659,7 +659,7 @@ impl GlobalRateLimiterImpl {
                                 GLOBAL_RATE_LIMITER_BATCH_WRITE_HISTOGRAM,
                                 "redis_idx" => redis_idx_str.clone(),
                             )
-                            .record(write_batch_start.elapsed().as_millis() as f64);
+                            .record(write_batch_start.elapsed().as_micros() as f64 / 1000.0);
                         }
                         Ok(Err(e)) => {
                             metrics::counter!(

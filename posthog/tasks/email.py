@@ -48,6 +48,7 @@ class NotificationSetting(Enum):
     WEEKLY_PROJECT_DIGEST = "weekly_project_digest"
     PLUGIN_DISABLED = "plugin_disabled"
     ERROR_TRACKING_ISSUE_ASSIGNED = "error_tracking_issue_assigned"
+    ERROR_TRACKING_WEEKLY_DIGEST = "error_tracking_weekly_digest"
     DISCUSSIONS_MENTIONED = "discussions_mentioned"
     PROJECT_API_KEY_EXPOSED = "project_api_key_exposed"
     MATERIALIZED_VIEW_SYNC_FAILED = "materialized_view_sync_failed"
@@ -57,6 +58,7 @@ NotificationSettingType = Literal[
     "weekly_project_digest",
     "plugin_disabled",
     "error_tracking_issue_assigned",
+    "error_tracking_weekly_digest",
     "discussions_mentioned",
     "project_api_key_exposed",
     "materialized_view_sync_failed",
@@ -145,6 +147,10 @@ def should_send_notification(
 
     # Default to True (enabled) if not set
     elif notification_type == NotificationSetting.ERROR_TRACKING_ISSUE_ASSIGNED.value:
+        return settings.get(notification_type, True)
+
+    # Default to True (enabled) if not set
+    elif notification_type == NotificationSetting.ERROR_TRACKING_WEEKLY_DIGEST.value:
         return settings.get(notification_type, True)
 
     # Default to True (enabled) if not set
@@ -1375,3 +1381,107 @@ def send_organization_deleted_email(
     message.add_user_recipient(user)
     message.send()
     logger.info(f"Sent organization deletion confirmation email to user {user_id} for organization {organization_name}")
+
+
+@shared_task(ignore_result=True)
+def send_error_tracking_weekly_digest() -> None:
+    """
+    Send weekly digest email to teams with exception events.
+    Queries ClickHouse for all teams with exceptions, then fans out per-team email tasks.
+    """
+    from products.error_tracking.backend.weekly_digest import get_exception_counts
+
+    logger.info("Starting Error Tracking weekly digest task")
+
+    allowed_team_ids = settings.ERROR_TRACKING_WEEKLY_DIGEST_TEAM_IDS
+    if not allowed_team_ids:
+        logger.info(
+            "No teams configured for Error Tracking weekly digest (ERROR_TRACKING_WEEKLY_DIGEST_TEAM_IDS empty)"
+        )
+        return
+
+    if "*" in allowed_team_ids:
+        team_ids = None
+    else:
+        team_ids = [int(tid) for tid in allowed_team_ids]
+
+    results = get_exception_counts(team_ids)
+
+    logger.info(f"Found {len(results)} teams with exceptions, fanning out digest emails")
+
+    for team_id, exception_count, ingestion_failure_count in results:
+        send_error_tracking_weekly_digest_for_team.delay(team_id, exception_count, ingestion_failure_count)
+
+    logger.info("Completed Error Tracking weekly digest fan-out")
+
+
+@shared_task(**EMAIL_TASK_KWARGS, rate_limit="10/s")
+def send_error_tracking_weekly_digest_for_team(
+    team_id: int, exception_count: int, ingestion_failure_count: int
+) -> None:
+    """Send the weekly error tracking digest email to all members of a team."""
+    from products.error_tracking.backend.weekly_digest import (
+        build_ingestion_failures_url,
+        get_crash_free_sessions,
+        get_daily_exception_counts,
+        get_new_issues_for_team,
+        get_top_issues_for_team,
+    )
+
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        logger.warning(f"Team {team_id} not found for Error Tracking weekly digest")
+        return
+
+    memberships_to_email = get_members_to_notify(team, NotificationSetting.ERROR_TRACKING_WEEKLY_DIGEST.value)
+    if not memberships_to_email:
+        return
+
+    allowed_emails = settings.ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS
+    if not allowed_emails:
+        logger.info(f"No allowed emails configured, skipping team {team_id}")
+        return
+    if "*" not in allowed_emails:
+        memberships_to_email = [m for m in memberships_to_email if m.user.email in allowed_emails]
+        if not memberships_to_email:
+            return
+
+    top_issues = get_top_issues_for_team(team)
+    new_issues = get_new_issues_for_team(team)
+    daily_counts = get_daily_exception_counts(team_id)
+    crash_free = get_crash_free_sessions(team)
+
+    date_suffix = timezone.now().strftime("%Y-%W")
+    error_tracking_url = f"{settings.SITE_URL}/project/{team_id}/error_tracking"
+    ingestion_failures_url = build_ingestion_failures_url(team_id)
+
+    for membership in memberships_to_email:
+        campaign_key = f"error_tracking_weekly_digest_{team_id}_{membership.user.uuid}_{date_suffix}"
+        message = EmailMessage(
+            campaign_key=campaign_key,
+            subject=f"Error tracking weekly digest for {team.name}",
+            template_name="error_tracking_weekly_digest",
+            template_context={
+                "team": team,
+                "exception_count": exception_count,
+                "ingestion_failure_count": ingestion_failure_count,
+                "top_issues": top_issues,
+                "new_issues": new_issues,
+                "daily_counts": daily_counts,
+                "crash_free": crash_free,
+                "error_tracking_url": error_tracking_url,
+                "ingestion_failures_url": ingestion_failures_url,
+                "contact_support_url": "https://posthog.com/support",
+            },
+        )
+        message.add_user_recipient(membership.user)
+        message.send()
+
+    logger.info(
+        f"Sent Error Tracking weekly digest to {len(memberships_to_email)} members for team {team_id} "
+        f"({exception_count} exceptions, {ingestion_failure_count} ingestion failures)"
+    )

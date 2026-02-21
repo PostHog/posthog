@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
 import { NewTicket } from './NewTicket'
+import { RestoreTickets } from './RestoreTickets'
 import { Ticket } from './Ticket'
 import { TicketsList } from './TicketsList'
 import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
@@ -13,6 +14,7 @@ export function SidePanelTickets(): JSX.Element {
             {view === 'list' && <TicketsList />}
             {view === 'ticket' && <Ticket />}
             {view === 'new' && <NewTicket />}
+            {view === 'restore' && <RestoreTickets />}
         </div>
     )
 }
