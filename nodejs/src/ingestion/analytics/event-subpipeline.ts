@@ -19,8 +19,7 @@ import { createNormalizeEventStep } from '../event-processing/normalize-event-st
 import { createNormalizeProcessPersonFlagStep } from '../event-processing/normalize-process-person-flag-step'
 import { createProcessPersonlessStep } from '../event-processing/process-personless-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
-import { TopHogWrapper } from '../pipelines/extensions/tophog'
-import { counter } from '../tophog/tophog'
+import { TopHogWrapper, counter } from '../pipelines/extensions/tophog'
 
 export interface EventSubpipelineInput {
     message: Message
@@ -48,8 +47,17 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
     builder: StartPipelineBuilder<TInput, TContext>,
     config: EventSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { options, teamManager, groupTypeManager, hogTransformer, personsStore, groupStore, kafkaProducer, groupId, topHog } =
-        config
+    const {
+        options,
+        teamManager,
+        groupTypeManager,
+        hogTransformer,
+        personsStore,
+        groupStore,
+        kafkaProducer,
+        groupId,
+        topHog,
+    } = config
 
     return builder
         .pipe(createNormalizeProcessPersonFlagStep())
