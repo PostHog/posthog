@@ -28,7 +28,7 @@ jobs:
 
             - name: Check if common/hogql_parser/ has changed
               id: changed-files
-              uses: step-security/changed-files@95b56dadb92a30ca9036f16423fd3c088a71ee94 # v46.0.5
+              uses: step-security/changed-files@60967b822d3001fa82242f8d6b4ed46bc3600a68  # v47.0.1
               with:
                   since_last_remote_commit: true
                   files_yaml: |
@@ -146,7 +146,7 @@ jobs:
                   path: dist
 
             - name: Publish package to PyPI
-              uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
+              uses: pypa/gh-action-pypi-publish@ec4db0b4ddc65acdf4bff5fa45ac92d78b56bdf0  # v1.13.0
 
             # Use GitHub app token so Actions run after commiting changes
             - name: Get app token

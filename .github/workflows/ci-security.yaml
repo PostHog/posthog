@@ -20,7 +20,7 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@v6
             - name: Ensure SHA pinned actions
-              uses: zgosalvez/github-actions-ensure-sha-pinned-actions@6124774845927d14c601359ab8138699fa5b70c3 # v4.0.1
+              uses: zgosalvez/github-actions-ensure-sha-pinned-actions@d5d20e15f2736816ee0e001ba8b24b54d9ffcff4  # v5.0.0
               with:
                   allowlist: |
                       actions/
