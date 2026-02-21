@@ -16,7 +16,7 @@ import {
 } from 'react'
 import { TextMorph } from 'torph/react'
 
-import { IconSearch, IconX } from '@posthog/icons'
+import { IconSearch, IconSparkles, IconX } from '@posthog/icons'
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -62,6 +62,8 @@ const PLACEHOLDER_OPTIONS = [
 ]
 
 const PLACEHOLDER_CYCLE_INTERVAL = 3000
+
+const ASK_AI_ITEM_ID = '__ask_posthog_ai__'
 
 // ============================================================================
 // Hooks
@@ -263,9 +265,10 @@ function SearchRoot({
 
     // Compute filteredItems synchronously to avoid render gap between loading and content
     const filteredItems = useMemo(() => {
+        let items: SearchItem[]
         if (searchValue.trim()) {
             const searchLower = searchValue.toLowerCase()
-            return allItems.filter((item) => {
+            items = allItems.filter((item) => {
                 // Filter recents and apps by name (client-side filtering)
                 if (item.category === 'recents' || item.category === 'apps') {
                     const name = (item.displayName || item.name || '').toLowerCase()
@@ -274,10 +277,26 @@ function SearchRoot({
                 // Other categories come from server search, keep all
                 return true
             })
+        } else {
+            // When not searching, show recents and apps
+            items = allItems.filter((item) => item.category === 'recents' || item.category === 'apps')
         }
-        // When not searching, show recents and apps
-        return allItems.filter((item) => item.category === 'recents' || item.category === 'apps')
-    }, [allItems, searchValue])
+
+        // Prepend "Ask PostHog AI" as the first result when there's a search query
+        if (showAskAiLink && searchValue.trim()) {
+            const askAiItem: SearchItem = {
+                id: ASK_AI_ITEM_ID,
+                name: `Ask PostHog AI: "${searchValue.trim()}"`,
+                displayName: `Ask PostHog AI: "${searchValue.trim()}"`,
+                category: 'ai',
+                href: urls.ai(undefined, searchValue.trim()),
+                icon: <IconSparkles className="text-ai" />,
+            }
+            items = [askAiItem, ...items]
+        }
+
+        return items
+    }, [allItems, searchValue, showAskAiLink])
 
     useEffect(() => {
         if (!isActive) {
@@ -303,13 +322,18 @@ function SearchRoot({
 
     const handleItemClick = useCallback(
         (item: SearchItem) => {
+            if (item.id === ASK_AI_ITEM_ID) {
+                onAskAiClick?.()
+                router.actions.push(item.href!)
+                return
+            }
             if (onItemSelect) {
                 onItemSelect(item)
             } else if (item.href) {
                 router.actions.push(item.href)
             }
         },
-        [onItemSelect]
+        [onItemSelect, onAskAiClick]
     )
 
     const groupedItems = useMemo(() => {
@@ -331,8 +355,8 @@ function SearchRoot({
             loadingByCategory.set(cat.key, cat.isLoading ?? false)
         }
 
-        // Fixed order: recents first, then apps, then create, then everything else
-        const orderedCategories = ['recents', 'apps', 'create']
+        // Fixed order: ai first (when searching), then recents, apps, create, then everything else
+        const orderedCategories = ['ai', 'recents', 'apps', 'create']
         const hasSearchValue = searchValue.trim().length > 0
 
         for (const category of orderedCategories) {
@@ -341,7 +365,7 @@ function SearchRoot({
 
             // When searching: hide empty groups (unless still loading)
             // When not searching: always show recents/apps (with skeleton if loading)
-            // "create" is only shown when searching
+            // "ai" and "create" are only shown when searching
             const shouldShow = hasSearchValue
                 ? items.length > 0 || isLoading
                 : category === 'recents' || category === 'apps'
@@ -421,8 +445,7 @@ export interface SearchInputProps {
 }
 
 function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
-    const { searchValue, setSearchValue, isActive, inputRef, showAskAiLink, onAskAiClick, highlightedItemRef } =
-        useSearchContext()
+    const { searchValue, setSearchValue, isActive, inputRef, highlightedItemRef } = useSearchContext()
 
     const placeholderText = useRotatingPlaceholder(isActive && !searchValue)
 
@@ -432,10 +455,6 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
         },
         [setSearchValue]
     )
-
-    const handleAskAiLinkClick = useCallback(() => {
-        onAskAiClick?.()
-    }, [onAskAiClick])
 
     const handleInputKeyDown = useCallback(
         (e: React.KeyboardEvent) => {
@@ -470,7 +489,7 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
                 />
                 {searchValue ? null : (
                     <span className="text-tertiary pointer-events-none absolute left-8 top-1/2 -translate-y-1/2 ">
-                        <span className="text-tertiary">Search for </span>
+                        <span className="text-tertiary">Ask PostHog AI or search </span>
                         <TextMorph as="span">{placeholderText}</TextMorph>
                     </span>
                 )}
@@ -483,21 +502,6 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
                     id="app-autocomplete-search"
                     className="w-full px-1 py-1 text-sm focus:outline-none border-transparent"
                 />
-
-                {showAskAiLink && (
-                    <Link
-                        className="shrink-0 text-tertiary -mr-1"
-                        buttonProps={{
-                            size: 'sm',
-                            className: 'rounded-sm',
-                        }}
-                        onClick={handleAskAiLinkClick}
-                        to={urls.ai(undefined, searchValue || undefined)}
-                    >
-                        <KeyboardShortcut tab minimal />
-                        {searchValue ? 'Ask PostHog' : 'Open PostHog AI'}
-                    </Link>
-                )}
 
                 <Autocomplete.Clear
                     render={
@@ -750,9 +754,6 @@ function SearchFooter({ children }: SearchFooterProps): JSX.Element {
                     </span>
                     <span>
                         <KeyboardShortcut shift enter /> to open in new tab
-                    </span>
-                    <span>
-                        <KeyboardShortcut tab /> to ask AI
                     </span>
                     <span>
                         <KeyboardShortcut escape /> to close
