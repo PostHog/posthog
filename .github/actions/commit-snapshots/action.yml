@@ -53,10 +53,38 @@ runs:
                 if [ -n "$PATCHES" ]; then
                   echo "::group::Applying snapshot patches"
                   echo "Applying patches from $PATCH_PATH..."
+                  SKIPPED=0
                   for patch in $PATCHES; do
                     echo "Applying $patch"
-                    git apply --index "$patch"
+                    if ! git apply --index "$patch" 2>/dev/null; then
+                      # Patch failed — likely because a previous shard already updated
+                      # some of the same files. Split into per-file hunks and apply
+                      # each individually, skipping already-applied duplicates.
+                      echo "  Full patch failed, applying file-by-file..."
+                      TMPDIR=$(mktemp -d)
+                      # Split patch into one file per diff hunk
+                      csplit -z -f "$TMPDIR/part-" -b "%04d.patch" "$patch" '/^diff --git/' '{*}' 2>/dev/null
+                      for subpatch in "$TMPDIR"/*.patch; do
+                        [ -s "$subpatch" ] || continue
+                        SUBFILE=$(head -1 "$subpatch" | sed 's|diff --git a/||; s| b/.*||')
+                        if ! git apply --index "$subpatch" 2>/dev/null; then
+                          if git apply --reverse --check "$subpatch" 2>/dev/null; then
+                            echo "    Skipped $SUBFILE (already applied by a previous shard)"
+                            SKIPPED=$((SKIPPED + 1))
+                          else
+                            echo "    ::error::Failed to apply patch for $SUBFILE"
+                            git apply --index "$subpatch" 2>&1 || true
+                            rm -rf "$TMPDIR"
+                            exit 1
+                          fi
+                        fi
+                      done
+                      rm -rf "$TMPDIR"
+                    fi
                   done
+                  if [ "$SKIPPED" -gt 0 ]; then
+                    echo "  Skipped $SKIPPED file(s) already applied by other shards"
+                  fi
                   echo "Applied all patches successfully"
                   echo "::endgroup::"
                 else
