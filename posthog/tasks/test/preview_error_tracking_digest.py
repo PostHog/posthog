@@ -31,7 +31,7 @@ html = template.render(
             {
                 "id": "abc",
                 "name": "Error",
-                "description": "Minified React error #418; visit https://reactjs.org/docs/error-decoder.html",
+                "description": "Minified React error #418; visit https://reactjs.org/docs/error-decoder.html?invariant=418 for the full message or use the non-minified dev environment for full errors and additional helpful warnings",
                 "occurrence_count": 155000,
                 "sparkline": [
                     {"height_percent": 70},
@@ -78,8 +78,8 @@ html = template.render(
             },
             {
                 "id": "jkl",
-                "name": "ConcurrencyLimitExceeded",
-                "description": "Exceeded maximum concurrency limit: 3 for key: api:query:per-team:133740",
+                "name": "ConcurrencyLimitExceededForRealThisTimeNoJoke",
+                "description": "Exceeded maximum concurrency limit: 3 for key: api:query:per-team:133740 and this is a really long description that should be truncated",
                 "occurrence_count": 41400,
                 "sparkline": [
                     {"height_percent": 10},
