@@ -344,7 +344,7 @@ export function SidePanelSupport(): JSX.Element {
         <div className="SidePanelSupport contents">
             <SidePanelContentContainer>
                 <SidePanelPaneHeader showCloseButton={false} title={isEmailFormOpen ? supportPanelTitle : 'Support'} />
-                <div className="p-3 max-w-160 w-full mx-auto flex-1 flex flex-col justify-center p-0 justify-start flex-none px-1">
+                <div className="p-0 justify-start flex-none px-1 max-w-160 w-full mx-auto flex flex-col">
                     {isEmailFormOpen && showEmailSupport && isBillingLoaded && !useProductSupportSidePanel ? (
                         <SupportFormBlock
                             billing={billing}
