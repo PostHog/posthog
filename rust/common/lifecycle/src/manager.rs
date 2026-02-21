@@ -32,12 +32,11 @@ pub struct ManagerOptions {
     pub trap_signals: bool,
     /// Poll for `/tmp/shutdown` file (K8s pre-stop hook pattern). Default: true.
     pub enable_prestop_check: bool,
-    /// How often the health monitor polls component heartbeats. When `None`
-    /// (default), no health polling occurs — `report_healthy()`/`report_unhealthy()`
-    /// still update state, but stall detection is disabled. Set via
-    /// [`with_health_poll_interval`](ManagerOptions::with_health_poll_interval)
-    /// to enable.
-    pub health_poll_interval: Option<Duration>,
+    /// How often the health monitor polls component heartbeats. Only active
+    /// when at least one component is registered with
+    /// [`with_liveness_deadline`](ComponentOptions::with_liveness_deadline).
+    /// Default: 5s.
+    pub health_poll_interval: Duration,
 }
 
 impl ManagerOptions {
@@ -69,12 +68,12 @@ impl ManagerOptions {
         self
     }
 
-    /// Enable health monitoring and set the poll interval. The health monitor
-    /// checks component heartbeats and triggers graceful shutdown when a
-    /// component's stall count reaches its threshold. Default: `None` (disabled).
+    /// Override how often the health monitor polls component heartbeats.
+    /// The health monitor is automatically active when any component is
+    /// registered with `with_liveness_deadline`. Default: 5s.
     /// Lower values detect stalls faster but use more CPU.
     pub fn with_health_poll_interval(mut self, d: Duration) -> Self {
-        self.health_poll_interval = Some(d);
+        self.health_poll_interval = d;
         self
     }
 }
@@ -86,7 +85,7 @@ impl Default for ManagerOptions {
             global_shutdown_timeout: None,
             trap_signals: true,
             enable_prestop_check: true,
-            health_poll_interval: None,
+            health_poll_interval: Duration::from_secs(5),
         }
     }
 }
@@ -315,14 +314,6 @@ impl Manager {
             debug!("Lifecycle: no global shutdown timeout — K8s SIGKILL is the backstop");
         }
 
-        if has_liveness_components && health_poll_interval.is_none() {
-            warn!(
-                "Lifecycle: components registered with liveness_deadline but health_poll_interval \
-                 is not set — stall detection is disabled. Call \
-                 ManagerOptions::with_health_poll_interval() to enable."
-            );
-        }
-
         if trap_signals {
             let token = shutdown_token.clone();
             tokio::spawn(async move {
@@ -349,14 +340,14 @@ impl Manager {
             });
         }
 
-        if let Some(poll_interval) = health_poll_interval {
+        if has_liveness_components {
             let name_for_health = name.clone();
             let liveness_for_health = self.liveness_components.clone();
             let health_token = shutdown_token.clone();
             let health_event_tx = self.event_tx.clone();
             tokio::spawn(async move {
                 let mut stall_counts: Vec<u32> = vec![0; liveness_for_health.len()];
-                let mut interval = tokio::time::interval(poll_interval);
+                let mut interval = tokio::time::interval(health_poll_interval);
                 loop {
                     tokio::select! {
                         _ = interval.tick() => {
