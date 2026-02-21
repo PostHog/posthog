@@ -3,7 +3,7 @@ import './FeatureFlag.scss'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconCode, IconFlag, IconGlobe, IconLaptop, IconMessage, IconServer } from '@posthog/icons'
+import { IconCode, IconFlag, IconGlobe, IconLaptop, IconList, IconMessage, IconServer } from '@posthog/icons'
 import {
     LemonButton,
     LemonCollapse,
@@ -132,13 +132,9 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
 
     return (
         <div className="flex flex-col gap-6">
-            {/* Top section: Frozen edit view (two-column layout) */}
             <div className="flex gap-4 flex-wrap items-start">
-                {/* Left column */}
                 <div className="flex-1 min-w-[20rem] flex flex-col gap-4">
-                    {/* Main settings card */}
                     <div className="rounded border p-4 bg-bg-light flex flex-col gap-3">
-                        {/* Enabled toggle */}
                         {featureFlag.deleted ? (
                             <div className="flex items-center justify-between">
                                 <span className="text-sm font-medium">Status</span>
@@ -157,11 +153,9 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                         )}
                     </div>
 
-                    {/* Advanced options card */}
                     <div className="rounded border p-4 bg-bg-light flex flex-col gap-4">
                         <div className="font-semibold">Advanced options</div>
 
-                        {/* Tags section */}
                         <div className="flex flex-col gap-2">
                             <label className="text-sm font-medium">
                                 {hasEvaluationTags ? 'Tags & evaluation contexts' : 'Tags'}
@@ -184,7 +178,6 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                             <>
                                 <LemonDivider className="my-1" />
 
-                                {/* Evaluation runtime */}
                                 <div className="flex flex-col gap-2">
                                     <label className="text-sm font-medium">Evaluation runtime</label>
                                     <div className="flex items-center gap-2">
@@ -202,7 +195,6 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                             <>
                                 <LemonDivider className="my-1" />
 
-                                {/* Persistence */}
                                 <div className="flex flex-col gap-2">
                                     <label className="text-sm font-medium">Persistence</label>
                                     <span className="text-sm text-muted">
@@ -223,13 +215,11 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                         )}
                     </div>
 
-                    {/* Insights card - only for non-remote config flags */}
                     {!featureFlag.is_remote_configuration && (
                         <div className="rounded border p-4 bg-bg-light flex flex-col gap-3">
                             <div className="font-semibold">Insights</div>
                             <RecentFeatureFlagInsights />
 
-                            {/* Related actions */}
                             <div className="flex flex-col gap-3 mt-2 pt-3 border-t border-border-light">
                                 <div className="flex items-center justify-between">
                                     <span className="text-sm text-muted">
@@ -270,11 +260,8 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                     )}
                 </div>
 
-                {/* Right column */}
                 <div className="flex-2 min-w-[30rem] flex flex-col gap-4">
-                    {/* Flag type card */}
                     <div className="rounded border p-4 bg-bg-light flex flex-col gap-4">
-                        {/* Type indicator */}
                         <div className="flex flex-col gap-2">
                             <label className="text-sm font-semibold">Flag type</label>
                             <div className="flex items-center gap-3 p-3 rounded border bg-surface-secondary">
@@ -286,7 +273,6 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                             </div>
                         </div>
 
-                        {/* Variants section - multivariate only */}
                         {multivariateEnabled && variants.length > 0 && (
                             <div className="flex flex-col gap-2">
                                 <label className="text-sm font-medium text-muted">Variants</label>
@@ -355,7 +341,6 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                             </div>
                         )}
 
-                        {/* Payload section - boolean and remote config */}
                         {!multivariateEnabled && (
                             <div className="flex flex-col gap-2">
                                 <label className="text-sm font-semibold">Payload</label>
@@ -370,7 +355,6 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                         )}
                     </div>
 
-                    {/* Release conditions card - skip for remote config */}
                     {!featureFlag.is_remote_configuration && (
                         <div className="rounded border p-4 bg-bg-light">
                             <FeatureFlagReleaseConditionsReadonly
@@ -382,7 +366,6 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                 </div>
             </div>
 
-            {/* Implementation section */}
             <LemonCollapse
                 className="bg-bg-light"
                 panels={[

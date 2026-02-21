@@ -114,7 +114,6 @@ function ConditionSetCard({ group, index, aggregationTargetName }: ConditionSetC
     const properties = group.properties || []
     const rollout = group.rollout_percentage ?? 100
 
-    // Generate summary sentence
     const getSummary = (): JSX.Element => {
         if (properties.length === 0) {
             return (
@@ -132,16 +131,13 @@ function ConditionSetCard({ group, index, aggregationTargetName }: ConditionSetC
 
     return (
         <div className="border rounded p-4 bg-surface-primary">
-            {/* Header: Set badge + summary sentence */}
             <div className="flex items-center gap-2 flex-wrap">
                 <LemonSnack>Set {index + 1}</LemonSnack>
                 <span className="text-sm">{getSummary()}</span>
             </div>
 
-            {/* Description if present */}
             {group.description && <div className="mt-2 text-sm text-muted">{group.description}</div>}
 
-            {/* Filter rows */}
             {properties.length > 0 && (
                 <div className="mt-3 flex flex-col gap-1">
                     {properties.map((property, idx) => (
@@ -150,7 +146,6 @@ function ConditionSetCard({ group, index, aggregationTargetName }: ConditionSetC
                 </div>
             )}
 
-            {/* Rollout sentence */}
             <div className="mt-3">
                 <LemonTag type={rollout === 100 ? 'highlight' : rollout === 0 ? 'caution' : 'none'}>
                     <span className="text-sm">
@@ -159,7 +154,6 @@ function ConditionSetCard({ group, index, aggregationTargetName }: ConditionSetC
                 </LemonTag>
             </div>
 
-            {/* Variant override */}
             {group.variant && (
                 <div className="mt-3 text-sm">
                     All <b>{aggregationTargetName}</b> in this set will be in variant <b>{group.variant}</b>
