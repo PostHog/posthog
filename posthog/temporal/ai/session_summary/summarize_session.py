@@ -30,6 +30,7 @@ from posthog.temporal.ai.session_summary.activities import (
     analyze_video_segment_activity,
     capture_timing_activity,
     consolidate_video_segments_activity,
+    delete_uploaded_video_from_gemini_activity,
     embed_and_store_segments_activity,
     prep_session_video_asset_activity,
     store_video_session_summary_activity,
@@ -616,7 +617,7 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
         extra_summary_context=inputs.extra_summary_context,
     )
 
-    # Activity 1: Prepare video export (find or create ExportedAsset)
+    # Stage 1: Prepare video export (find or create ExportedAsset)
     export_result = await temporalio.workflow.execute_activity(
         prep_session_video_asset_activity,
         video_inputs,
@@ -643,7 +644,7 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
             execution_timeout=timedelta(hours=3),
         )
 
-    # Activity 2: Upload full video to Gemini (single upload)
+    # Stage 2: Upload full video to Gemini (single upload)
     upload_result = await temporalio.workflow.execute_activity(
         upload_video_to_gemini_activity,
         args=(video_inputs, asset_id),
@@ -662,7 +663,7 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
         inactivity_periods=inactivity_periods,
     )
 
-    # Activity 3: Analyze all segments in parallel (max 100 concurrent to limit blast radius)
+    # Stage 3: Analyze all segments in parallel (max 100 concurrent to limit blast radius)
     semaphore = asyncio.Semaphore(100)
 
     async def _analyze_segment_with_semaphore(segment_spec: VideoSegmentSpec):
@@ -693,15 +694,23 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
             continue
         raw_segments.extend(cast(list[VideoSegmentOutput], result))
 
-    # Activity 4: Consolidate raw segments into meaningful semantic segments
-    consolidated_analysis = await temporalio.workflow.execute_activity(
-        consolidate_video_segments_activity,
-        args=(video_inputs, raw_segments, trace_id),
-        start_to_close_timeout=timedelta(minutes=3),
-        retry_policy=retry_policy,
+    # Stage 4: Consolidate raw segments into meaningful semantic segments & clean up Gemini upload
+    consolidated_analysis, _ = await asyncio.gather(
+        temporalio.workflow.execute_activity(
+            consolidate_video_segments_activity,
+            args=(video_inputs, raw_segments, trace_id),
+            start_to_close_timeout=timedelta(minutes=3),
+            retry_policy=retry_policy,
+        ),
+        temporalio.workflow.execute_activity(
+            delete_uploaded_video_from_gemini_activity,
+            args=(uploaded_video),
+            start_to_close_timeout=timedelta(minutes=3),
+            retry_policy=retry_policy,
+        ),
     )
 
-    # Activity 5: Generate embeddings for all segments and store in ClickHouse via Kafka
+    # Stage 5: Generate embeddings for all segments and store in ClickHouse via Kafka
     await temporalio.workflow.execute_activity(
         embed_and_store_segments_activity,
         args=(video_inputs, consolidated_analysis.segments),
@@ -709,7 +718,7 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
         retry_policy=retry_policy,
     )
 
-    # Activity 6: Store video-based summary in database
+    # Stage 6: Store video-based summary in database
     # This activity retrieves the cached event data from Redis (from fetch_session_data_activity)
     # and uses it to map video segments to real events
     await temporalio.workflow.execute_activity(

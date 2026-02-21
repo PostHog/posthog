@@ -36,6 +36,10 @@ class UploadedVideo(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     file_uri: str
+    file_name: str | None = Field(
+        default=None,
+        description="Gemini file identifier (e.g. files/xxx) for deletion, None default for short-term backward compat",
+    )
     mime_type: str
     duration: int = Field(description="Duration in seconds")
 
