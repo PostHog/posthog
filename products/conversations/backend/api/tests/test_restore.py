@@ -100,17 +100,8 @@ class TestRestoreService(BaseTest):
         tickets = RestoreService.find_tickets_by_email(self.team, "customer@example.com")
         self.assertEqual(len(tickets), 1)
 
-    @patch("products.conversations.backend.services.restore.PersonDistinctId")
-    @patch("products.conversations.backend.services.restore.Person")
-    def test_find_tickets_by_person_email(self, mock_person_class, mock_pdi_class):
-        """Find tickets where user is identified (email on Person, not anonymous_traits)."""
-        # Step 1 mock: Person query returns person IDs (plain list supports [:1000] slicing)
-        mock_person_class.objects.db_manager.return_value.filter.return_value.values_list.return_value = [1]
-        # Step 2 mock: PersonDistinctId resolves person IDs to distinct_ids
-        mock_pdi_class.objects.db_manager.return_value.filter.return_value.values_list.return_value = [
-            "identified-user-1"
-        ]
-
+    @patch.object(RestoreService, "_find_distinct_ids_by_person_email", return_value=["identified-user-1"])
+    def test_find_tickets_by_person_email(self, _mock):
         Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id=self.widget_session_id,
@@ -122,22 +113,14 @@ class TestRestoreService(BaseTest):
         self.assertEqual(len(tickets), 1)
         self.assertEqual(tickets[0].distinct_id, "identified-user-1")
 
-    @patch("products.conversations.backend.services.restore.PersonDistinctId")
-    @patch("products.conversations.backend.services.restore.Person")
-    def test_find_tickets_by_email_finds_both_anonymous_and_identified(self, mock_person_class, mock_pdi_class):
-        """Find tickets from both anonymous_traits and Person properties."""
-        mock_person_class.objects.db_manager.return_value.filter.return_value.values_list.return_value = [1]
-        mock_pdi_class.objects.db_manager.return_value.filter.return_value.values_list.return_value = [
-            "identified-user"
-        ]
-
+    @patch.object(RestoreService, "_find_distinct_ids_by_person_email", return_value=["identified-user"])
+    def test_find_tickets_by_email_finds_both_anonymous_and_identified(self, _mock):
         Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id=self.widget_session_id,
             distinct_id="anon-user",
             anonymous_traits={"email": self.customer_email},
         )
-
         Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id="other-session",
@@ -147,6 +130,25 @@ class TestRestoreService(BaseTest):
 
         tickets = RestoreService.find_tickets_by_email(self.team, self.customer_email)
         self.assertEqual(len(tickets), 2)
+
+    @patch.object(RestoreService, "_find_distinct_ids_by_person_email", side_effect=Exception("ClickHouse error"))
+    def test_find_tickets_by_email_falls_back_on_person_lookup_failure(self, _mock):
+        Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id="user-1",
+            anonymous_traits={"email": self.customer_email},
+        )
+        Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="other-session",
+            distinct_id="identified-user",
+            anonymous_traits={},
+        )
+
+        tickets = RestoreService.find_tickets_by_email(self.team, self.customer_email)
+        self.assertEqual(len(tickets), 1)
+        self.assertEqual(tickets[0].anonymous_traits["email"], self.customer_email)
 
     def test_request_restore_link_no_tickets(self):
         result = RestoreService.request_restore_link(

@@ -4,11 +4,13 @@ from dataclasses import dataclass
 from typing import Literal
 
 from django.db import transaction
-from django.db.models import Q
 from django.utils import timezone
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.models import Team
-from posthog.models.person.person import READ_DB_FOR_PERSONS, Person, PersonDistinctId
 
 from products.conversations.backend.models import ConversationRestoreToken, Ticket
 from products.conversations.backend.models.restore_token import hash_token
@@ -28,40 +30,46 @@ class RestoreService:
     """Service for handling conversation ticket restore operations."""
 
     @staticmethod
+    def _find_distinct_ids_by_person_email(team: Team, email_lower: str) -> list[str]:
+        """
+        Find distinct_ids of persons whose email matches via HogQL (ClickHouse).
+        This is fast because ClickHouse has indexed person properties.
+        """
+        query = parse_select(
+            "SELECT DISTINCT pdi.distinct_id "
+            "FROM person_distinct_ids pdi "
+            "INNER JOIN persons p ON p.id = pdi.person_id "
+            "WHERE p.properties.email = {email} "
+            "LIMIT 1000",
+            placeholders={"email": ast.Constant(value=email_lower)},
+        )
+        response = execute_hogql_query(query=query, team=team)
+        return [row[0] for row in (response.results or [])]
+
+    @staticmethod
     def find_tickets_by_email(team: Team, email: str) -> list[Ticket]:
         """
-        Find all tickets associated with an email address (case-insensitive).
+        Find all tickets associated with an email address.
 
         Checks both:
-        1. anonymous_traits.email - for anonymous users
-        2. Person properties.email - for identified users (via distinct_id)
+        1. anonymous_traits.email on Ticket (Postgres, fast)
+        2. Person properties.email → distinct_id → Ticket (via HogQL/ClickHouse)
         """
         email_lower = email.lower().strip()
 
-        # Two-step lookup to avoid expensive cross-table JOIN on JSONB field.
-        # Step 1: Find person IDs using exact match — hits the posthog_person_email btree index.
-        # Using exact match (not iexact) because LOWER() prevents index usage and causes timeouts.
-        person_ids = list(
-            Person.objects.db_manager(READ_DB_FOR_PERSONS)
-            .filter(team=team, properties__email=email_lower)
-            .values_list("id", flat=True)[:1000]
-        )
-
-        # Step 2: Resolve person IDs to distinct_ids
         person_distinct_ids: list[str] = []
-        if person_ids:
-            person_distinct_ids = list(
-                PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
-                .filter(team=team, person_id__in=person_ids)
-                .values_list("distinct_id", flat=True)
+        try:
+            person_distinct_ids = RestoreService._find_distinct_ids_by_person_email(team, email_lower)
+        except Exception:
+            logger.warning(
+                "Person email lookup failed during restore, falling back to anonymous_traits only",
+                extra={"team_id": team.id},
             )
 
-        # Query tickets matching either anonymous_traits.email OR person's distinct_id
-        query = Q(anonymous_traits__email__iexact=email_lower)
+        tickets = Ticket.objects.filter(team=team, anonymous_traits__email__iexact=email_lower)
         if person_distinct_ids:
-            query |= Q(distinct_id__in=person_distinct_ids)
-
-        return list(Ticket.objects.filter(team=team).filter(query).distinct())
+            tickets = tickets | Ticket.objects.filter(team=team, distinct_id__in=person_distinct_ids)
+        return list(tickets.distinct())
 
     @staticmethod
     def invalidate_existing_tokens(
