@@ -1,5 +1,5 @@
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { AddingMetricTracker, AverageMetricTracker, Tracker } from './metric-tracker'
+import { AddingMetricTracker, AverageMetricTracker, MaxMetricTracker, Tracker } from './metric-tracker'
 
 export interface MetricConfig {
     topN?: number
@@ -48,6 +48,14 @@ export class TopHog {
                     opts?.topN ?? this.config.defaultTopN,
                     opts?.maxKeys ?? this.config.maxKeys
                 )
+        )
+    }
+
+    registerMax(name: string, opts?: MetricConfig): MaxMetricTracker {
+        return this.getOrCreate(
+            name,
+            () =>
+                new MaxMetricTracker(name, opts?.topN ?? this.config.defaultTopN, opts?.maxKeys ?? this.config.maxKeys)
         )
     }
 
