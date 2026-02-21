@@ -230,7 +230,7 @@ def _build_issues_list(results: list, issues_by_id: dict, team: Team) -> list[di
                 "description": issue.description if issue else None,
                 "occurrence_count": occurrence_count,
                 "sparkline": sparkline,
-                "url": f"{settings.SITE_URL}/project/{team.pk}/error_tracking/{issue_id}",
+                "url": f"{settings.SITE_URL}/project/{team.pk}/error_tracking/{issue_id}?utm_source=error_tracking_weekly_digest",
             }
         )
     return issues

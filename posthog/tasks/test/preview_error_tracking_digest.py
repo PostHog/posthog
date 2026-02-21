@@ -42,7 +42,7 @@ html = template.render(
                     {"height_percent": 75},
                     {"height_percent": 80},
                 ],
-                "url": "https://us.posthog.com/project/2/error_tracking/abc",
+                "url": "https://us.posthog.com/project/2/error_tracking/abc?utm_source=error_tracking_weekly_digest",
             },
             {
                 "id": "def",
@@ -58,7 +58,7 @@ html = template.render(
                     {"height_percent": 70},
                     {"height_percent": 50},
                 ],
-                "url": "https://us.posthog.com/project/2/error_tracking/def",
+                "url": "https://us.posthog.com/project/2/error_tracking/def?utm_source=error_tracking_weekly_digest",
             },
             {
                 "id": "ghi",
@@ -74,7 +74,7 @@ html = template.render(
                     {"height_percent": 55},
                     {"height_percent": 40},
                 ],
-                "url": "https://us.posthog.com/project/2/error_tracking/ghi",
+                "url": "https://us.posthog.com/project/2/error_tracking/ghi?utm_source=error_tracking_weekly_digest",
             },
             {
                 "id": "jkl",
@@ -90,7 +90,7 @@ html = template.render(
                     {"height_percent": 80},
                     {"height_percent": 60},
                 ],
-                "url": "https://us.posthog.com/project/2/error_tracking/jkl",
+                "url": "https://us.posthog.com/project/2/error_tracking/jkl?utm_source=error_tracking_weekly_digest",
             },
             {
                 "id": "mno",
@@ -106,7 +106,7 @@ html = template.render(
                     {"height_percent": 100},
                     {"height_percent": 85},
                 ],
-                "url": "https://us.posthog.com/project/2/error_tracking/mno",
+                "url": "https://us.posthog.com/project/2/error_tracking/mno?utm_source=error_tracking_weekly_digest",
             },
         ],
         "new_issues": [
@@ -124,7 +124,7 @@ html = template.render(
                     {"height_percent": 100},
                     {"height_percent": 85},
                 ],
-                "url": "https://us.posthog.com/project/2/error_tracking/new1",
+                "url": "https://us.posthog.com/project/2/error_tracking/new1?utm_source=error_tracking_weekly_digest",
             },
             {
                 "id": "new2",
@@ -140,7 +140,7 @@ html = template.render(
                     {"height_percent": 100},
                     {"height_percent": 70},
                 ],
-                "url": "https://us.posthog.com/project/2/error_tracking/new2",
+                "url": "https://us.posthog.com/project/2/error_tracking/new2?utm_source=error_tracking_weekly_digest",
             },
             {
                 "id": "new3",
@@ -156,7 +156,7 @@ html = template.render(
                     {"height_percent": 100},
                     {"height_percent": 45},
                 ],
-                "url": "https://us.posthog.com/project/2/error_tracking/new3",
+                "url": "https://us.posthog.com/project/2/error_tracking/new3?utm_source=error_tracking_weekly_digest",
             },
         ],
         "crash_free": {
@@ -164,9 +164,10 @@ html = template.render(
             "crash_sessions": 3421,
             "crash_free_rate": 98.80,
         },
-        "error_tracking_url": "https://us.posthog.com/project/2/error_tracking",
+        "error_tracking_url": "https://us.posthog.com/project/2/error_tracking?utm_source=error_tracking_weekly_digest",
         "ingestion_failures_url": "https://us.posthog.com/project/2/activity/explore",
         "contact_support_url": "https://posthog.com/support",
+        "feedback_survey_url": "https://us.posthog.com/external_surveys/019c7fd6-7cfa-0000-2b03-a8e5d4c03743?distinct_id=test@posthog.com",
     }
 )
 
