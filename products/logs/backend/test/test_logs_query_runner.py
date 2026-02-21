@@ -338,6 +338,71 @@ class TestAttributeFilters(APIBaseTest):
         self.assertIn("resource_fingerprint", query_str)
         self.assertIn("12345678", query_str)
 
+    def test_search_term_filter(self):
+        """Test that searchTerm adds a body ILIKE filter"""
+        query = LogsQuery(
+            dateRange=DateRange(date_from="2024-01-10T00:00:00Z", date_to="2024-01-15T23:59:59Z"),
+            serviceNames=[],
+            severityLevels=[],
+            searchTerm="timeout error",
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[])],
+            ),
+            kind="LogsQuery",
+        )
+
+        runner = LogsQueryRunner(query=query, team=self.team)
+        executor = HogQLQueryExecutor(
+            query_type="LogsQuery",
+            query=runner.to_query(),
+            modifiers=runner.modifiers,
+            team=runner.team,
+            workload=Workload.LOGS,
+            timings=runner.timings,
+            limit_context=runner.limit_context,
+            filters=HogQLFilters(dateRange=runner.query.dateRange),
+            settings=runner.settings,
+        )
+        executor.generate_clickhouse_sql()
+        assert executor.clickhouse_prepared_ast is not None
+        query_str = executor.clickhouse_prepared_ast.to_hogql()
+
+        self.assertIn("body", query_str)
+        self.assertIn("timeout error", query_str)
+        self.assertIn("indexHint", query_str)
+
+    def test_no_search_term_filter(self):
+        """Test that omitting searchTerm does not add a body filter"""
+        query = LogsQuery(
+            dateRange=DateRange(date_from="2024-01-10T00:00:00Z", date_to="2024-01-15T23:59:59Z"),
+            serviceNames=[],
+            severityLevels=[],
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[])],
+            ),
+            kind="LogsQuery",
+        )
+
+        runner = LogsQueryRunner(query=query, team=self.team)
+        executor = HogQLQueryExecutor(
+            query_type="LogsQuery",
+            query=runner.to_query(),
+            modifiers=runner.modifiers,
+            team=runner.team,
+            workload=Workload.LOGS,
+            timings=runner.timings,
+            limit_context=runner.limit_context,
+            filters=HogQLFilters(dateRange=runner.query.dateRange),
+            settings=runner.settings,
+        )
+        executor.generate_clickhouse_sql()
+        assert executor.clickhouse_prepared_ast is not None
+        query_str = executor.clickhouse_prepared_ast.to_hogql()
+
+        self.assertNotIn("ilike(body", query_str.lower())
+
 
 class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
