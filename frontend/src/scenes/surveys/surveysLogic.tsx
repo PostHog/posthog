@@ -462,6 +462,10 @@ export const surveysLogic = kea<surveysLogicType>([
             (s) => [s.enabledFlags],
             (enabledFlags) => !!(enabledFlags[FEATURE_FLAGS.SURVEYS_GUIDED_EDITOR] === 'test'),
         ],
+        formBuilderEnabled: [
+            (s) => [s.enabledFlags],
+            (enabledFlags) => !!enabledFlags[FEATURE_FLAGS.SURVEYS_FORM_BUILDER],
+        ],
         globalSurveyAppearanceConfigAvailable: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_STYLING),
