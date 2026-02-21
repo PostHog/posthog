@@ -8,9 +8,7 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagEva
 from posthog.models.feature_flag.local_evaluation import (
     DATABASE_FOR_LOCAL_EVALUATION,
     _extract_cohort_ids_from_filters,
-    _get_both_flags_responses_for_local_evaluation,
     _get_flags_for_local_evaluation,
-    _get_flags_response_for_local_evaluation,
     _load_cohorts_with_dependencies,
     clear_flag_caches,
     flags_hypercache,
@@ -201,19 +199,6 @@ class TestLocalEvaluationCache(BaseTest):
         response, source = flags_hypercache.get_from_cache_with_source(self.team)
         assert source == "redis"
         self._assert_payload_valid_with_cohorts(response)
-
-    def test_both_flags_response_matches_individual_calls(self):
-        """Verify consolidated function produces identical output to calling original approach twice."""
-        # Individual calls
-        with_cohorts_individual = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
-        without_cohorts_individual = _get_flags_response_for_local_evaluation(self.team, include_cohorts=False)
-
-        # Consolidated call
-        with_cohorts_combined, without_cohorts_combined = _get_both_flags_responses_for_local_evaluation(self.team)
-
-        # Assert equivalence
-        assert with_cohorts_individual == with_cohorts_combined
-        assert without_cohorts_individual == without_cohorts_combined
 
 
 class TestLocalEvaluationSignals(BaseTest):
@@ -799,107 +784,3 @@ class TestLoadCohortsWithDependencies(BaseTest):
 
         # Deleted cohort should be marked as empty string
         assert result[cohort.pk] == ""
-
-
-class TestGetBothFlagsResponsesForLocalEvaluation(BaseTest):
-    """Tests for _get_both_flags_responses_for_local_evaluation helper function."""
-
-    def test_returns_tuple_of_two_dicts(self):
-        result = _get_both_flags_responses_for_local_evaluation(self.team)
-
-        assert isinstance(result, tuple)
-        assert len(result) == 2
-        assert isinstance(result[0], dict)
-        assert isinstance(result[1], dict)
-
-    def test_empty_team_returns_empty_flags(self):
-        with_cohorts, without_cohorts = _get_both_flags_responses_for_local_evaluation(self.team)
-
-        assert "flags" in with_cohorts
-        assert "flags" in without_cohorts
-        assert isinstance(with_cohorts["flags"], list)
-        assert isinstance(without_cohorts["flags"], list)
-
-    def test_with_cohorts_has_cohorts_dict(self):
-        cohort = Cohort.objects.create(
-            team=self.team,
-            name="test-cohort",
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [{"type": "OR", "values": [{"key": "email", "type": "person", "value": "test"}]}],
-                }
-            },
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="flag-with-cohort",
-            filters={"groups": [{"properties": [{"type": "cohort", "value": cohort.pk}]}]},
-        )
-
-        with_cohorts, without_cohorts = _get_both_flags_responses_for_local_evaluation(self.team)
-
-        assert len(with_cohorts["cohorts"]) > 0
-        assert str(cohort.pk) in with_cohorts["cohorts"]
-        assert without_cohorts["cohorts"] == {}
-
-    def test_same_flags_in_both_responses(self):
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="flag-1",
-            filters={"groups": [{"rollout_percentage": 100}]},
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="flag-2",
-            filters={"groups": [{"rollout_percentage": 50}]},
-        )
-
-        with_cohorts, without_cohorts = _get_both_flags_responses_for_local_evaluation(self.team)
-
-        with_keys = {f["key"] for f in with_cohorts["flags"]}
-        without_keys = {f["key"] for f in without_cohorts["flags"]}
-
-        assert with_keys == without_keys
-        assert "flag-1" in with_keys
-        assert "flag-2" in with_keys
-
-    def test_survey_flags_excluded_from_both(self):
-        regular_flag = FeatureFlag.objects.create(
-            team=self.team,
-            key="regular-flag",
-            filters={"groups": [{"rollout_percentage": 100}]},
-        )
-        survey_flag = FeatureFlag.objects.create(
-            team=self.team,
-            key="survey-flag",
-            filters={"groups": [{"rollout_percentage": 100}]},
-        )
-        Survey.objects.create(
-            team=self.team,
-            name="Test Survey",
-            type="popover",
-            targeting_flag=survey_flag,
-        )
-
-        with_cohorts, without_cohorts = _get_both_flags_responses_for_local_evaluation(self.team)
-
-        with_keys = {f["key"] for f in with_cohorts["flags"]}
-        without_keys = {f["key"] for f in without_cohorts["flags"]}
-
-        assert regular_flag.key in with_keys
-        assert regular_flag.key in without_keys
-        assert survey_flag.key not in with_keys
-        assert survey_flag.key not in without_keys
-
-    def test_group_type_mapping_in_both_responses(self):
-        from posthog.test.test_utils import create_group_type_mapping_without_created_at
-
-        create_group_type_mapping_without_created_at(
-            team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=0
-        )
-
-        with_cohorts, without_cohorts = _get_both_flags_responses_for_local_evaluation(self.team)
-
-        assert with_cohorts["group_type_mapping"] == {"0": "company"}
-        assert without_cohorts["group_type_mapping"] == {"0": "company"}

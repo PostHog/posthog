@@ -30,7 +30,7 @@ function ElementEmptyState({ onClick }: { onClick: () => void }): JSX.Element {
 
 function ElementSettings({ tourId }: StepSettingsPanelProps): JSX.Element | null {
     const { productTourForm, selectedStepIndex } = useValues(productTourLogic({ id: tourId }))
-    const { updateSelectedStep, submitAndOpenToolbar } = useActions(productTourLogic({ id: tourId }))
+    const { updateSelectedStep, openToolbarModal } = useActions(productTourLogic({ id: tourId }))
 
     const steps = productTourForm.content?.steps ?? []
     const step = steps[selectedStepIndex]
@@ -187,7 +187,7 @@ function ElementSettings({ tourId }: StepSettingsPanelProps): JSX.Element | null
                             size="small"
                             type="secondary"
                             icon={<IconCursorClick />}
-                            onClick={() => submitAndOpenToolbar('edit')}
+                            onClick={() => openToolbarModal('edit')}
                         >
                             {step.inferenceData ? 'Change' : 'Select element in Toolbar'}
                         </LemonButton>

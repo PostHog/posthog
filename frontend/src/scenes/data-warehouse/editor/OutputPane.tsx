@@ -919,7 +919,7 @@ const Content = ({
         return (
             <TabScroller data-attr="sql-editor-output-pane-results">
                 <DataGrid
-                    className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
+                    className={clsx(isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full', 'ph-no-capture')}
                     columns={columns}
                     rows={sortedRows}
                     sortColumns={sortColumns}

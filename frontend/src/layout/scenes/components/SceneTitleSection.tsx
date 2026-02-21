@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconBrackets, IconEllipsis, IconPencil, IconSidePanel, IconSparkles, IconWrench, IconX } from '@posthog/icons'
@@ -249,6 +249,7 @@ export function SceneTitleSection({
     const { zenMode } = useValues(navigation3000Logic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
     const [isScrolled, setIsScrolled] = useState(false)
+    const sentinelRef = useRef<HTMLDivElement>(null)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
     const effectiveDescription = description
 
@@ -261,8 +262,8 @@ export function SceneTitleSection({
         </>
     )
 
-    useEffect(() => {
-        const stickyElement = document.querySelector('[data-sticky-sentinel]')
+    useLayoutEffect(() => {
+        const stickyElement = sentinelRef.current
         if (!stickyElement) {
             return
         }
@@ -295,7 +296,12 @@ export function SceneTitleSection({
             {/* Description is not sticky, therefor, if there is description, we render a line after scroll  */}
             {effectiveDescription != null && (
                 // When this element touches top of the scene, we set the sticky bar to be sticky
-                <div data-sticky-sentinel className="h-px w-px pointer-events-none absolute -top-4" aria-hidden />
+                <div
+                    ref={sentinelRef}
+                    data-sticky-sentinel
+                    className="h-px w-px pointer-events-none absolute -top-4"
+                    aria-hidden
+                />
             )}
 
             <div
