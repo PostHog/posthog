@@ -56,7 +56,7 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
-    "claude-3-5-haiku-20241022": {
+    "claude-haiku-4-5-20251001": {
         "litellm_provider": "anthropic",
         "max_input_tokens": 200000,
         "supports_vision": True,

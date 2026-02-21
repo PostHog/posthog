@@ -53,6 +53,7 @@ class ProductTour(models.Model):
     )
 
     content = models.JSONField(default=dict, blank=True)
+    draft_content = models.JSONField(null=True, blank=True, default=None)
 
     auto_launch = models.BooleanField(default=False)
 

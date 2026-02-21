@@ -11,6 +11,7 @@ import {
     ProductTourStepWidth,
     ProductTourSurveyQuestion,
     ProductTourSurveyQuestionType,
+    StepOrderVersion,
     SurveyPosition,
 } from '~/types'
 
@@ -195,4 +196,32 @@ export function createDefaultStep(type: ProductTourStepType): ProductTourStep {
     }
 
     return baseStep
+}
+
+function hasStepsChanged(currentSteps: ProductTourStep[], history: StepOrderVersion[] | undefined): boolean {
+    if (!history || history.length === 0) {
+        return true
+    }
+    const latestVersion = history[history.length - 1]
+    if (currentSteps.length !== latestVersion.steps.length) {
+        return true
+    }
+    return currentSteps.some((step, index) => step.id !== latestVersion.steps[index].id)
+}
+
+export function getUpdatedStepOrderHistory(
+    currentSteps: ProductTourStep[],
+    existingHistory: StepOrderVersion[] | undefined
+): StepOrderVersion[] {
+    const history = existingHistory ? [...existingHistory] : []
+
+    if (hasStepsChanged(currentSteps, history)) {
+        history.push({
+            id: uuid(),
+            steps: currentSteps,
+            created_at: new Date().toISOString(),
+        })
+    }
+
+    return history
 }

@@ -309,13 +309,6 @@
                 "cache_write_token": 0.000001,
                 "web_search": 0.01
             },
-            "anthropic": {
-                "prompt_token": 8e-7,
-                "completion_token": 0.000004,
-                "cache_read_token": 8e-8,
-                "cache_write_token": 0.000001,
-                "web_search": 0.01
-            },
             "google-vertex": {
                 "prompt_token": 8e-7,
                 "completion_token": 0.000004,
@@ -357,13 +350,6 @@
                 "cache_write_token": 0.00000375,
                 "web_search": 0.01
             },
-            "anthropic": {
-                "prompt_token": 0.000003,
-                "completion_token": 0.000015,
-                "cache_read_token": 3e-7,
-                "cache_write_token": 0.00000375,
-                "web_search": 0.01
-            },
             "google-vertex-europe": {
                 "prompt_token": 0.000003,
                 "completion_token": 0.000015,
@@ -391,13 +377,6 @@
         "model": "anthropic/claude-3.7-sonnet:thinking",
         "cost": {
             "default": {
-                "prompt_token": 0.000003,
-                "completion_token": 0.000015,
-                "cache_read_token": 3e-7,
-                "cache_write_token": 0.00000375,
-                "web_search": 0.01
-            },
-            "anthropic": {
                 "prompt_token": 0.000003,
                 "completion_token": 0.000015,
                 "cache_read_token": 3e-7,
@@ -3541,11 +3520,6 @@
                 "completion_token": 0.000003,
                 "cache_read_token": 1.0000000000000001e-7
             },
-            "inceptron-int4": {
-                "prompt_token": 5e-7,
-                "completion_token": 0.0000024,
-                "cache_read_token": 1.2e-7
-            },
             "moonshotai-int4": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.000003,
@@ -4960,19 +4934,6 @@
         }
     },
     {
-        "model": "openrouter/aurora-alpha",
-        "cost": {
-            "default": {
-                "prompt_token": 0,
-                "completion_token": 0
-            },
-            "stealth": {
-                "prompt_token": 0,
-                "completion_token": 0
-            }
-        }
-    },
-    {
         "model": "openrouter/auto",
         "cost": {
             "default": {
@@ -5392,10 +5353,6 @@
             "hyperbolic": {
                 "prompt_token": 2.5e-7,
                 "completion_token": 2.5e-7
-            },
-            "nebius-fp8": {
-                "prompt_token": 2e-7,
-                "completion_token": 6e-7
             },
             "novita-fp8": {
                 "prompt_token": 9e-8,
@@ -6098,6 +6055,10 @@
             "novita": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000036
+            },
+            "parasail-bf16": {
+                "prompt_token": 6e-7,
+                "completion_token": 0.0000036
             }
         }
     },
@@ -6600,7 +6561,7 @@
                 "completion_token": 3e-7,
                 "cache_read_token": 1e-7
             },
-            "chutes": {
+            "chutes-fp8": {
                 "prompt_token": 9e-8,
                 "completion_token": 2.9e-7,
                 "cache_read_token": 4.5e-8
