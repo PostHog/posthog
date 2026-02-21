@@ -85,7 +85,7 @@ export interface WizardTrigger {
     description: string
 }
 
-export const TRIGGER_OPTIONS: WizardTrigger[] = [
+const ALL_TRIGGERS: WizardTrigger[] = [
     {
         key: 'error-tracking-issue-created',
         name: 'Issue created',
@@ -97,6 +97,11 @@ export const TRIGGER_OPTIONS: WizardTrigger[] = [
         description: 'Get notified when a previously resolved issue comes back',
     },
 ]
+
+function hasSubTemplateForDestination(triggerKey: WizardTriggerKey, destination: WizardDestination): boolean {
+    const subTemplates = HOG_FUNCTION_SUB_TEMPLATES[triggerKey as HogFunctionSubTemplateIdType]
+    return subTemplates?.some((t) => t.template_id === destination.templateId) ?? false
+}
 
 function extractDestinationKeyFromAlert(alert: HogFunctionType): WizardDestinationKey | null {
     const templateId = alert.template?.id
@@ -248,6 +253,20 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
                 })
                 const top3 = sorted.slice(0, 3)
                 return top3.map((destinationKey) => ALL_DESTINATIONS.find((d) => d.key === destinationKey)!)
+            },
+        ],
+
+        availableTriggers: [
+            (s) => [s.selectedDestinationKey],
+            (selectedDestinationKey): WizardTrigger[] => {
+                if (!selectedDestinationKey) {
+                    return ALL_TRIGGERS
+                }
+                const destination = ALL_DESTINATIONS.find((d) => d.key === selectedDestinationKey)
+                if (!destination) {
+                    return ALL_TRIGGERS
+                }
+                return ALL_TRIGGERS.filter((trigger) => hasSubTemplateForDestination(trigger.key, destination))
             },
         ],
 
