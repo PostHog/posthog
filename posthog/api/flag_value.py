@@ -65,4 +65,4 @@ class FlagValueViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 if variant_key:
                     values.append({"name": variant_key})
 
-        return response.Response(values)
+        return response.Response({"results": values, "refreshing": False})
