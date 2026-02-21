@@ -76,7 +76,6 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
         })
     }
 
-    // Determine flag type for display
     const getFlagTypeDisplay = (): { icon: JSX.Element; label: string; description: string } => {
         if (featureFlag.is_remote_configuration) {
             return {
@@ -101,7 +100,6 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
 
     const flagTypeDisplay = getFlagTypeDisplay()
 
-    // Get evaluation runtime display
     const getEvaluationRuntimeDisplay = (): { icon: JSX.Element; label: string; tag: string } => {
         switch (featureFlag.evaluation_runtime) {
             case FeatureFlagEvaluationRuntime.CLIENT:
