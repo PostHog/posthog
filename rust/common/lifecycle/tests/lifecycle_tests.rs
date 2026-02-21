@@ -8,10 +8,12 @@ use lifecycle::{ComponentOptions, LifecycleError, Manager, ManagerOptions};
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Default test manager: no global shutdown timeout (exercises the unbounded
+/// wait path — K8s SIGKILL is the backstop). Per-test tokio::time::timeout
+/// guards prevent hangs.
 fn test_manager() -> Manager {
     Manager::new(
         ManagerOptions::new("test")
-            .with_global_shutdown_timeout(Duration::from_secs(5))
             .with_trap_signals(false)
             .with_prestop_check(false),
     )
@@ -21,7 +23,6 @@ fn test_manager() -> Manager {
 fn fast_poll_manager(poll_ms: u64) -> Manager {
     Manager::new(
         ManagerOptions::new("test")
-            .with_global_shutdown_timeout(Duration::from_secs(5))
             .with_trap_signals(false)
             .with_prestop_check(false)
             .with_health_poll_interval(Duration::from_millis(poll_ms)),
@@ -409,12 +410,13 @@ async fn stall_threshold_allows_recovery() {
     let handle = manager.register(
         "worker",
         ComponentOptions::new()
-            .with_liveness_deadline(Duration::from_millis(80))
+            .with_liveness_deadline(Duration::from_millis(120))
             .with_stall_threshold(3),
     );
     let guard = manager.monitor_background();
 
-    // Report healthy, then let it stall for 1-2 checks
+    // Report healthy, then let it stall for 1-2 checks (deadline 120ms,
+    // poll 50ms → first stall at ~170ms, second at ~220ms, well under threshold 3)
     handle.report_healthy();
     tokio::time::sleep(Duration::from_millis(200)).await;
     // Recover before threshold (3) is reached
@@ -648,6 +650,95 @@ async fn component_timeout_then_late_drop_preserves_timeout() {
         handle.request_shutdown();
         // Hold handle past the 50ms graceful shutdown window
         tokio::time::sleep(Duration::from_millis(100)).await;
+    });
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(result.is_ok());
+}
+
+// ---------------------------------------------------------------------------
+// Section 5: Global shutdown timeout
+//
+// By default (test_manager) there is no global shutdown timeout — the monitor
+// waits indefinitely for components to finish. With_global_shutdown_timeout
+// adds a hard ceiling on the entire shutdown phase.
+// ---------------------------------------------------------------------------
+
+/// With no global timeout, the monitor waits indefinitely for components.
+/// Here the component completes normally — verifying the unbounded-wait path
+/// produces a clean result just like the timeout path.
+#[tokio::test]
+async fn no_global_timeout_waits_for_component() {
+    let mut manager = test_manager();
+    assert!(manager.options.global_shutdown_timeout.is_none());
+
+    let handle = manager.register("worker", ComponentOptions::new());
+    let guard = manager.monitor_background();
+
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        handle.request_shutdown();
+        // Simulate slow cleanup
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    });
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(result.is_ok());
+}
+
+/// With global_shutdown_timeout set, components that haven't finished when the
+/// ceiling is reached cause ShutdownTimeout. The stuck component never signals
+/// completion, so the global timeout fires.
+#[tokio::test]
+async fn global_timeout_fires_when_component_hangs() {
+    let mut manager = Manager::new(
+        ManagerOptions::new("test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .with_global_shutdown_timeout(Duration::from_millis(100)),
+    );
+
+    let handle = manager.register("slow", ComponentOptions::new());
+    let guard = manager.monitor_background();
+
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        handle.request_shutdown();
+        // Never completes — holds handle forever (until test ends)
+        std::future::pending::<()>().await;
+    });
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(matches!(
+        result,
+        Err(LifecycleError::ShutdownTimeout { remaining, .. })
+            if remaining.contains(&"slow".to_string())
+    ));
+}
+
+/// With global_shutdown_timeout set, components that finish before the ceiling
+/// produce a clean result — the timeout never fires.
+#[tokio::test]
+async fn global_timeout_does_not_fire_when_components_finish() {
+    let mut manager = Manager::new(
+        ManagerOptions::new("test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .with_global_shutdown_timeout(Duration::from_secs(5)),
+    );
+
+    let handle = manager.register("fast", ComponentOptions::new());
+    let guard = manager.monitor_background();
+
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        handle.request_shutdown();
     });
 
     let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())

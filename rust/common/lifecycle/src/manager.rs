@@ -23,16 +23,21 @@ pub struct ManagerOptions {
     /// Service name, emitted as the `service_name` label on all lifecycle metrics.
     /// Use your K8s service name or logical app name for dashboard filtering.
     pub name: String,
-    /// Hard ceiling on total shutdown duration. If all components haven't finished
-    /// within this window, monitor returns [`LifecycleError::ShutdownTimeout`].
-    pub global_shutdown_timeout: Duration,
+    /// Optional hard ceiling on total shutdown duration. When set, the monitor
+    /// returns [`LifecycleError::ShutdownTimeout`] if components haven't finished
+    /// in time. When `None` (default), the monitor waits indefinitely — K8s
+    /// SIGKILL is the external backstop.
+    pub global_shutdown_timeout: Option<Duration>,
     /// Install SIGINT/SIGTERM handlers (default: true). Set false in tests.
     pub trap_signals: bool,
     /// Poll for `/tmp/shutdown` file (K8s pre-stop hook pattern). Default: true.
     pub enable_prestop_check: bool,
-    /// How often the health monitor polls component heartbeats (default: 5s).
-    /// Lower values detect stalls faster but use more CPU on the monitor thread.
-    pub health_poll_interval: Duration,
+    /// How often the health monitor polls component heartbeats. When `None`
+    /// (default), no health polling occurs — `report_healthy()`/`report_unhealthy()`
+    /// still update state, but stall detection is disabled. Set via
+    /// [`with_health_poll_interval`](ManagerOptions::with_health_poll_interval)
+    /// to enable.
+    pub health_poll_interval: Option<Duration>,
 }
 
 impl ManagerOptions {
@@ -46,9 +51,9 @@ impl ManagerOptions {
 
     /// Hard ceiling on total shutdown duration. If all components haven't finished
     /// within this window, monitor returns [`LifecycleError::ShutdownTimeout`].
-    /// Default: 60s.
+    /// Default: `None` (no ceiling — waits indefinitely; K8s SIGKILL is the backstop).
     pub fn with_global_shutdown_timeout(mut self, d: Duration) -> Self {
-        self.global_shutdown_timeout = d;
+        self.global_shutdown_timeout = Some(d);
         self
     }
 
@@ -64,10 +69,12 @@ impl ManagerOptions {
         self
     }
 
-    /// How often the health monitor polls component heartbeats. Default: 5s.
+    /// Enable health monitoring and set the poll interval. The health monitor
+    /// checks component heartbeats and triggers graceful shutdown when a
+    /// component's stall count reaches its threshold. Default: `None` (disabled).
     /// Lower values detect stalls faster but use more CPU.
     pub fn with_health_poll_interval(mut self, d: Duration) -> Self {
-        self.health_poll_interval = d;
+        self.health_poll_interval = Some(d);
         self
     }
 }
@@ -76,10 +83,10 @@ impl Default for ManagerOptions {
     fn default() -> Self {
         Self {
             name: "app".to_string(),
-            global_shutdown_timeout: Duration::from_secs(60),
+            global_shutdown_timeout: None,
             trap_signals: true,
             enable_prestop_check: true,
-            health_poll_interval: Duration::from_secs(5),
+            health_poll_interval: None,
         }
     }
 }
@@ -158,7 +165,7 @@ struct ComponentState {
 /// Lifecycle manager: registers components, runs monitor on a dedicated OS thread, provides readiness/liveness handlers and shutdown signal.
 pub struct Manager {
     name: String,
-    options: ManagerOptions,
+    pub options: ManagerOptions,
     shutdown_token: CancellationToken,
     event_tx: mpsc::Sender<ComponentEvent>,
     event_rx: Option<mpsc::Receiver<ComponentEvent>>,
@@ -297,6 +304,24 @@ impl Manager {
         let health_poll_interval = self.options.health_poll_interval;
         let global_timeout = self.options.global_shutdown_timeout;
         let shutdown_token = self.shutdown_token.clone();
+        let has_liveness_components = !self.liveness_components.is_empty();
+
+        if let Some(t) = global_timeout {
+            debug!(
+                global_shutdown_timeout_secs = t.as_secs_f64(),
+                "Lifecycle: global shutdown timeout configured"
+            );
+        } else {
+            debug!("Lifecycle: no global shutdown timeout — K8s SIGKILL is the backstop");
+        }
+
+        if has_liveness_components && health_poll_interval.is_none() {
+            warn!(
+                "Lifecycle: components registered with liveness_deadline but health_poll_interval \
+                 is not set — stall detection is disabled. Call \
+                 ManagerOptions::with_health_poll_interval() to enable."
+            );
+        }
 
         if trap_signals {
             let token = shutdown_token.clone();
@@ -324,64 +349,62 @@ impl Manager {
             });
         }
 
-        // Health monitor + metrics gauge task. Polls component heartbeats on the
-        // monitor's dedicated thread. Emits metrics and triggers shutdown when a
-        // component's stall count reaches its threshold.
-        let name_for_health = name.clone();
-        let liveness_for_health = self.liveness_components.clone();
-        let health_token = shutdown_token.clone();
-        let health_event_tx = self.event_tx.clone();
-        tokio::spawn(async move {
-            let mut stall_counts: Vec<u32> = vec![0; liveness_for_health.len()];
-            let mut interval = tokio::time::interval(health_poll_interval);
-            loop {
-                tokio::select! {
-                    _ = interval.tick() => {
-                        let now_ms = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as i64;
-                        for (i, comp) in liveness_for_health.iter().enumerate() {
-                            let until = comp.healthy_until_ms.load(Ordering::Relaxed);
-                            let (healthy, status) = if until == -1 {
-                                (false, "unhealthy")
-                            } else if until == 0 {
-                                // Starting — never reported healthy, skip stall tracking
-                                metrics::emit_component_healthy(&name_for_health, &comp.tag, false);
-                                continue;
-                            } else if until > now_ms {
-                                (true, "healthy")
-                            } else {
-                                (false, "stalled")
-                            };
+        if let Some(poll_interval) = health_poll_interval {
+            let name_for_health = name.clone();
+            let liveness_for_health = self.liveness_components.clone();
+            let health_token = shutdown_token.clone();
+            let health_event_tx = self.event_tx.clone();
+            tokio::spawn(async move {
+                let mut stall_counts: Vec<u32> = vec![0; liveness_for_health.len()];
+                let mut interval = tokio::time::interval(poll_interval);
+                loop {
+                    tokio::select! {
+                        _ = interval.tick() => {
+                            let now_ms = SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as i64;
+                            for (i, comp) in liveness_for_health.iter().enumerate() {
+                                let until = comp.healthy_until_ms.load(Ordering::Relaxed);
+                                let (healthy, status) = if until == -1 {
+                                    (false, "unhealthy")
+                                } else if until == 0 {
+                                    metrics::emit_component_healthy(&name_for_health, &comp.tag, false);
+                                    continue;
+                                } else if until > now_ms {
+                                    (true, "healthy")
+                                } else {
+                                    (false, "stalled")
+                                };
 
-                            metrics::emit_component_healthy(&name_for_health, &comp.tag, healthy);
+                                metrics::emit_component_healthy(&name_for_health, &comp.tag, healthy);
 
-                            if healthy {
-                                stall_counts[i] = 0;
-                            } else {
-                                stall_counts[i] += 1;
-                                if stall_counts[i] >= comp.stall_threshold {
-                                    warn!(
-                                        component = %comp.tag,
-                                        status,
-                                        stall_count = stall_counts[i],
-                                        stall_threshold = comp.stall_threshold,
-                                        "Lifecycle: health stall threshold reached"
-                                    );
-                                    drop(health_event_tx.try_send(ComponentEvent::Failure {
-                                        tag: comp.tag.clone(),
-                                        reason: format!("health check {status} (stall count {}/{})", stall_counts[i], comp.stall_threshold),
-                                    }));
-                                    return;
+                                if healthy {
+                                    stall_counts[i] = 0;
+                                } else {
+                                    stall_counts[i] += 1;
+                                    if stall_counts[i] >= comp.stall_threshold {
+                                        warn!(
+                                            component = %comp.tag,
+                                            status,
+                                            stall_count = stall_counts[i],
+                                            stall_threshold = comp.stall_threshold,
+                                            "Lifecycle: health stall threshold reached"
+                                        );
+                                        drop(health_event_tx.try_send(ComponentEvent::Failure {
+                                            tag: comp.tag.clone(),
+                                            reason: format!("health check {status} (stall count {}/{})", stall_counts[i], comp.stall_threshold),
+                                        }));
+                                        return;
+                                    }
                                 }
                             }
                         }
+                        _ = health_token.cancelled() => break,
                     }
-                    _ = health_token.cancelled() => break,
                 }
-            }
-        });
+            });
+        }
 
         let mut first_failure: Option<LifecycleError> = None;
 
@@ -455,7 +478,7 @@ impl Manager {
         }
 
         let shutdown_clock = Instant::now();
-        let global_deadline = shutdown_clock + global_timeout;
+        let global_deadline = global_timeout.map(|t| shutdown_clock + t);
         let mut component_deadlines: Vec<(String, Instant)> = self
             .components
             .iter()
@@ -468,29 +491,29 @@ impl Manager {
 
         loop {
             let now = Instant::now();
-            if now >= global_deadline {
-                let remaining: Vec<String> = self
-                    .components
-                    .iter()
-                    .filter(|(_, s)| {
-                        s.phase != ShutdownPhase::Completed
-                            && s.phase != ShutdownPhase::TimedOut
-                            && s.phase != ShutdownPhase::Died
-                    })
-                    .map(|(t, _)| t.clone())
-                    .collect();
-                for tag in &remaining {
-                    metrics::emit_component_shutdown_result(&name, tag, "timeout");
+            if let Some(deadline) = global_deadline {
+                if now >= deadline {
+                    let elapsed = global_timeout.unwrap();
+                    let remaining: Vec<String> = self
+                        .components
+                        .iter()
+                        .filter(|(_, s)| {
+                            s.phase != ShutdownPhase::Completed
+                                && s.phase != ShutdownPhase::TimedOut
+                                && s.phase != ShutdownPhase::Died
+                        })
+                        .map(|(t, _)| t.clone())
+                        .collect();
+                    for tag in &remaining {
+                        metrics::emit_component_shutdown_result(&name, tag, "timeout");
+                    }
+                    warn!(
+                        total_duration_secs = elapsed.as_secs_f64(),
+                        remaining = ?remaining,
+                        "Lifecycle: global shutdown timeout reached"
+                    );
+                    return Err(LifecycleError::ShutdownTimeout { elapsed, remaining });
                 }
-                warn!(
-                    total_duration_secs = global_timeout.as_secs_f64(),
-                    remaining = ?remaining,
-                    "Lifecycle: global shutdown timeout reached"
-                );
-                return Err(LifecycleError::ShutdownTimeout {
-                    elapsed: global_timeout,
-                    remaining,
-                });
             }
 
             let next_component_timeout = component_deadlines
@@ -503,14 +526,15 @@ impl Manager {
                 })
                 .map(|(_, t)| *t);
 
+            // When no global deadline is set, only per-component deadlines drive
+            // the sleep branch. If neither exists, the loop blocks purely on events.
             let wait_duration = [
                 next_component_timeout.map(|t| t.saturating_duration_since(now)),
-                Some(global_deadline.saturating_duration_since(now)),
+                global_deadline.map(|t| t.saturating_duration_since(now)),
             ]
             .into_iter()
             .flatten()
-            .min()
-            .unwrap_or(Duration::from_secs(1));
+            .min();
 
             tokio::select! {
                 biased;
@@ -555,7 +579,12 @@ impl Manager {
                         return self.finalize(shutdown_clock, first_failure);
                     }
                 }
-                _ = tokio::time::sleep(wait_duration) => {
+                _ = async {
+                    match wait_duration {
+                        Some(d) => tokio::time::sleep(d).await,
+                        None => std::future::pending().await,
+                    }
+                } => {
                     let now = Instant::now();
                     for (tag, deadline) in &component_deadlines {
                         if now >= *deadline {
