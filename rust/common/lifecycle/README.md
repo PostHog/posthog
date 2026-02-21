@@ -1,6 +1,6 @@
 # lifecycle
 
-Unified app lifecycle management for K8s services: signal trapping, component registration with RAII drop guards, coordinated graceful shutdown, heartbeat-based liveness, readiness/liveness probes, and metrics.
+Unified app lifecycle management for K8s services: signal trapping, component registration with RAII drop guards, coordinated graceful shutdown, internal health monitoring with stall detection, readiness/liveness probes, and metrics.
 
 ## Manager setup
 
@@ -22,7 +22,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "consumer",
         ComponentOptions::new()
             .with_graceful_shutdown(Duration::from_secs(10))  // per-component shutdown budget
-            .with_liveness_deadline(Duration::from_secs(30)), // must call report_healthy() within this
+            .with_liveness_deadline(Duration::from_secs(30))  // must call report_healthy() within this
+            .with_stall_threshold(2),                         // 2 consecutive stalled checks before shutdown
     );
 
     // ... spawn component tasks, wire up HTTP routes ...
@@ -47,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `global_shutdown_timeout` | `Duration` | `60s` | Hard ceiling on total shutdown. Monitor returns `ShutdownTimeout` if exceeded. |
 | `trap_signals` | `bool` | `true` | Install SIGINT/SIGTERM handlers. Set `false` in tests. |
 | `enable_prestop_check` | `bool` | `true` | Poll for `/tmp/shutdown` file (K8s pre-stop hook pattern). |
-| `liveness_strategy` | `HealthStrategy` | `All` | `All`: every component must be healthy. `Any`: at least one suffices. (see tests `liveness_strategy_all_requires_all_healthy`, `liveness_strategy_any_one_healthy_suffices`) |
+| `health_poll_interval` | `Duration` | `5s` | How often the health monitor polls component heartbeats. Lower = faster stall detection. |
 
 ### register() / ComponentOptions
 
@@ -55,17 +56,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 | Method | Effect | Default |
 |--------|--------|---------|
-| `ComponentOptions::new()` | No shutdown timeout, no liveness deadline. | — |
+| `ComponentOptions::new()` | No shutdown timeout, no liveness deadline, stall threshold 1. | — |
 | `.with_graceful_shutdown(duration)` | Max time for this component to clean up after shutdown begins. Exceeded = marked timed out. (see test `component_timeout_then_late_drop_preserves_timeout`) | `None` (waits until `global_shutdown_timeout`) |
-| `.with_liveness_deadline(duration)` | Component must call `report_healthy()` within this interval or liveness reports it as `Stalled`. (see test `liveness_starts_as_starting_until_report_healthy`) | `None` (no liveness tracking) |
+| `.with_liveness_deadline(duration)` | Component must call `report_healthy()` within this interval or the health monitor considers it stalled. After `stall_threshold` consecutive stalled checks, the manager triggers global shutdown. (see test `stall_triggers_shutdown`) | `None` (no health monitoring) |
+| `.with_stall_threshold(n)` | Number of consecutive stalled health checks before the manager triggers global shutdown. Set higher for tolerance of transient hiccups. (see test `stall_threshold_allows_recovery`) | `1` (immediate) |
 
 ## K8s readiness and liveness
 
 **Readiness** (`/_readiness`) returns 200 until shutdown begins, then 503. K8s uses this to stop routing traffic to the pod. No per-component logic — it's purely "is the app accepting work?" (see test `readiness_200_until_shutdown_then_503`)
 
-**Liveness** (`/_liveness`) aggregates per-component heartbeats. Each component with a `liveness_deadline` must call `report_healthy()` within that interval. If any component stalls (with `HealthStrategy::All`, the default), the probe returns 500. K8s will restart the pod after `failureThreshold * periodSeconds` consecutive failures. (see tests `liveness_starts_as_starting_until_report_healthy`, `liveness_report_unhealthy`, `liveness_strategy_all_requires_all_healthy`)
+**Liveness** (`/_liveness`) always returns 200 — it means "the process is reachable." Health monitoring is handled internally by the manager's health poll task, not by K8s. When a component's heartbeat deadline expires, the health monitor increments a stall counter. After `stall_threshold` consecutive stalled checks, the manager triggers global shutdown via the same `ComponentEvent::Failure` path as `signal_failure()`. This ensures the app always gets coordinated graceful shutdown instead of K8s surprise-killing the pod. (see tests `stall_triggers_shutdown`, `stall_threshold_exceeded_triggers_shutdown`, `stall_threshold_allows_recovery`)
 
-`signal_failure()` does **not** flip liveness directly. It triggers graceful shutdown (readiness goes 503), but liveness stays healthy until heartbeat deadlines expire naturally. This gives the app time to shut down cleanly before K8s considers a liveness-based restart. (see test `direct_signal_failure_then_drop`)
+Components in **Starting** state (never called `report_healthy()`) are skipped by the health monitor — they won't trigger stall detection until they've reported healthy at least once. (see test `starting_component_does_not_trigger_stall`)
 
 ### Axum route setup
 
@@ -169,21 +171,20 @@ After `signal_failure()`, just return — the manager records the failure immedi
 | Method | Use when |
 |--------|----------|
 | `shutdown_recv()` | In `tokio::select!` to react to shutdown. |
-| `cancellation_token()` | Pass to sub-tasks or APIs that take a `CancellationToken`. |
 | `is_shutting_down()` | Sync check (e.g. in a hot loop) to bail out. |
 | `signal_failure(reason)` | Fatal error; triggers global shutdown. Just return after calling it. |
 | `request_shutdown()` | Request clean shutdown (non-fatal). Then return (drop is enough). |
 | `work_completed()` | One-shot/finite work that completes during normal operation (prevents the handle drop from signaling "died"). Not needed for long-running components — drop during shutdown is treated as completion. |
 | `process_scope()` | Returns a `ProcessScopeGuard`. Ties lifecycle signaling to a method scope instead of handle drop. Use when your struct owns the handle. |
-| `report_healthy()` | Liveness heartbeat (call more often than `liveness_deadline`). |
-| `report_unhealthy()` | Mark this component unhealthy for liveness (K8s will eventually restart). |
+| `report_healthy()` | Liveness heartbeat. Must be called more often than `liveness_deadline`. If not, the health monitor increments a stall counter; after `stall_threshold` consecutive stalled checks, global shutdown is triggered. |
+| `report_unhealthy()` | Mark this component unhealthy. Treated the same as a stalled heartbeat by the health monitor. For immediate shutdown, use `signal_failure()` instead. |
 | `report_healthy_blocking()` | Same as `report_healthy()`; safe from sync/blocking contexts (e.g. rdkafka callbacks). |
 
 ### Common pitfalls
 
-1. **Drop during normal operation** — If the last handle (or process scope guard) is dropped while shutdown is **not** in progress, the manager treats it as "component died" and triggers shutdown. This catches panics and early returns. Dropping after shutdown begins is treated as normal completion.
+1. **Drop during normal operation** — If the last handle (or process scope guard) is dropped while shutdown is **not** in progress, the manager treats it as "component died" and triggers shutdown. This catches panics and early returns. Dropping after shutdown begins is treated as normal completion. (see test `panic_in_task_with_process_scope_signals_died`)
 2. **Register order** — Register all components before calling `monitor()` or `monitor_background()`. The manager is consumed by those calls.
-3. **Liveness** — With `with_liveness_deadline`, you must call `report_healthy()` more frequently than that interval, or the probe reports the component as stalled. With `HealthStrategy::All`, one stalled component fails the whole probe.
+3. **Health monitoring** — With `with_liveness_deadline`, you must call `report_healthy()` more frequently than that interval, or the health monitor triggers global shutdown after `stall_threshold` consecutive stalled checks. Components that haven't called `report_healthy()` yet (Starting state) are skipped.
 4. **Struct-held handles** — If your struct owns the handle and `process()` is the run method, use `process_scope()`. Otherwise the manager is only notified when the struct is dropped, not when `process()` returns.
 
 ## Metrics

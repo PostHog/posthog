@@ -57,11 +57,6 @@ impl Handle {
         self.inner.shutdown_token.cancelled()
     }
 
-    /// Clone of the underlying cancellation token for passing to sub-tasks.
-    pub fn cancellation_token(&self) -> CancellationToken {
-        self.inner.shutdown_token.clone()
-    }
-
     /// Returns true if shutdown has been initiated.
     pub fn is_shutting_down(&self) -> bool {
         self.inner.shutdown_token.is_cancelled()
@@ -105,10 +100,9 @@ impl Handle {
     }
 
     /// Liveness heartbeat. Must be called more often than the configured `liveness_deadline`.
-    /// If not called in time, the liveness probe reports the component as `Stalled` — K8s
-    /// will eventually restart the pod after `failureThreshold` consecutive probe failures.
-    /// (see tests `liveness_starts_as_starting_until_report_healthy`,
-    /// `component_b_reports_healthy_from_process`)
+    /// If not called in time, the health monitor considers this component stalled. After
+    /// `stall_threshold` consecutive stalled checks, the manager triggers global shutdown.
+    /// (see tests `stall_triggers_shutdown`, `component_b_reports_healthy_from_process`)
     pub fn report_healthy(&self) {
         if let Some(deadline) = self.inner.liveness_deadline {
             let now_ms = SystemTime::now()
@@ -120,10 +114,12 @@ impl Handle {
         }
     }
 
-    /// Mark this component as explicitly unhealthy for liveness. The liveness probe will
-    /// report `Unhealthy` (distinct from `Starting` or `Stalled`). Call [`report_healthy`](Handle::report_healthy)
-    /// to recover. K8s will restart the pod if liveness fails long enough.
-    /// (see test `liveness_report_unhealthy`)
+    /// Mark this component as explicitly unhealthy. The health monitor treats this the
+    /// same as a stalled heartbeat — after `stall_threshold` consecutive checks, the
+    /// manager triggers global shutdown. Call [`report_healthy`](Handle::report_healthy)
+    /// to recover and reset the stall counter. For immediate shutdown, use
+    /// [`signal_failure`](Handle::signal_failure) instead.
+    /// (see test `report_unhealthy_triggers_stall`)
     pub fn report_unhealthy(&self) {
         self.inner.healthy_until_ms.store(-1, Ordering::Relaxed);
     }

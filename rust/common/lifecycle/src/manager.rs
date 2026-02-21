@@ -12,7 +12,7 @@ use tracing::{debug, info, warn};
 
 use crate::error::LifecycleError;
 use crate::handle::{ComponentEvent, Handle, HandleInner};
-use crate::liveness::{HealthStrategy, LivenessComponentRef, LivenessHandler};
+use crate::liveness::{LivenessComponentRef, LivenessHandler};
 use crate::metrics;
 use crate::readiness::ReadinessHandler;
 use crate::signals;
@@ -30,10 +30,9 @@ pub struct ManagerOptions {
     pub trap_signals: bool,
     /// Poll for `/tmp/shutdown` file (K8s pre-stop hook pattern). Default: true.
     pub enable_prestop_check: bool,
-    /// Liveness aggregation: `All` (every component must be healthy, default) or
-    /// `Any` (at least one). See tests `liveness_strategy_all_requires_all_healthy`,
-    /// `liveness_strategy_any_one_healthy_suffices`.
-    pub liveness_strategy: HealthStrategy,
+    /// How often the health monitor polls component heartbeats (default: 5s).
+    /// Lower values detect stalls faster but use more CPU on the monitor thread.
+    pub health_poll_interval: Duration,
 }
 
 impl Default for ManagerOptions {
@@ -43,7 +42,7 @@ impl Default for ManagerOptions {
             global_shutdown_timeout: Duration::from_secs(60),
             trap_signals: true,
             enable_prestop_check: true,
-            liveness_strategy: HealthStrategy::All,
+            health_poll_interval: Duration::from_secs(5),
         }
     }
 }
@@ -53,14 +52,16 @@ impl Default for ManagerOptions {
 pub struct ComponentOptions {
     pub graceful_shutdown: Option<Duration>,
     pub liveness_deadline: Option<Duration>,
+    pub stall_threshold: u32,
 }
 
 impl ComponentOptions {
-    /// No graceful shutdown timeout, no liveness deadline.
+    /// No graceful shutdown timeout, no liveness deadline, stall threshold 1.
     pub fn new() -> Self {
         Self {
             graceful_shutdown: None,
             liveness_deadline: None,
+            stall_threshold: 1,
         }
     }
 
@@ -76,13 +77,23 @@ impl ComponentOptions {
     }
 
     /// Liveness heartbeat deadline. The component must call [`Handle::report_healthy`](crate::Handle::report_healthy)
-    /// within this interval or the liveness probe reports it as `Stalled`.
-    /// (see test `liveness_starts_as_starting_until_report_healthy`)
+    /// within this interval or the health monitor considers it stalled. After
+    /// `stall_threshold` consecutive stalled checks, the manager triggers global shutdown.
+    /// (see test `stall_triggers_shutdown`)
     pub fn with_liveness_deadline<D>(mut self, d: D) -> Self
     where
         D: TryInto<Duration>,
     {
         self.liveness_deadline = d.try_into().ok();
+        self
+    }
+
+    /// Number of consecutive stalled health checks before the manager triggers
+    /// global shutdown. Default: 1 (immediate). Set higher for tolerance of
+    /// transient hiccups.
+    /// (see test `stall_threshold_allows_recovery`)
+    pub fn with_stall_threshold(mut self, n: u32) -> Self {
+        self.stall_threshold = n.max(1);
         self
     }
 }
@@ -142,11 +153,11 @@ impl Manager {
         let tag_owned = tag.to_string();
         let deadline = options.liveness_deadline;
 
-        if let Some(d) = options.liveness_deadline {
+        if options.liveness_deadline.is_some() {
             self.liveness_components.push(LivenessComponentRef {
                 tag: tag_owned.clone(),
                 healthy_until_ms: healthy_until_ms.clone(),
-                deadline: d,
+                stall_threshold: options.stall_threshold,
             });
         }
 
@@ -162,6 +173,7 @@ impl Manager {
             component = %tag_owned,
             graceful_shutdown_secs = options.graceful_shutdown.map(|d| d.as_secs_f64()),
             liveness_deadline_secs = deadline.map(|d| d.as_secs_f64()),
+            stall_threshold = options.stall_threshold,
             "Lifecycle: component registered"
         );
 
@@ -185,16 +197,11 @@ impl Manager {
         ReadinessHandler::new(self.shutdown_token.clone())
     }
 
-    /// Liveness probe handler (`/_liveness`). Aggregates per-component heartbeats; returns
-    /// 200 if healthy per [`HealthStrategy`], 500 with per-component detail otherwise.
-    /// K8s restarts the pod after `failureThreshold` consecutive 500s.
-    /// (see tests `liveness_starts_as_starting_until_report_healthy`,
-    /// `liveness_with_process_scope_struct`)
+    /// Liveness probe handler (`/_liveness`). Always returns 200 — liveness means
+    /// "the process is reachable." Health monitoring is handled internally by the
+    /// monitor's health poll task, which triggers graceful shutdown on stall.
     pub fn liveness_handler(&self) -> LivenessHandler {
-        LivenessHandler::new(
-            Arc::new(self.liveness_components.clone()),
-            self.options.liveness_strategy.clone(),
-        )
+        LivenessHandler::new()
     }
 
     /// Future that resolves when shutdown begins. Pass to
@@ -250,6 +257,7 @@ impl Manager {
         let name = self.name.clone();
         let trap_signals = self.options.trap_signals;
         let enable_prestop = self.options.enable_prestop_check;
+        let health_poll_interval = self.options.health_poll_interval;
         let global_timeout = self.options.global_shutdown_timeout;
         let shutdown_token = self.shutdown_token.clone();
 
@@ -279,11 +287,16 @@ impl Manager {
             });
         }
 
-        let name_for_metrics = name.clone();
-        let liveness_for_metrics = self.liveness_components.clone();
-        let gauge_token = shutdown_token.clone();
+        // Health monitor + metrics gauge task. Polls component heartbeats on the
+        // monitor's dedicated thread. Emits metrics and triggers shutdown when a
+        // component's stall count reaches its threshold.
+        let name_for_health = name.clone();
+        let liveness_for_health = self.liveness_components.clone();
+        let health_token = shutdown_token.clone();
+        let health_event_tx = self.event_tx.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(5));
+            let mut stall_counts: Vec<u32> = vec![0; liveness_for_health.len()];
+            let mut interval = tokio::time::interval(health_poll_interval);
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
@@ -291,13 +304,44 @@ impl Manager {
                             .duration_since(UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_millis() as i64;
-                        for comp in &liveness_for_metrics {
+                        for (i, comp) in liveness_for_health.iter().enumerate() {
                             let until = comp.healthy_until_ms.load(Ordering::Relaxed);
-                            let healthy = until > 0 && until > now_ms;
-                            metrics::emit_component_healthy(&name_for_metrics, &comp.tag, healthy);
+                            let (healthy, status) = if until == -1 {
+                                (false, "unhealthy")
+                            } else if until == 0 {
+                                // Starting — never reported healthy, skip stall tracking
+                                metrics::emit_component_healthy(&name_for_health, &comp.tag, false);
+                                continue;
+                            } else if until > now_ms {
+                                (true, "healthy")
+                            } else {
+                                (false, "stalled")
+                            };
+
+                            metrics::emit_component_healthy(&name_for_health, &comp.tag, healthy);
+
+                            if healthy {
+                                stall_counts[i] = 0;
+                            } else {
+                                stall_counts[i] += 1;
+                                if stall_counts[i] >= comp.stall_threshold {
+                                    warn!(
+                                        component = %comp.tag,
+                                        status,
+                                        stall_count = stall_counts[i],
+                                        stall_threshold = comp.stall_threshold,
+                                        "Lifecycle: health stall threshold reached"
+                                    );
+                                    drop(health_event_tx.try_send(ComponentEvent::Failure {
+                                        tag: comp.tag.clone(),
+                                        reason: format!("health check {status} (stall count {}/{})", stall_counts[i], comp.stall_threshold),
+                                    }));
+                                    return;
+                                }
+                            }
                         }
                     }
-                    _ = gauge_token.cancelled() => break,
+                    _ = health_token.cancelled() => break,
                 }
             }
         });

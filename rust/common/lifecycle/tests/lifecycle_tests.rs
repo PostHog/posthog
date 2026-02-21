@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use lifecycle::{ComponentOptions, HealthStrategy, LifecycleError, Manager, ManagerOptions};
+use lifecycle::{ComponentOptions, LifecycleError, Manager, ManagerOptions};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -14,7 +14,18 @@ fn test_manager() -> Manager {
         global_shutdown_timeout: Duration::from_secs(5),
         trap_signals: false,
         enable_prestop_check: false,
-        liveness_strategy: HealthStrategy::All,
+        health_poll_interval: Duration::from_secs(5),
+    })
+}
+
+/// Manager with fast health polling for stall detection tests.
+fn fast_poll_manager(poll_ms: u64) -> Manager {
+    Manager::new(ManagerOptions {
+        name: "test".into(),
+        global_shutdown_timeout: Duration::from_secs(5),
+        trap_signals: false,
+        enable_prestop_check: false,
+        health_poll_interval: Duration::from_millis(poll_ms),
     })
 }
 
@@ -164,11 +175,9 @@ async fn component_b_do_work_signals_failure() {
     let guard = manager.monitor_background();
 
     let comp = ComponentB::new(handle.clone());
-    // Set the fail flag so do_work returns Err on next call
     comp.fail_flag.store(true, Ordering::SeqCst);
     tokio::spawn(async move { comp.process().await });
 
-    // Wait for struct to drop after task exits
     tokio::time::sleep(Duration::from_millis(200)).await;
     drop(handle);
 
@@ -183,25 +192,23 @@ async fn component_b_do_work_signals_failure() {
 }
 
 /// ComponentB: report_healthy() is called from the process loop after each
-/// successful do_work(). Liveness probe starts as !healthy (Starting), then
-/// reflects Healthy once heartbeats arrive.
-/// Demonstrates: liveness driven by report_healthy in a struct-based component.
+/// successful do_work(). Active heartbeating prevents the health monitor from
+/// triggering a stall-based shutdown.
 #[tokio::test]
 async fn component_b_reports_healthy_from_process() {
-    let mut manager = test_manager();
-    let handle = manager.register("b", liveness_opts());
-    let liveness = manager.liveness_handler();
-
-    // Initially Starting (no report_healthy yet)
-    assert!(!liveness.check().healthy);
+    let mut manager = fast_poll_manager(50);
+    let handle = manager.register(
+        "b",
+        ComponentOptions::new().with_liveness_deadline(Duration::from_millis(200)),
+    );
 
     let comp = ComponentB::new(handle.clone());
     let guard = manager.monitor_background();
     tokio::spawn(async move { comp.process().await });
 
-    // Let a few do_work iterations run so report_healthy is called
-    tokio::time::sleep(Duration::from_millis(80)).await;
-    assert!(liveness.check().healthy);
+    // Let several poll cycles pass — no stall because do_work heartbeats
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!handle.is_shutting_down());
 
     handle.request_shutdown();
     let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
@@ -228,9 +235,8 @@ async fn component_a_and_b_multi_component_shutdown() {
     tokio::spawn(async move { comp_b.process().await });
 
     tokio::time::sleep(Duration::from_millis(80)).await;
-    ha.request_shutdown(); // triggers global shutdown, both components see it
+    ha.request_shutdown();
 
-    // Drop the "struct" clones
     drop(ha);
     drop(hb);
 
@@ -250,7 +256,7 @@ async fn component_a_and_b_multi_component_shutdown() {
 
 /// signal_failure() triggers global shutdown; just return and let the handle
 /// drop. Manager records ComponentFailure; the drop during shutdown is ignored.
-/// K8s effect: readiness flips to 503, liveness stays healthy during shutdown.
+/// K8s effect: readiness flips to 503.
 #[tokio::test]
 async fn direct_signal_failure_then_drop() {
     let mut manager = test_manager();
@@ -260,7 +266,6 @@ async fn direct_signal_failure_then_drop() {
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(20)).await;
         handle.signal_failure("something broke");
-        // No work_completed() — just return; drop during shutdown is fine
     });
 
     let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
@@ -309,7 +314,6 @@ async fn direct_handle_drop_during_shutdown_is_completion() {
         tokio::time::sleep(Duration::from_millis(20)).await;
         handle.request_shutdown();
         handle.shutdown_recv().await;
-        // handle dropped here — shutdown in progress, so treated as WorkCompleted
     });
 
     let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
@@ -338,79 +342,56 @@ async fn direct_work_completed_prevents_died_on_drop() {
 }
 
 // ---------------------------------------------------------------------------
-// Section 3: Liveness and readiness
+// Section 3: Health monitoring and readiness
 //
-// Liveness is driven by report_healthy() / report_unhealthy() calls on
-// handles. K8s probes this endpoint and restarts the pod if it fails
-// failureThreshold consecutive times. Readiness is driven by the shutdown
-// token — it flips to 503 when any shutdown trigger fires, telling K8s to
-// stop routing traffic.
+// Health monitoring is internal to the manager: the health poll task checks
+// component heartbeats and triggers shutdown when stall_threshold is reached.
+// Liveness endpoint always returns 200 (process is reachable). Readiness
+// flips to 503 on shutdown so K8s stops routing traffic.
 // ---------------------------------------------------------------------------
 
-/// Components start as Starting (liveness probe fails). After calling
-/// report_healthy(), the probe returns Healthy.
-/// K8s effect: pod is not "live" until the first heartbeat arrives.
+/// Component that stops heartbeating is detected as stalled by the health
+/// monitor. With stall_threshold=1 (default), one stalled check triggers
+/// global shutdown with ComponentFailure.
 #[tokio::test]
-async fn liveness_starts_as_starting_until_report_healthy() {
-    let mut manager = test_manager();
-    let handle = manager.register("worker", liveness_opts());
-    let liveness = manager.liveness_handler();
-
-    let status = liveness.check();
-    assert!(!status.healthy);
-    assert_eq!(
-        status.components.get("worker").unwrap(),
-        &lifecycle::ComponentLiveness::Starting
+async fn stall_triggers_shutdown() {
+    let mut manager = fast_poll_manager(50);
+    let handle = manager.register(
+        "worker",
+        ComponentOptions::new().with_liveness_deadline(Duration::from_millis(100)),
     );
-
-    handle.report_healthy();
-    let status = liveness.check();
-    assert!(status.healthy);
-    assert_eq!(
-        status.components.get("worker").unwrap(),
-        &lifecycle::ComponentLiveness::Healthy
-    );
-}
-
-/// report_unhealthy() explicitly marks the component as Unhealthy. Calling
-/// report_healthy() again would recover it. This is distinct from Stalled
-/// (heartbeat deadline expired) — Unhealthy is an explicit signal.
-/// K8s effect: liveness probe returns 500; K8s eventually restarts the pod.
-#[tokio::test]
-async fn liveness_report_unhealthy() {
-    let mut manager = test_manager();
-    let handle = manager.register("worker", liveness_opts());
-    let liveness = manager.liveness_handler();
-
-    handle.report_healthy();
-    assert!(liveness.check().healthy);
-
-    handle.report_unhealthy();
-    let status = liveness.check();
-    assert!(!status.healthy);
-    assert_eq!(
-        status.components.get("worker").unwrap(),
-        &lifecycle::ComponentLiveness::Unhealthy
-    );
-}
-
-/// End-to-end: ComponentB runs with process_scope, calls report_healthy() on
-/// each successful do_work() iteration. Liveness reflects Healthy while
-/// running. After shutdown, the guard drops cleanly and the struct-held
-/// handle is dropped without double-signaling.
-/// Demonstrates: liveness + process_scope + struct-held handle working together.
-#[tokio::test]
-async fn liveness_with_process_scope_struct() {
-    let mut manager = test_manager();
-    let handle = manager.register("b", liveness_opts());
-    let liveness = manager.liveness_handler();
     let guard = manager.monitor_background();
 
-    let comp = ComponentB::new(handle.clone());
-    tokio::spawn(async move { comp.process().await });
+    // Report healthy once so we move past Starting state
+    handle.report_healthy();
+    // Wait for the deadline to expire + poll to fire
+    tokio::time::sleep(Duration::from_millis(250)).await;
 
-    tokio::time::sleep(Duration::from_millis(80)).await;
-    assert!(liveness.check().healthy);
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(matches!(
+        result,
+        Err(LifecycleError::ComponentFailure { tag, reason })
+            if tag == "worker" && reason.contains("stalled")
+    ));
+}
+
+/// Components in Starting state (never called report_healthy) do not trigger
+/// stall detection — the health monitor skips them.
+#[tokio::test]
+async fn starting_component_does_not_trigger_stall() {
+    let mut manager = fast_poll_manager(50);
+    let handle = manager.register(
+        "worker",
+        ComponentOptions::new().with_liveness_deadline(Duration::from_millis(100)),
+    );
+    let guard = manager.monitor_background();
+
+    // Never call report_healthy — component stays in Starting state
+    // Wait for several poll cycles
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!handle.is_shutting_down());
 
     handle.request_shutdown();
     drop(handle);
@@ -421,38 +402,105 @@ async fn liveness_with_process_scope_struct() {
     assert!(result.is_ok());
 }
 
-/// HealthStrategy::All: every component must be healthy for the probe to pass.
-/// One Starting/Stalled/Unhealthy component fails the whole probe.
+/// stall_threshold > 1: component stalls briefly then recovers by calling
+/// report_healthy before threshold is reached — no shutdown triggered.
 #[tokio::test]
-async fn liveness_strategy_all_requires_all_healthy() {
-    let mut manager = test_manager();
-    let h1 = manager.register("a", liveness_opts());
-    let h2 = manager.register("b", liveness_opts());
-    let liveness = manager.liveness_handler();
+async fn stall_threshold_allows_recovery() {
+    let mut manager = fast_poll_manager(50);
+    let handle = manager.register(
+        "worker",
+        ComponentOptions::new()
+            .with_liveness_deadline(Duration::from_millis(80))
+            .with_stall_threshold(3),
+    );
+    let guard = manager.monitor_background();
 
-    h1.report_healthy();
-    assert!(!liveness.check().healthy); // b still Starting
+    // Report healthy, then let it stall for 1-2 checks
+    handle.report_healthy();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    // Recover before threshold (3) is reached
+    handle.report_healthy();
+    tokio::time::sleep(Duration::from_millis(50)).await;
 
-    h2.report_healthy();
-    assert!(liveness.check().healthy);
+    assert!(!handle.is_shutting_down());
+
+    handle.request_shutdown();
+    drop(handle);
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(result.is_ok());
 }
 
-/// HealthStrategy::Any: at least one healthy component is enough.
+/// stall_threshold > 1: component stalls for enough consecutive checks to
+/// reach the threshold — shutdown is triggered.
 #[tokio::test]
-async fn liveness_strategy_any_one_healthy_suffices() {
-    let mut manager = Manager::new(ManagerOptions {
-        name: "test".into(),
-        global_shutdown_timeout: Duration::from_secs(5),
-        trap_signals: false,
-        enable_prestop_check: false,
-        liveness_strategy: HealthStrategy::Any,
-    });
-    let h1 = manager.register("a", liveness_opts());
-    let _h2 = manager.register("b", liveness_opts());
+async fn stall_threshold_exceeded_triggers_shutdown() {
+    let mut manager = fast_poll_manager(50);
+    let handle = manager.register(
+        "worker",
+        ComponentOptions::new()
+            .with_liveness_deadline(Duration::from_millis(80))
+            .with_stall_threshold(3),
+    );
+    let guard = manager.monitor_background();
+
+    handle.report_healthy();
+    // Wait for deadline to expire + 3 stalled polls (3 * 50ms + margin)
+    tokio::time::sleep(Duration::from_millis(400)).await;
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(matches!(
+        result,
+        Err(LifecycleError::ComponentFailure { tag, .. }) if tag == "worker"
+    ));
+}
+
+/// report_unhealthy() sets the component to an unhealthy state that the health
+/// monitor treats the same as a stalled heartbeat. With stall_threshold=1, the
+/// next poll triggers shutdown.
+#[tokio::test]
+async fn report_unhealthy_triggers_stall() {
+    let mut manager = fast_poll_manager(50);
+    let handle = manager.register(
+        "worker",
+        ComponentOptions::new().with_liveness_deadline(Duration::from_millis(500)),
+    );
+    let guard = manager.monitor_background();
+
+    handle.report_healthy();
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    handle.report_unhealthy();
+    // Wait for health poll to detect the unhealthy state
+    tokio::time::sleep(Duration::from_millis(150)).await;
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(matches!(
+        result,
+        Err(LifecycleError::ComponentFailure { tag, reason })
+            if tag == "worker" && reason.contains("unhealthy")
+    ));
+}
+
+/// Liveness endpoint always returns 200 regardless of component health.
+#[tokio::test]
+async fn liveness_always_200() {
+    let mut manager = test_manager();
+    let _handle = manager.register("worker", liveness_opts());
     let liveness = manager.liveness_handler();
 
-    h1.report_healthy();
-    assert!(liveness.check().healthy);
+    let status = liveness.check();
+    assert!(matches!(
+        axum::response::IntoResponse::into_response(status)
+            .status()
+            .as_u16(),
+        200
+    ));
 }
 
 /// Readiness returns 200 while running, 503 after shutdown begins.
@@ -496,6 +544,29 @@ async fn handle_drop_during_normal_operation_signals_died() {
     let handle = manager.register("worker", ComponentOptions::new());
     let guard = manager.monitor_background();
     drop(handle);
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(matches!(
+        result,
+        Err(LifecycleError::ComponentDied { tag }) if tag == "worker"
+    ));
+}
+
+/// Task panics while holding a process_scope guard → guard drop fires during
+/// unwind, manager receives Died, triggers global shutdown. Validates that the
+/// drop guard actually catches panics (not just manual drops).
+#[tokio::test]
+async fn panic_in_task_with_process_scope_signals_died() {
+    let mut manager = test_manager();
+    let handle = manager.register("worker", ComponentOptions::new());
+    let guard = manager.monitor_background();
+
+    tokio::spawn(async move {
+        let _scope = handle.process_scope();
+        panic!("boom");
+    });
 
     let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
         .await
