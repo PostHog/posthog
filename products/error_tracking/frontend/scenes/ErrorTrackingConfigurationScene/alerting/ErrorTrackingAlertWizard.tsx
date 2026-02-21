@@ -1,5 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
+import { AlertWizardStepper } from './AlertWizardStepper'
 import { errorTrackingAlertWizardLogic } from './errorTrackingAlertWizardLogic'
 import { ConfigureStep } from './steps/ConfigureStep'
 import { DestinationStep } from './steps/DestinationStep'
@@ -15,10 +16,13 @@ export function ErrorTrackingAlertWizard({
     onSwitchToTraditional,
 }: ErrorTrackingAlertWizardProps): JSX.Element {
     const { currentStep } = useValues(errorTrackingAlertWizardLogic)
+    const { setStep } = useActions(errorTrackingAlertWizardLogic)
 
     return (
         <div className="flex flex-col min-h-[400px]">
-            <div className="max-w-lg mx-auto flex-1 w-full">
+            <AlertWizardStepper currentStep={currentStep} onStepClick={setStep} />
+
+            <div className="max-w-lg mx-auto flex-1 w-full mt-4">
                 {currentStep === 'destination' && <DestinationStep onBack={onCancel} />}
                 {currentStep === 'trigger' && <TriggerStep />}
                 {currentStep === 'configure' && <ConfigureStep />}
