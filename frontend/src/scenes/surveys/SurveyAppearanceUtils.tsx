@@ -1,17 +1,16 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { common, createLowlight } from 'lowlight'
 import { useMemo, useRef } from 'react'
-import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
-import markup from 'react-syntax-highlighter/dist/esm/languages/prism/markup'
 
 import { LemonBanner, LemonTabs, LemonTextArea } from '@posthog/lemon-ui'
 
-import { darkTheme, lightTheme } from 'lib/components/CodeSnippet/theme'
+import { hastToReact } from 'lib/utils/hastToReact'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SurveyQuestionDescriptionContentType } from '~/types'
 
-SyntaxHighlighter.registerLanguage('markup', markup)
+const lowlight = createLowlight(common)
 
 const CODE_FONT_FAMILY = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace'
 
@@ -38,30 +37,13 @@ function HighlightedTextArea({
     const displayValue = value || ''
     const showPlaceholder = !displayValue && placeholder
 
-    const PreTag = useMemo(
-        () =>
-            function PreTagComponent({
-                children,
-                ...props
-            }: React.HTMLAttributes<HTMLPreElement> & { children: React.ReactNode }): JSX.Element {
-                return (
-                    <pre
-                        {...props}
-                        ref={preRef}
-                        className="m-0 overflow-auto pointer-events-none h-full"
-                        style={{
-                            ...props.style,
-                            fontFamily: 'inherit',
-                            fontSize: 'inherit',
-                            lineHeight: '1.5',
-                        }}
-                    >
-                        {children}
-                    </pre>
-                )
-            },
-        []
-    )
+    const highlighted = useMemo(() => {
+        if (!displayValue) {
+            return null
+        }
+        const tree = lowlight.highlight('xml', displayValue)
+        return hastToReact(tree)
+    }, [displayValue])
 
     return (
         <div
@@ -79,10 +61,10 @@ function HighlightedTextArea({
                     {placeholder}
                 </div>
             ) : (
-                <SyntaxHighlighter
-                    language="markup"
-                    style={isDarkModeOn ? darkTheme : lightTheme}
-                    customStyle={{
+                <pre
+                    ref={preRef}
+                    className="m-0 overflow-auto pointer-events-none h-full"
+                    style={{
                         margin: 0,
                         padding: '10px 12px',
                         background: 'transparent',
@@ -91,18 +73,22 @@ function HighlightedTextArea({
                         whiteSpace: 'pre-wrap',
                         wordWrap: 'break-word',
                         border: 'none',
+                        fontFamily: CODE_FONT_FAMILY,
+                        fontSize: 'inherit',
+                        lineHeight: '1.5',
                     }}
-                    codeTagProps={{
-                        style: {
+                >
+                    <code
+                        className={clsx('hljs', isDarkModeOn && 'hljs-dark')}
+                        style={{
                             fontFamily: CODE_FONT_FAMILY,
                             fontSize: 'inherit',
                             lineHeight: '1.5',
-                        },
-                    }}
-                    PreTag={PreTag}
-                >
-                    {displayValue}
-                </SyntaxHighlighter>
+                        }}
+                    >
+                        {highlighted}
+                    </code>
+                </pre>
             )}
             <textarea
                 ref={textareaRef}
