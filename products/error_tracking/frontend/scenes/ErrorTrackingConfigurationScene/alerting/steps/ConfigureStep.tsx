@@ -13,9 +13,9 @@ import { CyclotronJobInputSchemaType } from '~/types'
 import { errorTrackingAlertWizardLogic } from '../errorTrackingAlertWizardLogic'
 
 export function ConfigureStep(): JSX.Element {
-    const { requiredInputsSchema, configuration, selectedTemplateLoading, submitting } =
+    const { requiredInputsSchema, configuration, selectedTemplateLoading, submitting, testing } =
         useValues(errorTrackingAlertWizardLogic)
-    const { setStep, setInputValue, submitConfiguration } = useActions(errorTrackingAlertWizardLogic)
+    const { setStep, setInputValue, submitConfiguration, testConfiguration } = useActions(errorTrackingAlertWizardLogic)
 
     if (selectedTemplateLoading) {
         return (
@@ -54,8 +54,11 @@ export function ConfigureStep(): JSX.Element {
                 ))}
             </div>
 
-            <div className="flex justify-end">
-                <LemonButton type="primary" onClick={submitConfiguration} loading={submitting}>
+            <div className="flex justify-end gap-2">
+                <LemonButton type="secondary" onClick={testConfiguration} loading={testing} disabled={submitting}>
+                    Test
+                </LemonButton>
+                <LemonButton type="primary" onClick={submitConfiguration} loading={submitting} disabled={testing}>
                     Create alert
                 </LemonButton>
             </div>

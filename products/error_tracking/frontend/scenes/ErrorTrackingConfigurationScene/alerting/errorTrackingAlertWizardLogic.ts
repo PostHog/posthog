@@ -133,6 +133,8 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
         resetWizard: true,
         createAlertSuccess: true,
         submitConfiguration: true,
+        testConfiguration: true,
+        testConfigurationComplete: true,
     }),
 
     reducers({
@@ -191,6 +193,13 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
             {
                 submitConfiguration: () => true,
                 createAlertSuccess: () => false,
+            },
+        ],
+        testing: [
+            false,
+            {
+                testConfiguration: () => true,
+                testConfigurationComplete: () => false,
             },
         ],
     }),
@@ -339,6 +348,84 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
                 actions.loadTemplate(destination.templateId)
             }
             actions.setStep('configure')
+        },
+
+        testConfiguration: async (_, breakpoint) => {
+            const destinationKey = values.selectedDestinationKey
+            const triggerKey = values.selectedTriggerKey
+
+            if (!destinationKey || !triggerKey) {
+                return
+            }
+
+            const destination = ALL_DESTINATIONS.find((d) => d.key === destinationKey)!
+            const subTemplates = HOG_FUNCTION_SUB_TEMPLATES[triggerKey]
+            const subTemplate = subTemplates.find((t) => t.template_id === destination.templateId)
+
+            if (!subTemplate) {
+                lemonToast.error('Template not found for this combination')
+                return
+            }
+
+            const mergedInputs: Record<string, any> = { ...subTemplate.inputs }
+            for (const [key, val] of Object.entries(values.inputValues)) {
+                mergedInputs[key] = val
+            }
+
+            const selectedTemplate = values.selectedTemplate
+            if (!selectedTemplate) {
+                lemonToast.error('Template not loaded yet')
+                actions.testConfigurationComplete()
+                return
+            }
+
+            const configuration: Record<string, any> = {
+                type: 'internal_destination',
+                template_id: destination.templateId,
+                filters: subTemplate.filters,
+                enabled: true,
+                masking: null,
+                inputs: mergedInputs,
+                inputs_schema: selectedTemplate.inputs_schema,
+                hog: selectedTemplate.code,
+            }
+
+            const globals = {
+                event: {
+                    uuid: 'test-event-uuid',
+                    distinct_id: 'test-distinct-id',
+                    timestamp: new Date().toISOString(),
+                    event: subTemplate.filters?.events?.[0]?.id || triggerKey,
+                    properties: {
+                        name: 'Test issue',
+                        description: 'This is a test alert from PostHog',
+                    },
+                },
+                project: {
+                    id: 0,
+                    name: 'Test project',
+                    url: window.location.origin,
+                },
+                source: {
+                    name: 'Error tracking alert wizard',
+                    url: window.location.href,
+                },
+            }
+
+            try {
+                await api.hogFunctions.createTestInvocation('new', {
+                    configuration,
+                    globals,
+                    mock_async_functions: false,
+                })
+                breakpoint()
+                lemonToast.success('Test invocation sent')
+            } catch (e: any) {
+                breakpoint()
+                lemonToast.error(e.detail || 'Test invocation failed')
+            }
+
+            actions.testConfigurationComplete()
         },
 
         submitConfiguration: async () => {
