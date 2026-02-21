@@ -99,44 +99,49 @@ describe('MetricTracker', () => {
         })
     })
 
-    describe('maxKeys LRU eviction', () => {
-        it('should evict least recently used key when maxKeys exceeded', () => {
-            const tracker = new MetricTracker('metric', 10, 3)
+    describe('maxKeys eviction', () => {
+        it('should drop lowest-value half when maxKeys exceeded', () => {
+            const tracker = new MetricTracker('metric', 10, 4)
             tracker.record({ id: 'a' }, 1)
-            tracker.record({ id: 'b' }, 1)
-            tracker.record({ id: 'c' }, 1)
-            tracker.record({ id: 'd' }, 1) // evicts 'a'
+            tracker.record({ id: 'b' }, 10)
+            tracker.record({ id: 'c' }, 5)
+            tracker.record({ id: 'd' }, 2)
+            tracker.record({ id: 'e' }, 8) // triggers eviction, drops bottom half
 
             const keys = tracker.flush().map((e) => e.key.id)
-            expect(keys).toEqual(expect.arrayContaining(['b', 'c', 'd']))
+            expect(keys).toContain('b')
+            expect(keys).toContain('e')
+            expect(keys).toContain('c')
             expect(keys).not.toContain('a')
+            expect(keys).not.toContain('d')
         })
 
-        it('should refresh key on record preventing eviction', () => {
-            const tracker = new MetricTracker('metric', 10, 3)
-            tracker.record({ id: 'a' }, 1)
-            tracker.record({ id: 'b' }, 1)
-            tracker.record({ id: 'c' }, 1)
-            tracker.record({ id: 'a' }, 1) // refreshes 'a', now 'b' is LRU
-            tracker.record({ id: 'd' }, 1) // evicts 'b'
-
-            const keys = tracker.flush().map((e) => e.key.id)
-            expect(keys).toEqual(expect.arrayContaining(['a', 'c', 'd']))
-            expect(keys).not.toContain('b')
-        })
-
-        it('should preserve accumulated value when refreshing key', () => {
-            const tracker = new MetricTracker('metric', 10, 3)
-            tracker.record({ id: 'a' }, 5)
-            tracker.record({ id: 'b' }, 1)
-            tracker.record({ id: 'c' }, 1)
-            tracker.record({ id: 'a' }, 3) // refreshes 'a', value should be 8
+        it('should keep higher-value keys after eviction', () => {
+            const tracker = new MetricTracker('metric', 10, 4)
+            tracker.record({ id: 'low1' }, 1)
+            tracker.record({ id: 'low2' }, 2)
+            tracker.record({ id: 'high1' }, 100)
+            tracker.record({ id: 'high2' }, 50)
+            tracker.record({ id: 'high3' }, 75) // triggers eviction
 
             const entries = tracker.flush()
-            expect(entries.find((e) => e.key.id === 'a')?.value).toBe(8)
+            expect(entries.map((e) => e.key.id)).toEqual(['high1', 'high3', 'high2'])
         })
 
-        it('should not evict when under the limit', () => {
+        it('should allow new keys after eviction frees space', () => {
+            const tracker = new MetricTracker('metric', 10, 4)
+            tracker.record({ id: 'a' }, 1)
+            tracker.record({ id: 'b' }, 2)
+            tracker.record({ id: 'c' }, 3)
+            tracker.record({ id: 'd' }, 4)
+            tracker.record({ id: 'e' }, 5) // triggers eviction
+            tracker.record({ id: 'f' }, 6) // should fit after eviction
+
+            const keys = tracker.flush().map((e) => e.key.id)
+            expect(keys).toContain('f')
+        })
+
+        it('should not evict when at the limit', () => {
             const tracker = new MetricTracker('metric', 10, 5)
             tracker.record({ id: 'a' }, 1)
             tracker.record({ id: 'b' }, 1)

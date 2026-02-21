@@ -11,18 +11,11 @@ export class MetricTracker {
 
     record(key: Record<string, string>, value: number): void {
         const serializedKey = JSON.stringify(key)
-        const existing = this.counters.get(serializedKey)
-        if (existing === undefined) {
-            if (this.counters.size >= this.maxKeys) {
-                const lruKey = this.counters.keys().next().value!
-                this.counters.delete(lruKey)
-            }
-        } else {
-            // Move to end of insertion order (mark as most recently used)
-            this.counters.delete(serializedKey)
-        }
+        this.counters.set(serializedKey, (this.counters.get(serializedKey) ?? 0) + value)
 
-        this.counters.set(serializedKey, (existing ?? 0) + value)
+        if (this.counters.size > this.maxKeys) {
+            this.evict()
+        }
     }
 
     flush(): Array<{ key: Record<string, string>; value: number }> {
@@ -40,5 +33,11 @@ export class MetricTracker {
             key: parseJSON(serializedKey),
             value,
         }))
+    }
+
+    private evict(): void {
+        const sorted = Array.from(this.counters.entries()).sort(([, a], [, b]) => b - a)
+        const keep = Math.ceil(sorted.length / 2)
+        this.counters = new Map(sorted.slice(0, keep))
     }
 }
