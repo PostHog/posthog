@@ -29,6 +29,8 @@ import type {
     PatchedDatasetApi,
     PatchedDatasetItemApi,
     PatchedLLMProviderKeyApi,
+    SentimentBatchResponseApi,
+    SentimentRequestApi,
     SummarizeRequestApi,
     SummarizeResponseApi,
     TextReprRequestApi,
@@ -405,6 +407,23 @@ export const llmAnalyticsProviderKeysValidateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(lLMProviderKeyApi),
+    })
+}
+
+export const getLlmAnalyticsSentimentCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/llm_analytics/sentiment/`
+}
+
+export const llmAnalyticsSentimentCreate = async (
+    projectId: string,
+    sentimentRequestApi: SentimentRequestApi,
+    options?: RequestInit
+): Promise<SentimentBatchResponseApi> => {
+    return apiMutator<SentimentBatchResponseApi>(getLlmAnalyticsSentimentCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sentimentRequestApi),
     })
 }
 
