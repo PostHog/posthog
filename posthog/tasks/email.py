@@ -1455,7 +1455,8 @@ def send_error_tracking_weekly_digest_for_team(
     daily_counts = get_daily_exception_counts(team_id)
     crash_free = get_crash_free_sessions(team)
 
-    date_suffix = timezone.now().strftime("%Y-%W")
+    # TODO: restore to "%Y-%W" after testing (currently allows one email per hour)
+    date_suffix = timezone.now().strftime("%Y-%W-%d-%H")
     error_tracking_url = f"{settings.SITE_URL}/project/{team_id}/error_tracking?utm_source=error_tracking_weekly_digest"
     ingestion_failures_url = build_ingestion_failures_url(team_id)
 
