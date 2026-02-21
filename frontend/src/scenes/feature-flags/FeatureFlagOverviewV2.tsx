@@ -3,7 +3,7 @@ import './FeatureFlag.scss'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconCode, IconFlag, IconGlobe, IconList, IconMessage, IconServer } from '@posthog/icons'
+import { IconCode, IconFlag, IconGlobe, IconLaptop, IconMessage, IconServer } from '@posthog/icons'
 import {
     LemonButton,
     LemonCollapse,
@@ -106,7 +106,7 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
         switch (featureFlag.evaluation_runtime) {
             case FeatureFlagEvaluationRuntime.CLIENT:
                 return {
-                    icon: <IconList className="text-lg text-muted" />,
+                    icon: <IconLaptop className="text-lg text-muted" />,
                     label: 'Client-side only',
                     tag: 'Single-user apps',
                 }
