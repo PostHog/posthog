@@ -8,7 +8,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from posthog.models import Team
-from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
+from posthog.models.person.person import READ_DB_FOR_PERSONS, Person, PersonDistinctId
 
 from products.conversations.backend.models import ConversationRestoreToken, Ticket
 from products.conversations.backend.models.restore_token import hash_token
@@ -38,15 +38,23 @@ class RestoreService:
         """
         email_lower = email.lower().strip()
 
-        # Find distinct_ids of persons with matching email
-        person_distinct_ids = list(
-            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
-            .filter(
-                team=team,
-                person__properties__email__iexact=email_lower,
-            )
-            .values_list("distinct_id", flat=True)
+        # Two-step lookup to avoid expensive cross-table JOIN on JSONB field.
+        # Step 1: Find person IDs using exact match — hits the posthog_person_email btree index.
+        # Using exact match (not iexact) because LOWER() prevents index usage and causes timeouts.
+        person_ids = list(
+            Person.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(team=team, properties__email=email_lower)
+            .values_list("id", flat=True)[:1000]
         )
+
+        # Step 2: Resolve person IDs to distinct_ids
+        person_distinct_ids: list[str] = []
+        if person_ids:
+            person_distinct_ids = list(
+                PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+                .filter(team=team, person_id__in=person_ids)
+                .values_list("distinct_id", flat=True)
+            )
 
         # Query tickets matching either anonymous_traits.email OR person's distinct_id
         query = Q(anonymous_traits__email__iexact=email_lower)

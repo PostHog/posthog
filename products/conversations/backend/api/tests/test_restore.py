@@ -101,14 +101,16 @@ class TestRestoreService(BaseTest):
         self.assertEqual(len(tickets), 1)
 
     @patch("products.conversations.backend.services.restore.PersonDistinctId")
-    def test_find_tickets_by_person_email(self, mock_pdi_class):
+    @patch("products.conversations.backend.services.restore.Person")
+    def test_find_tickets_by_person_email(self, mock_person_class, mock_pdi_class):
         """Find tickets where user is identified (email on Person, not anonymous_traits)."""
-        # Mock the db_manager chain to return distinct_id for matching person
+        # Step 1 mock: Person query returns person IDs (plain list supports [:1000] slicing)
+        mock_person_class.objects.db_manager.return_value.filter.return_value.values_list.return_value = [1]
+        # Step 2 mock: PersonDistinctId resolves person IDs to distinct_ids
         mock_pdi_class.objects.db_manager.return_value.filter.return_value.values_list.return_value = [
             "identified-user-1"
         ]
 
-        # Create ticket linked via distinct_id (no email in anonymous_traits)
         Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id=self.widget_session_id,
@@ -121,14 +123,14 @@ class TestRestoreService(BaseTest):
         self.assertEqual(tickets[0].distinct_id, "identified-user-1")
 
     @patch("products.conversations.backend.services.restore.PersonDistinctId")
-    def test_find_tickets_by_email_finds_both_anonymous_and_identified(self, mock_pdi_class):
+    @patch("products.conversations.backend.services.restore.Person")
+    def test_find_tickets_by_email_finds_both_anonymous_and_identified(self, mock_person_class, mock_pdi_class):
         """Find tickets from both anonymous_traits and Person properties."""
-        # Mock the db_manager chain to return distinct_id for matching person
+        mock_person_class.objects.db_manager.return_value.filter.return_value.values_list.return_value = [1]
         mock_pdi_class.objects.db_manager.return_value.filter.return_value.values_list.return_value = [
             "identified-user"
         ]
 
-        # Ticket with email in anonymous_traits
         Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id=self.widget_session_id,
@@ -136,7 +138,6 @@ class TestRestoreService(BaseTest):
             anonymous_traits={"email": self.customer_email},
         )
 
-        # Ticket linked to person (no anonymous_traits email)
         Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id="other-session",
