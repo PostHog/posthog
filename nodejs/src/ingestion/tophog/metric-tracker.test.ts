@@ -1,4 +1,4 @@
-import { AddingMetricTracker, AverageMetricTracker } from './metric-tracker'
+import { AddingMetricTracker, AverageMetricTracker, MaxMetricTracker } from './metric-tracker'
 
 describe('AddingMetricTracker', () => {
     it('should store the metric name as given', () => {
@@ -245,6 +245,82 @@ describe('AverageMetricTracker', () => {
             expect(keys).toContain('high_avg')
             expect(keys).not.toContain('lowest_avg')
             expect(keys).not.toContain('low_avg')
+        })
+    })
+})
+
+describe('MaxMetricTracker', () => {
+    it('should keep the maximum value for a single key', () => {
+        const tracker = new MaxMetricTracker('max_size', 10, 1000)
+        tracker.record({ team_id: '1' }, 10)
+        tracker.record({ team_id: '1' }, 50)
+        tracker.record({ team_id: '1' }, 30)
+
+        const entries = tracker.flush()
+        expect(entries).toHaveLength(1)
+        expect(entries[0].value).toBe(50)
+    })
+
+    it('should track max independently per key', () => {
+        const tracker = new MaxMetricTracker('max_size', 10, 1000)
+        tracker.record({ team_id: '1' }, 10)
+        tracker.record({ team_id: '1' }, 50)
+        tracker.record({ team_id: '2' }, 30)
+
+        const entries = tracker.flush()
+        expect(entries.find((e) => e.key.team_id === '1')?.value).toBe(50)
+        expect(entries.find((e) => e.key.team_id === '2')?.value).toBe(30)
+    })
+
+    it('should rank by max value', () => {
+        const tracker = new MaxMetricTracker('max_size', 2, 1000)
+        tracker.record({ id: 'a' }, 10)
+        tracker.record({ id: 'b' }, 100)
+        tracker.record({ id: 'c' }, 50)
+
+        const keys = tracker.flush().map((e) => e.key.id)
+        expect(keys).toEqual(['b', 'c'])
+    })
+
+    it('should return empty array when no data recorded', () => {
+        const tracker = new MaxMetricTracker('max_size', 10, 1000)
+        expect(tracker.flush()).toEqual([])
+    })
+
+    it('should clear data after flush', () => {
+        const tracker = new MaxMetricTracker('max_size', 10, 1000)
+        tracker.record({ team_id: '1' }, 50)
+        tracker.flush()
+
+        expect(tracker.flush()).toEqual([])
+    })
+
+    it('should not carry over max from previous flush', () => {
+        const tracker = new MaxMetricTracker('max_size', 10, 1000)
+        tracker.record({ team_id: '1' }, 100)
+        tracker.flush()
+
+        tracker.record({ team_id: '1' }, 20)
+        const entries = tracker.flush()
+
+        expect(entries[0].value).toBe(20)
+    })
+
+    describe('maxKeys eviction', () => {
+        it('should evict by max value', () => {
+            const tracker = new MaxMetricTracker('max_size', 10, 4)
+            tracker.record({ id: 'a' }, 1)
+            tracker.record({ id: 'b' }, 100)
+            tracker.record({ id: 'c' }, 50)
+            tracker.record({ id: 'd' }, 2)
+            tracker.record({ id: 'e' }, 75) // triggers eviction
+
+            const keys = tracker.flush().map((e) => e.key.id)
+            expect(keys).toContain('b')
+            expect(keys).toContain('e')
+            expect(keys).toContain('c')
+            expect(keys).not.toContain('a')
+            expect(keys).not.toContain('d')
         })
     })
 })

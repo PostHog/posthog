@@ -1,18 +1,20 @@
 import { newPipelineBuilder } from '../builders/helpers'
 import { createContext } from '../helpers'
 import { dlq, isOkResult, ok } from '../results'
-import { TopHogRegistry, average, averageResult, counter, createTopHogWrapper, timer } from './tophog'
+import { TopHogRegistry, average, averageResult, counter, createTopHogWrapper, max, maxResult, timer } from './tophog'
 
 describe('topHog wrapper', () => {
     function createMockTopHog(): TopHogRegistry & {
         record: jest.Mock
         register: jest.Mock
+        registerMax: jest.Mock
         registerAverage: jest.Mock
     } {
         const record = jest.fn()
         const register = jest.fn().mockReturnValue({ record })
+        const registerMax = jest.fn().mockReturnValue({ record })
         const registerAverage = jest.fn().mockReturnValue({ record })
-        return { record, register, registerAverage }
+        return { record, register, registerMax, registerAverage }
     }
 
     it('should record count metric on OK result', async () => {
@@ -220,6 +222,80 @@ describe('topHog wrapper', () => {
                         'avg_count',
                         (_output: { count: number }) => ({ team_id: '1' }),
                         (output) => output.count
+                    ),
+                ])
+            )
+            .build()
+
+        await pipeline.process(createContext(ok({ teamId: 1 })))
+
+        expect(mockTracker.record).not.toHaveBeenCalled()
+    })
+
+    it('should record max metric before step returns', async () => {
+        const mockTracker = createMockTopHog()
+        const topHog = createTopHogWrapper(mockTracker)
+
+        function myStep(_input: { teamId: number; size: number }) {
+            return Promise.resolve(ok({ done: true }))
+        }
+
+        const pipeline = newPipelineBuilder<{ teamId: number; size: number }>()
+            .pipe(
+                topHog(myStep, [
+                    max(
+                        'max_size',
+                        (input) => ({ team_id: String(input.teamId) }),
+                        (input) => input.size
+                    ),
+                ])
+            )
+            .build()
+
+        await pipeline.process(createContext(ok({ teamId: 42, size: 2048 })))
+
+        expect(mockTracker.registerMax).toHaveBeenCalledWith('max_size', undefined)
+        expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '42' }, 2048)
+    })
+
+    it('should record maxResult metric only on OK results', async () => {
+        const mockTracker = createMockTopHog()
+        const topHog = createTopHogWrapper(mockTracker)
+
+        function myStep(_input: { teamId: number }) {
+            return Promise.resolve(ok({ size: 512 }))
+        }
+
+        const pipeline = newPipelineBuilder<{ teamId: number }>()
+            .pipe(
+                topHog(myStep, [
+                    maxResult(
+                        'max_output_size',
+                        (output) => ({ size: String(output.size) }),
+                        (output) => output.size
+                    ),
+                ])
+            )
+            .build()
+
+        await pipeline.process(createContext(ok({ teamId: 42 })))
+
+        expect(mockTracker.registerMax).toHaveBeenCalledWith('max_output_size', undefined)
+        expect(mockTracker.record).toHaveBeenCalledWith({ size: '512' }, 512)
+    })
+
+    it('should not record maxResult on non-OK results', async () => {
+        const mockTracker = createMockTopHog()
+        const topHog = createTopHogWrapper(mockTracker)
+        const step = jest.fn().mockResolvedValue(dlq('bad data'))
+
+        const pipeline = newPipelineBuilder<{ teamId: number }>()
+            .pipe(
+                topHog(step, [
+                    maxResult(
+                        'max_size',
+                        (_output: { size: number }) => ({ team_id: '1' }),
+                        (output) => output.size
                     ),
                 ])
             )

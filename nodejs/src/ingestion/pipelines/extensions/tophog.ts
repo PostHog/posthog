@@ -7,6 +7,7 @@ type Recorder = { record(key: Record<string, string>, value: number): void }
 
 export interface TopHogRegistry {
     register(name: string, opts?: MetricConfig): Recorder
+    registerMax(name: string, opts?: MetricConfig): Recorder
     registerAverage(name: string, opts?: MetricConfig): Recorder
 }
 
@@ -22,7 +23,7 @@ export function counter<TInput, TOutput>(
     value?: (input: TInput) => number,
     opts?: MetricConfig
 ): TopHogMetricFactory<TInput, TOutput> {
-    return (registry) => new CounterMetric(registry.register(name, opts), key, value ?? (() => 1))
+    return (registry) => new InputMetric(registry.register(name, opts), key, value ?? (() => 1))
 }
 
 export function resultCounter<TInput, TOutput>(
@@ -31,7 +32,25 @@ export function resultCounter<TInput, TOutput>(
     value?: (output: TOutput, input: TInput) => number,
     opts?: MetricConfig
 ): TopHogMetricFactory<TInput, TOutput> {
-    return (registry) => new ResultCounterMetric(registry.register(name, opts), key, value ?? (() => 1))
+    return (registry) => new OutputMetric(registry.register(name, opts), key, value ?? (() => 1))
+}
+
+export function max<TInput, TOutput>(
+    name: string,
+    key: (input: TInput) => Record<string, string>,
+    value: (input: TInput) => number,
+    opts?: MetricConfig
+): TopHogMetricFactory<TInput, TOutput> {
+    return (registry) => new InputMetric(registry.registerMax(name, opts), key, value)
+}
+
+export function maxResult<TInput, TOutput>(
+    name: string,
+    key: (output: TOutput, input: TInput) => Record<string, string>,
+    value: (output: TOutput, input: TInput) => number,
+    opts?: MetricConfig
+): TopHogMetricFactory<TInput, TOutput> {
+    return (registry) => new OutputMetric(registry.registerMax(name, opts), key, value)
 }
 
 export function average<TInput, TOutput>(
@@ -40,7 +59,7 @@ export function average<TInput, TOutput>(
     value: (input: TInput) => number,
     opts?: MetricConfig
 ): TopHogMetricFactory<TInput, TOutput> {
-    return (registry) => new AverageMetric(registry.registerAverage(name, opts), key, value)
+    return (registry) => new InputMetric(registry.registerAverage(name, opts), key, value)
 }
 
 export function averageResult<TInput, TOutput>(
@@ -49,7 +68,7 @@ export function averageResult<TInput, TOutput>(
     value: (output: TOutput, input: TInput) => number,
     opts?: MetricConfig
 ): TopHogMetricFactory<TInput, TOutput> {
-    return (registry) => new AverageResultMetric(registry.registerAverage(name, opts), key, value)
+    return (registry) => new OutputMetric(registry.registerAverage(name, opts), key, value)
 }
 
 export function timer<TInput, TOutput>(
@@ -83,7 +102,7 @@ export function createTopHogWrapper(tracker: TopHogRegistry): TopHogWrapper {
     }
 }
 
-class CounterMetric<TInput, TOutput> implements TopHogMetric<TInput, TOutput> {
+class InputMetric<TInput, TOutput> implements TopHogMetric<TInput, TOutput> {
     constructor(
         private readonly tracker: Recorder,
         private readonly key: (input: TInput) => Record<string, string>,
@@ -96,36 +115,7 @@ class CounterMetric<TInput, TOutput> implements TopHogMetric<TInput, TOutput> {
     }
 }
 
-class ResultCounterMetric<TInput, TOutput> implements TopHogMetric<TInput, TOutput> {
-    constructor(
-        private readonly tracker: Recorder,
-        private readonly key: (output: TOutput, input: TInput) => Record<string, string>,
-        private readonly value: (output: TOutput, input: TInput) => number
-    ) {}
-
-    start(input: TInput): (result: PipelineResult<TOutput>) => void {
-        return (result) => {
-            if (isOkResult(result)) {
-                this.tracker.record(this.key(result.value, input), this.value(result.value, input))
-            }
-        }
-    }
-}
-
-class AverageMetric<TInput, TOutput> implements TopHogMetric<TInput, TOutput> {
-    constructor(
-        private readonly tracker: Recorder,
-        private readonly key: (input: TInput) => Record<string, string>,
-        private readonly value: (input: TInput) => number
-    ) {}
-
-    start(input: TInput): (result: PipelineResult<TOutput>) => void {
-        this.tracker.record(this.key(input), this.value(input))
-        return noop
-    }
-}
-
-class AverageResultMetric<TInput, TOutput> implements TopHogMetric<TInput, TOutput> {
+class OutputMetric<TInput, TOutput> implements TopHogMetric<TInput, TOutput> {
     constructor(
         private readonly tracker: Recorder,
         private readonly key: (output: TOutput, input: TInput) => Record<string, string>,

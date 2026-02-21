@@ -76,6 +76,32 @@ export class AddingMetricTracker {
     }
 }
 
+export class MaxMetricTracker {
+    private readonly tracker: MetricTracker<number>
+
+    constructor(name: string, topN: number, maxKeys: number) {
+        this.tracker = new MetricTracker(
+            name,
+            topN,
+            maxKeys,
+            (s, v) => Math.max(s ?? -Infinity, v),
+            (s) => s
+        )
+    }
+
+    get metricName(): string {
+        return this.tracker.metricName
+    }
+
+    record(key: Record<string, string>, value: number): void {
+        this.tracker.record(key, value)
+    }
+
+    flush(): Array<{ key: Record<string, string>; value: number }> {
+        return this.tracker.flush()
+    }
+}
+
 export class AverageMetricTracker {
     private readonly tracker: MetricTracker<{ count: number; sum: number }>
 
