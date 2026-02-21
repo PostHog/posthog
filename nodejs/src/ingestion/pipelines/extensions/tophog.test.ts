@@ -1,16 +1,16 @@
-import { counter, timing } from '../../tophog/tophog'
 import { newPipelineBuilder } from '../builders/helpers'
 import { createContext } from '../helpers'
-import { TopHogTracker } from '../pipeline.interface'
 import { dlq, isOkResult, ok } from '../results'
-import { createTopHogWrapper } from './tophog'
+import { TopHogRegistry, counter, createTopHogWrapper, timing } from './tophog'
 
 describe('topHog wrapper', () => {
-    function createMockTopHog(): TopHogTracker & { increment: jest.Mock } {
-        return { increment: jest.fn() }
+    function createMockTopHog(): TopHogRegistry & { record: jest.Mock; register: jest.Mock } {
+        const record = jest.fn()
+        const register = jest.fn().mockReturnValue({ record })
+        return { record, register }
     }
 
-    it('should increment count metric on OK result', async () => {
+    it('should record count metric on OK result', async () => {
         const mockTracker = createMockTopHog()
         const topHog = createTopHogWrapper(mockTracker)
 
@@ -24,10 +24,11 @@ describe('topHog wrapper', () => {
 
         await pipeline.process(createContext(ok({ teamId: 42 })))
 
-        expect(mockTracker.increment).toHaveBeenCalledWith('events.count', { team_id: '42' }, 1, undefined)
+        expect(mockTracker.register).toHaveBeenCalledWith('events', undefined)
+        expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '42' }, 1)
     })
 
-    it('should increment time metric on OK result', async () => {
+    it('should record time metric on OK result', async () => {
         const mockTracker = createMockTopHog()
         const topHog = createTopHogWrapper(mockTracker)
 
@@ -41,12 +42,8 @@ describe('topHog wrapper', () => {
 
         await pipeline.process(createContext(ok({ teamId: 42 })))
 
-        expect(mockTracker.increment).toHaveBeenCalledWith(
-            'events.time_ms',
-            { team_id: '42' },
-            expect.any(Number),
-            undefined
-        )
+        expect(mockTracker.register).toHaveBeenCalledWith('events', undefined)
+        expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '42' }, expect.any(Number))
     })
 
     it('should track multiple metrics with different keys', async () => {
@@ -68,13 +65,10 @@ describe('topHog wrapper', () => {
 
         await pipeline.process(createContext(ok({ teamId: 42, userId: 'u_1' })))
 
-        expect(mockTracker.increment).toHaveBeenCalledWith('by_team.count', { team_id: '42' }, 1, undefined)
-        expect(mockTracker.increment).toHaveBeenCalledWith(
-            'by_user.time_ms',
-            { user_id: 'u_1' },
-            expect.any(Number),
-            undefined
-        )
+        expect(mockTracker.register).toHaveBeenCalledWith('by_team', undefined)
+        expect(mockTracker.register).toHaveBeenCalledWith('by_user', undefined)
+        expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '42' }, 1)
+        expect(mockTracker.record).toHaveBeenCalledWith({ user_id: 'u_1' }, expect.any(Number))
     })
 
     it('should use custom metric name when provided', async () => {
@@ -88,7 +82,8 @@ describe('topHog wrapper', () => {
 
         await pipeline.process(createContext(ok({ teamId: 7 })))
 
-        expect(mockTracker.increment).toHaveBeenCalledWith('heatmap_events.count', { team_id: '7' }, 1, undefined)
+        expect(mockTracker.register).toHaveBeenCalledWith('heatmap_events', undefined)
+        expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '7' }, 1)
     })
 
     it('should track even on non-OK results from step', async () => {
@@ -102,7 +97,7 @@ describe('topHog wrapper', () => {
 
         await pipeline.process(createContext(ok({ teamId: 1 })))
 
-        expect(mockTracker.increment).toHaveBeenCalledWith('events.count', { team_id: '1' }, 1, undefined)
+        expect(mockTracker.record).toHaveBeenCalledWith({ team_id: '1' }, 1)
     })
 
     it('should not track when descriptors are empty', async () => {
@@ -115,7 +110,7 @@ describe('topHog wrapper', () => {
         await pipeline.process(createContext(ok({ teamId: 1 })))
 
         expect(step).toHaveBeenCalled()
-        expect(mockTracker.increment).not.toHaveBeenCalled()
+        expect(mockTracker.register).not.toHaveBeenCalled()
     })
 
     it('should preserve step name on wrapped function', async () => {

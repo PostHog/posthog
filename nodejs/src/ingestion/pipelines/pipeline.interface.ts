@@ -9,10 +9,6 @@ export interface PipelineWarning {
     alwaysSend?: boolean
 }
 
-export interface TopHogTracker {
-    increment(metric: string, key: Record<string, string>, value?: number, maxKeys?: number): void
-}
-
 /**
  * Processing context that carries message through pipeline transformations
  */

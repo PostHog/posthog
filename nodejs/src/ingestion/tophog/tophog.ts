@@ -1,124 +1,68 @@
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { parseJSON } from '../../utils/json-parse'
-import { TopHogTracker } from '../pipelines/pipeline.interface'
+import { MetricTracker } from './metric-tracker'
 
-export interface TopHogOptions {
-    kafkaProducer: KafkaProducerWrapper
-    topic: string
-    pipeline: string
-    lane: string
-    flushIntervalMs?: number
-    defaultTopN?: number
+export interface MetricConfig {
+    topN?: number
     maxKeys?: number
-    labels?: Record<string, string>
 }
 
-export interface TopHogMetricDescriptor<T> {
-    start(tracker: TopHogTracker, input: T): () => void
-}
-
-export type TopHogPipeOptions<T> = TopHogMetricDescriptor<T>[]
-
-export function counter<T>(
-    name: string,
-    key: (input: T) => Record<string, string>,
-    opts?: { maxKeys?: number }
-): TopHogMetricDescriptor<T> {
-    return {
-        start(tracker: TopHogTracker, input: T): () => void {
-            const k = key(input)
-            return () => {
-                tracker.increment(`${name}.count`, k, 1, opts?.maxKeys)
-            }
-        },
-    }
-}
-
-export function timing<T>(
-    name: string,
-    key: (input: T) => Record<string, string>,
-    opts?: { maxKeys?: number }
-): TopHogMetricDescriptor<T> {
-    return {
-        start(tracker: TopHogTracker, input: T): () => void {
-            const k = key(input)
-            const startTime = performance.now()
-            return () => {
-                tracker.increment(`${name}.time_ms`, k, performance.now() - startTime, opts?.maxKeys)
-            }
-        },
-    }
-}
-
-interface TopHogConfig {
+export interface TopHogRequiredConfig {
     kafkaProducer: KafkaProducerWrapper
     topic: string
     pipeline: string
     lane: string
+}
+
+export interface TopHogOptionalConfig {
     flushIntervalMs: number
     defaultTopN: number
-    maxKeys?: number
+    maxKeys: number
     labels: Record<string, string>
 }
 
-export class TopHog {
-    private counters: Map<string, Map<string, number>> = new Map()
-    private flushInterval: ReturnType<typeof setInterval> | null = null
-    private readonly config: TopHogConfig
+const DEFAULT_FLUSH_INTERVAL_MS = 60_000
+const DEFAULT_TOP_N = 10
+const DEFAULT_MAX_KEYS = 1_000
 
-    constructor(options: TopHogOptions) {
+export class TopHog {
+    private trackers: Map<string, MetricTracker> = new Map()
+    private flushInterval: ReturnType<typeof setInterval> | null = null
+    private readonly config: TopHogRequiredConfig & TopHogOptionalConfig
+
+    constructor(options: TopHogRequiredConfig & Partial<TopHogOptionalConfig>) {
         this.config = {
+            flushIntervalMs: DEFAULT_FLUSH_INTERVAL_MS,
+            defaultTopN: DEFAULT_TOP_N,
+            maxKeys: DEFAULT_MAX_KEYS,
+            labels: {},
             ...options,
-            flushIntervalMs: options.flushIntervalMs ?? 60_000,
-            defaultTopN: options.defaultTopN ?? 10,
-            maxKeys: options.maxKeys,
-            labels: options.labels ?? {},
         }
     }
 
-    increment(metric: string, key: Record<string, string>, value: number = 1, maxKeys?: number): void {
-        let metricCounters = this.counters.get(metric)
-        if (!metricCounters) {
-            metricCounters = new Map()
-            this.counters.set(metric, metricCounters)
+    register(name: string, opts?: MetricConfig): MetricTracker {
+        let tracker = this.trackers.get(name)
+        if (!tracker) {
+            tracker = new MetricTracker(
+                name,
+                opts?.topN ?? this.config.defaultTopN,
+                opts?.maxKeys ?? this.config.maxKeys
+            )
+            this.trackers.set(name, tracker)
         }
-
-        const serializedKey = JSON.stringify(key)
-        const existing = metricCounters.get(serializedKey)
-        if (existing === undefined) {
-            const limit = maxKeys ?? this.config.maxKeys
-            if (limit && metricCounters.size >= limit) {
-                // Evict LRU (first key in insertion order)
-                const lruKey = metricCounters.keys().next().value!
-                metricCounters.delete(lruKey)
-            }
-        } else {
-            // Move to end of insertion order (mark as most recently used)
-            metricCounters.delete(serializedKey)
-        }
-
-        metricCounters.set(serializedKey, (existing ?? 0) + value)
+        return tracker
     }
 
     async flush(): Promise<void> {
         const timestamp = new Date().toISOString()
         const messages: { value: string }[] = []
 
-        for (const [metric, metricCounters] of this.counters.entries()) {
-            if (metricCounters.size === 0) {
-                continue
-            }
-
-            const topEntries = Array.from(metricCounters.entries())
-                .sort(([, a], [, b]) => b - a)
-                .slice(0, this.config.defaultTopN)
-
-            for (const [serializedKey, value] of topEntries) {
+        for (const tracker of this.trackers.values()) {
+            for (const { key, value } of tracker.flush()) {
                 messages.push({
                     value: JSON.stringify({
                         timestamp,
-                        metric,
-                        key: parseJSON(serializedKey),
+                        metric: tracker.metricName,
+                        key,
                         value,
                         pipeline: this.config.pipeline,
                         lane: this.config.lane,
@@ -127,8 +71,6 @@ export class TopHog {
                 })
             }
         }
-
-        this.counters.clear()
 
         if (messages.length > 0) {
             await this.config.kafkaProducer.queueMessages({

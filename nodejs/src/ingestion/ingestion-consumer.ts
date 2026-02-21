@@ -4,6 +4,7 @@ import { Gauge } from 'prom-client'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { HogTransformerHub, HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
+import { KAFKA_CLICKHOUSE_TOPHOG } from '../config/kafka-topics'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import {
@@ -29,10 +30,9 @@ import {
 } from './analytics'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
-import { createTopHogWrapper } from './pipelines/extensions/tophog'
 import { createContext } from './pipelines/helpers'
-import { TopHogTracker } from './pipelines/pipeline.interface'
 import { ok } from './pipelines/results'
+import { TopHog } from './tophog'
 import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from './utils/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from './utils/overflow-redirect/overflow-redirect-service'
@@ -97,7 +97,7 @@ export class IngestionConsumer {
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
     private eventSchemaEnforcementManager: EventSchemaEnforcementManager
     public readonly promiseScheduler = new PromiseScheduler()
-    private topHogTracker: TopHogTracker = { increment: () => {} }
+    private topHog?: TopHog
 
     private joinedPipeline!: BatchPipeline<
         JoinedIngestionPipelineInput,
@@ -207,6 +207,14 @@ export class IngestionConsumer {
             }),
         ])
 
+        this.topHog = new TopHog({
+            kafkaProducer: this.kafkaProducer!,
+            topic: KAFKA_CLICKHOUSE_TOPHOG,
+            pipeline: 'analytics',
+            lane: this.hub.INGESTION_LANE ?? 'main',
+        })
+        this.topHog.start()
+
         // Initialize pipeline
         const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
             hub: this.hub,
@@ -239,7 +247,7 @@ export class IngestionConsumer {
             teamManager: this.hub.teamManager,
             groupTypeManager: this.hub.groupTypeManager,
             groupId: this.groupId,
-            topHog: createTopHogWrapper(this.topHogTracker),
+            topHog: this.topHog,
         }
         this.joinedPipeline = createJoinedIngestionPipeline(
             newBatchPipelineBuilder<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>(),
@@ -268,6 +276,8 @@ export class IngestionConsumer {
         await this.kafkaProducer?.disconnect()
         logger.info('🔁', `${this.name} - stopping kafka overflow producer`)
         await this.kafkaOverflowProducer?.disconnect()
+        logger.info('🔁', `${this.name} - stopping tophog`)
+        await this.topHog?.stop()
         logger.info('🔁', `${this.name} - stopping hog transformer`)
         await this.hogTransformer.stop()
         logger.info('👍', `${this.name} - stopped!`)
