@@ -12,13 +12,70 @@
  */
 import { APIRequestContext, Page } from '@playwright/test'
 
-import type {
-    PlaywrightWorkspaceSetupData,
-    PlaywrightWorkspaceSetupResult,
-    TestSetupResponse,
-} from '~/queries/schema/schema-general'
-
 import { LOGIN_PASSWORD } from './playwright-test-core'
+
+export interface TestSetupResponse {
+    success: boolean
+    test_name: string
+    result?: any
+    error?: string
+    available_tests?: string[]
+}
+
+export interface PlaywrightSetupVariable {
+    name: string
+    type: 'String' | 'Number' | 'Boolean' | 'List' | 'Date'
+    default_value?: any
+}
+
+export interface PlaywrightSetupInsight {
+    name: string
+    query: Record<string, any>
+    variable_indexes?: number[]
+}
+
+export interface PlaywrightSetupDashboard {
+    name: string
+    insight_indexes?: number[]
+    filters?: Record<string, any>
+    variable_overrides?: Record<string, any>
+}
+
+export interface PlaywrightWorkspaceSetupData {
+    organization_name?: string
+    use_current_time?: boolean
+    skip_onboarding?: boolean
+    insight_variables?: PlaywrightSetupVariable[]
+    insights?: PlaywrightSetupInsight[]
+    dashboards?: PlaywrightSetupDashboard[]
+}
+
+export interface PlaywrightSetupCreatedVariable {
+    id: string
+    code_name: string
+}
+
+export interface PlaywrightSetupCreatedInsight {
+    id: number
+    short_id: string
+}
+
+export interface PlaywrightSetupCreatedDashboard {
+    id: number
+}
+
+export interface PlaywrightWorkspaceSetupResult {
+    organization_id: string
+    team_id: string
+    organization_name: string
+    team_name: string
+    user_id: string
+    user_email: string
+    personal_api_key: string
+    created_variables?: PlaywrightSetupCreatedVariable[]
+    created_insights?: PlaywrightSetupCreatedInsight[]
+    created_dashboards?: PlaywrightSetupCreatedDashboard[]
+}
 
 export interface PlaywrightSetupOptions {
     /** Custom data to pass to the setup function */

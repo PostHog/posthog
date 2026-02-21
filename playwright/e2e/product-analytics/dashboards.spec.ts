@@ -134,112 +134,7 @@ test.describe('Dashboards', () => {
         })
     })
 
-    test('Duplicating a dashboard preserves text cards, date filter, and variables', async ({ page, request }) => {
-        const dashboard = new DashboardPage(page)
-        const cardText = randomString('card-text')
-        let sourceDashboardUrl: string
-
-        // Create a variable and insight via API so we can test variable preservation
-        const baseURL =
-            page
-                .context()
-                .pages()[0]
-                ?.url()
-                .match(/^https?:\/\/[^/]+/)?.[0] ?? 'http://localhost:8010'
-        const headers = { Authorization: `Bearer ${workspace!.personal_api_key}` }
-        const teamId = workspace!.team_id
-
-        const variableRes = await request.post(`${baseURL}/api/environments/${teamId}/insight_variables/`, {
-            headers,
-            data: { name: 'Test Var', type: 'Number', default_value: 10 },
-        })
-        const variable = await variableRes.json()
-
-        const insightRes = await request.post(`${baseURL}/api/projects/${teamId}/insights/`, {
-            headers,
-            data: {
-                name: 'Variable insight',
-                query: {
-                    kind: 'DataVisualizationNode',
-                    source: {
-                        kind: 'HogQLQuery',
-                        query: `SELECT {variables.${variable.code_name}}`,
-                        variables: {
-                            [variable.id]: { code_name: variable.code_name, variableId: variable.id },
-                        },
-                    },
-                    chartSettings: {},
-                    tableSettings: {},
-                },
-            },
-        })
-        const insight = await insightRes.json()
-
-        await test.step('create an empty dashboard and add a text card', async () => {
-            await dashboard.createNew()
-            await expect(dashboard.insightCards).not.toBeVisible()
-            await dashboard.addTextCard(cardText)
-        })
-
-        await test.step('add the variable insight and set date filter', async () => {
-            sourceDashboardUrl = page.url()
-            const dashboardId = sourceDashboardUrl.match(/\/dashboard\/(\d+)/)?.[1]
-
-            // Add the variable insight to the dashboard via the insight's dashboards field
-            await request.patch(`${baseURL}/api/projects/${teamId}/insights/${insight.id}/`, {
-                headers,
-                data: {
-                    dashboards: [parseInt(dashboardId!)],
-                },
-            })
-
-            // Set a dashboard-level variable override via API
-            await request.patch(`${baseURL}/api/projects/${teamId}/dashboards/${dashboardId}/`, {
-                headers,
-                data: {
-                    variables: {
-                        [variable.id]: { code_name: variable.code_name, variableId: variable.id, value: 42 },
-                    },
-                },
-            })
-
-            // Reload so the new tile and variable appear in the UI
-            await page.reload({ waitUntil: 'domcontentloaded' })
-            await expect(dashboard.insightCards).toBeVisible()
-
-            await dashboard.setDateFilter('Last 30 days')
-        })
-
-        await test.step('duplicate the dashboard', async () => {
-            await dashboard.duplicate()
-            await expect(page).not.toHaveURL(sourceDashboardUrl)
-        })
-
-        await test.step('verify duplicated dashboard has the text card', async () => {
-            await expect(dashboard.textCards).toBeVisible()
-            await expect(dashboard.textCards).toContainText(cardText)
-        })
-
-        await test.step('verify duplicated dashboard has the date filter preserved', async () => {
-            await expect(dashboard.dateFilter).toContainText('Last 30 days')
-        })
-
-        await test.step('verify duplicated dashboard has the variable override preserved', async () => {
-            // The variable insight tile should be present on the duplicated dashboard
-            const variableCard = await dashboard.findCardByTitle('Variable insight')
-            await expect(variableCard).toBeVisible()
-
-            // Verify persisted_variables via API on the duplicated dashboard
-            const dupDashboardId = page.url().match(/\/dashboard\/(\d+)/)?.[1]
-            const dupRes = await request.get(`${baseURL}/api/projects/${teamId}/dashboards/${dupDashboardId}/`, {
-                headers,
-            })
-            const dupDashboard = await dupRes.json()
-            expect(dupDashboard.variables?.[variable.id]?.value).toBe(42)
-        })
-    })
-
-    test('Changing a variable override on a dashboard updates the tile', async ({ page }) => {
+    test('Creating a SQL insight with a variable and overriding it on a dashboard', async ({ page }) => {
         const dashboard = new DashboardPage(page)
         const insight = new InsightPage(page)
 
@@ -329,6 +224,71 @@ test.describe('Dashboards', () => {
 
             const tileCount = await dashboard.insightCards.count()
             expect(tileCount).toBeGreaterThan(0)
+        })
+    })
+})
+
+test.describe('Dashboard duplication', () => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({
+            use_current_time: true,
+            skip_onboarding: true,
+            insight_variables: [{ name: 'Test Var', type: 'Number', default_value: 10 }],
+            insights: [
+                {
+                    name: 'Variable insight',
+                    query: {
+                        kind: 'DataVisualizationNode',
+                        source: { kind: 'HogQLQuery', query: 'SELECT {variables.test_var}' },
+                        chartSettings: {},
+                        tableSettings: {},
+                    },
+                    variable_indexes: [0],
+                },
+            ],
+            dashboards: [
+                {
+                    name: 'Duplication source',
+                    insight_indexes: [0],
+                    variable_overrides: { '0': 42 },
+                },
+            ],
+        })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await playwrightSetup.login(page, workspace!)
+    })
+
+    test('Duplicating a dashboard preserves text cards, date filter, and variables', async ({ page }) => {
+        const dashboard = new DashboardPage(page)
+        const cardText = randomString('card-text')
+        const seededDashboardId = workspace!.created_dashboards![0].id
+        let sourceDashboardUrl: string
+
+        await test.step('navigate to seeded dashboard and add a text card', async () => {
+            await page.goto(`/project/${workspace!.team_id}/dashboard/${seededDashboardId}`)
+            await expect(dashboard.insightCards).toBeVisible()
+            await dashboard.addTextCard(cardText)
+        })
+
+        await test.step('set date filter', async () => {
+            sourceDashboardUrl = page.url()
+            await dashboard.setDateFilter('Last 30 days')
+        })
+
+        await test.step('duplicate the dashboard', async () => {
+            await dashboard.duplicate()
+            await expect(page).not.toHaveURL(sourceDashboardUrl)
+        })
+
+        await test.step('verify duplicated dashboard preserves text card, date filter, and variable override', async () => {
+            await expect(dashboard.textCards).toBeVisible()
+            await expect(dashboard.textCards).toContainText(cardText)
+            await expect(dashboard.dateFilter).toContainText('Last 30 days')
+            await expect(dashboard.variableButtons.first()).toContainText('42')
         })
     })
 })

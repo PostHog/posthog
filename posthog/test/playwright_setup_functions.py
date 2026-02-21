@@ -3,19 +3,82 @@
 import secrets
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol, runtime_checkable
+from enum import StrEnum
+from typing import Any, Protocol, runtime_checkable
 
 from django.utils import timezone
 
 from pydantic import BaseModel
 
-from posthog.schema import PlaywrightWorkspaceSetupData, PlaywrightWorkspaceSetupResult
-
 from posthog.constants import AvailableFeature
 from posthog.management.commands.generate_demo_data import Command as GenerateDemoDataCommand
-from posthog.models import PersonalAPIKey, User
+from posthog.models import Dashboard, DashboardTile, Insight, PersonalAPIKey, User
+from posthog.models.insight_variable import InsightVariable
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import mask_key_value
+
+
+class PlaywrightSetupVariableType(StrEnum):
+    STRING = "String"
+    NUMBER = "Number"
+    BOOLEAN = "Boolean"
+    LIST = "List"
+    DATE = "Date"
+
+
+class PlaywrightSetupVariable(BaseModel):
+    name: str
+    type: PlaywrightSetupVariableType
+    default_value: Any | None = None
+
+
+class PlaywrightSetupInsight(BaseModel):
+    name: str
+    query: dict[str, Any]
+    variable_indexes: list[int] | None = None
+
+
+class PlaywrightSetupDashboard(BaseModel):
+    name: str
+    insight_indexes: list[int] | None = None
+    filters: dict[str, Any] | None = None
+    variable_overrides: dict[str, Any] | None = None
+
+
+class PlaywrightWorkspaceSetupData(BaseModel):
+    organization_name: str | None = None
+    use_current_time: bool | None = None
+    skip_onboarding: bool | None = None
+    insight_variables: list[PlaywrightSetupVariable] | None = None
+    insights: list[PlaywrightSetupInsight] | None = None
+    dashboards: list[PlaywrightSetupDashboard] | None = None
+
+
+class PlaywrightSetupCreatedVariable(BaseModel):
+    id: str
+    code_name: str
+
+
+class PlaywrightSetupCreatedInsight(BaseModel):
+    id: int
+    short_id: str
+
+
+class PlaywrightSetupCreatedDashboard(BaseModel):
+    id: int
+
+
+class PlaywrightWorkspaceSetupResult(BaseModel):
+    organization_id: str
+    team_id: str
+    organization_name: str
+    team_name: str
+    user_id: str
+    user_email: str
+    personal_api_key: str
+    created_variables: list[PlaywrightSetupCreatedVariable] | None = None
+    created_insights: list[PlaywrightSetupCreatedInsight] | None = None
+    created_dashboards: list[PlaywrightSetupCreatedDashboard] | None = None
 
 
 @runtime_checkable
@@ -117,6 +180,10 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
         }
         team.save()
 
+    created_variables = _create_variables(data, team)
+    created_insights = _create_insights(data, team, user, created_variables)
+    created_dashboards = _create_dashboards(data, team, user, created_variables, created_insights)
+
     return PlaywrightWorkspaceSetupResult(
         organization_id=str(organization.id),
         team_id=str(team.id),
@@ -125,7 +192,100 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
         user_id=str(user.id),
         user_email=user.email,
         personal_api_key=api_key._value,  # type: ignore
+        created_variables=[
+            PlaywrightSetupCreatedVariable(id=str(v.id), code_name=v.code_name) for v in created_variables
+        ]
+        or None,
+        created_insights=[PlaywrightSetupCreatedInsight(id=i.id, short_id=i.short_id) for i in created_insights]
+        or None,
+        created_dashboards=[PlaywrightSetupCreatedDashboard(id=d.id) for d in created_dashboards] or None,
     )
+
+
+def _derive_code_name(name: str) -> str:
+    return "".join(c for c in name if c.isalnum() or c == " " or c == "_").replace(" ", "_").lower()
+
+
+def _create_variables(data: PlaywrightWorkspaceSetupData, team: "Team") -> list[InsightVariable]:  # type: ignore[name-defined] # noqa: F821
+    if not data.insight_variables:
+        return []
+    created: list[InsightVariable] = []
+    for var_spec in data.insight_variables:
+        var = InsightVariable.objects.create(
+            team=team,
+            name=var_spec.name,
+            code_name=_derive_code_name(var_spec.name),
+            type=var_spec.type,
+            default_value=var_spec.default_value,
+        )
+        created.append(var)
+    return created
+
+
+def _create_insights(
+    data: PlaywrightWorkspaceSetupData,
+    team: "Team",  # type: ignore[name-defined] # noqa: F821
+    user: User,
+    created_variables: list[InsightVariable],
+) -> list[Insight]:
+    if not data.insights:
+        return []
+    created: list[Insight] = []
+    for insight_spec in data.insights:
+        query = insight_spec.query
+        if insight_spec.variable_indexes and created_variables:
+            variables_dict: dict[str, dict[str, str]] = {}
+            for idx in insight_spec.variable_indexes:
+                var = created_variables[int(idx)]
+                variables_dict[str(var.id)] = {"code_name": var.code_name, "variableId": str(var.id)}
+            if "source" in query:
+                query = {**query, "source": {**query["source"], "variables": variables_dict}}
+        insight = Insight.objects.create(
+            team=team,
+            name=insight_spec.name,
+            query=query,
+            created_by=user,
+        )
+        created.append(insight)
+    return created
+
+
+def _create_dashboards(
+    data: PlaywrightWorkspaceSetupData,
+    team: "Team",  # type: ignore[name-defined] # noqa: F821
+    user: User,
+    created_variables: list[InsightVariable],
+    created_insights: list[Insight],
+) -> list[Dashboard]:
+    if not data.dashboards:
+        return []
+    created: list[Dashboard] = []
+    for dash_spec in data.dashboards:
+        variables = None
+        if dash_spec.variable_overrides and created_variables:
+            variables = {}
+            for idx_str, override_value in dash_spec.variable_overrides.items():
+                var = created_variables[int(idx_str)]
+                variables[str(var.id)] = {
+                    "code_name": var.code_name,
+                    "variableId": str(var.id),
+                    "value": override_value,
+                }
+        dashboard = Dashboard.objects.create(
+            team=team,
+            name=dash_spec.name,
+            created_by=user,
+            filters=dash_spec.filters or {},
+            variables=variables or {},
+        )
+        if dash_spec.insight_indexes and created_insights:
+            for idx in dash_spec.insight_indexes:
+                DashboardTile.objects.create(
+                    dashboard=dashboard,
+                    insight=created_insights[int(idx)],
+                )
+        created.append(dashboard)
+    return created
 
 
 @dataclass(frozen=True)
