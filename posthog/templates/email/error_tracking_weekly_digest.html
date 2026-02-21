@@ -75,9 +75,9 @@
             {% for issue in top_issues %}
             <tr style="border-bottom: 1px solid #f3f4f6;">
                 <td align="left" style="padding: 10px 8px 10px 0; vertical-align: top; text-align: left;">
-                    <a href="{{ issue.url }}" target="_blank" style="text-decoration: none; color: #111827; font-weight: 600; font-size: 0.9em;">{{ issue.name }}</a>
+                    <a href="{{ issue.url }}" target="_blank" style="text-decoration: none; color: #111827; font-weight: 600; font-size: 0.9em;">{{ issue.name|truncatechars:40 }}</a>
                     {% if issue.description %}
-                    <div style="color: #6b7280; font-size: 0.8em; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px;">{{ issue.description }}</div>
+                    <div style="color: #6b7280; font-size: 0.8em; margin-top: 2px;">{{ issue.description|truncatechars:45 }}</div>
                     {% endif %}
                 </td>
                 <td align="center" style="padding: 10px 8px; vertical-align: middle; width: 90px;">
@@ -121,9 +121,9 @@
             {% for issue in new_issues %}
             <tr style="border-bottom: 1px solid #f3f4f6;">
                 <td align="left" style="padding: 10px 8px 10px 0; vertical-align: top; text-align: left;">
-                    <a href="{{ issue.url }}" target="_blank" style="text-decoration: none; color: #111827; font-weight: 600; font-size: 0.9em;">{{ issue.name }}</a>
+                    <a href="{{ issue.url }}" target="_blank" style="text-decoration: none; color: #111827; font-weight: 600; font-size: 0.9em;">{{ issue.name|truncatechars:40 }}</a>
                     {% if issue.description %}
-                    <div style="color: #6b7280; font-size: 0.8em; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px;">{{ issue.description }}</div>
+                    <div style="color: #6b7280; font-size: 0.8em; margin-top: 2px;">{{ issue.description|truncatechars:45 }}</div>
                     {% endif %}
                 </td>
                 <td align="center" style="padding: 10px 8px; vertical-align: middle; width: 90px;">
