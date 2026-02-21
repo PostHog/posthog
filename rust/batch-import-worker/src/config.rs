@@ -80,7 +80,7 @@ pub struct Config {
     pub force_disable_person_processing: String,
 
     // Internal capture service URL for the CaptureEmitter
-    #[envconfig(from = "CAPTURE_URL", default = "http://capture:3000")]
+    #[envconfig(from = "CAPTURE_URL", default = "http://localhost:3307")]
     pub capture_url: String,
 }
 
