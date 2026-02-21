@@ -56,7 +56,7 @@ jobs:
 
             - name: Check for preview label
               id: check-label
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8
               with:
                   script: |
                       const labels = context.payload.pull_request.labels || [];
@@ -83,7 +83,7 @@ jobs:
         steps:
             - name: 'Check for preview mode'
               id: check-preview
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8
               with:
                   script: |
                       const fs = require('fs');
@@ -119,7 +119,7 @@ jobs:
             - name: Post initial PR comment
               id: post-comment
               if: steps.check-preview.outputs.preview == 'true'
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8
               with:
                   script: |
                       const commentMarker = '<!-- hobby-ci-comment -->';
@@ -180,7 +180,7 @@ jobs:
             - name: Create GitHub deployment
               id: create-deployment
               if: steps.check-preview.outputs.preview == 'true'
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8
               with:
                   script: |
                       const fs = require('fs');
@@ -223,7 +223,7 @@ jobs:
                   intervalSeconds: 30
             - name: Update comment - Docker build failed
               if: always() && steps.check-preview.outputs.preview == 'true' && steps.wait-for-image.outputs.conclusion != 'success'
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8
               with:
                   script: |
                       const commentMarker = '<!-- hobby-ci-comment -->';
@@ -260,7 +260,7 @@ jobs:
                   exit 1
             - name: Update comment - Docker image ready
               if: steps.check-preview.outputs.preview == 'true' && steps.wait-for-image.outputs.conclusion == 'success'
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8
               with:
                   script: |
                       const commentMarker = '<!-- hobby-ci-comment -->';
@@ -318,7 +318,7 @@ jobs:
                   INSTALLER_CHANGED: ${{ needs.changes.outputs.installer_changed || 'false' }}
             - name: Update comment - Instance created
               if: env.PREVIEW_MODE == 'true' && env.HOBBY_COMMENT_ID
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8
               with:
                   script: |
                       const fs = require('fs');
@@ -357,7 +357,7 @@ jobs:
                       });
             - name: Update GitHub deployment - instance created
               if: env.PREVIEW_MODE == 'true' && env.HOBBY_DEPLOYMENT_ID
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8
               with:
                   script: |
                       const fs = require('fs');
@@ -535,7 +535,7 @@ jobs:
                       });
             - name: Update GitHub deployment status
               if: always() && env.PREVIEW_MODE == 'true' && env.HOBBY_DEPLOYMENT_ID
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8
               with:
                   script: |
                       const fs = require('fs');

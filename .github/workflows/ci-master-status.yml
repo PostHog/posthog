@@ -31,7 +31,7 @@ jobs:
             - uses: actions/checkout@v6
 
             - name: Restore incident state
-              uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306  # v5
               with:
                   path: .master-ci-incident
                   # Use prefix matching to get the most recently saved cache
@@ -250,7 +250,7 @@ jobs:
 
             - name: Save incident to cache
               if: steps.process.outputs.save_cache == 'true'
-              uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306  # v5
               with:
                   path: .master-ci-incident
                   key: master-ci-incident-${{ github.run_id }}

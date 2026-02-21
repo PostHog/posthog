@@ -78,7 +78,7 @@ jobs:
                     '{channel: $channel, ts: $ts}' > .priority-review-slack
 
             - name: Cache Slack message info
-              uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306  # v5
               with:
                   path: .priority-review-slack
                   key: priority-review-slack-pr-${{ github.event.pull_request.number }}
@@ -91,7 +91,7 @@ jobs:
             && contains(github.event.pull_request.labels.*.name, 'priority-review')
         steps:
             - name: Restore Slack message info
-              uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306  # v5
               with:
                   path: .priority-review-slack
                   key: priority-review-slack-pr-${{ github.event.pull_request.number }}
@@ -155,7 +155,7 @@ jobs:
             && contains(github.event.pull_request.labels.*.name, 'priority-review')
         steps:
             - name: Restore Slack message info
-              uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306  # v5
               with:
                   path: .priority-review-slack
                   key: priority-review-slack-pr-${{ github.event.pull_request.number }}
