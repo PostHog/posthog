@@ -91,7 +91,7 @@ class RestoreService:
         updated = queryset.update(consumed_at=now)
 
         if updated:
-            logger.info("Invalidated %d existing restore tokens for email in team %d", updated, team.id)
+            logger.info(f"Invalidated {updated} existing restore tokens for email in team {team.id}")
 
         return updated
 
@@ -109,7 +109,7 @@ class RestoreService:
         tickets = RestoreService.find_tickets_by_email(team, email)
 
         if not tickets:
-            logger.info("No tickets found for email in team %d", team.id)
+            logger.info(f"No tickets found for email in team {team.id}")
             return None
 
         # Create new token
@@ -119,10 +119,7 @@ class RestoreService:
         )
 
         logger.info(
-            "Created restore token %s for %d tickets in team %d",
-            token_record.id,
-            len(tickets),
-            team.id,
+            f"Created restore token {token_record.id} for {len(tickets)} tickets in team {team.id}",
             extra={"token_id": str(token_record.id), "ticket_count": len(tickets)},
         )
 
@@ -149,15 +146,15 @@ class RestoreService:
         try:
             token = ConversationRestoreToken.objects.get(token_hash=token_hash_value, team=team)
         except ConversationRestoreToken.DoesNotExist:
-            logger.warning("Invalid restore token attempted: %s...", token_hash_value[:8])
+            logger.warning("Invalid restore token attempted")
             return RestoreResult(status="invalid", code="token_invalid")
 
         if token.is_consumed:
-            logger.warning("Restore token %s already consumed", token.id)
+            logger.warning(f"Restore token {token.id} already consumed")
             return RestoreResult(status="used", code="token_already_used")
 
         if token.is_expired:
-            logger.warning("Restore token %s expired", token.id)
+            logger.warning(f"Restore token {token.id} expired")
             return RestoreResult(status="expired", code="token_expired")
 
         # Phase 1: atomically consume the token (short PG transaction, no CH calls)
@@ -185,13 +182,11 @@ class RestoreService:
 
             RestoreService.invalidate_existing_tokens(token.team, token.recipient_email, exclude_token_id=token.id)
         except Exception:
-            logger.exception("Failed to migrate tickets after consuming token %s", token.id)
+            logger.exception(f"Failed to migrate tickets after consuming token {token.id}")
             return RestoreResult(status="success", code="migration_failed", widget_session_id=widget_session_id)
 
         logger.info(
-            "Restore token %s redeemed, migrated %d tickets",
-            token.id,
-            len(migrated_ids),
+            f"Restore token {token.id} redeemed, migrated {len(migrated_ids)} tickets",
             extra={"token_id": str(token.id), "migrated_count": len(migrated_ids)},
         )
 
