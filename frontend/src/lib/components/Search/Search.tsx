@@ -36,6 +36,7 @@ import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { RECENTS_LIMIT, SearchItem, SearchLogicProps, searchLogic } from './searchLogic'
+import { shouldSkipAiHighlight } from './shouldSkipAiHighlight'
 import { formatRelativeTimeShort, getCategoryDisplayName } from './utils'
 
 // ============================================================================
@@ -320,6 +321,52 @@ function SearchRoot({
         }
     }, [isActive, setSearch])
 
+    // Auto-highlight first real result when heuristics determine high confidence match
+    const lastHighlightedQueryRef = useRef<string>('')
+    useEffect(() => {
+        if (!isActive || !showAskAiLink || !searchValue.trim() || filteredItems.length < 2) {
+            return
+        }
+
+        const trimmedQuery = searchValue.trim()
+
+        // Debounce to avoid triggering on every keystroke
+        const timeoutId = setTimeout(() => {
+            // Skip if we already highlighted for this exact query
+            if (lastHighlightedQueryRef.current === trimmedQuery) {
+                return
+            }
+
+            // filteredItems[0] is the AI item, filteredItems[1] is the first real result
+            const realItems = filteredItems.slice(1)
+            const skipAi = shouldSkipAiHighlight(trimmedQuery, realItems)
+
+            if (skipAi && inputRef.current) {
+                // Mark this query as highlighted to prevent re-triggering
+                lastHighlightedQueryRef.current = trimmedQuery
+
+                // Programmatically trigger a single ArrowDown to move highlight from AI (position 0) to first real result (position 1)
+                // Use requestAnimationFrame to ensure autocomplete has processed current state
+                requestAnimationFrame(() => {
+                    const arrowDownEvent = new KeyboardEvent('keydown', {
+                        key: 'ArrowDown',
+                        code: 'ArrowDown',
+                        keyCode: 40,
+                        which: 40,
+                        bubbles: true,
+                        cancelable: true,
+                    })
+                    inputRef.current?.dispatchEvent(arrowDownEvent)
+                })
+            } else {
+                // If we shouldn't skip AI, clear the last highlighted query
+                lastHighlightedQueryRef.current = ''
+            }
+        }, 150) // 150ms debounce
+
+        return () => clearTimeout(timeoutId)
+    }, [isActive, showAskAiLink, searchValue, filteredItems, inputRef])
+
     const handleItemClick = useCallback(
         (item: SearchItem) => {
             if (item.id === ASK_AI_ITEM_ID) {
@@ -526,7 +573,7 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
 // ============================================================================
 
 function SearchStatus(): JSX.Element {
-    const { isSearching, searchValue, filteredItems } = useSearchContext()
+    const { isSearching, searchValue, filteredItems, showAskAiLink } = useSearchContext()
 
     const statusMessage = useMemo(() => {
         if (isSearching) {
@@ -544,10 +591,13 @@ function SearchStatus(): JSX.Element {
             if (!searchValue.trim()) {
                 return 'Recents and apps'
             }
-            return `${filteredItems.length} result${filteredItems.length === 1 ? '' : 's'}`
+            // Subtract 1 if AI item is present (when searching with showAskAiLink enabled)
+            const hasAiItem = showAskAiLink && searchValue.trim()
+            const realResultCount = hasAiItem ? filteredItems.length - 1 : filteredItems.length
+            return `${realResultCount} result${realResultCount === 1 ? '' : 's'}`
         }
         return 'Type to search...'
-    }, [isSearching, searchValue, filteredItems.length])
+    }, [isSearching, searchValue, filteredItems.length, showAskAiLink])
 
     return (
         <Autocomplete.Status className="px-3 pt-1 pb-2 text-xs text-muted flex items-center">
