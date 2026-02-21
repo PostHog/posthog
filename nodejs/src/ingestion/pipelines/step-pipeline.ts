@@ -31,7 +31,6 @@ export class StepPipeline<TInput, TIntermediate, TOutput, C> implements Pipeline
         const currentResult = await instrumentFn({ key: this.stepName, sendException: false }, () =>
             this.currentStep(previousResult.value)
         )
-
         return {
             result: currentResult,
             context: {
