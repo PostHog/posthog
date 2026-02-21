@@ -322,6 +322,7 @@ impl ServerHandle {
                 flags_with_cohorts_hypercache_reader,
                 team_hypercache_reader,
                 config_hypercache_reader,
+                None, // personhog_client
                 config,
             );
 

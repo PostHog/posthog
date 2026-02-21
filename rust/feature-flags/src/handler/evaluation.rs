@@ -30,6 +30,7 @@ pub async fn evaluate_feature_flags(
         context.cohort_cache,
         Some(group_type_mapping_cache),
         context.groups,
+        context.personhog_client,
     )
     .with_parallel_eval_threshold(context.parallel_eval_threshold);
 

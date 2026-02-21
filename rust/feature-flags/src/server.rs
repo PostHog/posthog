@@ -8,6 +8,7 @@ use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::config::Config;
 use crate::database_pools::DatabasePools;
 use crate::db_monitor::DatabasePoolMonitor;
+use crate::personhog_client::{PersonhogClient, PersonhogFetcher};
 use crate::router;
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
@@ -316,6 +317,30 @@ where
         );
     }
 
+    let personhog_client: Option<Arc<dyn PersonhogFetcher>> = if *config.use_personhog {
+        match PersonhogClient::new(&config.personhog_url, config.personhog_timeout_ms) {
+            Ok(client) => {
+                tracing::info!(
+                    url = %config.personhog_url,
+                    timeout_ms = config.personhog_timeout_ms,
+                    "Personhog gRPC client enabled"
+                );
+                Some(Arc::new(client))
+            }
+            Err(e) => {
+                tracing::error!(
+                    url = %config.personhog_url,
+                    error = %e,
+                    "Failed to create personhog client, falling back to SQL"
+                );
+                None
+            }
+        }
+    } else {
+        tracing::info!("Personhog gRPC client disabled (USE_PERSONHOG=false)");
+        None
+    };
+
     let app = router::router(
         redis_client,
         dedicated_redis_client,
@@ -330,6 +355,7 @@ where
         flags_with_cohorts_hypercache_reader,
         team_hypercache_reader,
         config_hypercache_reader,
+        personhog_client,
         config,
     );
 
