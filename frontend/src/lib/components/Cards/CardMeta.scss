@@ -105,21 +105,52 @@
     }
 
     &.CardMeta--compact {
+        container-type: inline-size;
+
         .CardMeta__primary {
-            padding: 0.5rem 0.75rem;
+            padding: 0.5rem 2.5rem 0.125rem 0.75rem;
         }
 
-        .CardMeta__main {
-            min-height: unset;
+        .CardMeta__ribbon {
+            width: 0.25rem;
+            margin: 0 0.5rem 0 -0.25rem;
+        }
+
+        .CardMeta__heading {
+            display: none;
+            font-family: var(--font-title);
+            font-size: 0.6875rem;
+            font-weight: 700;
+            line-height: 1rem;
+            color: var(--color-text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .CardMeta__top {
+            height: auto;
+        }
+
+        .CardMeta__controls {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.75rem;
         }
 
         h4 {
             height: auto;
-            line-height: 1.25;
+            margin: 0;
         }
 
-        .CardMeta__top {
-            height: 1.25rem;
+        .CardMeta__divider {
+            margin: 0.25rem 0 0;
+            opacity: 1;
+        }
+
+        @container (min-width: 14rem) {
+            .CardMeta__heading {
+                display: block;
+            }
         }
     }
 
