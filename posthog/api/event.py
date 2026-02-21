@@ -461,10 +461,10 @@ class EventViewSet(
             run_event_property_query_and_cache,
         )
 
-        property_filters = [
+        property_filters: list[list[str]] = [
             [param_key, param_value]
             for param_key, param_value in query_params.items
-            if param_key.startswith("properties_")
+            if param_key.startswith("properties_") and isinstance(param_value, str)
         ]
 
         if not property_filters:
@@ -506,7 +506,7 @@ class EventViewSet(
                         search_value=query_params.value,
                         event_names=query_params.event_names,
                     )
-                    refresh_event_property_values_cache.delay(  # type: ignore[operator]
+                    refresh_event_property_values_cache.delay(
                         query_params.team.pk,
                         query_params.key,
                         query_params.is_column,

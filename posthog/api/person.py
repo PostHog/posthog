@@ -559,7 +559,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         property_key=key,
                         search_value=value,
                     )
-                    refresh_person_property_values_cache.delay(self.team.pk, key, value)  # type: ignore[operator]
+                    refresh_person_property_values_cache.delay(self.team.pk, key, value)
                 span.set_attribute("result_count", len(cached))
                 return response.Response({"results": cached, "refreshing": task_in_flight or not on_cooldown})
 
