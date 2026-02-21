@@ -332,6 +332,7 @@ export interface UserType extends UserBaseType {
         project_weekly_digest_disabled: Record<number, boolean>
         all_weekly_digest_disabled: boolean
         error_tracking_issue_assigned: boolean
+        error_tracking_weekly_digest: boolean
         discussions_mentioned: boolean
         data_pipeline_error_threshold?: number
     }
@@ -397,6 +398,7 @@ export interface NotificationSettings {
     project_weekly_digest_disabled: Record<string, boolean>
     all_weekly_digest_disabled: boolean
     error_tracking_issue_assigned: boolean
+    error_tracking_weekly_digest: boolean
     discussions_mentioned: boolean
     data_pipeline_error_threshold?: number
     project_api_key_exposed?: boolean
@@ -3492,6 +3494,16 @@ export type ProductTourType = 'tour' | 'announcement'
 
 export type ProductTourDisplayFrequency = 'show_once' | 'until_interacted' | 'always'
 
+export interface ProductTourGeneratedStepContent {
+    step_id: string
+    title: string
+    description: string
+}
+
+export interface ProductTourAIGenerationResponse {
+    steps: ProductTourGeneratedStepContent[]
+}
+
 export interface ProductTourContent {
     type?: ProductTourType
     steps: ProductTourStep[]
@@ -3501,6 +3513,10 @@ export interface ProductTourContent {
     step_order_history?: StepOrderVersion[]
     displayFrequency?: ProductTourDisplayFrequency
 }
+
+export type ProductTourDraftContent = Partial<
+    Pick<ProductTour, 'name' | 'description' | 'content' | 'auto_launch' | 'targeting_flag_filters' | 'linked_flag_id'>
+>
 
 export interface ProductTour {
     id: string
@@ -3518,6 +3534,8 @@ export interface ProductTour {
     created_by: UserBasicType | null
     updated_at: string
     archived: boolean
+    draft_content: ProductTourDraftContent | null
+    has_draft: boolean
 }
 
 export interface Survey extends WithAccessControl {
@@ -3557,6 +3575,7 @@ export interface Survey extends WithAccessControl {
     _create_in_folder?: string | null
     headline_summary?: string | null
     headline_response_count?: number | null
+    form_content?: Record<string, unknown> | null
 }
 
 export enum SurveyMatchType {
@@ -3666,6 +3685,7 @@ export interface SurveyQuestionBase {
 
 export interface BasicSurveyQuestion extends SurveyQuestionBase {
     type: SurveyQuestionType.Open
+    validation?: SurveyValidationRule[]
 }
 
 export interface LinkSurveyQuestion extends SurveyQuestionBase {
@@ -3709,6 +3729,17 @@ export enum SurveyQuestionType {
     SingleChoice = 'single_choice',
     Rating = 'rating',
     Link = 'link',
+}
+
+export enum SurveyValidationType {
+    MinLength = 'min_length',
+    MaxLength = 'max_length',
+}
+
+export interface SurveyValidationRule {
+    type: SurveyValidationType
+    value?: number
+    errorMessage?: string
 }
 
 export enum SurveyQuestionBranchingType {

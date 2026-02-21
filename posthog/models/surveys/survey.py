@@ -250,6 +250,9 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     # Format: { [questionId]: { summary: string, responseCount: number, generatedAt: string } }
     question_summaries = models.JSONField(blank=True, null=True)
 
+    # TipTap editor layout for form-builder surveys
+    form_content = models.JSONField(blank=True, null=True)
+
     # Use the survey_type instead. If it's external_survey, it's publicly shareable.
     is_publicly_shareable = deprecate_field(
         models.BooleanField(

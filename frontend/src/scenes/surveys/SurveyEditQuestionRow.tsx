@@ -12,6 +12,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { QuestionBranchingInput } from 'scenes/surveys/components/question-branching/QuestionBranchingInput'
 
 import {
+    BasicSurveyQuestion,
     MultipleSurveyQuestion,
     RatingSurveyQuestion,
     Survey,
@@ -22,6 +23,7 @@ import {
 
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { SurveyDragHandle } from './SurveyDragHandle'
+import { ValidationRulesEditor } from './components/ValidationRulesEditor'
 import { NewSurvey, SCALE_OPTIONS, SURVEY_RATING_SCALE, SurveyQuestionLabel } from './constants'
 import { surveyLogic } from './surveyLogic'
 import { isThumbQuestion } from './utils'
@@ -250,8 +252,18 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     )}
                 </LemonField>
                 {survey.questions.length > 1 && (
-                    <LemonField name="optional" className="my-2">
+                    <LemonField name="optional">
                         <LemonCheckbox label="Optional" checked={!!question.optional} />
+                    </LemonField>
+                )}
+                {question.type === SurveyQuestionType.Open && (
+                    <LemonField name="validation">
+                        {({ value, onChange }) => (
+                            <ValidationRulesEditor
+                                value={(question as BasicSurveyQuestion).validation ?? value}
+                                onChange={onChange}
+                            />
+                        )}
                     </LemonField>
                 )}
                 {question.type === SurveyQuestionType.Link && (

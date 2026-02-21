@@ -61,6 +61,7 @@ class TestAITemporalModuleIntegrity:
             "consolidate_video_segments_activity",
             "embed_and_store_segments_activity",
             "store_video_session_summary_activity",
+            "cleanup_gemini_file_activity",
             "capture_timing_activity",
             "get_sessions_to_prime_activity",
             "fetch_segments_activity",
