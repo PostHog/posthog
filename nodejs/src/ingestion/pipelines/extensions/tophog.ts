@@ -1,5 +1,6 @@
 import { MetricTracker } from '../../tophog/metric-tracker'
 import { MetricConfig } from '../../tophog/tophog'
+import { PipelineResult, isOkResult } from '../results'
 import type { ProcessingStep } from '../steps'
 import { wrapStep } from './helpers'
 
@@ -7,36 +8,48 @@ export interface TopHogRegistry {
     register(name: string, opts?: MetricConfig): MetricTracker
 }
 
-export interface TopHogMetric<T> {
-    start(input: T): () => void
+export interface TopHogMetric<TInput, TOutput> {
+    start(input: TInput): (result: PipelineResult<TOutput>) => void
 }
 
-export type TopHogMetricFactory<T> = (registry: TopHogRegistry) => TopHogMetric<T>
+export type TopHogMetricFactory<TInput, TOutput> = (registry: TopHogRegistry) => TopHogMetric<TInput, TOutput>
 
-export function counter<T>(
+export function counter<TInput, TOutput>(
     name: string,
-    key: (input: T) => Record<string, string>,
-    value?: (input: T) => number,
+    key: (input: TInput) => Record<string, string>,
+    value?: (input: TInput) => number,
     opts?: MetricConfig
-): TopHogMetricFactory<T> {
+): TopHogMetricFactory<TInput, TOutput> {
     return (registry) => new CounterMetric(registry.register(name, opts), key, value ?? (() => 1))
 }
 
-export function timer<T>(
+export function resultCounter<TInput, TOutput>(
     name: string,
-    key: (input: T) => Record<string, string>,
+    key: (output: TOutput, input: TInput) => Record<string, string>,
+    value?: (output: TOutput, input: TInput) => number,
     opts?: MetricConfig
-): TopHogMetricFactory<T> {
+): TopHogMetricFactory<TInput, TOutput> {
+    return (registry) => new ResultCounterMetric(registry.register(name, opts), key, value ?? (() => 1))
+}
+
+export function timer<TInput, TOutput>(
+    name: string,
+    key: (input: TInput) => Record<string, string>,
+    opts?: MetricConfig
+): TopHogMetricFactory<TInput, TOutput> {
     return (registry) => new TimingMetric(registry.register(name, opts), key)
 }
 
-export type TopHogWrapper = <T, U>(
-    step: ProcessingStep<T, U>,
-    factories: TopHogMetricFactory<T>[]
-) => ProcessingStep<T, U>
+export type TopHogWrapper = <TInput, TOutput>(
+    step: ProcessingStep<TInput, TOutput>,
+    factories: TopHogMetricFactory<TInput, TOutput>[]
+) => ProcessingStep<TInput, TOutput>
 
 export function createTopHogWrapper(tracker: TopHogRegistry): TopHogWrapper {
-    return <T, U>(step: ProcessingStep<T, U>, factories: TopHogMetricFactory<T>[]): ProcessingStep<T, U> => {
+    return <TInput, TOutput>(
+        step: ProcessingStep<TInput, TOutput>,
+        factories: TopHogMetricFactory<TInput, TOutput>[]
+    ): ProcessingStep<TInput, TOutput> => {
         if (!factories.length) {
             return step
         }
@@ -44,32 +57,48 @@ export function createTopHogWrapper(tracker: TopHogRegistry): TopHogWrapper {
         return wrapStep(step, async (input, s) => {
             const ends = metrics.map((m) => m.start(input))
             const result = await s(input)
-            ends.forEach((end) => end())
+            ends.forEach((end) => end(result))
             return result
         })
     }
 }
 
-class CounterMetric<T> implements TopHogMetric<T> {
+class CounterMetric<TInput, TOutput> implements TopHogMetric<TInput, TOutput> {
     constructor(
         private readonly tracker: { record(key: Record<string, string>, value: number): void },
-        private readonly key: (input: T) => Record<string, string>,
-        private readonly value: (input: T) => number
+        private readonly key: (input: TInput) => Record<string, string>,
+        private readonly value: (input: TInput) => number
     ) {}
 
-    start(input: T): () => void {
+    start(input: TInput): (result: PipelineResult<TOutput>) => void {
         this.tracker.record(this.key(input), this.value(input))
         return noop
     }
 }
 
-class TimingMetric<T> implements TopHogMetric<T> {
+class ResultCounterMetric<TInput, TOutput> implements TopHogMetric<TInput, TOutput> {
     constructor(
         private readonly tracker: { record(key: Record<string, string>, value: number): void },
-        private readonly key: (input: T) => Record<string, string>
+        private readonly key: (output: TOutput, input: TInput) => Record<string, string>,
+        private readonly value: (output: TOutput, input: TInput) => number
     ) {}
 
-    start(input: T): () => void {
+    start(input: TInput): (result: PipelineResult<TOutput>) => void {
+        return (result) => {
+            if (isOkResult(result)) {
+                this.tracker.record(this.key(result.value, input), this.value(result.value, input))
+            }
+        }
+    }
+}
+
+class TimingMetric<TInput, TOutput> implements TopHogMetric<TInput, TOutput> {
+    constructor(
+        private readonly tracker: { record(key: Record<string, string>, value: number): void },
+        private readonly key: (input: TInput) => Record<string, string>
+    ) {}
+
+    start(input: TInput): (result: PipelineResult<TOutput>) => void {
         const k = this.key(input)
         const startTime = performance.now()
         return () => {
