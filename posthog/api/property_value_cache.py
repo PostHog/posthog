@@ -17,6 +17,9 @@ PROPERTY_VALUES_CACHE_TTL = 7 * 24 * 60 * 60
 # How long to wait before allowing another background refresh (seconds)
 PROPERTY_VALUES_REFRESH_COOLDOWN = 60
 
+# Safety-net TTL for the task-running key; cleared explicitly on task completion
+PROPERTY_VALUES_TASK_RUNNING_TTL = 5 * 60
+
 
 def _make_cache_key(
     team_id: int,
@@ -118,6 +121,45 @@ def set_refresh_cooldown(
     redis_client = get_client()
     cooldown_key = _make_cache_key(team_id, property_type, property_key, search_value, event_names) + ":refreshing"
     redis_client.set(cooldown_key, "1", ex=PROPERTY_VALUES_REFRESH_COOLDOWN)
+
+
+def set_task_running(
+    team_id: int,
+    property_type: str,
+    property_key: str,
+    search_value: Optional[str] = None,
+    event_names: Optional[list[str]] = None,
+) -> None:
+    """Mark that a background refresh task is in flight."""
+    redis_client = get_client()
+    key = _make_cache_key(team_id, property_type, property_key, search_value, event_names) + ":task_running"
+    redis_client.set(key, "1", ex=PROPERTY_VALUES_TASK_RUNNING_TTL)
+
+
+def is_task_running(
+    team_id: int,
+    property_type: str,
+    property_key: str,
+    search_value: Optional[str] = None,
+    event_names: Optional[list[str]] = None,
+) -> bool:
+    """Return True if a background refresh task is currently in flight."""
+    redis_client = get_client()
+    key = _make_cache_key(team_id, property_type, property_key, search_value, event_names) + ":task_running"
+    return redis_client.exists(key) > 0
+
+
+def clear_task_running(
+    team_id: int,
+    property_type: str,
+    property_key: str,
+    search_value: Optional[str] = None,
+    event_names: Optional[list[str]] = None,
+) -> None:
+    """Clear the task-running flag; called by the Celery task on completion."""
+    redis_client = get_client()
+    key = _make_cache_key(team_id, property_type, property_key, search_value, event_names) + ":task_running"
+    redis_client.delete(key)
 
 
 # Used for testing this PR only, should be removed

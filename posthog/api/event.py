@@ -452,7 +452,9 @@ class EventViewSet(
         from posthog.api.property_value_cache import (
             get_cached_property_values,
             is_refresh_on_cooldown,
+            is_task_running,
             set_refresh_cooldown,
+            set_task_running,
         )
         from posthog.tasks.property_value_cache import (
             refresh_event_property_values_cache,
@@ -490,6 +492,13 @@ class EventViewSet(
                         search_value=query_params.value,
                         event_names=query_params.event_names,
                     )
+                    set_task_running(
+                        team_id=query_params.team.pk,
+                        property_type="event",
+                        property_key=query_params.key,
+                        search_value=query_params.value,
+                        event_names=query_params.event_names,
+                    )
                     refresh_event_property_values_cache.delay(  # type: ignore[operator]
                         query_params.team.pk,
                         query_params.key,
@@ -498,7 +507,16 @@ class EventViewSet(
                         query_params.event_names,
                         property_filters,
                     )
-                return self._return_with_short_cache({"results": cached, "refreshing": not on_cooldown})
+                    refreshing = True
+                else:
+                    refreshing = is_task_running(
+                        team_id=query_params.team.pk,
+                        property_type="event",
+                        property_key=query_params.key,
+                        search_value=query_params.value,
+                        event_names=query_params.event_names,
+                    )
+                return self._return_with_short_cache({"results": cached, "refreshing": refreshing})
 
         result = run_event_property_query_and_cache(
             query_params.team.pk,

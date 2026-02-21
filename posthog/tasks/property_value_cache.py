@@ -13,7 +13,7 @@ from posthog.hogql import ast
 from posthog.hogql.property_utils import create_property_conditions
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.api.property_value_cache import cache_property_values
+from posthog.api.property_value_cache import cache_property_values, clear_task_running
 from posthog.queries.property_values import get_person_property_values_for_key
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import convert_property_value, flatten, relative_date_parse
@@ -142,6 +142,14 @@ def run_event_property_query_and_cache(
                 event_names=event_names,
             )
 
+        clear_task_running(
+            team_id=team_id,
+            property_type="event",
+            property_key=property_key,
+            search_value=search_value,
+            event_names=event_names,
+        )
+
         return formatted_values
 
 
@@ -188,6 +196,13 @@ def run_person_property_query_and_cache(
             values=formatted_values,
             search_value=search_value,
         )
+
+    clear_task_running(
+        team_id=team_id,
+        property_type="person",
+        property_key=property_key,
+        search_value=search_value,
+    )
 
     return formatted_values
 

@@ -9,9 +9,12 @@ from posthog.api.property_value_cache import (
     PROPERTY_VALUES_REFRESH_COOLDOWN,
     _make_cache_key,
     cache_property_values,
+    clear_task_running,
     get_cached_property_values,
     is_refresh_on_cooldown,
+    is_task_running,
     set_refresh_cooldown,
+    set_task_running,
 )
 from posthog.redis import get_client
 from posthog.tasks.property_value_cache import (
@@ -44,6 +47,18 @@ class TestPropertyValueCache(ClickhouseTestMixin, APIBaseTest):
         ttl = self.redis_client.ttl(cooldown_key)
         assert ttl > PROPERTY_VALUES_REFRESH_COOLDOWN - 5
         assert ttl <= PROPERTY_VALUES_REFRESH_COOLDOWN
+
+    def test_is_task_running_returns_false_when_not_set(self):
+        assert not is_task_running(team_id=self.team.pk, property_type="event", property_key="color")
+
+    def test_set_task_running_makes_is_task_running_true(self):
+        set_task_running(team_id=self.team.pk, property_type="event", property_key="color")
+        assert is_task_running(team_id=self.team.pk, property_type="event", property_key="color")
+
+    def test_clear_task_running_makes_is_task_running_false(self):
+        set_task_running(team_id=self.team.pk, property_type="event", property_key="color")
+        clear_task_running(team_id=self.team.pk, property_type="event", property_key="color")
+        assert not is_task_running(team_id=self.team.pk, property_type="event", property_key="color")
 
     def test_cooldown_is_scoped_to_parameters(self):
         set_refresh_cooldown(team_id=self.team.pk, property_type="event", property_key="color")
@@ -221,18 +236,45 @@ class TestPropertyValueCache(ClickhouseTestMixin, APIBaseTest):
             first = self.client.get(f"/api/projects/{self.team.pk}/events/values/?key=color")
         assert first.json()["refreshing"] is True
 
-        # Cooldown is now set; simulate background task completing with fresh data
+        # Simulate background task completing: update cache and clear task-running flag
         cache_property_values(
             team_id=self.team.pk,
             property_type="event",
             property_key="color",
             values=[{"name": "fresh_value"}],
         )
+        clear_task_running(team_id=self.team.pk, property_type="event", property_key="color")
 
         # Second request: cooldown still active → no new refresh, fresh data served
         with patch.object(refresh_event_property_values_cache, "delay") as mock_delay:
             second = self.client.get(f"/api/projects/{self.team.pk}/events/values/?key=color")
         assert second.json() == {"results": [{"name": "fresh_value"}], "refreshing": False}
+        mock_delay.assert_not_called()
+
+    # ------------------------------------------------------------------
+    # Regression: frontend poll while Celery task is in flight must keep
+    # receiving refreshing=True so it doesn't stop polling prematurely.
+    # ------------------------------------------------------------------
+
+    def test_poll_while_celery_task_in_flight_returns_refreshing_true(self):
+        stale_values = [{"name": "stale_value"}]
+        cache_property_values(
+            team_id=self.team.pk,
+            property_type="event",
+            property_key="color",
+            values=stale_values,
+        )
+
+        # Request 1: cache hit, no cooldown → refreshing=True, sets cooldown, queues task
+        with patch.object(refresh_event_property_values_cache, "delay"):
+            first = self.client.get(f"/api/projects/{self.team.pk}/events/values/?key=color")
+        assert first.json() == {"results": stale_values, "refreshing": True}
+
+        # Request 2: simulates frontend poll at t=2s — task NOT finished yet
+        # Cooldown IS set but task-running key is also still set, so refreshing stays True
+        with patch.object(refresh_event_property_values_cache, "delay") as mock_delay:
+            second = self.client.get(f"/api/projects/{self.team.pk}/events/values/?key=color")
+        assert second.json() == {"results": stale_values, "refreshing": True}
         mock_delay.assert_not_called()
 
     # ------------------------------------------------------------------

@@ -517,7 +517,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             from posthog.api.property_value_cache import (
                 get_cached_property_values,
                 is_refresh_on_cooldown,
+                is_task_running,
                 set_refresh_cooldown,
+                set_task_running,
             )
             from posthog.tasks.property_value_cache import (
                 refresh_person_property_values_cache,
@@ -545,9 +547,23 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         property_key=key,
                         search_value=value,
                     )
+                    set_task_running(
+                        team_id=self.team.pk,
+                        property_type="person",
+                        property_key=key,
+                        search_value=value,
+                    )
                     refresh_person_property_values_cache.delay(self.team.pk, key, value)  # type: ignore[operator]
+                    refreshing = True
+                else:
+                    refreshing = is_task_running(
+                        team_id=self.team.pk,
+                        property_type="person",
+                        property_key=key,
+                        search_value=value,
+                    )
                 span.set_attribute("result_count", len(cached))
-                return response.Response({"results": cached, "refreshing": not on_cooldown})
+                return response.Response({"results": cached, "refreshing": refreshing})
 
             result = run_person_property_query_and_cache(self.team.pk, key, value)
             span.set_attribute("result_count", len(result))
