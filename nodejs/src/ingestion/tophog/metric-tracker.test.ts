@@ -15,6 +15,7 @@ describe('AddingMetricTracker', () => {
         const entries = tracker.flush()
         expect(entries).toHaveLength(1)
         expect(entries[0].value).toBe(12)
+        expect(entries[0].count).toBe(3)
     })
 
     it('should handle multiple keys independently', () => {
@@ -25,7 +26,9 @@ describe('AddingMetricTracker', () => {
         const entries = tracker.flush()
         expect(entries).toHaveLength(2)
         expect(entries.find((e) => e.key.team_id === '1')?.value).toBe(10)
+        expect(entries.find((e) => e.key.team_id === '1')?.count).toBe(1)
         expect(entries.find((e) => e.key.team_id === '2')?.value).toBe(20)
+        expect(entries.find((e) => e.key.team_id === '2')?.count).toBe(1)
     })
 
     it('should return empty array when no data recorded', () => {
@@ -52,6 +55,7 @@ describe('AddingMetricTracker', () => {
 
         expect(entries).toHaveLength(1)
         expect(entries[0].value).toBe(3)
+        expect(entries[0].count).toBe(1)
     })
 
     it('should deserialize key back to object', () => {
@@ -162,6 +166,7 @@ describe('AverageMetricTracker', () => {
         const entries = tracker.flush()
         expect(entries).toHaveLength(1)
         expect(entries[0].value).toBe(20)
+        expect(entries[0].count).toBe(3)
     })
 
     it('should compute averages independently per key', () => {
@@ -172,7 +177,9 @@ describe('AverageMetricTracker', () => {
 
         const entries = tracker.flush()
         expect(entries.find((e) => e.key.team_id === '1')?.value).toBe(20)
+        expect(entries.find((e) => e.key.team_id === '1')?.count).toBe(2)
         expect(entries.find((e) => e.key.team_id === '2')?.value).toBe(100)
+        expect(entries.find((e) => e.key.team_id === '2')?.count).toBe(1)
     })
 
     it('should rank by average not by sum', () => {
@@ -259,6 +266,7 @@ describe('MaxMetricTracker', () => {
         const entries = tracker.flush()
         expect(entries).toHaveLength(1)
         expect(entries[0].value).toBe(50)
+        expect(entries[0].count).toBe(3)
     })
 
     it('should track max independently per key', () => {
@@ -269,7 +277,9 @@ describe('MaxMetricTracker', () => {
 
         const entries = tracker.flush()
         expect(entries.find((e) => e.key.team_id === '1')?.value).toBe(50)
+        expect(entries.find((e) => e.key.team_id === '1')?.count).toBe(2)
         expect(entries.find((e) => e.key.team_id === '2')?.value).toBe(30)
+        expect(entries.find((e) => e.key.team_id === '2')?.count).toBe(1)
     })
 
     it('should rank by max value', () => {

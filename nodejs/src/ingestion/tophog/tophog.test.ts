@@ -74,13 +74,41 @@ describe('TopHog', () => {
                 {
                     timestamp: '2025-01-15T10:30:00.000Z',
                     metric: 'events',
+                    type: 'sum',
                     key: { team_id: '42' },
                     value: 5,
+                    count: 1,
                     pipeline: 'test_pipeline',
                     lane: 'test_lane',
                     labels: {},
                 },
             ])
+        })
+
+        it('should include type=max for max trackers', async () => {
+            const tophog = new TopHog(createOptions())
+            tophog.registerMax('max_size').record({ team_id: '1' }, 100)
+
+            await tophog.flush()
+
+            const msg = getProducedMessages()[0]
+            expect(msg.type).toBe('max')
+            expect(msg.value).toBe(100)
+            expect(msg.count).toBe(1)
+        })
+
+        it('should include type=avg for average trackers', async () => {
+            const tophog = new TopHog(createOptions())
+            const tracker = tophog.registerAverage('latency')
+            tracker.record({ team_id: '1' }, 10)
+            tracker.record({ team_id: '1' }, 30)
+
+            await tophog.flush()
+
+            const msg = getProducedMessages()[0]
+            expect(msg.type).toBe('avg')
+            expect(msg.value).toBe(20)
+            expect(msg.count).toBe(2)
         })
 
         it('should collect entries from multiple trackers in a single flush', async () => {

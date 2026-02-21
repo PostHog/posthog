@@ -2,8 +2,9 @@ import { parseJSON } from '../../utils/json-parse'
 
 export interface Tracker {
     readonly metricName: string
+    readonly type: string
     record(key: Record<string, string>, value: number): void
-    flush(): Array<{ key: Record<string, string>; value: number }>
+    flush(): Array<{ key: Record<string, string>; value: number; count: number }>
 }
 
 export class MetricTracker<TStored> {
@@ -14,7 +15,8 @@ export class MetricTracker<TStored> {
         private readonly topN: number,
         private readonly maxKeys: number,
         private readonly store: (stored: TStored | undefined, value: number) => TStored,
-        private readonly compute: (stored: TStored) => number
+        private readonly compute: (stored: TStored) => number,
+        private readonly countFn: (stored: TStored) => number
     ) {}
 
     record(key: Record<string, string>, value: number): void {
@@ -26,13 +28,13 @@ export class MetricTracker<TStored> {
         }
     }
 
-    flush(): Array<{ key: Record<string, string>; value: number }> {
+    flush(): Array<{ key: Record<string, string>; value: number; count: number }> {
         if (this.entries.size === 0) {
             return []
         }
 
         const computed = Array.from(this.entries.entries()).map(
-            ([serializedKey, stored]) => [serializedKey, this.compute(stored)] as const
+            ([serializedKey, stored]) => [serializedKey, this.compute(stored), this.countFn(stored)] as const
         )
 
         this.entries.clear()
@@ -40,7 +42,7 @@ export class MetricTracker<TStored> {
         return computed
             .sort(([, a], [, b]) => b - a)
             .slice(0, this.topN)
-            .map(([serializedKey, value]) => ({ key: parseJSON(serializedKey), value }))
+            .map(([serializedKey, value, count]) => ({ key: parseJSON(serializedKey), value, count }))
     }
 
     private evict(): void {
@@ -51,15 +53,17 @@ export class MetricTracker<TStored> {
 }
 
 export class AddingMetricTracker {
-    private readonly tracker: MetricTracker<number>
+    readonly type = 'sum'
+    private readonly tracker: MetricTracker<{ count: number; value: number }>
 
     constructor(name: string, topN: number, maxKeys: number) {
         this.tracker = new MetricTracker(
             name,
             topN,
             maxKeys,
-            (s, v) => (s ?? 0) + v,
-            (s) => s
+            (s, v) => ({ count: (s?.count ?? 0) + 1, value: (s?.value ?? 0) + v }),
+            (s) => s.value,
+            (s) => s.count
         )
     }
 
@@ -71,21 +75,23 @@ export class AddingMetricTracker {
         this.tracker.record(key, value)
     }
 
-    flush(): Array<{ key: Record<string, string>; value: number }> {
+    flush(): Array<{ key: Record<string, string>; value: number; count: number }> {
         return this.tracker.flush()
     }
 }
 
 export class MaxMetricTracker {
-    private readonly tracker: MetricTracker<number>
+    readonly type = 'max'
+    private readonly tracker: MetricTracker<{ count: number; value: number }>
 
     constructor(name: string, topN: number, maxKeys: number) {
         this.tracker = new MetricTracker(
             name,
             topN,
             maxKeys,
-            (s, v) => Math.max(s ?? -Infinity, v),
-            (s) => s
+            (s, v) => ({ count: (s?.count ?? 0) + 1, value: Math.max(s?.value ?? -Infinity, v) }),
+            (s) => s.value,
+            (s) => s.count
         )
     }
 
@@ -97,12 +103,13 @@ export class MaxMetricTracker {
         this.tracker.record(key, value)
     }
 
-    flush(): Array<{ key: Record<string, string>; value: number }> {
+    flush(): Array<{ key: Record<string, string>; value: number; count: number }> {
         return this.tracker.flush()
     }
 }
 
 export class AverageMetricTracker {
+    readonly type = 'avg'
     private readonly tracker: MetricTracker<{ count: number; sum: number }>
 
     constructor(name: string, topN: number, maxKeys: number) {
@@ -111,7 +118,8 @@ export class AverageMetricTracker {
             topN,
             maxKeys,
             (s, v) => ({ count: (s?.count ?? 0) + 1, sum: (s?.sum ?? 0) + v }),
-            (s) => s.sum / s.count
+            (s) => s.sum / s.count,
+            (s) => s.count
         )
     }
 
@@ -123,7 +131,7 @@ export class AverageMetricTracker {
         this.tracker.record(key, value)
     }
 
-    flush(): Array<{ key: Record<string, string>; value: number }> {
+    flush(): Array<{ key: Record<string, string>; value: number; count: number }> {
         return this.tracker.flush()
     }
 }
