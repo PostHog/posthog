@@ -7,19 +7,29 @@ from django.shortcuts import render
 from posthog.clickhouse.client import sync_execute
 
 TOPHOG_QUERY = """
-SELECT metric, toString(key), total, pipeline, lane
+SELECT metric, type, toString(key), total, obs, pipeline, lane
 FROM (
     SELECT
-        metric,
-        key,
-        sum(value) AS total,
-        any(pipeline) AS pipeline,
-        any(lane) AS lane,
-        ROW_NUMBER() OVER (PARTITION BY metric ORDER BY sum(value) DESC) AS rn
-    FROM tophog
-    WHERE timestamp >= now() - INTERVAL 5 MINUTE
-    {filters}
-    GROUP BY metric, key
+        *,
+        ROW_NUMBER() OVER (PARTITION BY metric ORDER BY total DESC) AS rn
+    FROM (
+        SELECT
+            metric,
+            type,
+            key,
+            CASE type
+                WHEN 'max' THEN max(value)
+                WHEN 'avg' THEN sum(value * count) / sum(count)
+                ELSE sum(value)
+            END AS total,
+            sum(count) AS obs,
+            any(pipeline) AS pipeline,
+            any(lane) AS lane
+        FROM tophog
+        WHERE timestamp >= now() - INTERVAL 5 MINUTE
+        {filters}
+        GROUP BY metric, type, key
+    )
 )
 WHERE rn <= 10
 ORDER BY metric, rn
@@ -57,11 +67,13 @@ def tophog_dashboard_view(request):
     rows = sync_execute(query, params)
 
     metrics: dict[str, list[dict]] = defaultdict(list)
-    for metric, key, total, pipeline, lane in rows:
+    for metric, type_, key, total, obs, pipeline, lane in rows:
         metrics[metric].append(
             {
+                "type": type_,
                 "key": key,
                 "value": total,
+                "count": obs,
                 "pipeline": pipeline,
                 "lane": lane,
             }
