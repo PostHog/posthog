@@ -1,3 +1,9 @@
+[build]
+# Unlocks Tokio's unstable RuntimeMetrics API (per-worker poll counts, blocking pool stats, etc.).
+# Used by feature-flags/src/tokio_monitor.rs — no other crate calls unstable APIs.
+# Applies workspace-wide because Cargo doesn't support per-crate config within a workspace.
+rustflags = ["--cfg", "tokio_unstable"]
+
 [env]
 # Force SQLX to run in offline mode for CI. Devs can change this if they want, to live code against the DB,
 # but we use it at the workspace level here to allow use of sqlx macros across all crates
