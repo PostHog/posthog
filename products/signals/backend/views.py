@@ -1,6 +1,6 @@
+import json
 import uuid
 import logging
-from typing import cast
 
 from django.conf import settings
 from django.db.models import Count
@@ -15,6 +15,11 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema import EmbeddingModelName
+
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission
@@ -22,9 +27,10 @@ from posthog.permissions import APIScopePermission
 from products.signals.backend.api import emit_signal
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.serializers import SignalReportArtefactSerializer, SignalReportSerializer
-from products.tasks.backend.temporal.client import execute_video_segment_clustering_workflow
 
 logger = logging.getLogger(__name__)
+
+EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
 
 
 class EmitSignalSerializer(serializers.Serializer):
@@ -62,6 +68,127 @@ class SignalViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         return Response({"status": "ok"}, status=status.HTTP_202_ACCEPTED)
 
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=False, url_path="list_reports")
+    def list_reports(self, request: Request, *args, **kwargs):
+        """Paginated list of all signal reports for this team. DEBUG only."""
+        if not settings.DEBUG:
+            raise NotFound()
+
+        limit = int(request.query_params.get("limit", 20))
+        offset = int(request.query_params.get("offset", 0))
+        status_filter = request.query_params.get("status")
+
+        qs = (
+            SignalReport.objects.filter(team=self.team)
+            .annotate(artefact_count=Count("artefacts"))
+            .order_by("-signal_count")
+        )
+
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+
+        total = qs.count()
+        reports = qs[offset : offset + limit]
+        serializer = SignalReportSerializer(reports, many=True)
+
+        next_offset = offset + limit
+        next_url = None
+        if next_offset < total:
+            next_url = request.build_absolute_uri(f"?limit={limit}&offset={next_offset}")
+            if status_filter:
+                next_url += f"&status={status_filter}"
+
+        return Response(
+            {
+                "count": total,
+                "next": next_url,
+                "previous": None,
+                "results": serializer.data,
+            }
+        )
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=False, url_path="report_signals")
+    def report_signals(self, request: Request, *args, **kwargs):
+        """Fetch all signals for a report from ClickHouse, including full metadata. DEBUG only."""
+        if not settings.DEBUG:
+            raise NotFound()
+
+        report_id = request.query_params.get("report_id")
+        if not report_id:
+            return Response({"error": "report_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Fetch the report from Postgres for context
+        report_data = None
+        try:
+            report = SignalReport.objects.get(id=report_id, team=self.team)
+            report_data = {
+                "id": str(report.id),
+                "title": report.title,
+                "summary": report.summary,
+                "status": report.status,
+                "total_weight": report.total_weight,
+                "signal_count": report.signal_count,
+                "created_at": report.created_at.isoformat() if report.created_at else None,
+                "updated_at": report.updated_at.isoformat() if report.updated_at else None,
+            }
+        except SignalReport.DoesNotExist:
+            pass
+
+        # Fetch signals from ClickHouse
+        query = """
+            SELECT
+                document_id,
+                content,
+                metadata,
+                toString(timestamp) as timestamp
+            FROM (
+                SELECT
+                    document_id,
+                    argMax(content, inserted_at) as content,
+                    argMax(metadata, inserted_at) as metadata,
+                    argMax(timestamp, inserted_at) as timestamp
+                FROM document_embeddings
+                WHERE model_name = {model_name}
+                  AND product = 'signals'
+                  AND document_type = 'signal'
+                GROUP BY document_id
+            )
+            WHERE JSONExtractString(metadata, 'report_id') = {report_id}
+            ORDER BY timestamp ASC
+        """
+
+        result = execute_hogql_query(
+            query_type="SignalsDebugFetchForReport",
+            query=query,
+            team=self.team,
+            placeholders={
+                "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+                "report_id": ast.Constant(value=report_id),
+            },
+        )
+
+        signals = []
+        for row in result.results or []:
+            document_id, content, metadata_str, timestamp = row
+            metadata = json.loads(metadata_str)
+            signals.append(
+                {
+                    "signal_id": document_id,
+                    "content": content,
+                    "source_product": metadata.get("source_product", ""),
+                    "source_type": metadata.get("source_type", ""),
+                    "source_id": metadata.get("source_id", ""),
+                    "weight": metadata.get("weight", 0.0),
+                    "timestamp": timestamp,
+                    "extra": metadata.get("extra", {}),
+                    "match_metadata": metadata.get("match_metadata"),
+                }
+            )
+
+        return Response({"report": report_data, "signals": signals})
+
 
 @extend_schema_view(
     list=extend_schema(exclude=True),
@@ -75,6 +202,8 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
     queryset = SignalReport.objects.all()
 
     def safely_get_queryset(self, queryset):
+        from django.db.models import Count
+
         qs = (
             queryset.filter(
                 team=self.team,
@@ -90,42 +219,10 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         return {**super().get_serializer_context(), "team": self.team}
 
     @extend_schema(exclude=True)
-    @action(detail=False, methods=["post"], url_path="analyze_sessions", required_scopes=["task:write"])
-    def analyze_sessions(self, request, **kwargs):
-        if not settings.DEBUG:
-            return Response(
-                {"error": "This endpoint is only available in DEBUG mode"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        try:
-            result = execute_video_segment_clustering_workflow(team_id=self.team.id)
-
-            response_status = status.HTTP_200_OK if result.get("success") else status.HTTP_500_INTERNAL_SERVER_ERROR
-
-            return Response(
-                {
-                    "workflow_id": result["workflow_id"],
-                    "success": result.get("success"),
-                    "error": result.get("error"),
-                    "segments_processed": result.get("segments_processed"),
-                    "clusters_found": result.get("clusters_found"),
-                    "reports_created": result.get("reports_created"),
-                    "reports_updated": result.get("reports_updated"),
-                    "artefacts_created": result.get("artefacts_created"),
-                },
-                status=response_status,
-            )
-        except Exception:
-            logger.exception(f"Failed to run session analysis workflow for team {self.team.id}")
-            return Response(
-                {"error": "Failed to run session analysis workflow"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-    @extend_schema(exclude=True)
     @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["signal_report:read"])
     def artefacts(self, request, pk=None, **kwargs):
+        from typing import cast
+
         report = cast(SignalReport, self.get_object())
         artefacts = report.artefacts.filter(type=SignalReportArtefact.ArtefactType.VIDEO_SEGMENT).order_by(
             "-created_at"
