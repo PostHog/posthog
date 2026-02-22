@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
-import React, { useState } from 'react'
+import React from 'react'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { LemonMenuItemList } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -14,7 +14,6 @@ import { QueryContext } from '~/queries/types'
 import { InsightSceneSource } from '~/types'
 
 import { InsightCardProps } from './InsightCard'
-import { InsightDetails } from './InsightDetails'
 import { InsightMetaContent } from './InsightMeta'
 import { TopHeading } from './TopHeading'
 
@@ -51,8 +50,6 @@ export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(functi
 ): JSX.Element {
     const { theme } = useValues(themeLogic)
 
-    const [areDetailsShown, setAreDetailsShown] = useState(false)
-
     return (
         <div
             className={clsx('InsightCard border', highlighted && 'InsightCard--highlighted', className)}
@@ -65,11 +62,8 @@ export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(functi
             <ErrorBoundary exceptionProps={{ feature: 'insight' }}>
                 <CardMeta
                     ribbonColor={ribbonColor}
-                    setAreDetailsShown={setAreDetailsShown}
-                    areDetailsShown={areDetailsShown}
                     topHeading={<TopHeading query={query} />}
                     content={<InsightMetaContent title={title} description={description} />}
-                    metaDetails={<InsightDetails query={query} />}
                     samplingFactor={
                         'samplingFactor' in query && typeof query.samplingFactor === 'number'
                             ? query.samplingFactor
