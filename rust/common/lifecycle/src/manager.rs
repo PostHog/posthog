@@ -1,10 +1,13 @@
 //! Lifecycle manager: signal trapping, component registration, graceful shutdown, readiness/liveness probes.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+const DEFAULT_PRESTOP_PATH: &str = "/tmp/shutdown";
 
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
@@ -25,6 +28,7 @@ pub struct ManagerBuilder {
     global_shutdown_timeout: Duration,
     trap_signals: bool,
     enable_prestop_check: bool,
+    prestop_path: PathBuf,
     health_poll_interval: Duration,
 }
 
@@ -43,9 +47,15 @@ impl ManagerBuilder {
         self
     }
 
-    /// Poll for `/tmp/shutdown` file (K8s pre-stop hook pattern). Default: true.
+    /// Poll for pre-stop shutdown file (K8s pre-stop hook pattern). Default: true.
     pub fn with_prestop_check(mut self, enabled: bool) -> Self {
         self.enable_prestop_check = enabled;
+        self
+    }
+
+    /// Override the pre-stop file path. Default: `/tmp/shutdown`.
+    pub fn with_prestop_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.prestop_path = path.into();
         self
     }
 
@@ -60,16 +70,15 @@ impl ManagerBuilder {
 
     /// Consume the builder and produce a [`Manager`].
     pub fn build(self) -> Manager {
-        let (event_tx, event_rx) = mpsc::channel(64);
         Manager {
             name: self.name,
             global_shutdown_timeout: self.global_shutdown_timeout,
             trap_signals: self.trap_signals,
             enable_prestop_check: self.enable_prestop_check,
+            prestop_path: self.prestop_path,
             health_poll_interval: self.health_poll_interval,
             shutdown_token: CancellationToken::new(),
-            event_tx,
-            event_rx: Some(event_rx),
+            event_tx_slot: Arc::new(OnceLock::new()),
             components: HashMap::new(),
             liveness_components: Vec::new(),
         }
@@ -82,6 +91,7 @@ pub struct ComponentOptions {
     graceful_shutdown: Option<Duration>,
     liveness_deadline: Option<Duration>,
     stall_threshold: u32,
+    config_errors: Vec<String>,
 }
 
 impl ComponentOptions {
@@ -91,6 +101,7 @@ impl ComponentOptions {
             graceful_shutdown: None,
             liveness_deadline: None,
             stall_threshold: 1,
+            config_errors: Vec::new(),
         }
     }
 
@@ -100,8 +111,14 @@ impl ComponentOptions {
     pub fn with_graceful_shutdown<D>(mut self, d: D) -> Self
     where
         D: TryInto<Duration>,
+        D::Error: std::fmt::Debug,
     {
-        self.graceful_shutdown = d.try_into().ok();
+        match d.try_into() {
+            Ok(dur) => self.graceful_shutdown = Some(dur),
+            Err(e) => self
+                .config_errors
+                .push(format!("invalid graceful_shutdown duration: {e:?}")),
+        }
         self
     }
 
@@ -112,8 +129,14 @@ impl ComponentOptions {
     pub fn with_liveness_deadline<D>(mut self, d: D) -> Self
     where
         D: TryInto<Duration>,
+        D::Error: std::fmt::Debug,
     {
-        self.liveness_deadline = d.try_into().ok();
+        match d.try_into() {
+            Ok(dur) => self.liveness_deadline = Some(dur),
+            Err(e) => self
+                .config_errors
+                .push(format!("invalid liveness_deadline duration: {e:?}")),
+        }
         self
     }
 
@@ -153,10 +176,10 @@ pub struct Manager {
     global_shutdown_timeout: Duration,
     trap_signals: bool,
     enable_prestop_check: bool,
+    prestop_path: PathBuf,
     health_poll_interval: Duration,
     shutdown_token: CancellationToken,
-    event_tx: mpsc::Sender<ComponentEvent>,
-    event_rx: Option<mpsc::Receiver<ComponentEvent>>,
+    event_tx_slot: Arc<OnceLock<mpsc::Sender<ComponentEvent>>>,
     components: HashMap<String, ComponentState>,
     liveness_components: Vec<LivenessComponentRef>,
 }
@@ -171,6 +194,7 @@ impl Manager {
             global_shutdown_timeout: Duration::from_secs(60),
             trap_signals: true,
             enable_prestop_check: true,
+            prestop_path: PathBuf::from(DEFAULT_PRESTOP_PATH),
             health_poll_interval: Duration::from_secs(5),
         }
     }
@@ -180,6 +204,13 @@ impl Manager {
     /// the component exits. Register all components before calling [`monitor`](Manager::monitor)
     /// or [`monitor_background`](Manager::monitor_background).
     pub fn register(&mut self, tag: &str, options: ComponentOptions) -> Handle {
+        assert!(
+            options.config_errors.is_empty(),
+            "component '{}': {}",
+            tag,
+            options.config_errors.join("; ")
+        );
+
         let healthy_until_ms = Arc::new(AtomicI64::new(HEALTH_STARTING));
         let tag_owned = tag.to_string();
 
@@ -216,7 +247,7 @@ impl Manager {
         let inner = Arc::new(HandleInner {
             tag: tag_owned,
             shutdown_token: self.shutdown_token.clone(),
-            event_tx: self.event_tx.clone(),
+            event_tx: self.event_tx_slot.clone(),
             healthy_until_ms,
             liveness_deadline: options.liveness_deadline,
             completed: std::sync::atomic::AtomicBool::new(false),
@@ -233,9 +264,9 @@ impl Manager {
         ReadinessHandler::new(self.shutdown_token.clone())
     }
 
-    /// Liveness probe handler (`/_liveness`). Always returns 200 — liveness means
-    /// "the process is reachable." Health monitoring is handled internally by the
-    /// monitor's health poll task, which triggers graceful shutdown on stall.
+    /// Liveness probe handler (`/_liveness`). **Intentionally always returns 200** — the
+    /// lifecycle library handles health monitoring internally and triggers coordinated
+    /// graceful shutdown on stall, rather than delegating to K8s liveness probes.
     pub fn liveness_handler(&self) -> LivenessHandler {
         LivenessHandler::new()
     }
@@ -250,12 +281,14 @@ impl Manager {
         }
     }
 
-    fn spawn_monitor_thread(mut self) -> oneshot::Receiver<Result<(), LifecycleError>> {
+    fn spawn_monitor_thread(self) -> oneshot::Receiver<Result<(), LifecycleError>> {
         let (tx, rx) = oneshot::channel();
-        let event_rx = self
-            .event_rx
-            .take()
-            .expect("monitor already started or event_rx taken");
+
+        let channel_size = self.components.len() * 2 + 2;
+        let (event_tx, event_rx) = mpsc::channel(channel_size);
+        self.event_tx_slot
+            .set(event_tx)
+            .expect("lifecycle monitor already started");
 
         thread::Builder::new()
             .name("lifecycle-monitor".into())
@@ -313,13 +346,15 @@ impl Manager {
 
         if enable_prestop {
             let token = shutdown_token.clone();
+            let prestop_path = self.prestop_path.clone();
             tokio::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_secs(1));
                 loop {
                     interval.tick().await;
-                    if std::path::Path::new("/tmp/shutdown").exists() {
+                    if prestop_path.exists() {
                         info!(
                             trigger_reason = "prestop",
+                            path = %prestop_path.display(),
                             "Lifecycle: shutdown initiated, prestop file detected"
                         );
                         token.cancel();
@@ -333,7 +368,11 @@ impl Manager {
             let name_for_health = name.clone();
             let liveness_for_health = self.liveness_components.clone();
             let health_token = shutdown_token.clone();
-            let health_event_tx = self.event_tx.clone();
+            let health_event_tx = self
+                .event_tx_slot
+                .get()
+                .expect("event channel not initialized")
+                .clone();
             tokio::spawn(async move {
                 let mut stall_counts: Vec<u32> = vec![0; liveness_for_health.len()];
                 let mut interval = tokio::time::interval(health_poll_interval);

@@ -14,10 +14,12 @@ pub(crate) struct LivenessComponentRef {
     pub stall_threshold: u32,
 }
 
-/// K8s liveness probe handler. Always returns 200 — liveness means "the process
-/// is reachable." Health monitoring is handled internally by the manager's monitor
-/// loop, which triggers coordinated graceful shutdown when a component stalls,
-/// rather than letting K8s surprise-kill the pod.
+/// K8s liveness probe handler. **Intentionally always returns 200.**
+///
+/// Health monitoring is handled internally by the lifecycle library's monitor loop,
+/// not by K8s liveness probes. This is a deliberate design choice: when a component
+/// stalls, the library triggers coordinated graceful shutdown instead of letting K8s
+/// surprise-kill the pod via a failed liveness check.
 #[derive(Clone)]
 pub struct LivenessHandler;
 
@@ -31,7 +33,7 @@ impl LivenessHandler {
     }
 }
 
-/// Always-healthy liveness status. Implements [`IntoResponse`] for axum.
+/// Always-healthy liveness response. This is intentional — see [`LivenessHandler`].
 pub struct LivenessStatus;
 
 impl IntoResponse for LivenessStatus {

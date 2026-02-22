@@ -2,41 +2,42 @@
 
 Unified app lifecycle management for K8s services. All features are opt-in — use only what your app needs.
 
-**Core** (always active): signal trapping, component registration with RAII drop guards, coordinated graceful shutdown, readiness probe, global shutdown timeout (default 60s).
+**Core** (always active): signal trapping, component registration with RAII drop guards, coordinated global shutdown, readiness probe,
 
-**Opt-in**: health monitoring with stall detection (`with_liveness_deadline`), liveness probe, pre-stop file polling.
+**Opt-in**: active health reporting with stall detection (`with_liveness_deadline`), graceful shutdown with per-component timeouts, liveness probe, pre-stop file polling.
 
 ## Quick Start
 
 Summary of how the library works and can be intergrated into your Rust services. All referenced features, APIs, and config details are documented below this section.
 
-* Create a `lifecycle::Manager` and configure:
-  * Optional k8s `preStop` handling
-  * Override global graceful shutdown max timeout
-* Register each app component on `Manager` and configure:
-  * Optional active health reporting (usually not needed)
-  * Optional graceful shutdown timeout (overrides global)
-  * Returns a `HealthHandle`
-* Pass or clone the health handle to the component prior to blocking in `main`:
-  * If component is a function, clone handle into it's scope
-  * If component is a struct, store handle as a field
-  * If the component runs for the full app lifecycle:
-    * Create a drop guard at the top of the processing loop
-    * Example: `let _completed = handle.process_scope();`
-    * Call `handle.work_completed();` prior to a clean exit
-    * Return an error or panic to signal completion and app shutdown
-  * If using active health reporting:
-    * Call `handle.report_healthy();` regularly
-    * Call `handle.report_unhealthy();` before unclean exit
-    * _Note:_ these can be called from sync or async they are fast and nonblocking
-    * Ensure you report health within the configured interval and number of allowed unhealthy polls
-* Prior to the end of `main.rs`, call `manager.monitor();` or `monitor_background()`
-* Graceful shutdown coordination (optional):
-  * Components checks it's health handle for app shutdown at logical work boundaries
-  * Handle has APIs for async and sync shutdown checks
-  * Handle can cloned or referenced as needed for checks in nested calls
-* Processing loop should break on shutdown signal:
-  * Shutdown cleanup should run prior to returning from loop function
+- Create a `lifecycle::Manager` and configure:
+  - Optional k8s `preStop` handling
+  - Override global graceful shutdown max timeout
+- Register each app component on `Manager` and configure:
+  - Optional active health reporting (usually not needed)
+  - Optional graceful shutdown timeout (overrides global)
+  - Returns a `HealthHandle`
+- Pass or clone the health handle to the component prior to blocking in `main`:
+  - If component is a function, clone handle into it's scope
+  - If component is a struct, store handle as a field
+  - If the component runs for the full app lifecycle:
+    - Create a drop guard at the top of the processing loop
+    - Example: `let _completed = handle.process_scope();`
+    - Call `handle.work_completed();` prior to a clean exit
+    - Return an error or panic to signal completion and app shutdown
+  - If using active health reporting:
+    - Call `handle.report_healthy();` regularly
+    - Call `handle.report_unhealthy();` before unclean exit
+    - *Note:* these can be called from sync or async they are fast and nonblocking
+    - Ensure you report health within the configured interval and number of allowed unhealthy polls
+- Prior to the end of `main.rs`, call `manager.monitor();` or `monitor_background()`
+- Shutdown coordination:
+  - Component checks health handle for app shutdown at logical work boundaries
+  - If shutdown signaled, perform cleanup as needed and `return`
+  - Handle has APIs for async and sync shutdown checks
+  - Handle can cloned or referenced as needed for checks in nested calls
+- Processing loop should break on shutdown signal:
+  - Graceful: perform cleanup prior to returning from loop function
 
 ## Manager setup
 
@@ -97,14 +98,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 All options except `name` have sensible defaults.
 
-| Method                                    | Effect                                                                                                                                                                                                         | Default      |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
-| `Manager::builder(name)`                  | Start building a manager. `name` is emitted as the `service_name` label on all metrics.                                                                                                                        | — (required) |
-| `.with_global_shutdown_timeout(duration)` | Hard ceiling on total shutdown. Monitor returns `ShutdownTimeout` if exceeded. Prevents indefinite hangs if a component doesn't check for cancellation. (see test `global_timeout_fires_when_component_hangs`) | `60s`        |
-| `.with_trap_signals(bool)`                | Install SIGINT/SIGTERM handlers. Set `false` in tests.                                                                                                                                                         | `true`       |
-| `.with_prestop_check(bool)`               | Poll for `/tmp/shutdown` file (K8s pre-stop hook pattern).                                                                                                                                                     | `true`       |
-| `.with_health_poll_interval(duration)`    | Override health monitor poll frequency. The health monitor is automatically active when any component has `with_liveness_deadline`. (see test `stall_triggers_shutdown`)                                       | `5s`         |
-| `.build()`                                | Consume the builder and produce a `Manager`.                                                                                                                                                                   | —            |
+| Method                                    | Effect                                                                                                                                                                                                         | Default         |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
+| `Manager::builder(name)`                  | Start building a manager. `name` is emitted as the `service_name` label on all metrics.                                                                                                                        | — (required)    |
+| `.with_global_shutdown_timeout(duration)` | Hard ceiling on total shutdown. Monitor returns `ShutdownTimeout` if exceeded. Prevents indefinite hangs if a component doesn't check for cancellation. (see test `global_timeout_fires_when_component_hangs`) | `60s`           |
+| `.with_trap_signals(bool)`                | Install SIGINT/SIGTERM handlers. Set `false` in tests.                                                                                                                                                         | `true`          |
+| `.with_prestop_check(bool)`               | Poll for pre-stop shutdown file (K8s pre-stop hook pattern).                                                                                                                                                   | `true`          |
+| `.with_prestop_path(path)`                | Override the pre-stop file path.                                                                                                                                                                               | `/tmp/shutdown` |
+| `.with_health_poll_interval(duration)`    | Override health monitor poll frequency. The health monitor is automatically active when any component has `with_liveness_deadline`. (see test `stall_triggers_shutdown`)                                       | `5s`            |
+| `.build()`                                | Consume the builder and produce a `Manager`.                                                                                                                                                                   | —               |
 
 ### register() / ComponentOptions
 
@@ -261,39 +263,39 @@ Label values: `trigger_reason` = `signal`, `prestop`, `failure`, `requested`, `d
 ## Grafana / Prometheus setup
 
 1. **Service name** — When creating the manager, set the name in `Manager::builder("kafka-deduplicator")`. This value is emitted as the `service_name` label on every lifecycle metric.
-2. **Grafana variable** — In dashboards, define a variable (e.g. `service_name`) of type _Query_ that lists values:
+2. **Grafana variable** — In dashboards, define a variable (e.g. `service_name`) of type *Query* that lists values:
   `label_values(lifecycle_shutdown_initiated_total, service_name)`
    so users can filter panels by service.
 3. **Prometheus scrape** — Ensure your app exposes the same metrics endpoint Prometheus scrapes (e.g. `/metrics`); the lifecycle crate only emits to the `metrics` facade; the app wires the recorder/exporter.
 
 ### Recommended panels (PromQL, segment by `service_name`)
 
-* **What triggered shutdown?** (table)
+- **What triggered shutdown?** (table)
 `increase(lifecycle_shutdown_initiated_total{service_name="$service_name"}[$__range])`
 by `trigger_component`, `trigger_reason`.
-* **Component shutdown duration** (heatmap)
+- **Component shutdown duration** (heatmap)
 `histogram_quantile(0.95, rate(lifecycle_component_shutdown_duration_seconds_bucket{service_name="$service_name"}[5m]))`
 by `component`, `result`.
-* **Shutdown result breakdown** (stacked bar)
+- **Shutdown result breakdown** (stacked bar)
 `sum by (component, result) increase(lifecycle_component_shutdown_result_total{service_name="$service_name"}[$__range])`.
-* **Incomplete shutdowns (SIGKILL detection)** (stat; alert if > 0)
+- **Incomplete shutdowns (SIGKILL detection)** (stat; alert if > 0)
 `increase(lifecycle_shutdown_initiated_total{service_name="$service_name"}[1h]) - increase(lifecycle_shutdown_completed_total{service_name="$service_name"}[1h])`.
-* **Component liveness** (table)
+- **Component liveness** (table)
 `lifecycle_component_healthy{service_name="$service_name"}`
 (one row per component).
 
 ### Alert rules (segment by `service_name`)
 
-* Component timeout rate > 0 over 5m:
+- Component timeout rate > 0 over 5m:
 `increase(lifecycle_component_shutdown_result_total{service_name="$service_name", result="timeout"}[5m]) > 0`
-* Incomplete shutdown count > 0 over 1h:
+- Incomplete shutdown count > 0 over 1h:
 `increase(lifecycle_shutdown_initiated_total{service_name="$service_name"}[1h]) - increase(lifecycle_shutdown_completed_total{service_name="$service_name"}[1h]) > 0`
-* Component unhealthy for > 2 consecutive scrapes: e.g. alert when `lifecycle_component_healthy{service_name="$service_name"}` is 0 for a given component for 2 scrape intervals.
+- Component unhealthy for > 2 consecutive scrapes: e.g. alert when `lifecycle_component_healthy{service_name="$service_name"}` is 0 for a given component for 2 scrape intervals.
 
 ## SIGKILL detection
 
 SIGKILL cannot be trapped. Detection is by absence:
 
-* **Logs**: "Lifecycle: shutdown initiated" present but "Lifecycle: shutdown complete" absent within the expected window → process was killed mid-shutdown. In Loki: `{app="my-worker"} |= "Lifecycle: shutdown initiated"` and absence of `|= "Lifecycle: shutdown complete"`.
-* **Metrics**: `increase(lifecycle_shutdown_initiated_total[1h]) - increase(lifecycle_shutdown_completed_total[1h]) > 0` means some shutdowns did not complete.
-* **K8s**: Pod exit code 137 is the authoritative SIGKILL signal (infrastructure-level, not emitted by this crate).
+- **Logs**: "Lifecycle: shutdown initiated" present but "Lifecycle: shutdown complete" absent within the expected window → process was killed mid-shutdown. In Loki: `{app="my-worker"} |= "Lifecycle: shutdown initiated"` and absence of `|= "Lifecycle: shutdown complete"`.
+- **Metrics**: `increase(lifecycle_shutdown_initiated_total[1h]) - increase(lifecycle_shutdown_completed_total[1h]) > 0` means some shutdowns did not complete.
+- **K8s**: Pod exit code 137 is the authoritative SIGKILL signal (infrastructure-level, not emitted by this crate).

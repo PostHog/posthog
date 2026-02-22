@@ -1,7 +1,7 @@
 //! Component handle and lifecycle events.
 
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::mpsc;
@@ -47,7 +47,7 @@ pub struct Handle {
 pub(crate) struct HandleInner {
     pub(crate) tag: String,
     pub(crate) shutdown_token: CancellationToken,
-    pub(crate) event_tx: mpsc::Sender<ComponentEvent>,
+    pub(crate) event_tx: Arc<OnceLock<mpsc::Sender<ComponentEvent>>>,
     pub(crate) healthy_until_ms: Arc<AtomicI64>,
     pub(crate) liveness_deadline: Option<Duration>,
     pub(crate) completed: AtomicBool,
@@ -72,11 +72,13 @@ impl Handle {
     /// during shutdown is harmlessly ignored.
     /// (see tests `direct_signal_failure_then_drop`, `component_b_do_work_signals_failure`)
     pub fn signal_failure(&self, reason: impl Into<String>) {
-        if let Err(e) = self.inner.event_tx.try_send(ComponentEvent::Failure {
-            tag: self.inner.tag.clone(),
-            reason: reason.into(),
-        }) {
-            tracing::debug!(error = %e, "lifecycle event channel full, event dropped");
+        if let Some(tx) = self.inner.event_tx.get() {
+            if let Err(e) = tx.try_send(ComponentEvent::Failure {
+                tag: self.inner.tag.clone(),
+                reason: reason.into(),
+            }) {
+                tracing::debug!(error = %e, "lifecycle event channel full, event dropped");
+            }
         }
     }
 
@@ -85,14 +87,12 @@ impl Handle {
     /// stops routing traffic; liveness is unaffected.
     /// (see test `component_a_and_b_multi_component_shutdown`)
     pub fn request_shutdown(&self) {
-        if let Err(e) = self
-            .inner
-            .event_tx
-            .try_send(ComponentEvent::ShutdownRequested {
+        if let Some(tx) = self.inner.event_tx.get() {
+            if let Err(e) = tx.try_send(ComponentEvent::ShutdownRequested {
                 tag: self.inner.tag.clone(),
-            })
-        {
-            tracing::debug!(error = %e, "lifecycle event channel full, event dropped");
+            }) {
+                tracing::debug!(error = %e, "lifecycle event channel full, event dropped");
+            }
         }
     }
 
@@ -103,10 +103,12 @@ impl Handle {
     /// (see test `direct_work_completed_prevents_died_on_drop`)
     pub fn work_completed(&self) {
         self.inner.completed.store(true, Ordering::SeqCst);
-        if let Err(e) = self.inner.event_tx.try_send(ComponentEvent::WorkCompleted {
-            tag: self.inner.tag.clone(),
-        }) {
-            tracing::debug!(error = %e, "lifecycle event channel full, event dropped");
+        if let Some(tx) = self.inner.event_tx.get() {
+            if let Err(e) = tx.try_send(ComponentEvent::WorkCompleted {
+                tag: self.inner.tag.clone(),
+            }) {
+                tracing::debug!(error = %e, "lifecycle event channel full, event dropped");
+            }
         }
     }
 
@@ -177,7 +179,9 @@ impl Drop for ProcessScopeGuard {
         };
         // Intentionally ignore send errors in Drop — tracing may already be torn down
         // during process exit, and logging here could panic.
-        drop(self.inner.event_tx.try_send(event));
+        if let Some(tx) = self.inner.event_tx.get() {
+            drop(tx.try_send(event));
+        }
     }
 }
 
@@ -186,10 +190,13 @@ impl Drop for HandleInner {
         if self.process_scope_signalled.load(Ordering::SeqCst) {
             return;
         }
-        if self.completed.load(Ordering::SeqCst) {
-            return;
-        }
-        let event = if self.shutdown_token.is_cancelled() {
+        // If work_completed() was called or shutdown is in progress, signal completion.
+        // Otherwise signal died (safety net for panics/early returns).
+        // When work_completed() already sent the event, this is a harmless duplicate
+        // (monitor handles late WorkCompleted gracefully). When work_completed() was
+        // called before monitor() started (channel not yet created), this ensures the
+        // event reaches the monitor via the drop path.
+        let event = if self.completed.load(Ordering::SeqCst) || self.shutdown_token.is_cancelled() {
             ComponentEvent::WorkCompleted {
                 tag: self.tag.clone(),
             }
@@ -198,8 +205,8 @@ impl Drop for HandleInner {
                 tag: self.tag.clone(),
             }
         };
-        // Intentionally ignore send errors in Drop — tracing may already be torn down
-        // during process exit, and logging here could panic.
-        drop(self.event_tx.try_send(event));
+        if let Some(tx) = self.event_tx.get() {
+            drop(tx.try_send(event));
+        }
     }
 }
