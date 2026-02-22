@@ -79,6 +79,15 @@ describe('Hono App Routes', () => {
     })
 
     describe('OAuth Protected Resource Metadata', () => {
+        it('should return metadata for bare /.well-known/oauth-protected-resource path', async () => {
+            const app = createApp(mockRedis)
+            const res = await app.request('/.well-known/oauth-protected-resource')
+            expect(res.status).toBe(200)
+            const body = (await res.json()) as Record<string, any>
+            expect(body.authorization_servers).toBeTruthy()
+            expect(body.bearer_methods_supported).toEqual(['header'])
+        })
+
         it('should return metadata for /.well-known/oauth-protected-resource/mcp', async () => {
             const app = createApp(mockRedis)
             const res = await app.request('/.well-known/oauth-protected-resource/mcp')

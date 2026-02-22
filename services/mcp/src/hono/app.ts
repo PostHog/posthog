@@ -224,7 +224,7 @@ export function createApp(redis: RedisLike & { ping(): Promise<string> }): Hono<
         })
     }
 
-    app.all('/.well-known/oauth-protected-resource/*', (c) => {
+    const wellKnownHandler = (c: import('hono').Context<HonoEnv>): Response => {
         const url = new URL(c.req.url)
         const effectiveRegion = getRegionFromRequest(c.req.raw)
         const wellKnownPrefix = '/.well-known/oauth-protected-resource'
@@ -244,7 +244,9 @@ export function createApp(redis: RedisLike & { ping(): Promise<string> }): Hono<
             200,
             { 'Cache-Control': 'public, max-age=3600' }
         )
-    })
+    }
+    app.all('/.well-known/oauth-protected-resource', wellKnownHandler)
+    app.all('/.well-known/oauth-protected-resource/*', wellKnownHandler)
 
     async function handleMcpRequest(c: import('hono').Context<HonoEnv>): Promise<Response> {
         const url = new URL(c.req.url)
