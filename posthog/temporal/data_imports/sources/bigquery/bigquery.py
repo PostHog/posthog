@@ -18,6 +18,7 @@ from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
+from posthog.temporal.data_imports.sources.common.utils import resolve_primary_keys
 from posthog.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
@@ -237,7 +238,9 @@ def get_partition_settings(
     return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
 
 
-def get_primary_keys(table: bigquery.Table, client: bigquery.Client) -> list[str] | None:
+def get_primary_keys(
+    table: bigquery.Table, client: bigquery.Client, logger: FilteringBoundLogger
+) -> tuple[list[str] | None, bool]:
     """Attempt to fetch primary keys for a BigQuery table.
 
     We will also attempt to look at table constraints to find primary keys.
@@ -262,15 +265,11 @@ def get_primary_keys(table: bigquery.Table, client: bigquery.Client) -> list[str
         field_name = row["column_name"].removeprefix(f"{table.table_id}.")
 
         if field_name not in existing_fields:
-            return None
+            return None, False
 
         primary_keys.append(field_name)
 
-    if not primary_keys:
-        if "id" in existing_fields:
-            return ["id"]
-        return None
-    return primary_keys
+    return resolve_primary_keys(primary_keys or None, table.table_id, logger, existing_fields=existing_fields)
 
 
 def has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, primary_keys: list[str] | None) -> bool:
@@ -410,8 +409,11 @@ def bigquery_source(
         token_uri=token_uri,
     ) as bq_client:
         bq_table = bq_client.get_table(fully_qualified_table_name)
-        primary_keys = get_primary_keys(bq_table, bq_client)
+        primary_keys, _ = get_primary_keys(bq_table, bq_client, logger)
         partition_settings = get_partition_settings(bq_table, bq_client, partition_size_bytes=partition_size_bytes)
+
+        # BigQuery doesn't enforce PK uniqueness, so always check
+        # the PK(s) for uniqueness
         has_duplicate_keys = has_duplicate_primary_keys(bq_table, bq_client, primary_keys)
         rows_to_sync = _get_rows_to_sync(
             bq_table,
