@@ -42,6 +42,7 @@ from .prompts import (
     CONTEXT_MODE_PROMPT,
     CONTEXT_MODE_SWITCH_PROMPT,
     CONTEXTUAL_TOOLS_REMINDER_PROMPT,
+    HOG_EVALUATION_REFERENCE,
     ROOT_DASHBOARD_CONTEXT_PROMPT,
     ROOT_DASHBOARDS_CONTEXT_PROMPT,
     ROOT_INSIGHT_CONTEXT_PROMPT,
@@ -283,56 +284,7 @@ class AssistantContextManager(AssistantContextMixin):
                     lines.append(f"  Current Hog source:\n```hog\n{evaluation.hog_source}\n```")
                 eval_details.append("\n".join(lines))
 
-            hog_reference = (
-                "Hog language reference for writing evaluations:\n"
-                "\n"
-                "Available globals:\n"
-                "- `input`: LLM prompt/messages as a string (may be JSON — use `jsonParse(input)` to parse)\n"
-                "- `output`: LLM response as a string (may be JSON — use `jsonParse(output)` to parse)\n"
-                "- `properties`: all event properties (e.g. `properties.$ai_model`, `properties.$ai_total_cost_usd`, "
-                "`properties.$ai_latency`, `properties.$ai_total_tokens`)\n"
-                "- `event`: object with `uuid`, `event`, `distinct_id` fields\n"
-                "\n"
-                "Return type: boolean — `true` (pass) or `false` (fail)\n"
-                "\n"
-                "Syntax essentials:\n"
-                "- Strings use SINGLE quotes: `'hello'` (not double quotes)\n"
-                "- Assignment: `let x := 1` (use `:=`, not `=`)\n"
-                "- String length: `length(s)` (NOT `len()`)\n"
-                "- No ternary operator — use `if/else` blocks instead\n"
-                "\n"
-                "CRITICAL — null handling (properties can be null!):\n"
-                "- `ifNull(value, default)`: returns default if value is null. Example: `let cost := ifNull(properties.$ai_total_cost_usd, 0)`\n"
-                "- `coalesce(a, b, c)`: returns first non-null value\n"
-                "- ALWAYS use `ifNull()` when accessing properties before comparing: "
-                "`if (ifNull(properties.$ai_latency, 0) > 10)` — without this, comparing null > number throws a runtime error\n"
-                "\n"
-                "Common patterns:\n"
-                "- Case-insensitive match: `output ilike '%keyword%'`\n"
-                "- Case-sensitive match: `output like '%keyword%'`\n"
-                "- Parse JSON: `let data := jsonParse(output)`\n"
-                "- Regex match: `output =~ 'pattern'`\n"
-                "- Add reasoning: `print('explanation')` (visible in evaluation runs)\n"
-                "- Concat strings: `concat('Cost: $', toString(cost))`\n"
-                "- Array operations: `arrayPushBack(arr, item)`, `has(arr, item)`\n"
-                "- Split string: `splitByString('\\n', output)`\n"
-                "- Type check: `typeof(x) == 'string'`\n"
-                "\n"
-                "Example — cost guard with null safety:\n"
-                "```hog\n"
-                "let cost := ifNull(properties.$ai_total_cost_usd, 0)\n"
-                "let latency := ifNull(properties.$ai_latency, 0)\n"
-                "if (cost > 0.05) {\n"
-                "    print(concat('Cost $', toString(cost), ' exceeds budget'))\n"
-                "    return false\n"
-                "}\n"
-                "if (latency > 10) {\n"
-                "    print(concat('Latency ', toString(latency), 's too high'))\n"
-                "    return false\n"
-                "}\n"
-                "return true\n"
-                "```"
-            )
+            hog_reference = HOG_EVALUATION_REFERENCE
 
             evaluations_context = (
                 f"<evaluations_context>The user is editing the following LLM evaluation:\n"

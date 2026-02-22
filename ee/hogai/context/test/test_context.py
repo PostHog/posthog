@@ -809,6 +809,25 @@ class TestAssistantContextManager(BaseTest):
                 ),
                 ["<evaluations_context>", "Evaluation eval-3", "Type: hog"],
             ],
+            [
+                "hog reference includes STL and example patterns",
+                MaxEvaluationContext(
+                    id="eval-4",
+                    name="STL test",
+                    evaluation_type=EvaluationType.HOG,
+                ),
+                [
+                    "Standard library — strings:",
+                    "Standard library — arrays:",
+                    "Standard library — type & conversion:",
+                    "arrayPushBack",
+                    "jsonParse",
+                    "splitByString",
+                    "Example patterns for evaluations:",
+                    "Refusal detection",
+                    "Cost/latency guard",
+                ],
+            ],
         ]
     )
     async def test_format_ui_context_with_evaluation(self, _name, evaluation, expected_substrings):
