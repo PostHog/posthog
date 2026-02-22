@@ -553,8 +553,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
             )
 
             if insight_ids_to_delete:
+                # Fetch instances before .update() so we can clean up FileSystem entries
+                insights_to_delete = list(Insight.objects.filter(id__in=insight_ids_to_delete))
+
                 # nosemgrep: idor-lookup-without-team
                 Insight.objects.filter(id__in=insight_ids_to_delete).update(deleted=True)
+
+                Insight.bulk_delete_file_system_entries(instance.team, insights_to_delete)
 
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
 
@@ -567,6 +572,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 tile.insight.deleted = False
                 insights_to_undelete.append(tile.insight)
         Insight.objects.bulk_update(insights_to_undelete, ["deleted"])
+
+        Insight.bulk_create_file_system_entries(instance.team, insights_to_undelete)
 
     @tracer.start_as_current_span("DashboardSerializer.get_tiles")
     def get_tiles(self, dashboard: Dashboard) -> Optional[list[ReturnDict]]:

@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.db.models import CharField, Exists, F, Model, OuterRef, Q, QuerySet
@@ -19,6 +20,7 @@ class FileSystemSyncMixin(Model):
       - Defines signals to auto-create/update/delete a FileSystem entry on save/delete.
       - Provides a shared `_filter_unfiled_queryset` to exclude items already in FileSystem
         (so models don't import FileSystem themselves).
+      - Provides bulk helpers for .update()/.bulk_update() which bypass signals.
     """
 
     class Meta:
@@ -72,6 +74,51 @@ class FileSystemSyncMixin(Model):
             except Exception as e:
                 # Don't raise exceptions in signals
                 capture_exception(e, additional_properties=dataclasses.asdict(fs_data))
+
+    @staticmethod
+    def bulk_delete_file_system_entries(team: "Team", instances: Iterable["FileSystemSyncMixin"]) -> None:
+        """
+        Delete FileSystem entries for instances that were bulk soft-deleted via .update().
+
+        Use this after queryset.update(deleted=True) since .update() bypasses Django signals
+        and the normal FileSystemSyncMixin post_save handler won't fire.
+        """
+        from posthog.models.file_system.file_system import FileSystem
+        from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
+
+        refs_by_type: dict[str, list[str]] = {}
+        for instance in instances:
+            fs_data = instance.get_file_system_representation()
+            refs_by_type.setdefault(fs_data.type, []).append(fs_data.ref)
+
+        for file_type, refs in refs_by_type.items():
+            FileSystem.objects.filter(team=team, type=file_type, ref__in=refs).delete()
+            FileSystemShortcut.objects.filter(team=team, type=file_type, ref__in=refs).delete()
+
+    @staticmethod
+    def bulk_create_file_system_entries(team: "Team", instances: Iterable["FileSystemSyncMixin"]) -> None:
+        """
+        Create FileSystem entries for instances that were bulk-restored via .bulk_update().
+
+        Use this after queryset.bulk_update([...], ["deleted"]) since .bulk_update()
+        bypasses Django signals and the normal FileSystemSyncMixin post_save handler won't fire.
+        """
+        from posthog.models.file_system.file_system import create_or_update_file
+
+        for instance in instances:
+            fs_data = instance.get_file_system_representation()
+            if not fs_data.should_delete:
+                create_or_update_file(
+                    team=team,
+                    base_folder=fs_data.base_folder,
+                    name=fs_data.name,
+                    file_type=fs_data.type,
+                    ref=fs_data.ref,
+                    href=fs_data.href,
+                    meta=fs_data.meta,
+                    created_at=fs_data.meta.get("created_at") or getattr(instance, "created_at", None),
+                    created_by_id=fs_data.meta.get("created_by") or getattr(instance, "created_by_id", None),
+                )
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet[Any]:
