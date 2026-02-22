@@ -496,6 +496,36 @@ class LLMAnalyticsSummarizationDailyThrottle(PersonalApiKeyRateThrottle):
     rate = "500/day"
 
 
+class EventValuesBaseThrottle(SimpleRateThrottle):
+    def get_cache_key(self, request, view):
+        try:
+            team_id = getattr(view, "team_id", None)
+        except KeyError:
+            team_id = None
+        ident = team_id or self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class EventValuesBurstThrottle(EventValuesBaseThrottle):
+    scope = "event_values_burst"
+    rate = "60/minute"
+
+
+class EventValuesSustainedThrottle(EventValuesBaseThrottle):
+    scope = "event_values_sustained"
+    rate = "300/hour"
+
+
+class EventValuesNoEventNameBurstThrottle(EventValuesBaseThrottle):
+    scope = "event_values_no_event_name_burst"
+    rate = "6/minute"
+
+
+class EventValuesNoEventNameSustainedThrottle(EventValuesBaseThrottle):
+    scope = "event_values_no_event_name_sustained"
+    rate = "30/hour"
+
+
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):
     scope = "user_password_reset"
     rate = "6/day"

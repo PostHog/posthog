@@ -41,7 +41,14 @@ from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    EventValuesBurstThrottle,
+    EventValuesNoEventNameBurstThrottle,
+    EventValuesNoEventNameSustainedThrottle,
+    EventValuesSustainedThrottle,
+)
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.utils import convert_property_value, flatten, generate_short_id, relative_date_parse
 
@@ -161,6 +168,25 @@ class EventViewSet(
     serializer_class = ClickhouseEventSerializer
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     pagination_class = UncountedLimitOffsetPagination
+
+    def get_throttles(self):
+        if self.action == "values":
+            return []
+        return super().get_throttles()
+
+    def check_throttles(self, request_to_check: request.Request) -> None:
+        if self.action != "values":
+            return super().check_throttles(request_to_check)
+
+        has_event_name = bool(request_to_check.GET.getlist("event_name", None))
+        if has_event_name:
+            throttles = [EventValuesBurstThrottle(), EventValuesSustainedThrottle()]
+        else:
+            throttles = [EventValuesNoEventNameBurstThrottle(), EventValuesNoEventNameSustainedThrottle()]
+
+        for throttle in throttles:
+            if not throttle.allow_request(request_to_check, self):
+                self.throttled(request_to_check, throttle.wait())
 
     def _build_next_url(
         self,
