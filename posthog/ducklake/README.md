@@ -27,7 +27,7 @@ For local dev the defaults are:
 
 - `DUCKLAKE_RDS_HOST=localhost`
 - `DUCKLAKE_RDS_PORT=5432`
-- `DUCKLAKE_RDS_DATABASE=ducklake_catalog`
+- `DUCKLAKE_RDS_DATABASE=ducklake`
 - `DUCKLAKE_RDS_USERNAME=posthog`
 - `DUCKLAKE_RDS_PASSWORD=posthog`
 - `DUCKLAKE_BUCKET=ducklake-dev`
@@ -102,7 +102,7 @@ Follow these checklists to exercise the DuckLake copy workflows on a local check
      SET s3_secret_access_key='object_storage_root_password';
      SET s3_url_style='path';
 
-     ATTACH 'ducklake:postgres:dbname=ducklake_catalog host=localhost user=posthog password=posthog'
+     ATTACH 'ducklake:postgres:dbname=ducklake host=localhost user=posthog password=posthog'
        AS ducklake (DATA_PATH 's3://ducklake-dev/');
 
      -- Discover available schemas
@@ -143,7 +143,7 @@ Follow these checklists to exercise the DuckLake copy workflows on a local check
      SET s3_secret_access_key='object_storage_root_password';
      SET s3_url_style='path';
 
-     ATTACH 'ducklake:postgres:dbname=ducklake_catalog host=localhost user=posthog password=posthog'
+     ATTACH 'ducklake:postgres:dbname=ducklake host=localhost user=posthog password=posthog'
        AS ducklake (DATA_PATH 's3://ducklake-dev/');
 
      -- Discover available schemas
