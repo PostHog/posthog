@@ -210,6 +210,11 @@ impl Manager {
             tag,
             options.config_errors.join("; ")
         );
+        assert!(
+            !self.components.contains_key(tag),
+            "component '{}' registered more than once",
+            tag
+        );
 
         let healthy_until_ms = Arc::new(AtomicI64::new(HEALTH_STARTING));
         let tag_owned = tag.to_string();
@@ -581,7 +586,20 @@ impl Manager {
                                     "Lifecycle: component died during shutdown");
                             }
                         }
-                        _ => {}
+                        ComponentEvent::Failure { tag, reason } => {
+                            if let Some(s) = self.components.get_mut(&tag) {
+                                s.phase = ShutdownPhase::Died;
+                                let elapsed = shutdown_clock.elapsed();
+                                metrics::emit_component_shutdown_duration(&name, &tag, "died", elapsed.as_secs_f64());
+                                metrics::emit_component_shutdown_result(&name, &tag, "died");
+                                warn!(component = %tag,
+                                    duration_secs = elapsed.as_secs_f64(),
+                                    result = "died",
+                                    "Lifecycle: component failed during shutdown");
+                            }
+                            first_failure = first_failure.or(Some(LifecycleError::ComponentFailure { tag, reason }));
+                        }
+                        ComponentEvent::ShutdownRequested { .. } => {}
                     }
                     if self.all_components_finished() {
                         return self.finalize(shutdown_clock, first_failure);
