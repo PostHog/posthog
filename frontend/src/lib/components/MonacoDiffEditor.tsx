@@ -3,6 +3,7 @@ import * as monaco from 'monaco-editor'
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import 'lib/monaco/monacoEnvironment'
 
 interface MonacoDiffEditorProps {
     width?: number | string
