@@ -591,6 +591,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        if not self._is_valid_sandbox_url(sandbox_url):
+            logger.warning(f"Blocked request to disallowed sandbox URL for task run {task_run.id}")
+            return Response(
+                ErrorResponseSerializer({"error": "Invalid sandbox URL"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         connection_token = create_sandbox_connection_token(
             task_run=task_run,
             user_id=request.user.id,
@@ -622,7 +629,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             try:
                 error_body = agent_response.json()
             except Exception:
-                error_body = {"error": agent_response.text[:500]}
+                error_body = {}
 
             if agent_response.status_code == 401:
                 error_msg = error_body.get("error", "Agent server authentication failed")
@@ -639,23 +646,47 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         except http_requests.ConnectionError:
-            logger.warning(f"Agent server unreachable for task run {task_run.id} at {sandbox_url}")
+            logger.warning(f"Agent server unreachable for task run {task_run.id}")
             return Response(
                 ErrorResponseSerializer({"error": "Agent server is not reachable"}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         except http_requests.Timeout:
-            logger.warning(f"Agent server request timed out for task run {task_run.id} at {sandbox_url}")
+            logger.warning(f"Agent server request timed out for task run {task_run.id}")
             return Response(
                 ErrorResponseSerializer({"error": "Agent server request timed out"}).data,
                 status=status.HTTP_504_GATEWAY_TIMEOUT,
             )
-        except Exception as e:
-            logger.exception(f"Failed to send command to agent server for task run {task_run.id}: {e}")
+        except Exception:
+            logger.exception(f"Failed to proxy command to agent server for task run {task_run.id}")
             return Response(
-                ErrorResponseSerializer({"error": f"Failed to send command: {str(e)}"}).data,
+                ErrorResponseSerializer({"error": "Failed to send command to agent server"}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+
+    @staticmethod
+    def _is_valid_sandbox_url(url: str) -> bool:
+        """Validate sandbox URL against allowlist to prevent SSRF.
+
+        Only allows:
+        - http://localhost:{port} (Docker sandboxes)
+        - http://127.0.0.1:{port} (Docker sandboxes)
+        - https://*.modal.run (Modal sandboxes)
+        """
+        from urllib.parse import urlparse
+
+        try:
+            parsed = urlparse(url)
+        except Exception:
+            return False
+
+        if parsed.scheme == "http" and parsed.hostname in ("localhost", "127.0.0.1"):
+            return True
+
+        if parsed.scheme == "https" and parsed.hostname and parsed.hostname.endswith(".modal.run"):
+            return True
+
+        return False
 
     @staticmethod
     def _proxy_command_to_agent_server(

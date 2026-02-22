@@ -1689,3 +1689,110 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         call_kwargs = mock_post.call_args[1]
         self.assertNotIn("params", call_kwargs["json"])
+
+    @parameterized.expand(
+        [
+            ("aws_metadata", "http://169.254.169.254/latest/meta-data/"),
+            ("internal_service", "http://internal-api.company.com:8080"),
+            ("file_scheme", "file:///etc/passwd"),
+            ("ftp", "ftp://evil.com/file"),
+            ("http_arbitrary", "http://evil.com/command"),
+            ("https_arbitrary", "https://evil.com/command"),
+            ("http_with_at_sign", "http://localhost@evil.com/"),
+            ("cloud_metadata_gcp", "http://metadata.google.internal/"),
+        ]
+    )
+    def test_command_blocks_ssrf_urls(self, _name, malicious_url):
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task, sandbox_url=malicious_url)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Invalid sandbox URL", response.json()["error"])
+
+    @parameterized.expand(
+        [
+            ("docker_localhost", "http://localhost:47821"),
+            ("docker_127", "http://127.0.0.1:47821"),
+            ("modal", "https://sb-abc123.modal.run"),
+            ("modal_subdomain", "https://test-sandbox-xyz.modal.run"),
+        ]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_allows_valid_sandbox_urls(self, _name, valid_url, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task, sandbox_url=valid_url)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_command_with_null_state(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state=None,
+        )
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("No active sandbox", response.json()["error"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_accepts_id_zero(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": 0, "result": {}})
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": "cancel", "id": 0},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        call_kwargs = mock_post.call_args[1]
+        self.assertEqual(call_kwargs["json"]["id"], 0)
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_generic_error_does_not_leak_details(self, mock_post):
+        get_sandbox_jwt_public_key.cache_clear()
+        mock_post.side_effect = RuntimeError("internal DNS resolve failed for secret-host.internal:8080")
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertNotIn("secret-host", response.json()["error"])
+        self.assertNotIn("DNS", response.json()["error"])
+        self.assertEqual(response.json()["error"], "Failed to send command to agent server")
