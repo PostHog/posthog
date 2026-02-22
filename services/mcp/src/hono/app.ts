@@ -103,7 +103,7 @@ function buildRequestProperties(c: import('hono').Context<HonoEnv>, token: strin
     const features = featuresParam ? featuresParam.split(',').filter(Boolean) : undefined
     const regionParam = url.searchParams.get('region') || undefined
     const version = Number(c.req.header('x-posthog-mcp-version') || url.searchParams.get('v')) || 1
-    const sessionId = url.searchParams.get('sessionId') || c.req.header('mcp-session-id') || undefined
+    const sessionId = url.searchParams.get('sessionId') || undefined
 
     return {
         apiToken: token,
