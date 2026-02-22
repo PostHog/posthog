@@ -1,0 +1,208 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'admin/css/changelists.css' %}" />
+<link rel="stylesheet" href="{% static 'admin/css/forms.css' %}" />
+{% if mode == 'preset' %}<meta http-equiv="refresh" content="30">{% endif %}
+<style>
+.toolbar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 15px;
+}
+.toolbar .separator {
+    width: 1px;
+    height: 24px;
+    background: var(--border-color);
+}
+.btn-group {
+    display: inline-flex;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    overflow: hidden;
+}
+.btn-group a, .btn-group button {
+    padding: 4px 10px;
+    border: none;
+    border-right: 1px solid var(--border-color);
+    background: var(--body-bg);
+    font-size: 12px;
+    color: var(--body-fg);
+    text-decoration: none;
+    cursor: pointer;
+    white-space: nowrap;
+    line-height: 1.5;
+}
+.btn-group a:last-child, .btn-group button:last-child {
+    border-right: none;
+}
+.btn-group a:hover, .btn-group button:hover {
+    background: var(--darkened-bg);
+}
+.btn-group a.active {
+    background: var(--primary);
+    color: var(--header-link-color, #fff);
+}
+.btn-group.mode-toggle a {
+    font-weight: 600;
+}
+.absolute-range {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.absolute-range label {
+    font-size: 12px;
+}
+.absolute-range input[type="datetime-local"] {
+    padding: 4px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 12px;
+    background: var(--body-bg);
+    color: var(--body-fg);
+}
+.absolute-range button {
+    padding: 4px 12px;
+    background: var(--primary);
+    color: var(--header-link-color, #fff);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+}
+.absolute-range button:hover {
+    opacity: 0.85;
+}
+.filter-form {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+}
+.filter-form select {
+    padding: 4px;
+    font-size: 12px;
+}
+.filter-form button {
+    padding: 4px 12px;
+    background: var(--primary);
+    color: var(--header-link-color, #fff);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+}
+.filter-form button:hover {
+    opacity: 0.85;
+}
+</style>
+{% endblock %}
+
+{% if not is_popup %}
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+    &rsaquo; TopHog Dashboard
+</div>
+{% endblock %}
+{% endif %}
+
+{% block content %}
+<div id="content-main">
+    <div class="toolbar">
+        <div class="btn-group mode-toggle">
+            <a href="{{ base_url }}?mode=preset&preset={{ selected_preset }}{{ filter_qs }}" class="{% if mode == 'preset' %}active{% endif %}">Relative</a>
+            <a href="{{ base_url }}?mode=absolute&date_from={{ date_from }}&date_to={{ date_to }}{{ filter_qs }}" class="{% if mode == 'absolute' %}active{% endif %}">Absolute</a>
+        </div>
+
+        {% if mode == 'preset' %}
+        <div class="btn-group">
+            {% for p in presets %}
+            <a href="{{ base_url }}?preset={{ p }}{{ filter_qs }}" class="{% if p == selected_preset %}active{% endif %}">{{ p }}</a>
+            {% endfor %}
+        </div>
+        {% else %}
+        <form class="absolute-range" method="get" action="{{ base_url }}">
+            {% if selected_pipeline %}<input type="hidden" name="pipeline" value="{{ selected_pipeline }}">{% endif %}
+            {% if selected_lane %}<input type="hidden" name="lane" value="{{ selected_lane }}">{% endif %}
+            <label for="date_from">From:</label>
+            <input type="datetime-local" id="date_from" name="date_from" value="{{ date_from }}">
+            <label for="date_to">To:</label>
+            <input type="datetime-local" id="date_to" name="date_to" value="{{ date_to }}">
+            <button type="submit">Apply</button>
+        </form>
+        {% endif %}
+
+        <div class="separator"></div>
+
+        <form class="filter-form" method="get" action="{{ base_url }}">
+            {% if mode == 'preset' %}
+            <input type="hidden" name="preset" value="{{ selected_preset }}">
+            {% else %}
+            <input type="hidden" name="date_from" value="{{ date_from }}">
+            <input type="hidden" name="date_to" value="{{ date_to }}">
+            {% endif %}
+            <label for="pipeline">Pipeline:</label>
+            <select name="pipeline" id="pipeline">
+                <option value="">All</option>
+                {% for p in pipelines %}
+                <option value="{{ p }}" {% if p == selected_pipeline %}selected{% endif %}>{{ p }}</option>
+                {% endfor %}
+            </select>
+            <label for="lane">Lane:</label>
+            <select name="lane" id="lane">
+                <option value="">All</option>
+                {% for l in lanes %}
+                <option value="{{ l }}" {% if l == selected_lane %}selected{% endif %}>{{ l }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit">Filter</button>
+        </form>
+    </div>
+
+    {% if error %}
+        <p class="errornote">{{ error }}</p>
+    {% endif %}
+
+    {% if metrics %}
+        {% for metric_name, entries in metrics.items %}
+        <div class="module" style="margin-bottom: 20px;">
+            <table style="width: 100%;">
+                <caption>{{ metric_name }}</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Rank</th>
+                        <th scope="col">Type</th>
+                        <th scope="col">Key</th>
+                        <th scope="col">Value</th>
+                        <th scope="col">Count</th>
+                        <th scope="col">Pipeline</th>
+                        <th scope="col">Lane</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in entries %}
+                    <tr>
+                        <td>{{ forloop.counter }}</td>
+                        <td>{{ entry.type }}</td>
+                        <td>{{ entry.key }}</td>
+                        <td>{{ entry.value }}</td>
+                        <td>{{ entry.count }}</td>
+                        <td>{{ entry.pipeline }}</td>
+                        <td>{{ entry.lane }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endfor %}
+    {% else %}
+        <p>No data in the selected time range.</p>
+    {% endif %}
+</div>
+{% endblock %}
