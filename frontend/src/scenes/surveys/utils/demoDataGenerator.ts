@@ -8,6 +8,8 @@ import { dayjs } from 'lib/dayjs'
 import { calculateSurveyRates } from 'scenes/surveys/utils'
 
 import {
+    MultipleSurveyQuestion,
+    RatingSurveyQuestion,
     ResponsesByQuestion,
     Survey,
     SurveyEventName,
@@ -139,7 +141,7 @@ function generateOpenResponse(question: SurveyQuestion): string {
 }
 
 function generateRatingResponse(question: SurveyQuestion): string {
-    const ratingQuestion = question as any // TODO: Improve typing for rating questions
+    const ratingQuestion = question as RatingSurveyQuestion
     const isNPS = ratingQuestion.scale === SURVEY_RATING_SCALE.NPS_10_POINT
 
     if (isNPS) {
@@ -175,13 +177,13 @@ function generateRatingResponse(question: SurveyQuestion): string {
 }
 
 function generateSingleChoiceResponse(question: SurveyQuestion): string {
-    const choices = (question as any).choices || []
+    const choices = (question as MultipleSurveyQuestion).choices || []
     if (choices.length === 0) {
         return ''
     }
 
     // Weight responses based on typical user behavior patterns
-    const hasOpenChoice = (question as any).hasOpenChoice
+    const hasOpenChoice = (question as MultipleSurveyQuestion).hasOpenChoice
     const weights = choices.map((_: any, index: number) => {
         if (index === 0) {
             return DEMO_CONFIG.FIRST_CHOICE_WEIGHT // First choice often more popular
@@ -199,7 +201,7 @@ function generateSingleChoiceResponse(question: SurveyQuestion): string {
         random -= weights[i]
         if (random <= 0) {
             // If it's the open choice, add some custom text
-            if (i === choices.length - 1 && (question as any).hasOpenChoice) {
+            if (i === choices.length - 1 && (question as MultipleSurveyQuestion).hasOpenChoice) {
                 const customResponses = [
                     'API improvements',
                     'Better performance',
@@ -217,13 +219,13 @@ function generateSingleChoiceResponse(question: SurveyQuestion): string {
 }
 
 function generateMultipleChoiceResponse(question: SurveyQuestion): string[] {
-    const choices = (question as any).choices || []
+    const choices = (question as MultipleSurveyQuestion).choices || []
     if (choices.length === 0) {
         return []
     }
 
     // For multiple choice, users typically select 1-3 options
-    const hasOpenChoice = (question as any).hasOpenChoice
+    const hasOpenChoice = (question as MultipleSurveyQuestion).hasOpenChoice
     const availableChoices = hasOpenChoice ? choices.slice(0, -1) : choices
     const selectedChoices = getRandomElements(
         availableChoices,
