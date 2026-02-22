@@ -302,7 +302,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
             [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) => {
                 if (item.id === state.id) {
-                    return { ...state, name: item.name }
+                    return { ...state, name: item.name, description: item.description }
                 }
                 return state
             },

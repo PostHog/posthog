@@ -206,3 +206,54 @@ export class DashboardPage {
         await editLink.click()
     }
 }
+
+/**
+ * Extends DashboardPage with helpers for the compact card redesign.
+ * Requires the 'dashboard-tile-redesign' feature flag — mock it via mockFeatureFlags before use.
+ * Merge these into DashboardPage when the flag is fully rolled out.
+ */
+export class CompactDashboardPage extends DashboardPage {
+    async enterEditMode(): Promise<void> {
+        await this.page.getByTestId('dashboard-edit-mode-button').click()
+        await expect(this.page.getByTestId('dashboard-edit-mode-save')).toBeVisible()
+    }
+
+    async saveEditMode(): Promise<void> {
+        await this.page.getByTestId('dashboard-edit-mode-save').click()
+        await expect(this.page.getByTestId('dashboard-edit-mode-save')).not.toBeVisible()
+    }
+
+    async hoverFirstCard(): Promise<void> {
+        const title = this.insightCards.first().locator('[data-attr="insight-card-title"]')
+        await title.hover()
+    }
+
+    get tilePopover(): Locator {
+        return this.page.locator('.Popover')
+    }
+
+    get popoverTitleField(): Locator {
+        return this.tilePopover.locator('[data-attr="insight-card-title"]')
+    }
+
+    get popoverDescriptionField(): Locator {
+        return this.tilePopover.locator('[data-attr="insight-card-description"]')
+    }
+
+    async editPopoverTitle(newTitle: string): Promise<void> {
+        await this.popoverTitleField.click()
+        const input = this.popoverTitleField.locator('input')
+        await expect(input).toBeVisible()
+        await input.fill(newTitle)
+        await input.press('Enter')
+    }
+
+    async editPopoverDescription(description: string): Promise<void> {
+        await this.popoverDescriptionField.click()
+        const textarea = this.popoverDescriptionField.locator('textarea')
+        await expect(textarea).toBeVisible()
+        await textarea.fill(description)
+        // Blur to save
+        await this.tilePopover.locator('h4').click()
+    }
+}
