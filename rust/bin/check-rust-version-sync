@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Verifies that the Rust toolchain version is consistent across all sync points.
+# Run from the repository root.
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$REPO_ROOT"
+
+# Source of truth: rust/rust-toolchain.toml
+EXPECTED_FULL=$(grep 'channel' rust/rust-toolchain.toml | sed 's/.*"\(.*\)"/\1/')
+EXPECTED_MINOR=$(echo "$EXPECTED_FULL" | sed 's/\.[0-9]*$//')
+
+if [ -z "$EXPECTED_FULL" ]; then
+    echo "ERROR: Could not read version from rust/rust-toolchain.toml"
+    exit 1
+fi
+
+echo "Expected Rust version: $EXPECTED_FULL (minor: $EXPECTED_MINOR)"
+echo "Source of truth: rust/rust-toolchain.toml"
+echo "---"
+
+ERRORS=0
+
+check_match() {
+    local file="$1"
+    local pattern="$2"
+    local expected="$3"
+    local description="$4"
+
+    if [ ! -f "$file" ]; then
+        echo "WARN: $file not found, skipping"
+        return
+    fi
+
+    local matches
+    matches=$(grep -n "$pattern" "$file" 2>/dev/null || true)
+
+    if [ -z "$matches" ]; then
+        echo "WARN: No match for '$pattern' in $file"
+        return
+    fi
+
+    local escaped
+    escaped=$(echo "$expected" | sed 's/\./\\./g')
+
+    while IFS= read -r line; do
+        if ! echo "$line" | grep -qE "(^|[^0-9])${escaped}([^0-9]|$)"; then
+            echo "MISMATCH: $file ($description)"
+            echo "  Found:    $(echo "$line" | sed 's/^[[:space:]]*//')"
+            echo "  Expected: $expected"
+            ERRORS=$((ERRORS + 1))
+        fi
+    done <<< "$matches"
+}
+
+# CI workflows: check all toolchain: entries
+for workflow in .github/workflows/ci-rust.yml \
+                .github/workflows/ci-backend.yml \
+                .github/workflows/ci-cli.yml \
+                .github/workflows/ci-ai.yml \
+                .github/workflows/ci-nodejs.yml; do
+    check_match "$workflow" "toolchain:" "$EXPECTED_FULL" "CI toolchain"
+done
+
+# Dockerfiles: check FROM rust: entries (minor version only)
+for dockerfile in rust/Dockerfile \
+                  rust/Dockerfile.sqlx-migrate \
+                  rust/Dockerfile.migrate-hooks; do
+    check_match "$dockerfile" "FROM.*rust:" "$EXPECTED_MINOR" "Dockerfile base image"
+done
+
+# Root Dockerfiles: check composite rust-node-container tags
+for dockerfile in Dockerfile Dockerfile.node; do
+    check_match "$dockerfile" "rust-node-container:" "rust_$EXPECTED_MINOR" "composite image tag"
+done
+
+# Flox manifest: check cargo version
+check_match ".flox/env/manifest.toml" 'cargo.*version' "$EXPECTED_FULL" "flox cargo version"
+
+# Cargo.toml: check rust-version
+check_match "rust/cyclotron-core/Cargo.toml" "rust-version" "$EXPECTED_FULL" "MSRV"
+
+echo "---"
+if [ "$ERRORS" -gt 0 ]; then
+    echo "FAILED: $ERRORS sync point(s) out of date."
+    exit 1
+else
+    echo "OK: All sync points match $EXPECTED_FULL."
+fi
