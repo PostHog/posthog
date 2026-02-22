@@ -12,6 +12,7 @@ import {
 } from '../../types'
 import { createRedisPoolFromConfig } from '../../utils/db/redis'
 import { logger } from '../../utils/logger'
+import { captureException } from '../../utils/posthog'
 import { getBlockDecryptor } from '../shared/crypto'
 import { getKeyStore } from '../shared/keystore'
 import { RedisCachedKeyStore } from '../shared/keystore/cache'
@@ -93,7 +94,7 @@ export class RecordingApi {
         })
         const retentionService = new RetentionService(this.redisPool, teamService)
 
-        const keyStore: KeyStore = getKeyStore(teamService, retentionService, s3Region, {
+        const keyStore: KeyStore = getKeyStore(retentionService, s3Region, {
             kmsEndpoint: this.hub.SESSION_RECORDING_KMS_ENDPOINT,
             dynamoDBEndpoint: this.hub.SESSION_RECORDING_DYNAMODB_ENDPOINT,
         })
@@ -240,6 +241,7 @@ export class RecordingApi {
                 teamId,
                 sessionId,
             })
+            captureException(error)
             res.status(500).json({ error: 'Failed to fetch block from S3' })
         }
     }
@@ -270,6 +272,7 @@ export class RecordingApi {
             res.json(result)
         } catch (error) {
             logger.error('[RecordingApi] Error in bulk delete', { error, teamId })
+            captureException(error)
             res.status(500).json({ error: 'Failed to bulk delete recordings' })
         }
     }
@@ -303,6 +306,7 @@ export class RecordingApi {
             res.json({ team_id: teamId, session_id: sessionId, status: 'deleted', deleted_at: result.deletedAt })
         } catch (error) {
             logger.error('[RecordingApi] Error deleting recording key', { error, teamId, sessionId })
+            captureException(error)
             res.status(500).json({ error: 'Failed to delete recording key' })
         }
     }

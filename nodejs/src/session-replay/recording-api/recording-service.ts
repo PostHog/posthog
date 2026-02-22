@@ -6,7 +6,7 @@ import { ValidRetentionPeriods } from '../shared/constants'
 import { createDeletionBlockMetadata } from '../shared/metadata/session-block-metadata'
 import { SessionMetadataStore } from '../shared/metadata/session-metadata-store'
 import { RecordingApiMetrics } from './metrics'
-import { KeyStore, RecordingDecryptor, SessionKeyDeletedError } from './types'
+import { DeleteKeyResult, KeyStore, RecordingDecryptor, SessionKeyDeletedError } from './types'
 
 export interface GetBlockParams {
     sessionId: string
@@ -120,8 +120,7 @@ export class RecordingService {
         const startTime = performance.now()
         logger.debug('[RecordingService] deleteRecording request', { teamId, sessionId })
 
-        const result = await this.keyStore.deleteKey(sessionId, teamId)
-        logger.debug('[RecordingService] deleteKey result', { teamId, sessionId, result })
+        const result = await this.shredKey(sessionId, teamId)
 
         if (result.deleted) {
             const deletedAt = result.deletedAt
@@ -158,7 +157,15 @@ export class RecordingService {
     async bulkDeleteRecordings(sessionIds: string[], teamId: number): Promise<BulkDeleteRecordingsResult> {
         logger.debug('[RecordingService] bulkDeleteRecordings request', { teamId, count: sessionIds.length })
 
-        const results = await Promise.allSettled(sessionIds.map((sid) => this.deleteRecording(sid, teamId)))
+        // Shred keys and emit Kafka events in parallel
+        const results = await Promise.allSettled(
+            sessionIds.map(async (sid) => {
+                const result = await this.shredKey(sid, teamId)
+                if (result.deleted) {
+                    await this.emitDeletionEvent(sid, teamId)
+                }
+            })
+        )
 
         const deleted: string[] = []
         const failed: { session_id: string; error: string }[] = []
@@ -167,13 +174,18 @@ export class RecordingService {
             const result = results[i]
             const sessionId = sessionIds[i]
             if (result.status === 'fulfilled') {
-                if (result.value.ok) {
-                    deleted.push(sessionId)
-                } else {
-                    failed.push({ session_id: sessionId, error: result.value.error })
-                }
+                deleted.push(sessionId)
             } else {
                 failed.push({ session_id: sessionId, error: 'unexpected_error' })
+            }
+        }
+
+        // Bulk delete Postgres records for all successfully deleted sessions
+        if (deleted.length > 0) {
+            try {
+                await this.bulkDeletePostgresRecords(deleted, teamId)
+            } catch (error) {
+                logger.error('[RecordingService] Bulk Postgres deletion failed', { teamId, error })
             }
         }
 
@@ -184,6 +196,12 @@ export class RecordingService {
         })
 
         return { deleted, failed }
+    }
+
+    private async shredKey(sessionId: string, teamId: number): Promise<DeleteKeyResult> {
+        const result = await this.keyStore.deleteKey(sessionId, teamId)
+        logger.debug('[RecordingService] shredKey result', { teamId, sessionId, result })
+        return result
     }
 
     private async emitDeletionEvent(sessionId: string, teamId: number): Promise<void> {
@@ -249,5 +267,47 @@ export class RecordingService {
         }
 
         logger.info('[RecordingService] PostgreSQL records deleted', { sessionId, teamId })
+    }
+
+    private async bulkDeletePostgresRecords(sessionIds: string[], teamId: number): Promise<void> {
+        if (!this.postgres) {
+            logger.warn('[RecordingService] No postgres configured, skipping bulk record deletion', { teamId })
+            return
+        }
+
+        const tables = ['ee_single_session_summary', 'posthog_exportedrecording', 'posthog_comment'] as const
+        const results = await Promise.allSettled([
+            this.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `DELETE FROM ee_single_session_summary WHERE team_id = $1 AND session_id = ANY($2)`,
+                [teamId, sessionIds],
+                'bulkDeleteSessionSummaries'
+            ),
+            this.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `DELETE FROM posthog_exportedrecording WHERE team_id = $1 AND session_id = ANY($2)`,
+                [teamId, sessionIds],
+                'bulkDeleteExportedRecordings'
+            ),
+            this.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `DELETE FROM posthog_comment WHERE team_id = $1 AND scope = 'recording' AND item_id = ANY($2)`,
+                [teamId, sessionIds],
+                'bulkDeleteRecordingComments'
+            ),
+        ])
+
+        for (const [i, result] of results.entries()) {
+            if (result.status === 'rejected') {
+                logger.error('[RecordingService] Bulk Postgres deletion failed for table', {
+                    teamId,
+                    table: tables[i],
+                    sessionCount: sessionIds.length,
+                    error: result.reason,
+                })
+            }
+        }
+
+        logger.info('[RecordingService] Bulk PostgreSQL records deleted', { teamId, sessionCount: sessionIds.length })
     }
 }

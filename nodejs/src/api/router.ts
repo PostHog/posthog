@@ -103,9 +103,8 @@ const buildGetHealth =
         )
 
         if (statusCode === 200) {
-            logger.info('💚', 'Server liveness check succeeded')
+            logger.debug('💚', 'Server liveness check succeeded')
         } else {
-            // Log detailed information for failures
             const failedServices = checkResults.filter((r) => r.status === 'error')
             logger.error('💔', 'Server liveness check failed', {
                 failedServices: failedServices.map((s) => ({

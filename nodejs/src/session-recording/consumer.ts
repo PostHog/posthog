@@ -235,7 +235,7 @@ export class SessionRecordingIngester {
         })
 
         const region = hub.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
-        const keyStore = getKeyStore(this.teamService, retentionService, region, {
+        const keyStore = getKeyStore(retentionService, region, {
             kmsEndpoint: hub.SESSION_RECORDING_KMS_ENDPOINT,
             dynamoDBEndpoint: hub.SESSION_RECORDING_DYNAMODB_ENDPOINT,
         })

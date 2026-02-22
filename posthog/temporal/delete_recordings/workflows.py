@@ -2,249 +2,300 @@ import json
 import asyncio
 from datetime import timedelta
 from itertools import batched
+from typing import Literal
 
 from temporalio import common, workflow
-from temporalio.workflow import ParentClosePolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.delete_recordings.activities import (
-    delete_recording_blocks,
-    delete_recording_lts_data,
-    group_recording_blocks,
-    load_recording_blocks,
+    bulk_delete_recordings,
     load_recordings_with_person,
     load_recordings_with_query,
     load_recordings_with_team_id,
-    perform_recording_metadata_deletion,
-    schedule_recording_metadata_deletion,
+    purge_deleted_metadata,
 )
 from posthog.temporal.delete_recordings.types import (
-    DeleteRecordingMetadataInput,
-    Recording,
-    RecordingBlockGroup,
+    BulkDeleteInput,
+    BulkDeleteResult,
+    DeletionCertificate,
+    DeletionConfig,
+    DeletionProgress,
+    LoadRecordingsPage,
+    PurgeDeletedMetadataInput,
+    PurgeDeletedMetadataResult,
     RecordingsWithPersonInput,
     RecordingsWithQueryInput,
+    RecordingsWithSessionIdsInput,
     RecordingsWithTeamInput,
-    RecordingWithBlocks,
 )
 
 
-@workflow.defn(name="delete-recording")
-class DeleteRecordingWorkflow(PostHogWorkflow):
-    @staticmethod
-    def parse_inputs(input: list[str]) -> Recording:
-        """Parse input from the management command CLI."""
-        loaded = json.loads(input[0])
-        return Recording(**loaded)
+async def _delete_page(
+    page: LoadRecordingsPage,
+    team_id: int,
+    config: DeletionConfig,
+    progress: DeletionProgress,
+) -> None:
+    """Batch-delete a page of session IDs and update progress."""
+    if page.session_ids:
+        batch_start = workflow.now()
+        progress.total_found += len(page.session_ids)
 
-    @workflow.run
-    async def run(self, input: Recording) -> None:
-        recording_input = Recording(session_id=input.session_id, team_id=input.team_id)
-
-        recording_blocks = await workflow.execute_activity(
-            load_recording_blocks,
-            recording_input,
-            start_to_close_timeout=timedelta(minutes=5),
-            schedule_to_close_timeout=timedelta(hours=3),
-            retry_policy=common.RetryPolicy(
-                maximum_attempts=2,
-                initial_interval=timedelta(minutes=1),
-            ),
-        )
-
-        if len(recording_blocks) > 0:
-            block_groups: list[RecordingBlockGroup] = await workflow.execute_activity(
-                group_recording_blocks,
-                RecordingWithBlocks(recording=recording_input, blocks=recording_blocks),
-                start_to_close_timeout=timedelta(minutes=1),
-                schedule_to_close_timeout=timedelta(hours=3),
+        for batch in batched(page.session_ids, config.batch_size):
+            result: BulkDeleteResult = await workflow.execute_activity(
+                bulk_delete_recordings,
+                BulkDeleteInput(team_id=team_id, session_ids=list(batch), dry_run=config.dry_run),
+                start_to_close_timeout=timedelta(minutes=2),
+                schedule_to_close_timeout=timedelta(minutes=30),
                 retry_policy=common.RetryPolicy(
-                    maximum_attempts=2,
+                    maximum_attempts=3,
                     initial_interval=timedelta(minutes=1),
                 ),
             )
+            progress.total_deleted += len(result.deleted)
+            progress.total_failed += result.failed_count
 
-            async with asyncio.TaskGroup() as delete_blocks:
-                for group in block_groups:
-                    delete_blocks.create_task(
-                        workflow.execute_activity(
-                            delete_recording_blocks,
-                            group,
-                            start_to_close_timeout=timedelta(minutes=30),
-                            schedule_to_close_timeout=timedelta(hours=3),
-                            retry_policy=common.RetryPolicy(
-                                maximum_attempts=2,
-                                initial_interval=timedelta(minutes=1),
-                            ),
-                        )
-                    )
+        if config.max_deletions_per_second > 0:
+            elapsed = (workflow.now() - batch_start).total_seconds()
+            target = len(page.session_ids) / config.max_deletions_per_second
+            if elapsed < target:
+                await asyncio.sleep(target - elapsed)
 
-        async with asyncio.TaskGroup() as cleanup_tasks:
-            cleanup_tasks.create_task(
-                workflow.execute_activity(
-                    delete_recording_lts_data,
-                    input,
-                    start_to_close_timeout=timedelta(minutes=5),
-                    schedule_to_close_timeout=timedelta(hours=3),
-                    retry_policy=common.RetryPolicy(
-                        maximum_attempts=2,
-                        initial_interval=timedelta(minutes=1),
-                    ),
-                )
-            )
-            cleanup_tasks.create_task(
-                workflow.execute_activity(
-                    schedule_recording_metadata_deletion,
-                    input,
-                    start_to_close_timeout=timedelta(minutes=5),
-                    schedule_to_close_timeout=timedelta(hours=3),
-                    retry_policy=common.RetryPolicy(
-                        maximum_attempts=2,
-                        initial_interval=timedelta(minutes=1),
-                    ),
-                )
-            )
+    progress.cursor = page.next_cursor
+
+
+def _build_certificate(
+    workflow_type: Literal["person", "team", "query", "session_ids"],
+    workflow_id: str,
+    team_id: int,
+    progress: DeletionProgress,
+    config: DeletionConfig,
+    distinct_ids: list[str] | None = None,
+    query: str | None = None,
+    source_filename: str | None = None,
+) -> DeletionCertificate:
+    return DeletionCertificate(
+        workflow_type=workflow_type,
+        workflow_id=workflow_id,
+        team_id=team_id,
+        started_at=progress.started_at or workflow.now(),
+        completed_at=workflow.now(),
+        dry_run=config.dry_run,
+        reason=config.reason,
+        distinct_ids=distinct_ids,
+        query=query,
+        source_filename=source_filename,
+        total_recordings_found=progress.total_found,
+        total_deleted=progress.total_deleted,
+        total_failed=progress.total_failed,
+    )
 
 
 @workflow.defn(name="delete-recordings-with-person")
 class DeleteRecordingsWithPersonWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(input: list[str]) -> RecordingsWithPersonInput:
-        """Parse input from the management command CLI."""
         loaded = json.loads(input[0])
         return RecordingsWithPersonInput(**loaded)
 
     @workflow.run
-    async def run(self, input: RecordingsWithPersonInput) -> None:
-        session_ids = await workflow.execute_activity(
-            load_recordings_with_person,
-            input,
-            start_to_close_timeout=timedelta(minutes=5),
-            schedule_to_close_timeout=timedelta(hours=3),
-            retry_policy=common.RetryPolicy(
-                maximum_attempts=2,
-                initial_interval=timedelta(minutes=1),
-            ),
-        )
+    async def run(self, input: RecordingsWithPersonInput) -> DeletionCertificate:
+        progress = input.progress or DeletionProgress(started_at=workflow.now())
 
-        for batch in batched(session_ids, input.batch_size):
-            async with asyncio.TaskGroup() as delete_recordings:
-                for session_id in batch:
-                    delete_recordings.create_task(
-                        workflow.execute_child_workflow(
-                            DeleteRecordingWorkflow.run,
-                            Recording(session_id=session_id, team_id=input.team_id),
-                            parent_close_policy=ParentClosePolicy.ABANDON,
-                            execution_timeout=timedelta(hours=3),
-                            run_timeout=timedelta(hours=1),
-                            task_timeout=timedelta(minutes=30),
-                            retry_policy=common.RetryPolicy(
-                                maximum_attempts=2,
-                                initial_interval=timedelta(minutes=1),
-                            ),
-                        )
+        while True:
+            page: LoadRecordingsPage = await workflow.execute_activity(
+                load_recordings_with_person,
+                RecordingsWithPersonInput(
+                    distinct_ids=input.distinct_ids,
+                    team_id=input.team_id,
+                    cursor=progress.cursor,
+                    page_size=input.page_size,
+                ),
+                start_to_close_timeout=timedelta(minutes=2),
+                schedule_to_close_timeout=timedelta(minutes=30),
+                retry_policy=common.RetryPolicy(maximum_attempts=2, initial_interval=timedelta(minutes=1)),
+            )
+
+            await _delete_page(page, input.team_id, input.config, progress)
+
+            if page.next_cursor is None:
+                return _build_certificate(
+                    "person",
+                    workflow.info().workflow_id,
+                    input.team_id,
+                    progress,
+                    input.config,
+                    distinct_ids=input.distinct_ids,
+                )
+
+            if workflow.info().is_continue_as_new_suggested():
+                workflow.continue_as_new(
+                    RecordingsWithPersonInput(
+                        distinct_ids=input.distinct_ids,
+                        team_id=input.team_id,
+                        config=input.config,
+                        page_size=input.page_size,
+                        progress=progress,
                     )
+                )
 
 
 @workflow.defn(name="delete-recordings-with-team")
 class DeleteRecordingsWithTeamWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(input: list[str]) -> RecordingsWithTeamInput:
-        """Parse input from the management command CLI."""
         loaded = json.loads(input[0])
         return RecordingsWithTeamInput(**loaded)
 
     @workflow.run
-    async def run(self, input: RecordingsWithTeamInput) -> None:
-        session_ids = await workflow.execute_activity(
-            load_recordings_with_team_id,
-            input,
-            start_to_close_timeout=timedelta(minutes=5),
-            schedule_to_close_timeout=timedelta(hours=3),
-            retry_policy=common.RetryPolicy(
-                maximum_attempts=2,
-                initial_interval=timedelta(minutes=1),
-            ),
-        )
+    async def run(self, input: RecordingsWithTeamInput) -> DeletionCertificate:
+        progress = input.progress or DeletionProgress(started_at=workflow.now())
 
-        if not input.dry_run:
-            for batch in batched(session_ids, input.batch_size):
-                async with asyncio.TaskGroup() as delete_recordings:
-                    for session_id in batch:
-                        delete_recordings.create_task(
-                            workflow.execute_child_workflow(
-                                DeleteRecordingWorkflow.run,
-                                Recording(session_id=session_id, team_id=input.team_id),
-                                parent_close_policy=ParentClosePolicy.ABANDON,
-                                execution_timeout=timedelta(hours=3),
-                                run_timeout=timedelta(hours=1),
-                                task_timeout=timedelta(minutes=30),
-                                retry_policy=common.RetryPolicy(
-                                    maximum_attempts=2,
-                                    initial_interval=timedelta(minutes=1),
-                                ),
-                            )
-                        )
+        while True:
+            page: LoadRecordingsPage = await workflow.execute_activity(
+                load_recordings_with_team_id,
+                RecordingsWithTeamInput(
+                    team_id=input.team_id,
+                    cursor=progress.cursor,
+                    page_size=input.page_size,
+                ),
+                start_to_close_timeout=timedelta(minutes=2),
+                schedule_to_close_timeout=timedelta(minutes=30),
+                retry_policy=common.RetryPolicy(maximum_attempts=2, initial_interval=timedelta(minutes=1)),
+            )
+
+            await _delete_page(page, input.team_id, input.config, progress)
+
+            if page.next_cursor is None:
+                return _build_certificate(
+                    "team",
+                    workflow.info().workflow_id,
+                    input.team_id,
+                    progress,
+                    input.config,
+                )
+
+            if workflow.info().is_continue_as_new_suggested():
+                workflow.continue_as_new(
+                    RecordingsWithTeamInput(
+                        team_id=input.team_id,
+                        config=input.config,
+                        page_size=input.page_size,
+                        progress=progress,
+                    )
+                )
 
 
 @workflow.defn(name="delete-recordings-with-query")
 class DeleteRecordingsWithQueryWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(input: list[str]) -> RecordingsWithQueryInput:
-        """Parse input from the management command CLI."""
         loaded = json.loads(input[0])
         return RecordingsWithQueryInput(**loaded)
 
     @workflow.run
-    async def run(self, input: RecordingsWithQueryInput) -> None:
-        session_ids = await workflow.execute_activity(
-            load_recordings_with_query,
-            input,
-            start_to_close_timeout=timedelta(hours=2),
-            schedule_to_close_timeout=timedelta(hours=5),
-            retry_policy=common.RetryPolicy(
-                maximum_attempts=2,
-                initial_interval=timedelta(minutes=2),
-            ),
-        )
+    async def run(self, input: RecordingsWithQueryInput) -> DeletionCertificate:
+        progress = input.progress or DeletionProgress(started_at=workflow.now())
 
-        if not input.dry_run:
-            for batch in batched(session_ids, input.batch_size):
-                async with asyncio.TaskGroup() as delete_recordings:
-                    for session_id in batch:
-                        delete_recordings.create_task(
-                            workflow.execute_child_workflow(
-                                DeleteRecordingWorkflow.run,
-                                Recording(session_id=session_id, team_id=input.team_id),
-                                parent_close_policy=ParentClosePolicy.ABANDON,
-                                execution_timeout=timedelta(hours=3),
-                                run_timeout=timedelta(hours=1),
-                                task_timeout=timedelta(minutes=30),
-                                retry_policy=common.RetryPolicy(
-                                    maximum_attempts=2,
-                                    initial_interval=timedelta(minutes=1),
-                                ),
-                            )
-                        )
+        while True:
+            page: LoadRecordingsPage = await workflow.execute_activity(
+                load_recordings_with_query,
+                RecordingsWithQueryInput(
+                    query=input.query,
+                    team_id=input.team_id,
+                    query_limit=input.query_limit,
+                    cursor=progress.cursor,
+                ),
+                start_to_close_timeout=timedelta(minutes=15),
+                schedule_to_close_timeout=timedelta(hours=1),
+                retry_policy=common.RetryPolicy(maximum_attempts=2, initial_interval=timedelta(minutes=2)),
+            )
+
+            await _delete_page(page, input.team_id, input.config, progress)
+
+            if page.next_cursor is None:
+                return _build_certificate(
+                    "query",
+                    workflow.info().workflow_id,
+                    input.team_id,
+                    progress,
+                    input.config,
+                    query=input.query,
+                )
+
+            if workflow.info().is_continue_as_new_suggested():
+                workflow.continue_as_new(
+                    RecordingsWithQueryInput(
+                        query=input.query,
+                        team_id=input.team_id,
+                        config=input.config,
+                        query_limit=input.query_limit,
+                        progress=progress,
+                    )
+                )
 
 
-@workflow.defn(name="delete-recording-metadata")
-class DeleteRecordingMetadataWorkflow(PostHogWorkflow):
+@workflow.defn(name="delete-recordings-with-session-ids")
+class DeleteRecordingsWithSessionIdsWorkflow(PostHogWorkflow):
     @staticmethod
-    def parse_inputs(input: list[str]) -> DeleteRecordingMetadataInput:
-        """Parse input from the management command CLI."""
+    def parse_inputs(input: list[str]) -> RecordingsWithSessionIdsInput:
         loaded = json.loads(input[0])
-        return DeleteRecordingMetadataInput(**loaded)
+        return RecordingsWithSessionIdsInput(**loaded)
 
     @workflow.run
-    async def run(self, input: DeleteRecordingMetadataInput) -> None:
+    async def run(self, input: RecordingsWithSessionIdsInput) -> DeletionCertificate:
+        progress = input.progress or DeletionProgress(started_at=workflow.now())
+
+        offset = progress.total_found
+        while offset < len(input.session_ids):
+            chunk = input.session_ids[offset : offset + 10_000]
+            page = LoadRecordingsPage(session_ids=chunk)
+            await _delete_page(page, input.team_id, input.config, progress)
+            offset = progress.total_found
+
+            if offset < len(input.session_ids) and workflow.info().is_continue_as_new_suggested():
+                workflow.continue_as_new(
+                    RecordingsWithSessionIdsInput(
+                        session_ids=input.session_ids,
+                        team_id=input.team_id,
+                        config=input.config,
+                        source_filename=input.source_filename,
+                        progress=progress,
+                    )
+                )
+
+        return _build_certificate(
+            "session_ids",
+            workflow.info().workflow_id,
+            input.team_id,
+            progress,
+            input.config,
+            source_filename=input.source_filename,
+        )
+
+
+@workflow.defn(name="purge-deleted-recording-metadata")
+class PurgeDeletedRecordingMetadataWorkflow(PostHogWorkflow):
+    """Nightly workflow to purge metadata from ClickHouse for deleted recordings.
+
+    After recordings are deleted, the metadata remain in ClickHouse with is_deleted=1.
+    This workflow runs nightly to clean up that metadata after a grace period has passed.
+    """
+
+    @staticmethod
+    def parse_inputs(input: list[str]) -> PurgeDeletedMetadataInput:
+        loaded = json.loads(input[0])
+        return PurgeDeletedMetadataInput(**loaded)
+
+    @workflow.run
+    async def run(self, input: PurgeDeletedMetadataInput) -> PurgeDeletedMetadataResult:
         return await workflow.execute_activity(
-            perform_recording_metadata_deletion,
+            purge_deleted_metadata,
             input,
-            start_to_close_timeout=timedelta(hours=1),
-            schedule_to_close_timeout=timedelta(hours=3),
+            start_to_close_timeout=timedelta(hours=2),
+            schedule_to_close_timeout=timedelta(hours=4),
             retry_policy=common.RetryPolicy(
-                maximum_attempts=2,
-                initial_interval=timedelta(minutes=1),
+                maximum_attempts=3,
+                initial_interval=timedelta(minutes=5),
             ),
         )

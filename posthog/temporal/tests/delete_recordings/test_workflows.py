@@ -1,791 +1,863 @@
 import uuid
-import asyncio
-from datetime import datetime, timedelta
 
 import pytest
+from unittest.mock import AsyncMock, patch
 
 import temporalio.worker
 from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
-from posthog.session_recordings.session_recording_v2_service import RecordingBlock
-from posthog.temporal.delete_recordings.activities import group_recording_blocks
 from posthog.temporal.delete_recordings.types import (
-    DeleteRecordingMetadataInput,
-    Recording,
-    RecordingBlockGroup,
+    BulkDeleteInput,
+    BulkDeleteResult,
+    DeletionCertificate,
+    DeletionConfig,
+    LoadRecordingsPage,
+    PurgeDeletedMetadataInput,
+    PurgeDeletedMetadataResult,
     RecordingsWithPersonInput,
     RecordingsWithQueryInput,
+    RecordingsWithSessionIdsInput,
     RecordingsWithTeamInput,
 )
 from posthog.temporal.delete_recordings.workflows import (
-    DeleteRecordingMetadataWorkflow,
     DeleteRecordingsWithPersonWorkflow,
     DeleteRecordingsWithQueryWorkflow,
+    DeleteRecordingsWithSessionIdsWorkflow,
     DeleteRecordingsWithTeamWorkflow,
-    DeleteRecordingWorkflow,
+    PurgeDeletedRecordingMetadataWorkflow,
 )
 
 
 @pytest.mark.asyncio
-async def test_delete_recording_workflow():
-    TEST_SESSION_ID: str = "85a48e8a-9aa0-4628-ac5d-324266d35957"
-    TEST_TEAM_ID: int = 12345
-    TEST_SESSIONS = {
-        TEST_SESSION_ID: [
-            RecordingBlock(
-                start_time=datetime.now(),
-                end_time=datetime.now() + timedelta(hours=3),
-                url="s3://test_bucket/session_recordings/1y/1756117652764-84b1bccb847e7ea6?range=bytes=12269307-12294780",
-            ),
-            RecordingBlock(
-                start_time=datetime.now() + timedelta(hours=4),
-                end_time=datetime.now() + timedelta(hours=6),
-                url="s3://test_bucket/session_recordings/90d/1756117747546-97a0b1e81d492d3a?range=bytes=81788204-81793010",
-            ),
-            RecordingBlock(
-                start_time=datetime.now() + timedelta(hours=4),
-                end_time=datetime.now() + timedelta(hours=6),
-                url="s3://test_bucket/session_recordings/90d/1756117747546-97a0b1e81d492d3a?range=bytes=2790658-2800843",
-            ),
-        ],
-    }
-
-    EXPECTED_GROUPED_RANGES = [
-        [(12269307, 12294780)],
-        [(81788204, 81793010), (2790658, 2800843)],
+async def test_delete_recordings_with_person_workflow():
+    TEST_DISTINCT_IDS = ["5e0c4450-704f-4c9f-aa55-576a6b5d4d0f", "1e6f00d7-2df1-4991-a33b-764c2c086f1c"]
+    TEST_TEAM_ID: int = 45678
+    TEST_SESSION_IDS = [
+        "1c6c32da-0518-4a83-a513-eb2595c33b66",
+        "791244f2-2569-4ed9-a448-d5a6e35471cd",
+        "3d2b505b-3a0e-48fd-89ab-6eb65a08e915",
     ]
 
-    EXPECTED_PATHS = [
-        "session_recordings/1y/1756117652764-84b1bccb847e7ea6",
-        "session_recordings/90d/1756117747546-97a0b1e81d492d3a",
-    ]
+    deleted_sessions: list[str] = []
 
-    @activity.defn(name="load-recording-blocks")
-    async def load_recording_blocks_mocked(input: Recording) -> list[RecordingBlock]:
-        assert input.session_id == TEST_SESSION_ID
+    @activity.defn(name="load-recordings-with-person")
+    async def load_recordings_with_person_mocked(input: RecordingsWithPersonInput) -> LoadRecordingsPage:
+        assert input.distinct_ids == TEST_DISTINCT_IDS
         assert input.team_id == TEST_TEAM_ID
-        return TEST_SESSIONS[TEST_SESSION_ID]
+        return LoadRecordingsPage(session_ids=TEST_SESSION_IDS, next_cursor=None)
 
-    @activity.defn(name="delete-recording-blocks")
-    async def delete_recording_blocks_mocked(input: RecordingBlockGroup) -> None:
-        assert input.recording.session_id == TEST_SESSION_ID
-        assert input.recording.team_id == TEST_TEAM_ID
-        assert input.ranges in EXPECTED_GROUPED_RANGES
-        assert input.path in EXPECTED_PATHS
-        TEST_SESSIONS[input.recording.session_id] = []  # Delete recording blocks
-
-    @activity.defn(name="schedule-recording-metadata-deletion")
-    async def schedule_recording_metadata_deletion_mocked(input: Recording) -> None:
-        assert input.session_id == TEST_SESSION_ID
+    @activity.defn(name="bulk-delete-recordings")
+    async def bulk_delete_recordings_mocked(input: BulkDeleteInput) -> BulkDeleteResult:
         assert input.team_id == TEST_TEAM_ID
-
-    @activity.defn(name="delete-recording-lts-data")
-    async def delete_recording_lts_data_mocked(input: Recording) -> None:
-        assert input.session_id == TEST_SESSION_ID
-        assert input.team_id == TEST_TEAM_ID
+        deleted_sessions.extend(input.session_ids)
+        return BulkDeleteResult(deleted=input.session_ids)
 
     task_queue_name = str(uuid.uuid4())
+    workflow_id = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue=task_queue_name,
-            workflows=[DeleteRecordingWorkflow],
+            workflows=[DeleteRecordingsWithPersonWorkflow],
             activities=[
-                load_recording_blocks_mocked,
-                delete_recording_blocks_mocked,
-                group_recording_blocks,
-                schedule_recording_metadata_deletion_mocked,
-                delete_recording_lts_data_mocked,
+                load_recordings_with_person_mocked,
+                bulk_delete_recordings_mocked,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
-            await env.client.execute_workflow(
-                DeleteRecordingWorkflow.run,
-                Recording(session_id=TEST_SESSION_ID, team_id=TEST_TEAM_ID),
-                id=str(uuid.uuid4()),
+            result = await env.client.execute_workflow(
+                DeleteRecordingsWithPersonWorkflow.run,
+                RecordingsWithPersonInput(distinct_ids=TEST_DISTINCT_IDS, team_id=TEST_TEAM_ID),
+                id=workflow_id,
                 task_queue=task_queue_name,
             )
 
-    # Check that all recording blocks were deleted
-    assert TEST_SESSIONS == {TEST_SESSION_ID: []}
+    assert sorted(deleted_sessions) == sorted(TEST_SESSION_IDS)
+
+    certificate = DeletionCertificate.model_validate(result)
+    assert certificate.workflow_type == "person"
+    assert certificate.workflow_id == workflow_id
+    assert certificate.team_id == TEST_TEAM_ID
+    assert certificate.dry_run is False
+    assert certificate.distinct_ids == TEST_DISTINCT_IDS
+    assert certificate.total_recordings_found == 3
+    assert certificate.total_deleted == 3
+    assert certificate.total_failed == 0
 
 
 @pytest.mark.asyncio
-async def test_delete_recording_with_person_workflow():
-    TEST_DISTINCT_IDS = ["5e0c4450-704f-4c9f-aa55-576a6b5d4d0f", "1e6f00d7-2df1-4991-a33b-764c2c086f1c"]
+async def test_delete_recordings_with_person_workflow_dry_run():
+    TEST_DISTINCT_IDS = ["5e0c4450-704f-4c9f-aa55-576a6b5d4d0f"]
     TEST_TEAM_ID: int = 45678
-    TEST_SESSIONS = {
-        "1c6c32da-0518-4a83-a513-eb2595c33b66": [
-            RecordingBlock(
-                start_time=datetime.now(),
-                end_time=datetime.now() + timedelta(hours=3),
-                url="s3://test_bucket/session_recordings/1y/1756117652764-84b1bccb847e7ea6?range=bytes=12269307-12294780",
-            ),
-            RecordingBlock(
-                start_time=datetime.now() + timedelta(hours=4),
-                end_time=datetime.now() + timedelta(hours=6),
-                url="s3://test_bucket/session_recordings/90d/1756117747546-97a0b1e81d492d3a?range=bytes=81788204-81793010",
-            ),
-            RecordingBlock(
-                start_time=datetime.now() + timedelta(hours=4),
-                end_time=datetime.now() + timedelta(hours=6),
-                url="s3://test_bucket/session_recordings/90d/1756117747546-97a0b1e81d492d3a?range=bytes=2790658-2800843",
-            ),
-        ],
-        "791244f2-2569-4ed9-a448-d5a6e35471cd": [
-            RecordingBlock(
-                start_time=datetime.now(),
-                end_time=datetime.now() + timedelta(hours=10),
-                url="s3://test_bucket/session_recordings/5y/1756117699905-b688321ffa0fa994?range=bytes=12269307-12294780",
-            ),
-            RecordingBlock(
-                start_time=datetime.now() + timedelta(hours=12),
-                end_time=datetime.now() + timedelta(hours=14),
-                url="s3://test_bucket/session_recordings/5y/1756117699905-b688321ffa0fa994?range=bytes=81788204-81793010",
-            ),
-        ],
-        "3d2b505b-3a0e-48fd-89ab-6eb65a08e915": [
-            RecordingBlock(
-                start_time=datetime.now(),
-                end_time=datetime.now() + timedelta(hours=23),
-                url="s3://test_bucket/session_recordings/30d/1756117708699-28b991ee5019274d?range=bytes=81788204-81793010",
-            ),
-            RecordingBlock(
-                start_time=datetime.now() + timedelta(hours=24),
-                end_time=datetime.now() + timedelta(hours=26),
-                url="s3://test_bucket/session_recordings/30d/1756117711878-61ed9e32ebf3e27a?range=bytes=2790658-2800843",
-            ),
-        ],
-    }
-
-    EXPECTED_GROUPED_RANGES = {
-        "1c6c32da-0518-4a83-a513-eb2595c33b66": [
-            [(12269307, 12294780)],
-            [(81788204, 81793010), (2790658, 2800843)],
-        ],
-        "791244f2-2569-4ed9-a448-d5a6e35471cd": [
-            [
-                (12269307, 12294780),
-                (81788204, 81793010),
-            ],
-        ],
-        "3d2b505b-3a0e-48fd-89ab-6eb65a08e915": [
-            [(81788204, 81793010)],
-            [(2790658, 2800843)],
-        ],
-    }
-
-    EXPECTED_PATHS = [
-        "session_recordings/1y/1756117652764-84b1bccb847e7ea6",
-        "session_recordings/90d/1756117747546-97a0b1e81d492d3a",
-        "session_recordings/5y/1756117699905-b688321ffa0fa994",
-        "session_recordings/30d/1756117708699-28b991ee5019274d",
-        "session_recordings/30d/1756117711878-61ed9e32ebf3e27a",
-    ]
+    TEST_SESSION_IDS = ["session-1", "session-2"]
 
     @activity.defn(name="load-recordings-with-person")
-    async def load_recordings_with_person_mocked(input: RecordingsWithPersonInput) -> list[str]:
+    async def load_recordings_with_person_mocked(input: RecordingsWithPersonInput) -> LoadRecordingsPage:
         assert input.distinct_ids == TEST_DISTINCT_IDS
         assert input.team_id == TEST_TEAM_ID
-        return list(TEST_SESSIONS.keys())
+        return LoadRecordingsPage(session_ids=TEST_SESSION_IDS, next_cursor=None)
 
-    @activity.defn(name="load-recording-blocks")
-    async def load_recording_blocks_mocked(input: Recording) -> list[RecordingBlock]:
-        assert input.session_id in TEST_SESSIONS
-        assert input.team_id == TEST_TEAM_ID
-        return TEST_SESSIONS[input.session_id]
-
-    @activity.defn(name="delete-recording-blocks")
-    async def delete_recording_blocks_mocked(input: RecordingBlockGroup) -> None:
-        assert input.recording.session_id in TEST_SESSIONS
-        assert input.recording.team_id == TEST_TEAM_ID
-        assert input.ranges in EXPECTED_GROUPED_RANGES[input.recording.session_id]
-        assert input.path in EXPECTED_PATHS
-        TEST_SESSIONS[input.recording.session_id] = []  # Delete recording blocks
-
-    @activity.defn(name="schedule-recording-metadata-deletion")
-    async def schedule_recording_metadata_deletion_mocked(input: Recording) -> None:
-        assert input.session_id in TEST_SESSIONS
-        assert input.team_id == TEST_TEAM_ID
-
-    @activity.defn(name="delete-recording-lts-data")
-    async def delete_recording_lts_data_mocked(input: Recording) -> None:
-        assert input.session_id in TEST_SESSIONS
-        assert input.team_id == TEST_TEAM_ID
+    @activity.defn(name="bulk-delete-recordings")
+    async def bulk_delete_recordings_mocked(input: BulkDeleteInput) -> BulkDeleteResult:
+        assert input.dry_run is True
+        return BulkDeleteResult(deleted=[])
 
     task_queue_name = str(uuid.uuid4())
+    workflow_id = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue=task_queue_name,
-            workflows=[DeleteRecordingsWithPersonWorkflow, DeleteRecordingWorkflow],
+            workflows=[DeleteRecordingsWithPersonWorkflow],
             activities=[
-                load_recording_blocks_mocked,
-                delete_recording_blocks_mocked,
                 load_recordings_with_person_mocked,
-                group_recording_blocks,
-                schedule_recording_metadata_deletion_mocked,
-                delete_recording_lts_data_mocked,
+                bulk_delete_recordings_mocked,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
-            parent_id = str(uuid.uuid4())
-
-            await env.client.execute_workflow(
+            result = await env.client.execute_workflow(
                 DeleteRecordingsWithPersonWorkflow.run,
-                RecordingsWithPersonInput(distinct_ids=TEST_DISTINCT_IDS, team_id=TEST_TEAM_ID),
-                id=parent_id,
+                RecordingsWithPersonInput(
+                    distinct_ids=TEST_DISTINCT_IDS,
+                    team_id=TEST_TEAM_ID,
+                    config=DeletionConfig(dry_run=True),
+                ),
+                id=workflow_id,
                 task_queue=task_queue_name,
             )
 
-            # Wait a short while to let child workflows complete
-            await asyncio.sleep(3)
+    certificate = DeletionCertificate.model_validate(result)
+    assert certificate.workflow_type == "person"
+    assert certificate.dry_run is True
+    assert certificate.total_recordings_found == 2
+    assert certificate.total_deleted == 0
 
-    # Check that all recording blocks were deleted
-    assert TEST_SESSIONS == {
-        "1c6c32da-0518-4a83-a513-eb2595c33b66": [],
-        "791244f2-2569-4ed9-a448-d5a6e35471cd": [],
-        "3d2b505b-3a0e-48fd-89ab-6eb65a08e915": [],
-    }
+
+@pytest.mark.asyncio
+async def test_delete_recordings_with_no_sessions_found():
+    TEST_TEAM_ID: int = 77777
+
+    bulk_delete_called = False
+
+    @activity.defn(name="load-recordings-with-team-id")
+    async def load_recordings_with_team_id_mocked(input: RecordingsWithTeamInput) -> LoadRecordingsPage:
+        return LoadRecordingsPage(session_ids=[], next_cursor=None)
+
+    @activity.defn(name="bulk-delete-recordings")
+    async def bulk_delete_recordings_mocked(input: BulkDeleteInput) -> BulkDeleteResult:
+        nonlocal bulk_delete_called
+        bulk_delete_called = True
+        raise AssertionError("Should not be called when no sessions found")
+
+    task_queue_name = str(uuid.uuid4())
+    workflow_id = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[DeleteRecordingsWithTeamWorkflow],
+            activities=[
+                load_recordings_with_team_id_mocked,
+                bulk_delete_recordings_mocked,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            result = await env.client.execute_workflow(
+                DeleteRecordingsWithTeamWorkflow.run,
+                RecordingsWithTeamInput(team_id=TEST_TEAM_ID),
+                id=workflow_id,
+                task_queue=task_queue_name,
+            )
+
+    assert bulk_delete_called is False
+
+    certificate = DeletionCertificate.model_validate(result)
+    assert certificate.total_recordings_found == 0
+    assert certificate.total_deleted == 0
+    assert certificate.total_failed == 0
 
 
 @pytest.mark.asyncio
 async def test_delete_recordings_with_team_workflow():
     TEST_TEAM_ID: int = 99999
-    TEST_SESSIONS = {
-        "a1b2c3d4-e5f6-7890-abcd-ef1234567890": [
-            RecordingBlock(
-                start_time=datetime.now(),
-                end_time=datetime.now() + timedelta(hours=2),
-                url="s3://test_bucket/session_recordings/1y/1756117652764-84b1bccb847e7ea6?range=bytes=12269307-12294780",
-            ),
-            RecordingBlock(
-                start_time=datetime.now() + timedelta(hours=3),
-                end_time=datetime.now() + timedelta(hours=5),
-                url="s3://test_bucket/session_recordings/90d/1756117747546-97a0b1e81d492d3a?range=bytes=81788204-81793010",
-            ),
-        ],
-        "b2c3d4e5-f6g7-8901-bcde-f12345678901": [
-            RecordingBlock(
-                start_time=datetime.now(),
-                end_time=datetime.now() + timedelta(hours=8),
-                url="s3://test_bucket/session_recordings/5y/1756117699905-b688321ffa0fa994?range=bytes=12269307-12294780",
-            ),
-        ],
-        "c3d4e5f6-g7h8-9012-cdef-123456789012": [
-            RecordingBlock(
-                start_time=datetime.now(),
-                end_time=datetime.now() + timedelta(hours=15),
-                url="s3://test_bucket/session_recordings/30d/1756117708699-28b991ee5019274d?range=bytes=81788204-81793010",
-            ),
-            RecordingBlock(
-                start_time=datetime.now() + timedelta(hours=16),
-                end_time=datetime.now() + timedelta(hours=18),
-                url="s3://test_bucket/session_recordings/30d/1756117711878-61ed9e32ebf3e27a?range=bytes=2790658-2800843",
-            ),
-        ],
-    }
-
-    EXPECTED_GROUPED_RANGES = {
-        "a1b2c3d4-e5f6-7890-abcd-ef1234567890": [
-            [(12269307, 12294780)],
-            [(81788204, 81793010)],
-        ],
-        "b2c3d4e5-f6g7-8901-bcde-f12345678901": [
-            [(12269307, 12294780)],
-        ],
-        "c3d4e5f6-g7h8-9012-cdef-123456789012": [
-            [(81788204, 81793010)],
-            [(2790658, 2800843)],
-        ],
-    }
-
-    EXPECTED_PATHS = [
-        "session_recordings/1y/1756117652764-84b1bccb847e7ea6",
-        "session_recordings/90d/1756117747546-97a0b1e81d492d3a",
-        "session_recordings/5y/1756117699905-b688321ffa0fa994",
-        "session_recordings/30d/1756117708699-28b991ee5019274d",
-        "session_recordings/30d/1756117711878-61ed9e32ebf3e27a",
+    TEST_SESSION_IDS = [
+        "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "b2c3d4e5-f6g7-8901-bcde-f12345678901",
+        "c3d4e5f6-g7h8-9012-cdef-123456789012",
     ]
 
+    deleted_sessions: list[str] = []
+
     @activity.defn(name="load-recordings-with-team-id")
-    async def load_recordings_with_team_id_mocked(input: RecordingsWithTeamInput) -> list[str]:
+    async def load_recordings_with_team_id_mocked(input: RecordingsWithTeamInput) -> LoadRecordingsPage:
         assert input.team_id == TEST_TEAM_ID
-        return list(TEST_SESSIONS.keys())
+        return LoadRecordingsPage(session_ids=TEST_SESSION_IDS, next_cursor=None)
 
-    @activity.defn(name="load-recording-blocks")
-    async def load_recording_blocks_mocked(input: Recording) -> list[RecordingBlock]:
-        assert input.session_id in TEST_SESSIONS
+    @activity.defn(name="bulk-delete-recordings")
+    async def bulk_delete_recordings_mocked(input: BulkDeleteInput) -> BulkDeleteResult:
         assert input.team_id == TEST_TEAM_ID
-        return TEST_SESSIONS[input.session_id]
-
-    @activity.defn(name="delete-recording-blocks")
-    async def delete_recording_blocks_mocked(input: RecordingBlockGroup) -> None:
-        assert input.recording.session_id in TEST_SESSIONS
-        assert input.recording.team_id == TEST_TEAM_ID
-        assert input.ranges in EXPECTED_GROUPED_RANGES[input.recording.session_id]
-        assert input.path in EXPECTED_PATHS
-        TEST_SESSIONS[input.recording.session_id] = []  # Delete recording blocks
-
-    @activity.defn(name="schedule-recording-metadata-deletion")
-    async def schedule_recording_metadata_deletion_mocked(input: Recording) -> None:
-        assert input.session_id in TEST_SESSIONS
-        assert input.team_id == TEST_TEAM_ID
-
-    @activity.defn(name="delete-recording-lts-data")
-    async def delete_recording_lts_data_mocked(input: Recording) -> None:
-        assert input.session_id in TEST_SESSIONS
-        assert input.team_id == TEST_TEAM_ID
+        deleted_sessions.extend(input.session_ids)
+        return BulkDeleteResult(deleted=input.session_ids)
 
     task_queue_name = str(uuid.uuid4())
+    workflow_id = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue=task_queue_name,
-            workflows=[DeleteRecordingsWithTeamWorkflow, DeleteRecordingWorkflow],
+            workflows=[DeleteRecordingsWithTeamWorkflow],
             activities=[
-                load_recording_blocks_mocked,
-                delete_recording_blocks_mocked,
                 load_recordings_with_team_id_mocked,
-                group_recording_blocks,
-                schedule_recording_metadata_deletion_mocked,
-                delete_recording_lts_data_mocked,
+                bulk_delete_recordings_mocked,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
-            parent_id = str(uuid.uuid4())
-
-            await env.client.execute_workflow(
+            result = await env.client.execute_workflow(
                 DeleteRecordingsWithTeamWorkflow.run,
                 RecordingsWithTeamInput(team_id=TEST_TEAM_ID),
-                id=parent_id,
+                id=workflow_id,
                 task_queue=task_queue_name,
             )
 
-            # Wait a short while to let child workflows complete
-            await asyncio.sleep(3)
+    assert sorted(deleted_sessions) == sorted(TEST_SESSION_IDS)
 
-    # Check that all recording blocks were deleted
-    assert TEST_SESSIONS == {
-        "a1b2c3d4-e5f6-7890-abcd-ef1234567890": [],
-        "b2c3d4e5-f6g7-8901-bcde-f12345678901": [],
-        "c3d4e5f6-g7h8-9012-cdef-123456789012": [],
-    }
+    certificate = DeletionCertificate.model_validate(result)
+    assert certificate.workflow_type == "team"
+    assert certificate.workflow_id == workflow_id
+    assert certificate.team_id == TEST_TEAM_ID
+    assert certificate.dry_run is False
+    assert certificate.total_deleted == 3
+
+
+@pytest.mark.asyncio
+async def test_delete_recordings_with_team_workflow_dry_run():
+    TEST_TEAM_ID: int = 44444
+    TEST_SESSION_IDS = ["dry-run-session-1", "dry-run-session-2"]
+
+    @activity.defn(name="load-recordings-with-team-id")
+    async def load_recordings_with_team_id_mocked(input: RecordingsWithTeamInput) -> LoadRecordingsPage:
+        assert input.team_id == TEST_TEAM_ID
+        return LoadRecordingsPage(session_ids=TEST_SESSION_IDS, next_cursor=None)
+
+    @activity.defn(name="bulk-delete-recordings")
+    async def bulk_delete_recordings_mocked(input: BulkDeleteInput) -> BulkDeleteResult:
+        assert input.dry_run is True
+        return BulkDeleteResult(deleted=[])
+
+    task_queue_name = str(uuid.uuid4())
+    workflow_id = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[DeleteRecordingsWithTeamWorkflow],
+            activities=[
+                load_recordings_with_team_id_mocked,
+                bulk_delete_recordings_mocked,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            result = await env.client.execute_workflow(
+                DeleteRecordingsWithTeamWorkflow.run,
+                RecordingsWithTeamInput(team_id=TEST_TEAM_ID, config=DeletionConfig(dry_run=True)),
+                id=workflow_id,
+                task_queue=task_queue_name,
+            )
+
+    certificate = DeletionCertificate.model_validate(result)
+    assert certificate.workflow_type == "team"
+    assert certificate.dry_run is True
+    assert certificate.total_recordings_found == 2
+    assert certificate.total_deleted == 0
 
 
 @pytest.mark.asyncio
 async def test_delete_recordings_with_query_workflow():
     TEST_QUERY = 'events=[{"id":"$pageview","type":"events"}]&date_from=-7d'
     TEST_TEAM_ID: int = 78901
-    TEST_SESSIONS = {
-        "4a1b2c3d-5e6f-7g8h-9i0j-1k2l3m4n5o6p": [
-            RecordingBlock(
-                start_time=datetime.now(),
-                end_time=datetime.now() + timedelta(hours=1),
-                url="s3://test_bucket/session_recordings/1y/1756117652764-84b1bccb847e7ea6?range=bytes=12269307-12294780",
-            ),
-            RecordingBlock(
-                start_time=datetime.now() + timedelta(hours=2),
-                end_time=datetime.now() + timedelta(hours=3),
-                url="s3://test_bucket/session_recordings/90d/1756117747546-97a0b1e81d492d3a?range=bytes=81788204-81793010",
-            ),
-        ],
-        "5b2c3d4e-6f7g-8h9i-0j1k-2l3m4n5o6p7q": [
-            RecordingBlock(
-                start_time=datetime.now(),
-                end_time=datetime.now() + timedelta(hours=5),
-                url="s3://test_bucket/session_recordings/5y/1756117699905-b688321ffa0fa994?range=bytes=12269307-12294780",
-            ),
-        ],
-        "6c3d4e5f-7g8h-9i0j-1k2l-3m4n5o6p7q8r": [
-            RecordingBlock(
-                start_time=datetime.now(),
-                end_time=datetime.now() + timedelta(hours=10),
-                url="s3://test_bucket/session_recordings/30d/1756117708699-28b991ee5019274d?range=bytes=81788204-81793010",
-            ),
-            RecordingBlock(
-                start_time=datetime.now() + timedelta(hours=11),
-                end_time=datetime.now() + timedelta(hours=12),
-                url="s3://test_bucket/session_recordings/30d/1756117711878-61ed9e32ebf3e27a?range=bytes=2790658-2800843",
-            ),
-        ],
-    }
-
-    EXPECTED_GROUPED_RANGES = {
-        "4a1b2c3d-5e6f-7g8h-9i0j-1k2l3m4n5o6p": [
-            [(12269307, 12294780)],
-            [(81788204, 81793010)],
-        ],
-        "5b2c3d4e-6f7g-8h9i-0j1k-2l3m4n5o6p7q": [
-            [(12269307, 12294780)],
-        ],
-        "6c3d4e5f-7g8h-9i0j-1k2l-3m4n5o6p7q8r": [
-            [(81788204, 81793010)],
-            [(2790658, 2800843)],
-        ],
-    }
-
-    EXPECTED_PATHS = [
-        "session_recordings/1y/1756117652764-84b1bccb847e7ea6",
-        "session_recordings/90d/1756117747546-97a0b1e81d492d3a",
-        "session_recordings/5y/1756117699905-b688321ffa0fa994",
-        "session_recordings/30d/1756117708699-28b991ee5019274d",
-        "session_recordings/30d/1756117711878-61ed9e32ebf3e27a",
+    TEST_SESSION_IDS = [
+        "4a1b2c3d-5e6f-7g8h-9i0j-1k2l3m4n5o6p",
+        "5b2c3d4e-6f7g-8h9i-0j1k-2l3m4n5o6p7q",
+        "6c3d4e5f-7g8h-9i0j-1k2l-3m4n5o6p7q8r",
     ]
 
+    deleted_sessions: list[str] = []
+
     @activity.defn(name="load-recordings-with-query")
-    async def load_recordings_with_query_mocked(input: RecordingsWithQueryInput) -> list[str]:
+    async def load_recordings_with_query_mocked(input: RecordingsWithQueryInput) -> LoadRecordingsPage:
         assert input.query == TEST_QUERY
         assert input.team_id == TEST_TEAM_ID
-        assert input.dry_run is False
-        return list(TEST_SESSIONS.keys())
+        return LoadRecordingsPage(session_ids=TEST_SESSION_IDS, next_cursor=None)
 
-    @activity.defn(name="load-recording-blocks")
-    async def load_recording_blocks_mocked(input: Recording) -> list[RecordingBlock]:
-        assert input.session_id in TEST_SESSIONS
+    @activity.defn(name="bulk-delete-recordings")
+    async def bulk_delete_recordings_mocked(input: BulkDeleteInput) -> BulkDeleteResult:
         assert input.team_id == TEST_TEAM_ID
-        return TEST_SESSIONS[input.session_id]
-
-    @activity.defn(name="delete-recording-blocks")
-    async def delete_recording_blocks_mocked(input: RecordingBlockGroup) -> None:
-        assert input.recording.session_id in TEST_SESSIONS
-        assert input.recording.team_id == TEST_TEAM_ID
-        assert input.ranges in EXPECTED_GROUPED_RANGES[input.recording.session_id]
-        assert input.path in EXPECTED_PATHS
-        TEST_SESSIONS[input.recording.session_id] = []  # Delete recording blocks
-
-    @activity.defn(name="schedule-recording-metadata-deletion")
-    async def schedule_recording_metadata_deletion_mocked(input: Recording) -> None:
-        assert input.session_id in TEST_SESSIONS
-        assert input.team_id == TEST_TEAM_ID
-
-    @activity.defn(name="delete-recording-lts-data")
-    async def delete_recording_lts_data_mocked(input: Recording) -> None:
-        assert input.session_id in TEST_SESSIONS
-        assert input.team_id == TEST_TEAM_ID
+        deleted_sessions.extend(input.session_ids)
+        return BulkDeleteResult(deleted=input.session_ids)
 
     task_queue_name = str(uuid.uuid4())
+    workflow_id = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue=task_queue_name,
-            workflows=[DeleteRecordingsWithQueryWorkflow, DeleteRecordingWorkflow],
+            workflows=[DeleteRecordingsWithQueryWorkflow],
             activities=[
-                load_recording_blocks_mocked,
-                delete_recording_blocks_mocked,
                 load_recordings_with_query_mocked,
-                group_recording_blocks,
-                schedule_recording_metadata_deletion_mocked,
-                delete_recording_lts_data_mocked,
+                bulk_delete_recordings_mocked,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
-            parent_id = str(uuid.uuid4())
-
-            await env.client.execute_workflow(
+            result = await env.client.execute_workflow(
                 DeleteRecordingsWithQueryWorkflow.run,
-                RecordingsWithQueryInput(query=TEST_QUERY, team_id=TEST_TEAM_ID, dry_run=False),
-                id=parent_id,
+                RecordingsWithQueryInput(query=TEST_QUERY, team_id=TEST_TEAM_ID),
+                id=workflow_id,
                 task_queue=task_queue_name,
             )
 
-            # Wait a short while to let child workflows complete
-            await asyncio.sleep(3)
+    assert sorted(deleted_sessions) == sorted(TEST_SESSION_IDS)
 
-    # Check that all recording blocks were deleted
-    assert TEST_SESSIONS == {
-        "4a1b2c3d-5e6f-7g8h-9i0j-1k2l3m4n5o6p": [],
-        "5b2c3d4e-6f7g-8h9i-0j1k-2l3m4n5o6p7q": [],
-        "6c3d4e5f-7g8h-9i0j-1k2l-3m4n5o6p7q8r": [],
-    }
+    certificate = DeletionCertificate.model_validate(result)
+    assert certificate.workflow_type == "query"
+    assert certificate.workflow_id == workflow_id
+    assert certificate.team_id == TEST_TEAM_ID
+    assert certificate.query == TEST_QUERY
+    assert certificate.dry_run is False
+    assert certificate.total_deleted == 3
 
 
 @pytest.mark.asyncio
 async def test_delete_recordings_with_query_workflow_dry_run():
     TEST_QUERY = 'events=[{"id":"$pageview","type":"events"}]&date_from=-30d'
     TEST_TEAM_ID: int = 11111
-    TEST_SESSIONS = {
-        "7d4e5f6g-8h9i-0j1k-2l3m-4n5o6p7q8r9s": [
-            RecordingBlock(
-                start_time=datetime.now(),
-                end_time=datetime.now() + timedelta(hours=1),
-                url="s3://test_bucket/session_recordings/1y/1756117652764-84b1bccb847e7ea6?range=bytes=12269307-12294780",
-            ),
-        ],
-        "8e5f6g7h-9i0j-1k2l-3m4n-5o6p7q8r9s0t": [
-            RecordingBlock(
-                start_time=datetime.now(),
-                end_time=datetime.now() + timedelta(hours=2),
-                url="s3://test_bucket/session_recordings/90d/1756117747546-97a0b1e81d492d3a?range=bytes=81788204-81793010",
-            ),
-        ],
-    }
+    TEST_SESSION_IDS = ["7d4e5f6g-8h9i-0j1k-2l3m-4n5o6p7q8r9s", "8e5f6g7h-9i0j-1k2l-3m4n-5o6p7q8r9s0t"]
 
     @activity.defn(name="load-recordings-with-query")
-    async def load_recordings_with_query_mocked(input: RecordingsWithQueryInput) -> list[str]:
+    async def load_recordings_with_query_mocked(input: RecordingsWithQueryInput) -> LoadRecordingsPage:
         assert input.query == TEST_QUERY
         assert input.team_id == TEST_TEAM_ID
+        return LoadRecordingsPage(session_ids=TEST_SESSION_IDS, next_cursor=None)
+
+    @activity.defn(name="bulk-delete-recordings")
+    async def bulk_delete_recordings_mocked(input: BulkDeleteInput) -> BulkDeleteResult:
         assert input.dry_run is True
-        return list(TEST_SESSIONS.keys())
-
-    @activity.defn(name="load-recording-blocks")
-    async def load_recording_blocks_mocked(input: Recording) -> list[RecordingBlock]:
-        raise AssertionError("Should not be called in dry run mode")
-
-    @activity.defn(name="delete-recording-blocks")
-    async def delete_recording_blocks_mocked(input: RecordingBlockGroup) -> None:
-        raise AssertionError("Should not be called in dry run mode")
-
-    @activity.defn(name="schedule-recording-metadata-deletion")
-    async def schedule_recording_metadata_deletion_mocked(input: Recording) -> None:
-        raise AssertionError("Should not be called in dry run mode")
-
-    @activity.defn(name="delete-recording-lts-data")
-    async def delete_recording_lts_data_mocked(input: Recording) -> None:
-        raise AssertionError("Should not be called in dry run mode")
+        return BulkDeleteResult(deleted=[])
 
     task_queue_name = str(uuid.uuid4())
+    workflow_id = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue=task_queue_name,
-            workflows=[DeleteRecordingsWithQueryWorkflow, DeleteRecordingWorkflow],
+            workflows=[DeleteRecordingsWithQueryWorkflow],
             activities=[
-                load_recording_blocks_mocked,
-                delete_recording_blocks_mocked,
                 load_recordings_with_query_mocked,
-                group_recording_blocks,
-                schedule_recording_metadata_deletion_mocked,
-                delete_recording_lts_data_mocked,
+                bulk_delete_recordings_mocked,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
-            parent_id = str(uuid.uuid4())
-
-            await env.client.execute_workflow(
+            result = await env.client.execute_workflow(
                 DeleteRecordingsWithQueryWorkflow.run,
-                RecordingsWithQueryInput(query=TEST_QUERY, team_id=TEST_TEAM_ID, dry_run=True),
-                id=parent_id,
+                RecordingsWithQueryInput(query=TEST_QUERY, team_id=TEST_TEAM_ID, config=DeletionConfig(dry_run=True)),
+                id=workflow_id,
                 task_queue=task_queue_name,
             )
 
-            # Wait a short while to ensure no child workflows were started
-            await asyncio.sleep(1)
-
-    # Check that no recording blocks were deleted in dry run mode
-    assert len(TEST_SESSIONS["7d4e5f6g-8h9i-0j1k-2l3m-4n5o6p7q8r9s"]) == 1
-    assert len(TEST_SESSIONS["8e5f6g7h-9i0j-1k2l-3m4n-5o6p7q8r9s0t"]) == 1
-    assert (
-        TEST_SESSIONS["7d4e5f6g-8h9i-0j1k-2l3m-4n5o6p7q8r9s"][0].url
-        == "s3://test_bucket/session_recordings/1y/1756117652764-84b1bccb847e7ea6?range=bytes=12269307-12294780"
-    )
-    assert (
-        TEST_SESSIONS["8e5f6g7h-9i0j-1k2l-3m4n-5o6p7q8r9s0t"][0].url
-        == "s3://test_bucket/session_recordings/90d/1756117747546-97a0b1e81d492d3a?range=bytes=81788204-81793010"
-    )
+    certificate = DeletionCertificate.model_validate(result)
+    assert certificate.workflow_type == "query"
+    assert certificate.query == TEST_QUERY
+    assert certificate.dry_run is True
+    assert certificate.total_recordings_found == 2
+    assert certificate.total_deleted == 0
 
 
 @pytest.mark.asyncio
-async def test_delete_recording_metadata_workflow():
-    activity_called = False
+async def test_delete_recordings_with_batching():
+    """Test that large numbers of sessions are batched correctly and certificate aggregates all results."""
+    TEST_TEAM_ID: int = 33333
+    TEST_SESSION_IDS = [f"session-{i}" for i in range(250)]
 
-    @activity.defn(name="perform-recording-metadata-deletion")
-    async def perform_recording_metadata_deletion_mocked(input: DeleteRecordingMetadataInput) -> None:
-        nonlocal activity_called
-        activity_called = True
-        assert input.dry_run is False
-
-    task_queue_name = str(uuid.uuid4())
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(
-            env.client,
-            task_queue=task_queue_name,
-            workflows=[DeleteRecordingMetadataWorkflow],
-            activities=[perform_recording_metadata_deletion_mocked],
-            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-        ):
-            await env.client.execute_workflow(
-                DeleteRecordingMetadataWorkflow.run,
-                DeleteRecordingMetadataInput(dry_run=False),
-                id=str(uuid.uuid4()),
-                task_queue=task_queue_name,
-            )
-
-    assert activity_called is True
-
-
-@pytest.mark.asyncio
-async def test_delete_recording_metadata_workflow_dry_run():
-    activity_called = False
-
-    @activity.defn(name="perform-recording-metadata-deletion")
-    async def perform_recording_metadata_deletion_mocked(input: DeleteRecordingMetadataInput) -> None:
-        nonlocal activity_called
-        activity_called = True
-        assert input.dry_run is True
-
-    task_queue_name = str(uuid.uuid4())
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(
-            env.client,
-            task_queue=task_queue_name,
-            workflows=[DeleteRecordingMetadataWorkflow],
-            activities=[perform_recording_metadata_deletion_mocked],
-            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-        ):
-            await env.client.execute_workflow(
-                DeleteRecordingMetadataWorkflow.run,
-                DeleteRecordingMetadataInput(dry_run=True),
-                id=str(uuid.uuid4()),
-                task_queue=task_queue_name,
-            )
-
-    assert activity_called is True
-
-
-def test_delete_recording_metadata_workflow_parse_inputs():
-    result = DeleteRecordingMetadataWorkflow.parse_inputs(['{"dry_run": true}'])
-    assert result.dry_run is True
-
-    result = DeleteRecordingMetadataWorkflow.parse_inputs(['{"dry_run": false}'])
-    assert result.dry_run is False
-
-    result = DeleteRecordingMetadataWorkflow.parse_inputs(["{}"])
-    assert result.dry_run is False
-
-
-@pytest.mark.asyncio
-async def test_delete_recording_workflow_no_blocks():
-    """Test that workflow handles recordings with no blocks gracefully."""
-    TEST_SESSION_ID: str = "empty-session-id"
-    TEST_TEAM_ID: int = 55555
-    lts_deleted = False
-    metadata_scheduled = False
-
-    @activity.defn(name="load-recording-blocks")
-    async def load_recording_blocks_mocked(input: Recording) -> list[RecordingBlock]:
-        assert input.session_id == TEST_SESSION_ID
-        assert input.team_id == TEST_TEAM_ID
-        return []  # No blocks
-
-    @activity.defn(name="delete-recording-blocks")
-    async def delete_recording_blocks_mocked(input: RecordingBlockGroup) -> None:
-        raise AssertionError("Should not be called when there are no blocks")
-
-    @activity.defn(name="schedule-recording-metadata-deletion")
-    async def schedule_recording_metadata_deletion_mocked(input: Recording) -> None:
-        nonlocal metadata_scheduled
-        metadata_scheduled = True
-        assert input.session_id == TEST_SESSION_ID
-        assert input.team_id == TEST_TEAM_ID
-
-    @activity.defn(name="delete-recording-lts-data")
-    async def delete_recording_lts_data_mocked(input: Recording) -> None:
-        nonlocal lts_deleted
-        lts_deleted = True
-        assert input.session_id == TEST_SESSION_ID
-        assert input.team_id == TEST_TEAM_ID
-
-    task_queue_name = str(uuid.uuid4())
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(
-            env.client,
-            task_queue=task_queue_name,
-            workflows=[DeleteRecordingWorkflow],
-            activities=[
-                load_recording_blocks_mocked,
-                delete_recording_blocks_mocked,
-                group_recording_blocks,
-                schedule_recording_metadata_deletion_mocked,
-                delete_recording_lts_data_mocked,
-            ],
-            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-        ):
-            await env.client.execute_workflow(
-                DeleteRecordingWorkflow.run,
-                Recording(session_id=TEST_SESSION_ID, team_id=TEST_TEAM_ID),
-                id=str(uuid.uuid4()),
-                task_queue=task_queue_name,
-            )
-
-    # Even with no blocks, LTS and metadata cleanup should still happen
-    assert lts_deleted is True
-    assert metadata_scheduled is True
-
-
-@pytest.mark.asyncio
-async def test_delete_recordings_with_team_workflow_dry_run():
-    """Test that dry run mode loads sessions but doesn't delete anything."""
-    TEST_TEAM_ID: int = 44444
-    TEST_SESSIONS = {
-        "dry-run-session-1": [
-            RecordingBlock(
-                start_time=datetime.now(),
-                end_time=datetime.now() + timedelta(hours=1),
-                url="s3://test_bucket/session_recordings/1y/test-file?range=bytes=0-1000",
-            ),
-        ],
-        "dry-run-session-2": [
-            RecordingBlock(
-                start_time=datetime.now(),
-                end_time=datetime.now() + timedelta(hours=2),
-                url="s3://test_bucket/session_recordings/90d/test-file2?range=bytes=0-2000",
-            ),
-        ],
-    }
+    batch_calls: list[list[str]] = []
 
     @activity.defn(name="load-recordings-with-team-id")
-    async def load_recordings_with_team_id_mocked(input: RecordingsWithTeamInput) -> list[str]:
-        assert input.team_id == TEST_TEAM_ID
-        assert input.dry_run is True
-        return list(TEST_SESSIONS.keys())
+    async def load_recordings_with_team_id_mocked(input: RecordingsWithTeamInput) -> LoadRecordingsPage:
+        return LoadRecordingsPage(session_ids=TEST_SESSION_IDS, next_cursor=None)
 
-    @activity.defn(name="load-recording-blocks")
-    async def load_recording_blocks_mocked(input: Recording) -> list[RecordingBlock]:
-        raise AssertionError("Should not be called in dry run mode")
-
-    @activity.defn(name="delete-recording-blocks")
-    async def delete_recording_blocks_mocked(input: RecordingBlockGroup) -> None:
-        raise AssertionError("Should not be called in dry run mode")
-
-    @activity.defn(name="schedule-recording-metadata-deletion")
-    async def schedule_recording_metadata_deletion_mocked(input: Recording) -> None:
-        raise AssertionError("Should not be called in dry run mode")
-
-    @activity.defn(name="delete-recording-lts-data")
-    async def delete_recording_lts_data_mocked(input: Recording) -> None:
-        raise AssertionError("Should not be called in dry run mode")
+    @activity.defn(name="bulk-delete-recordings")
+    async def bulk_delete_recordings_mocked(input: BulkDeleteInput) -> BulkDeleteResult:
+        batch_calls.append(input.session_ids)
+        return BulkDeleteResult(deleted=input.session_ids)
 
     task_queue_name = str(uuid.uuid4())
+    workflow_id = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue=task_queue_name,
-            workflows=[DeleteRecordingsWithTeamWorkflow, DeleteRecordingWorkflow],
+            workflows=[DeleteRecordingsWithTeamWorkflow],
             activities=[
-                load_recording_blocks_mocked,
-                delete_recording_blocks_mocked,
                 load_recordings_with_team_id_mocked,
-                group_recording_blocks,
-                schedule_recording_metadata_deletion_mocked,
-                delete_recording_lts_data_mocked,
+                bulk_delete_recordings_mocked,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
-            parent_id = str(uuid.uuid4())
-
-            await env.client.execute_workflow(
+            result = await env.client.execute_workflow(
                 DeleteRecordingsWithTeamWorkflow.run,
-                RecordingsWithTeamInput(team_id=TEST_TEAM_ID, dry_run=True),
-                id=parent_id,
+                RecordingsWithTeamInput(team_id=TEST_TEAM_ID, config=DeletionConfig(batch_size=100)),
+                id=workflow_id,
                 task_queue=task_queue_name,
             )
 
-            # Wait a short while to ensure no child workflows were started
-            await asyncio.sleep(1)
+    # 250 sessions with batch_size=100 should result in 3 batches
+    assert len(batch_calls) == 3
+    assert len(batch_calls[0]) == 100
+    assert len(batch_calls[1]) == 100
+    assert len(batch_calls[2]) == 50
 
-    # Check that no recording blocks were deleted in dry run mode
-    assert len(TEST_SESSIONS["dry-run-session-1"]) == 1
-    assert len(TEST_SESSIONS["dry-run-session-2"]) == 1
+    all_deleted = []
+    for batch in batch_calls:
+        all_deleted.extend(batch)
+    assert sorted(all_deleted) == sorted(TEST_SESSION_IDS)
+
+    certificate = DeletionCertificate.model_validate(result)
+    assert certificate.total_recordings_found == 250
+    assert certificate.total_deleted == 250
+
+
+@pytest.mark.asyncio
+async def test_delete_recordings_certificate_with_mixed_results():
+    """Test that the certificate correctly captures mixed results (deleted and failed)."""
+    TEST_TEAM_ID: int = 55555
+    TEST_SESSION_IDS = ["session-1", "session-2", "session-3", "session-4"]
+
+    @activity.defn(name="load-recordings-with-team-id")
+    async def load_recordings_with_team_id_mocked(input: RecordingsWithTeamInput) -> LoadRecordingsPage:
+        return LoadRecordingsPage(session_ids=TEST_SESSION_IDS, next_cursor=None)
+
+    @activity.defn(name="bulk-delete-recordings")
+    async def bulk_delete_recordings_mocked(input: BulkDeleteInput) -> BulkDeleteResult:
+        return BulkDeleteResult(
+            deleted=["session-1", "session-2"],
+            failed_count=2,
+        )
+
+    task_queue_name = str(uuid.uuid4())
+    workflow_id = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[DeleteRecordingsWithTeamWorkflow],
+            activities=[
+                load_recordings_with_team_id_mocked,
+                bulk_delete_recordings_mocked,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            result = await env.client.execute_workflow(
+                DeleteRecordingsWithTeamWorkflow.run,
+                RecordingsWithTeamInput(team_id=TEST_TEAM_ID),
+                id=workflow_id,
+                task_queue=task_queue_name,
+            )
+
+    certificate = DeletionCertificate.model_validate(result)
+    assert certificate.workflow_type == "team"
+    assert certificate.team_id == TEST_TEAM_ID
+    assert certificate.total_recordings_found == 4
+    assert certificate.total_deleted == 2
+    assert certificate.total_failed == 2
+
+
+@pytest.mark.asyncio
+async def test_delete_recordings_with_pagination():
+    """Test that the workflow paginates through multiple pages of session IDs."""
+    TEST_TEAM_ID: int = 88888
+    PAGE_1 = [f"session-{i}" for i in range(100)]
+    PAGE_2 = [f"session-{i}" for i in range(100, 150)]
+
+    deleted_sessions: list[str] = []
+    load_call_count = 0
+
+    @activity.defn(name="load-recordings-with-team-id")
+    async def load_recordings_with_team_id_mocked(input: RecordingsWithTeamInput) -> LoadRecordingsPage:
+        nonlocal load_call_count
+        load_call_count += 1
+        if input.cursor is None:
+            return LoadRecordingsPage(session_ids=PAGE_1, next_cursor=PAGE_1[-1])
+        else:
+            assert input.cursor == PAGE_1[-1]
+            return LoadRecordingsPage(session_ids=PAGE_2, next_cursor=None)
+
+    @activity.defn(name="bulk-delete-recordings")
+    async def bulk_delete_recordings_mocked(input: BulkDeleteInput) -> BulkDeleteResult:
+        deleted_sessions.extend(input.session_ids)
+        return BulkDeleteResult(deleted=input.session_ids)
+
+    task_queue_name = str(uuid.uuid4())
+    workflow_id = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[DeleteRecordingsWithTeamWorkflow],
+            activities=[
+                load_recordings_with_team_id_mocked,
+                bulk_delete_recordings_mocked,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            result = await env.client.execute_workflow(
+                DeleteRecordingsWithTeamWorkflow.run,
+                RecordingsWithTeamInput(team_id=TEST_TEAM_ID),
+                id=workflow_id,
+                task_queue=task_queue_name,
+            )
+
+    assert load_call_count == 2
+    assert sorted(deleted_sessions) == sorted(PAGE_1 + PAGE_2)
+
+    certificate = DeletionCertificate.model_validate(result)
+    assert certificate.total_recordings_found == 150
+    assert certificate.total_deleted == 150
+    assert certificate.total_failed == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "num_sessions, max_per_second, expected_sleep",
+    [
+        pytest.param(100, 10, 10.0, id="100_sessions_at_10_per_sec"),
+        pytest.param(30, 30, 1.0, id="30_sessions_at_30_per_sec"),
+        pytest.param(150, 50, 3.0, id="150_sessions_at_50_per_sec"),
+    ],
+)
+async def test_rate_limiting_sleeps_when_execution_is_fast(num_sessions, max_per_second, expected_sleep):
+    """When batch execution is instant (frozen time), sleep = num_sessions / max_per_second."""
+    TEST_TEAM_ID = 11111
+    session_ids = [f"s-{i}" for i in range(num_sessions)]
+
+    @activity.defn(name="load-recordings-with-team-id")
+    async def load_mocked(input: RecordingsWithTeamInput) -> LoadRecordingsPage:
+        return LoadRecordingsPage(session_ids=session_ids, next_cursor=None)
+
+    @activity.defn(name="bulk-delete-recordings")
+    async def delete_mocked(input: BulkDeleteInput) -> BulkDeleteResult:
+        return BulkDeleteResult(deleted=input.session_ids)
+
+    task_queue_name = str(uuid.uuid4())
+    mock_sleep = AsyncMock()
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[DeleteRecordingsWithTeamWorkflow],
+            activities=[load_mocked, delete_mocked],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            with patch("posthog.temporal.delete_recordings.workflows.asyncio.sleep", mock_sleep):
+                await env.client.execute_workflow(
+                    DeleteRecordingsWithTeamWorkflow.run,
+                    RecordingsWithTeamInput(
+                        team_id=TEST_TEAM_ID,
+                        config=DeletionConfig(max_deletions_per_second=max_per_second),
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue_name,
+                )
+
+    mock_sleep.assert_called_once()
+    actual_sleep = mock_sleep.call_args[0][0]
+    assert actual_sleep == pytest.approx(expected_sleep, abs=0.5)
+
+
+@pytest.mark.asyncio
+async def test_rate_limiting_disabled_when_zero():
+    """No sleep when max_deletions_per_second=0."""
+    TEST_TEAM_ID = 22222
+    session_ids = [f"s-{i}" for i in range(50)]
+
+    @activity.defn(name="load-recordings-with-team-id")
+    async def load_mocked(input: RecordingsWithTeamInput) -> LoadRecordingsPage:
+        return LoadRecordingsPage(session_ids=session_ids, next_cursor=None)
+
+    @activity.defn(name="bulk-delete-recordings")
+    async def delete_mocked(input: BulkDeleteInput) -> BulkDeleteResult:
+        return BulkDeleteResult(deleted=input.session_ids)
+
+    task_queue_name = str(uuid.uuid4())
+    mock_sleep = AsyncMock()
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[DeleteRecordingsWithTeamWorkflow],
+            activities=[load_mocked, delete_mocked],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            with patch("posthog.temporal.delete_recordings.workflows.asyncio.sleep", mock_sleep):
+                await env.client.execute_workflow(
+                    DeleteRecordingsWithTeamWorkflow.run,
+                    RecordingsWithTeamInput(
+                        team_id=TEST_TEAM_ID,
+                        config=DeletionConfig(max_deletions_per_second=0),
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue_name,
+                )
+
+    mock_sleep.assert_not_called()
+
+
+def test_delete_recordings_with_person_workflow_parse_inputs():
+    result = DeleteRecordingsWithPersonWorkflow.parse_inputs(
+        ['{"distinct_ids": ["id1", "id2"], "team_id": 123, "config": {"batch_size": 50}}']
+    )
+    assert result.distinct_ids == ["id1", "id2"]
+    assert result.team_id == 123
+    assert result.config.batch_size == 50
+
+
+def test_delete_recordings_with_team_workflow_parse_inputs():
+    result = DeleteRecordingsWithTeamWorkflow.parse_inputs(
+        ['{"team_id": 456, "config": {"dry_run": true, "batch_size": 50}}']
+    )
+    assert result.team_id == 456
+    assert result.config.dry_run is True
+    assert result.config.batch_size == 50
+
+
+def test_delete_recordings_with_query_workflow_parse_inputs():
+    result = DeleteRecordingsWithQueryWorkflow.parse_inputs(
+        [
+            '{"query": "date_from=-7d", "team_id": 789, "config": {"dry_run": false, "batch_size": 75}, "query_limit": 500}'
+        ]
+    )
+    assert result.query == "date_from=-7d"
+    assert result.team_id == 789
+    assert result.config.dry_run is False
+    assert result.config.batch_size == 75
+    assert result.query_limit == 500
+
+
+@pytest.mark.asyncio
+async def test_purge_deleted_recording_metadata_workflow():
+    from datetime import UTC, datetime
+
+    TEST_GRACE_PERIOD_DAYS = 30
+
+    @activity.defn(name="purge-deleted-metadata")
+    async def purge_deleted_metadata_mocked(input: PurgeDeletedMetadataInput) -> PurgeDeletedMetadataResult:
+        assert input.grace_period_days == TEST_GRACE_PERIOD_DAYS
+        now = datetime.now(UTC)
+        return PurgeDeletedMetadataResult(
+            started_at=now,
+            completed_at=now,
+        )
+
+    task_queue_name = str(uuid.uuid4())
+    workflow_id = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[PurgeDeletedRecordingMetadataWorkflow],
+            activities=[purge_deleted_metadata_mocked],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            result = await env.client.execute_workflow(
+                PurgeDeletedRecordingMetadataWorkflow.run,
+                PurgeDeletedMetadataInput(grace_period_days=TEST_GRACE_PERIOD_DAYS),
+                id=workflow_id,
+                task_queue=task_queue_name,
+            )
+
+    purge_result = PurgeDeletedMetadataResult.model_validate(result)
+    assert purge_result.started_at is not None
+    assert purge_result.completed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_delete_recordings_with_session_ids_workflow():
+    TEST_TEAM_ID: int = 66666
+    TEST_SESSION_IDS = ["session-a", "session-b", "session-c"]
+
+    deleted_sessions: list[str] = []
+
+    @activity.defn(name="bulk-delete-recordings")
+    async def bulk_delete_recordings_mocked(input: BulkDeleteInput) -> BulkDeleteResult:
+        assert input.team_id == TEST_TEAM_ID
+        deleted_sessions.extend(input.session_ids)
+        return BulkDeleteResult(deleted=input.session_ids)
+
+    task_queue_name = str(uuid.uuid4())
+    workflow_id = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[DeleteRecordingsWithSessionIdsWorkflow],
+            activities=[bulk_delete_recordings_mocked],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            result = await env.client.execute_workflow(
+                DeleteRecordingsWithSessionIdsWorkflow.run,
+                RecordingsWithSessionIdsInput(
+                    session_ids=TEST_SESSION_IDS,
+                    team_id=TEST_TEAM_ID,
+                    config=DeletionConfig(reason="test cleanup"),
+                ),
+                id=workflow_id,
+                task_queue=task_queue_name,
+            )
+
+    assert sorted(deleted_sessions) == sorted(TEST_SESSION_IDS)
+
+    certificate = DeletionCertificate.model_validate(result)
+    assert certificate.workflow_type == "session_ids"
+    assert certificate.workflow_id == workflow_id
+    assert certificate.team_id == TEST_TEAM_ID
+    assert certificate.dry_run is False
+    assert certificate.reason == "test cleanup"
+    assert certificate.total_recordings_found == 3
+    assert certificate.total_deleted == 3
+    assert certificate.total_failed == 0
+
+
+@pytest.mark.asyncio
+async def test_delete_recordings_with_session_ids_workflow_chunks_large_input():
+    """Session IDs are processed in chunks of 10,000 — verify multiple bulk_delete calls."""
+    TEST_TEAM_ID: int = 66666
+    TEST_SESSION_IDS = [f"session-{i}" for i in range(25_000)]
+
+    batch_calls: list[list[str]] = []
+
+    @activity.defn(name="bulk-delete-recordings")
+    async def bulk_delete_recordings_mocked(input: BulkDeleteInput) -> BulkDeleteResult:
+        batch_calls.append(input.session_ids)
+        return BulkDeleteResult(deleted=input.session_ids)
+
+    task_queue_name = str(uuid.uuid4())
+    workflow_id = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[DeleteRecordingsWithSessionIdsWorkflow],
+            activities=[bulk_delete_recordings_mocked],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            result = await env.client.execute_workflow(
+                DeleteRecordingsWithSessionIdsWorkflow.run,
+                RecordingsWithSessionIdsInput(
+                    session_ids=TEST_SESSION_IDS,
+                    team_id=TEST_TEAM_ID,
+                    source_filename="big-export.csv",
+                ),
+                id=workflow_id,
+                task_queue=task_queue_name,
+            )
+
+    # 25,000 sessions with default batch_size=100 → 3 chunks of 10k, each producing 100 bulk_delete calls
+    all_deleted = [sid for batch in batch_calls for sid in batch]
+    assert len(all_deleted) == 25_000
+    assert sorted(all_deleted) == sorted(TEST_SESSION_IDS)
+
+    certificate = DeletionCertificate.model_validate(result)
+    assert certificate.workflow_type == "session_ids"
+    assert certificate.source_filename == "big-export.csv"
+    assert certificate.total_recordings_found == 25_000
+    assert certificate.total_deleted == 25_000
+    assert certificate.total_failed == 0
+
+
+@pytest.mark.asyncio
+async def test_delete_recordings_with_session_ids_workflow_dry_run():
+    TEST_TEAM_ID: int = 66666
+    TEST_SESSION_IDS = ["session-a", "session-b"]
+
+    @activity.defn(name="bulk-delete-recordings")
+    async def bulk_delete_recordings_mocked(input: BulkDeleteInput) -> BulkDeleteResult:
+        assert input.dry_run is True
+        return BulkDeleteResult(deleted=[])
+
+    task_queue_name = str(uuid.uuid4())
+    workflow_id = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[DeleteRecordingsWithSessionIdsWorkflow],
+            activities=[bulk_delete_recordings_mocked],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            result = await env.client.execute_workflow(
+                DeleteRecordingsWithSessionIdsWorkflow.run,
+                RecordingsWithSessionIdsInput(
+                    session_ids=TEST_SESSION_IDS, team_id=TEST_TEAM_ID, config=DeletionConfig(dry_run=True)
+                ),
+                id=workflow_id,
+                task_queue=task_queue_name,
+            )
+
+    certificate = DeletionCertificate.model_validate(result)
+    assert certificate.workflow_type == "session_ids"
+    assert certificate.dry_run is True
+    assert certificate.total_recordings_found == 2
+    assert certificate.total_deleted == 0
+
+
+def test_delete_recordings_with_session_ids_workflow_parse_inputs():
+    result = DeleteRecordingsWithSessionIdsWorkflow.parse_inputs(
+        ['{"session_ids": ["s1", "s2"], "team_id": 123, "config": {"batch_size": 50}}']
+    )
+    assert result.session_ids == ["s1", "s2"]
+    assert result.team_id == 123
+    assert result.config.batch_size == 50
+
+
+def test_purge_deleted_recording_metadata_workflow_parse_inputs():
+    result = PurgeDeletedRecordingMetadataWorkflow.parse_inputs(['{"grace_period_days": 14}'])
+    assert result.grace_period_days == 14
+
+
+@pytest.mark.parametrize(
+    "team_ids, expected_calls",
+    [
+        pytest.param([1, 2, 3], 3, id="three_teams"),
+        pytest.param([42], 1, id="single_team"),
+        pytest.param([], 0, id="empty_list"),
+    ],
+)
+def test_queue_delete_team_recordings(team_ids, expected_calls):
+    from posthog.tasks.tasks import _queue_delete_team_recordings
+
+    mock_handle = AsyncMock()
+    mock_client = AsyncMock()
+    mock_client.start_workflow = AsyncMock(return_value=mock_handle)
+
+    async def fake_connect():
+        return mock_client
+
+    with patch("posthog.temporal.common.client.async_connect", side_effect=fake_connect):
+        _queue_delete_team_recordings(team_ids)
+
+    assert mock_client.start_workflow.call_count == expected_calls
+    for call in mock_client.start_workflow.call_args_list:
+        assert call.args[0] == "delete-recordings-with-team"
+        assert call.args[1].team_id in team_ids
+
+
+def test_queue_delete_team_recordings_raises_when_temporal_unavailable():
+    from posthog.tasks.tasks import _queue_delete_team_recordings
+
+    async def fail_connect():
+        raise RuntimeError("Temporal unavailable")
+
+    with patch("posthog.temporal.common.client.async_connect", side_effect=fail_connect):
+        with pytest.raises(RuntimeError, match="Temporal unavailable"):
+            _queue_delete_team_recordings([1])

@@ -1,8 +1,11 @@
+import io
+import csv
+import json
 import uuid
 import asyncio
 import tempfile
 import dataclasses
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.conf import settings
 from django.contrib import admin, messages
@@ -16,6 +19,7 @@ from django.utils.safestring import mark_safe
 
 from structlog import get_logger
 from temporalio import common
+from temporalio.client import WorkflowExecutionStatus
 
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.admin.inlines.user_product_list_inline import UserProductListInline
@@ -25,7 +29,15 @@ from posthog.models.activity_logging.activity_log import ActivityContextBase, De
 from posthog.models.exported_recording import ExportedRecording
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import DEPRECATED_ATTRS
+from posthog.session_recordings.recordings import recording_s3_client
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.delete_recordings.types import (
+    DeletionConfig,
+    RecordingsWithPersonInput,
+    RecordingsWithQueryInput,
+    RecordingsWithSessionIdsInput,
+    RecordingsWithTeamInput,
+)
 from posthog.temporal.export_recording.types import ExportRecordingInput
 from posthog.temporal.import_recording.types import ImportRecordingInput
 
@@ -73,6 +85,7 @@ class TeamAdmin(admin.ModelAdmin):
         "remote_config_cache_actions",
         "export_individual_replay",
         "import_individual_replay",
+        "delete_recordings",
     ]
 
     exclude = DEPRECATED_ATTRS
@@ -182,6 +195,7 @@ class TeamAdmin(admin.ModelAdmin):
                 "fields": [
                     "export_individual_replay",
                     "import_individual_replay",
+                    "delete_recordings",
                 ],
             },
         ),
@@ -252,6 +266,16 @@ class TeamAdmin(admin.ModelAdmin):
             )
         )
 
+    @admin.display(description="Delete recordings")
+    def delete_recordings(self, team: Team):
+        if not team.pk:
+            return "-"
+        delete_url = reverse("admin:posthog_team_delete_recordings", args=[team.pk])
+        return format_html(
+            '<a class="button" href="{}">Delete recordings</a>',
+            delete_url,
+        )
+
     @admin.display(description="Remote config cache actions")
     def remote_config_cache_actions(self, team: Team):
         if not team.pk:
@@ -302,6 +326,21 @@ class TeamAdmin(admin.ModelAdmin):
                 "<path:object_id>/download-export/<uuid:export_id>/",
                 self.admin_site.admin_view(self.download_export_view),
                 name="posthog_team_download_export",
+            ),
+            path(
+                "<path:object_id>/delete-recordings/",
+                self.admin_site.admin_view(self.delete_recordings_view),
+                name="posthog_team_delete_recordings",
+            ),
+            path(
+                "<path:object_id>/delete-recordings/certificate/<str:workflow_id>/",
+                self.admin_site.admin_view(self.deletion_certificate_view),
+                name="posthog_team_deletion_certificate",
+            ),
+            path(
+                "<path:object_id>/delete-recordings/certificate/<str:workflow_id>/download/",
+                self.admin_site.admin_view(self.download_deletion_certificate_view),
+                name="posthog_team_download_deletion_certificate",
             ),
         ]
         return custom_urls + urls
@@ -526,8 +565,6 @@ class TeamAdmin(admin.ModelAdmin):
         return render(request, "admin/posthog/team/export_history.html", context)
 
     def download_export_view(self, request, object_id, export_id):
-        from posthog.storage import session_recording_v2_object_storage
-
         team = Team.objects.get(pk=object_id)
         try:
             export = ExportedRecording.objects.get(id=export_id, team=team)
@@ -536,12 +573,7 @@ class TeamAdmin(admin.ModelAdmin):
                 messages.error(request, "Export content not available yet")
                 return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
 
-            storage = session_recording_v2_object_storage.client()
-            content = storage.read_all_bytes(export.export_location)
-
-            if not content:
-                messages.error(request, "Failed to read export content from storage")
-                return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
+            content = recording_s3_client.recording_s3_client().download_file(export.export_location)
 
             response = HttpResponse(content, content_type="application/zip")
             filename = f"export-{export.session_id}.zip"
@@ -554,3 +586,379 @@ class TeamAdmin(admin.ModelAdmin):
         except Exception as e:
             messages.error(request, f"Failed to download export: {e}")
             return redirect(reverse("admin:posthog_team_export_history", args=[object_id]))
+
+    def _get_delete_workflows(self, team_id: int) -> list[dict]:
+        """Fetch recent delete-recordings workflows for this team from Temporal."""
+        try:
+            temporal = sync_connect()
+            prefix = f"delete-recordings-{team_id}-"
+            query = f'WorkflowId >= "{prefix}" AND WorkflowId < "{prefix}~" ORDER BY StartTime DESC'
+
+            async def fetch_workflows():
+                workflows = []
+                async for wf in temporal.list_workflows(query=query):
+                    workflows.append(
+                        {
+                            "id": wf.id,
+                            "run_id": wf.run_id,
+                            "status": str(wf.status.name) if wf.status else "Unknown",
+                            "start_time": wf.start_time,
+                            "close_time": wf.close_time,
+                            "workflow_type": wf.workflow_type,
+                        }
+                    )
+                    if len(workflows) >= 20:
+                        break
+                return workflows
+
+            return asyncio.run(fetch_workflows())
+        except Exception as e:
+            logger.warning("Failed to fetch delete workflows", error=str(e))
+            return []
+
+    def delete_recordings_view(self, request, object_id):
+        team = Team.objects.get(pk=object_id)
+
+        if request.method == "GET":
+            workflows = self._get_delete_workflows(team.id)
+            context = {
+                **self.admin_site.each_context(request),
+                "team": team,
+                "title": f"Delete Recordings - {team.name}",
+                "workflows": workflows,
+            }
+            return render(request, "admin/posthog/team/delete_recordings.html", context)
+
+        workflow_type = request.POST.get("workflow_type", "").strip()
+        reason = request.POST.get("reason", "").strip()
+        dry_run = request.POST.get("dry_run") == "on"
+
+        if not reason:
+            messages.error(request, "Reason is required")
+            return redirect(reverse("admin:posthog_team_delete_recordings", args=[object_id]))
+
+        try:
+            temporal = sync_connect()
+            workflow_id = f"delete-recordings-{team.id}-{uuid.uuid4()}"
+            config = DeletionConfig(reason=reason, dry_run=dry_run)
+
+            if workflow_type == "person":
+                distinct_ids_raw = request.POST.get("distinct_ids", "").strip()
+                if not distinct_ids_raw:
+                    messages.error(request, "Distinct IDs are required for person-based deletion")
+                    return redirect(reverse("admin:posthog_team_delete_recordings", args=[object_id]))
+
+                distinct_ids = [d.strip() for d in distinct_ids_raw.split("\n") if d.strip()]
+                person_input = RecordingsWithPersonInput(team_id=team.id, distinct_ids=distinct_ids, config=config)
+
+                asyncio.run(
+                    temporal.start_workflow(
+                        "delete-recordings-with-person",
+                        person_input,
+                        id=workflow_id,
+                        task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+                        retry_policy=common.RetryPolicy(
+                            maximum_attempts=2,
+                            initial_interval=timedelta(minutes=1),
+                        ),
+                    )
+                )
+
+                logger.info(
+                    "delete_recordings_with_person_triggered",
+                    team_id=team.id,
+                    distinct_ids_count=len(distinct_ids),
+                    reason=reason,
+                    triggered_by=request.user.email,
+                )
+
+                messages.success(
+                    request,
+                    f"Delete recordings workflow triggered for {len(distinct_ids)} distinct ID(s). Workflow ID: {workflow_id}",
+                )
+
+            elif workflow_type == "team":
+                team_input = RecordingsWithTeamInput(team_id=team.id, config=config)
+
+                asyncio.run(
+                    temporal.start_workflow(
+                        "delete-recordings-with-team",
+                        team_input,
+                        id=workflow_id,
+                        task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+                        retry_policy=common.RetryPolicy(
+                            maximum_attempts=2,
+                            initial_interval=timedelta(minutes=1),
+                        ),
+                    )
+                )
+
+                logger.info(
+                    "delete_recordings_with_team_triggered",
+                    team_id=team.id,
+                    dry_run=dry_run,
+                    reason=reason,
+                    triggered_by=request.user.email,
+                )
+
+                dry_run_msg = " (DRY RUN)" if dry_run else ""
+                messages.success(
+                    request,
+                    f"Delete all recordings workflow triggered for team{dry_run_msg}. Workflow ID: {workflow_id}",
+                )
+
+            elif workflow_type == "filters":
+                query_parts = []
+
+                date_from = request.POST.get("date_from", "").strip()
+                date_to = request.POST.get("date_to", "").strip()
+                duration_min = request.POST.get("duration_min", "").strip()
+                duration_max = request.POST.get("duration_max", "").strip()
+                person_uuid = request.POST.get("person_uuid", "").strip()
+                platform = request.POST.get("platform", "").strip()
+
+                has_filter = any([date_from, date_to, duration_min, duration_max, person_uuid, platform])
+                if not has_filter:
+                    messages.error(request, "At least one filter is required for filter-based deletion")
+                    return redirect(reverse("admin:posthog_team_delete_recordings", args=[object_id]))
+
+                if date_from:
+                    query_parts.append(f"date_from={date_from}")
+                if date_to:
+                    query_parts.append(f"date_to={date_to}")
+                if person_uuid:
+                    query_parts.append(f"person_uuid={person_uuid}")
+
+                properties = []
+                if duration_min:
+                    try:
+                        duration_min_val = int(duration_min)
+                    except ValueError:
+                        messages.error(request, "Min duration must be a number (in seconds)")
+                        return redirect(reverse("admin:posthog_team_delete_recordings", args=[object_id]))
+                    properties.append(
+                        {
+                            "type": "recording",
+                            "key": "duration",
+                            "operator": "gt",
+                            "value": duration_min_val,
+                        }
+                    )
+                if duration_max:
+                    try:
+                        duration_max_val = int(duration_max)
+                    except ValueError:
+                        messages.error(request, "Max duration must be a number (in seconds)")
+                        return redirect(reverse("admin:posthog_team_delete_recordings", args=[object_id]))
+                    properties.append(
+                        {
+                            "type": "recording",
+                            "key": "duration",
+                            "operator": "lt",
+                            "value": duration_max_val,
+                        }
+                    )
+                if platform:
+                    properties.append(
+                        {
+                            "type": "recording",
+                            "key": "snapshot_source",
+                            "operator": "exact",
+                            "value": [platform],
+                        }
+                    )
+                if properties:
+                    query_parts.append(f"properties={json.dumps(properties)}")
+
+                query = "&".join(query_parts)
+                query_input = RecordingsWithQueryInput(team_id=team.id, query=query, config=config)
+
+                asyncio.run(
+                    temporal.start_workflow(
+                        "delete-recordings-with-query",
+                        query_input,
+                        id=workflow_id,
+                        task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+                        retry_policy=common.RetryPolicy(
+                            maximum_attempts=2,
+                            initial_interval=timedelta(minutes=1),
+                        ),
+                    )
+                )
+
+                logger.info(
+                    "delete_recordings_with_filters_triggered",
+                    team_id=team.id,
+                    query=query,
+                    dry_run=dry_run,
+                    reason=reason,
+                    triggered_by=request.user.email,
+                )
+
+                dry_run_msg = " (DRY RUN)" if dry_run else ""
+                messages.success(
+                    request,
+                    f"Delete recordings by filters workflow triggered{dry_run_msg}. Workflow ID: {workflow_id}",
+                )
+
+            elif workflow_type == "session_ids":
+                upload_file: UploadedFile | None = request.FILES.get("session_ids_file")
+                if not upload_file:
+                    messages.error(request, "CSV file is required for session ID-based deletion")
+                    return redirect(reverse("admin:posthog_team_delete_recordings", args=[object_id]))
+
+                if not upload_file.name or not upload_file.name.endswith(".csv"):
+                    messages.error(request, "File must be a .csv file")
+                    return redirect(reverse("admin:posthog_team_delete_recordings", args=[object_id]))
+
+                content = upload_file.read().decode("utf-8")
+                reader = csv.reader(io.StringIO(content))
+                session_ids: list[str] = []
+                for row in reader:
+                    if not row:
+                        continue
+                    value = row[0].strip()
+                    if value and value.lower() != "session_id":
+                        session_ids.append(value)
+
+                session_ids = list(dict.fromkeys(session_ids))
+
+                if not session_ids:
+                    messages.error(request, "No session IDs found in CSV file")
+                    return redirect(reverse("admin:posthog_team_delete_recordings", args=[object_id]))
+
+                session_ids_input = RecordingsWithSessionIdsInput(
+                    team_id=team.id,
+                    session_ids=session_ids,
+                    config=config,
+                    source_filename=upload_file.name or "unknown.csv",
+                )
+
+                asyncio.run(
+                    temporal.start_workflow(
+                        "delete-recordings-with-session-ids",
+                        session_ids_input,
+                        id=workflow_id,
+                        task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+                        retry_policy=common.RetryPolicy(
+                            maximum_attempts=2,
+                            initial_interval=timedelta(minutes=1),
+                        ),
+                    )
+                )
+
+                logger.info(
+                    "delete_recordings_with_session_ids_triggered",
+                    team_id=team.id,
+                    session_ids_count=len(session_ids),
+                    dry_run=dry_run,
+                    reason=reason,
+                    triggered_by=request.user.email,
+                )
+
+                dry_run_msg = " (DRY RUN)" if dry_run else ""
+                messages.success(
+                    request,
+                    f"Delete recordings workflow triggered for {len(session_ids)} session ID(s){dry_run_msg}. Workflow ID: {workflow_id}",
+                )
+
+            else:
+                messages.error(request, "Invalid workflow type")
+                return redirect(reverse("admin:posthog_team_delete_recordings", args=[object_id]))
+
+            log_activity(
+                organization_id=team.organization_id,
+                team_id=team.id,
+                user=request.user,
+                was_impersonated=False,
+                item_id=workflow_id,
+                scope="Replay",
+                activity="bulk_delete_triggered",
+                detail=Detail(
+                    name=f"Bulk delete recordings ({workflow_type})",
+                    type=f"admin_delete_{workflow_type}",
+                    context=ReplayActivityContext(reason=reason),
+                ),
+            )
+
+        except Exception as e:
+            logger.exception(
+                "delete_recordings_failed",
+                team_id=team.id,
+                workflow_type=workflow_type,
+                error=str(e),
+            )
+            messages.error(request, "Failed to trigger workflow. Check server logs for details.")
+
+        return redirect(reverse("admin:posthog_team_delete_recordings", args=[object_id]))
+
+    def _get_deletion_certificate(self, team_id: int, workflow_id: str):
+        """Fetch a deletion certificate from a completed Temporal workflow."""
+        if not workflow_id.startswith(f"delete-recordings-{team_id}-"):
+            return None, "Invalid workflow ID for this team"
+
+        try:
+            temporal = sync_connect()
+
+            async def get_result():
+                handle = temporal.get_workflow_handle(workflow_id)
+                desc = await handle.describe()
+                if desc.status != WorkflowExecutionStatus.COMPLETED:
+                    status_name = desc.status.name.lower() if desc.status else "unknown"
+                    return (
+                        None,
+                        f"Workflow is {status_name}, certificate is only available after completion",
+                    )
+                return await handle.result(), None
+
+            certificate, error = asyncio.run(get_result())
+            if error:
+                return None, error
+            return certificate, None
+        except Exception:
+            logger.exception("Failed to fetch deletion certificate", workflow_id=workflow_id)
+            return None, "Internal error"
+
+    def deletion_certificate_view(self, request, object_id, workflow_id):
+        """Display a deletion certificate as a printable HTML page."""
+        team = Team.objects.select_related("organization").get(pk=object_id)
+
+        certificate, error = self._get_deletion_certificate(team.id, workflow_id)
+        if error:
+            messages.error(request, "Failed to fetch certificate. Check server logs for details.")
+            return redirect(reverse("admin:posthog_team_delete_recordings", args=[object_id]))
+
+        # workflow_id is "delete-recordings-{team_id}-{uuid}" — extract just the UUID
+        reference = workflow_id.rsplit("-", 5)[-5:]
+        reference_id = "-".join(reference) if len(reference) == 5 else workflow_id
+
+        # Temporal returns timestamps as ISO strings — parse them for Django's date filter
+        if isinstance(certificate, dict):
+            for key in ("started_at", "completed_at"):
+                if isinstance(certificate.get(key), str):
+                    certificate[key] = datetime.fromisoformat(certificate[key])
+        context = {
+            **self.admin_site.each_context(request),
+            "team": team,
+            "certificate": certificate,
+            "reference_id": reference_id,
+            "title": f"Deletion Certificate - {reference_id}",
+        }
+        return render(request, "admin/posthog/team/deletion_certificate.html", context)
+
+    def download_deletion_certificate_view(self, request, object_id, workflow_id):
+        """Download a deletion certificate as JSON."""
+        team = Team.objects.get(pk=object_id)
+
+        certificate, error = self._get_deletion_certificate(team.id, workflow_id)
+        if error:
+            messages.error(request, "Failed to fetch certificate. Check server logs for details.")
+            return redirect(reverse("admin:posthog_team_delete_recordings", args=[object_id]))
+
+        response = HttpResponse(
+            json.dumps(certificate, indent=2, default=str),
+            content_type="application/json",
+        )
+        filename = f"deletion-certificate-{workflow_id}.json"
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response

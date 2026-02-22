@@ -7,7 +7,6 @@ import { Hub } from '../../types'
 import { getBlockDecryptor } from '../shared/crypto'
 import { getKeyStore } from '../shared/keystore'
 import { RetentionService } from '../shared/retention/retention-service'
-import { TeamService } from '../shared/teams/team-service'
 import { RecordingApi } from './recording-api'
 import { RecordingService } from './recording-service'
 import { KeyStore, RecordingApiHub, RecordingDecryptor } from './types'
@@ -111,15 +110,10 @@ describe('RecordingApi', () => {
                 endpoint: undefined,
                 forcePathStyle: undefined,
             })
-            expect(getKeyStore).toHaveBeenCalledWith(
-                expect.any(TeamService),
-                expect.any(RetentionService),
-                'us-west-2',
-                {
-                    kmsEndpoint: undefined,
-                    dynamoDBEndpoint: undefined,
-                }
-            )
+            expect(getKeyStore).toHaveBeenCalledWith(expect.any(RetentionService), 'us-west-2', {
+                kmsEndpoint: undefined,
+                dynamoDBEndpoint: undefined,
+            })
             expect(getBlockDecryptor).toHaveBeenCalledWith(mockKeyStore)
             expect(RecordingService).toHaveBeenCalled()
         })
