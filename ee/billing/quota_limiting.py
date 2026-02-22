@@ -764,6 +764,10 @@ def update_all_orgs_billing_quotas(
 
         try:
             org = orgs_by_id[org_id]
+            # Refresh usage data from DB. The org object was loaded at the start of this job,
+            # but billing updates may have arrived since then. Without this refresh, we'd
+            # overwrite fresh billing data with stale values when we save.
+            org.refresh_from_db(fields=["usage", "customer_trust_scores", "never_drop_data"])
 
             if org.usage and org.usage.get("period"):
                 if set_org_usage_summary(org, todays_usage=todays_report):

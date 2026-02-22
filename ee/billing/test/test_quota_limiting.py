@@ -1772,3 +1772,72 @@ class TestQuotaLimiting(BaseTest):
             f"UsageCounters is missing keys from OrganizationUsageInfo: {missing_from_counters}"
         )
         assert not extra_in_counters, f"UsageCounters has extra keys not in OrganizationUsageInfo: {extra_in_counters}"
+
+    @patch("posthoganalytics.capture")
+    @freeze_time("2021-01-25T12:00:00Z")
+    def test_update_all_orgs_billing_quotas_does_not_overwrite_fresh_billing_data(self, patch_capture) -> None:
+        """
+        Regression test for a race condition where the cron job would overwrite fresh billing data.
+
+        The cron job loads all orgs at the start and iterates through them over potentially 30+ minutes.
+        If a billing update arrives during that time, we must not overwrite it with stale data.
+        """
+        from posthog.models.organization import Organization
+
+        with self.settings(USE_TZ=False):
+            # Set up initial (stale) usage data
+            stale_usage = {
+                "events": {"usage": 9076, "limit": 10000, "todays_usage": 0},
+                "recordings": {"usage": 9076, "limit": 10000, "todays_usage": 0},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.usage = stale_usage
+            self.organization.save()
+
+            # Simulate cron job loading the org at the start (this is stale data)
+            stale_org = Organization.objects.get(id=self.organization.id)
+            assert stale_org.usage["events"]["usage"] == 9076
+
+            # Simulate a billing update arriving while cron is running
+            fresh_usage = {
+                "events": {"usage": 0, "limit": 10000, "todays_usage": 0},
+                "recordings": {"usage": 0, "limit": 10000, "todays_usage": 0},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            Organization.objects.filter(id=self.organization.id).update(usage=fresh_usage)
+
+            # Verify the DB has fresh data but our in-memory object is stale
+            assert stale_org.usage["events"]["usage"] == 9076  # Still stale in memory
+            fresh_org = Organization.objects.get(id=self.organization.id)
+            assert fresh_org.usage["events"]["usage"] == 0  # Fresh in DB
+
+            # Now simulate what the cron job does: refresh from DB then process
+            stale_org.refresh_from_db()
+            assert stale_org.usage["events"]["usage"] == 0  # Now refreshed
+
+            # Process with today's usage from ClickHouse (simulated as 100)
+            todays_usage = UsageCounters(
+                events=100,
+                recordings=50,
+                exceptions=0,
+                rows_synced=0,
+                feature_flag_requests=0,
+                api_queries_read_bytes=0,
+                survey_responses=0,
+                llm_events=0,
+                ai_credits=0,
+                cdp_trigger_events=0,
+                rows_exported=0,
+                workflow_emails=0,
+                workflow_destinations_dispatched=0,
+                logs_mb_ingested=0,
+            )
+            set_org_usage_summary(stale_org, todays_usage=todays_usage)
+            stale_org.save(update_fields=["usage"])
+
+            # Verify fresh billing data (usage=0) is preserved, only todays_usage updated
+            final_org = Organization.objects.get(id=self.organization.id)
+            assert final_org.usage["events"]["usage"] == 0  # Fresh billing data preserved
+            assert final_org.usage["events"]["todays_usage"] == 100  # Today's usage updated
+            assert final_org.usage["recordings"]["usage"] == 0  # Fresh billing data preserved
+            assert final_org.usage["recordings"]["todays_usage"] == 50  # Today's usage updated
