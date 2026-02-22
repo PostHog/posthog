@@ -33,4 +33,17 @@
             border: 1px solid var(--color-border-primary);
         }
     }
+
+    // Fix layout shift from react-json-view copy icon
+    .react-json-view {
+        .copy-to-clipboard-container {
+            position: absolute;
+            right: 0;
+        }
+
+        .node-ellipsis {
+            position: relative;
+            padding-right: 1.5rem; // Reserve space for copy icon
+        }
+    }
 }
