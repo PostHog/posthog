@@ -599,35 +599,53 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         sandbox_connect_token = state.get("sandbox_connect_token")
 
-        command_payload = {
+        command_payload: dict = {
             "jsonrpc": request.validated_data["jsonrpc"],
             "method": request.validated_data["method"],
         }
         if request.validated_data.get("params"):
             command_payload["params"] = request.validated_data["params"]
-        if request.validated_data.get("id"):
+        if "id" in request.validated_data and request.validated_data["id"] is not None:
             command_payload["id"] = request.validated_data["id"]
 
         try:
-            response_data = self._proxy_command_to_agent_server(
+            agent_response = self._proxy_command_to_agent_server(
                 sandbox_url=sandbox_url,
                 connection_token=connection_token,
                 sandbox_connect_token=sandbox_connect_token,
                 payload=command_payload,
             )
-            return Response(response_data)
-        except http_requests.ConnectionError:
-            logger.warning(
-                f"Agent server unreachable for task run {task_run.id} at {sandbox_url}",
+
+            if agent_response.ok:
+                return Response(agent_response.json())
+
+            try:
+                error_body = agent_response.json()
+            except Exception:
+                error_body = {"error": agent_response.text[:500]}
+
+            if agent_response.status_code == 401:
+                error_msg = error_body.get("error", "Agent server authentication failed")
+                logger.warning(f"Agent server auth failed for task run {task_run.id}: {error_msg}")
+            elif agent_response.status_code == 400:
+                error_msg = error_body.get("error", "Agent server rejected the command")
+                logger.warning(f"Agent server rejected command for task run {task_run.id}: {error_msg}")
+            else:
+                error_msg = error_body.get("error", f"Agent server returned {agent_response.status_code}")
+
+            return Response(
+                ErrorResponseSerializer({"error": error_msg}).data,
+                status=status.HTTP_502_BAD_GATEWAY,
             )
+
+        except http_requests.ConnectionError:
+            logger.warning(f"Agent server unreachable for task run {task_run.id} at {sandbox_url}")
             return Response(
                 ErrorResponseSerializer({"error": "Agent server is not reachable"}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         except http_requests.Timeout:
-            logger.warning(
-                f"Agent server request timed out for task run {task_run.id} at {sandbox_url}",
-            )
+            logger.warning(f"Agent server request timed out for task run {task_run.id} at {sandbox_url}")
             return Response(
                 ErrorResponseSerializer({"error": "Agent server request timed out"}).data,
                 status=status.HTTP_504_GATEWAY_TIMEOUT,
@@ -645,26 +663,29 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         connection_token: str,
         sandbox_connect_token: str | None,
         payload: dict,
-    ) -> dict:
+    ) -> http_requests.Response:
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {connection_token}",
         }
 
-        if sandbox_connect_token:
-            headers["modal-token"] = sandbox_connect_token
-
         command_url = f"{sandbox_url.rstrip('/')}/command"
 
-        response = http_requests.post(
+        # Modal connect tokens use Authorization: Bearer for tunnel auth,
+        # which conflicts with the JWT auth the agent server expects.
+        # Pass the Modal token as a query parameter instead so both
+        # auth mechanisms can coexist.
+        params = {}
+        if sandbox_connect_token:
+            params["_modal_connect_token"] = sandbox_connect_token
+
+        return http_requests.post(
             command_url,
             json=payload,
             headers=headers,
-            timeout=120,
+            params=params,
+            timeout=600,
         )
-
-        response.raise_for_status()
-        return response.json()
 
     @validated_request(
         query_serializer=TaskRunSessionLogsQuerySerializer,

@@ -358,11 +358,16 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         default=dict,
         help_text="Parameters for the command",
     )
-    id = serializers.CharField(
+    id = serializers.JSONField(
         required=False,
-        allow_null=True,
-        help_text="Optional JSON-RPC request ID",
+        default=None,
+        help_text="Optional JSON-RPC request ID (string or number)",
     )
+
+    def validate_id(self, value):
+        if value is not None and not isinstance(value, (str, int, float)):
+            raise serializers.ValidationError("id must be a string or number")
+        return value
 
     def validate(self, attrs):
         method = attrs["method"]
@@ -378,7 +383,7 @@ class TaskRunCommandResponseSerializer(serializers.Serializer):
     """Response from the agent server command endpoint."""
 
     jsonrpc = serializers.CharField(help_text="JSON-RPC version")
-    id = serializers.CharField(required=False, allow_null=True, help_text="Request ID echoed back")
+    id = serializers.JSONField(required=False, default=None, help_text="Request ID echoed back (string or number)")
     result = serializers.DictField(required=False, help_text="Command result on success")
     error = serializers.DictField(required=False, help_text="Error details on failure")
 
