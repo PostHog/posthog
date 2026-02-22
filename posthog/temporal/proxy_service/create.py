@@ -604,24 +604,6 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                 ),
             )
 
-        except ActivityError as e:
-            if (
-                hasattr(e, "cause")
-                and e.cause
-                and hasattr(e.cause, "type")
-                and e.cause.type != "RecordDeletedException"
-            ):
-                raise
-
-            logger.info(
-                "Record was deleted before completing provisioning for id %s (%s)",
-                inputs.proxy_record_id,
-                inputs.domain,
-            )
-
-            # if the record has been deleted don't error the workflow, just ignore
-            return
-
         except Exception as e:
             logger.info(
                 "Exception caught during workflow run: %s (%s)",
