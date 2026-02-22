@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonDivider, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonDivider, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
@@ -65,11 +65,23 @@ export interface SessionDetailsCardProps {
 }
 
 export function SessionDetailsCard(): JSX.Element | null {
-    const { sessionData, isInitialLoading, supportTicketEvents } = useValues(sessionProfileLogic)
-    // only support zendesk ticket for our organization through feature flag
+    const { sessionData, sessionDataLoading, supportTicketEvents } = useValues(sessionProfileLogic)
     const hasSupportTickets = supportTicketEvents.length > 0
 
-    if (!sessionData || isInitialLoading) {
+    if (sessionDataLoading && !sessionData) {
+        return (
+            <LemonCard className="p-4" hoverEffect={false}>
+                <LemonSkeleton className="h-4 w-32 mb-3" />
+                <div className="space-y-2">
+                    <LemonSkeleton className="h-4 w-full" />
+                    <LemonSkeleton className="h-4 w-3/4" />
+                    <LemonSkeleton className="h-4 w-1/2" />
+                </div>
+            </LemonCard>
+        )
+    }
+
+    if (!sessionData) {
         return null
     }
 
