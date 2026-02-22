@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { MaxContextInput, createMaxContextHelpers } from '~/scenes/max/maxTypes'
 import { Breadcrumb } from '~/types'
 
 import { LLMProvider, LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
@@ -722,6 +723,24 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     iconType: 'llm_evaluations',
                 },
             ],
+        ],
+
+        maxContext: [
+            (s) => [s.evaluation],
+            (evaluation: EvaluationConfig | null): MaxContextInput[] => {
+                if (!evaluation) {
+                    return []
+                }
+                return [
+                    createMaxContextHelpers.evaluation({
+                        id: evaluation.id || 'new',
+                        name: evaluation.name,
+                        description: evaluation.description,
+                        evaluation_type: evaluation.evaluation_type,
+                        hog_source: evaluation.evaluation_type === 'hog' ? evaluation.evaluation_config.source : null,
+                    }),
+                ]
+            },
         ],
     }),
 

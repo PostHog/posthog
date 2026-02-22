@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
+import { maxContextLogic } from './maxContextLogic'
 import { PENDING_MAX_CONTEXT_KEY } from './maxLogic'
 import { MaxOpenContext, convertToMaxUIContext } from './utils'
 
@@ -44,6 +45,17 @@ export function useOpenAi(): UseOpenAiReturn {
             }
             newInternalTab(urls.ai(undefined, initialPrompt))
         } else {
+            if (context) {
+                const logic = maxContextLogic.findMounted()
+                if (logic) {
+                    if (context.errorTrackingIssue) {
+                        logic.actions.addOrUpdateContextErrorTrackingIssue(context.errorTrackingIssue)
+                    }
+                    if (context.evaluation) {
+                        logic.actions.addOrUpdateContextEvaluation(context.evaluation)
+                    }
+                }
+            }
             openSidePanel(SidePanelTab.Max, initialPrompt)
         }
     }

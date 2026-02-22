@@ -41,7 +41,7 @@
     },
     {
         "label": "Cost & latency guard",
-        "source": "// Check that cost and latency are within budget\nlet max_cost := 0.05\nlet max_latency := 10\n\nlet cost := properties.$ai_total_cost_usd\nlet latency := properties.$ai_latency\n\nif (cost > max_cost) {\n    print(concat('Cost $', toString(cost), ' exceeds budget $', toString(max_cost)))\n    return false\n}\nif (latency > max_latency) {\n    print(concat('Latency ', toString(latency), 's exceeds limit ', toString(max_latency), 's'))\n    return false\n}\nprint(concat('OK — cost: $', toString(cost), ', latency: ', toString(latency), 's'))\nreturn true"
+        "source": "// Check that cost and latency are within budget\nlet max_cost := 0.05\nlet max_latency := 10\n\nlet cost := ifNull(properties.$ai_total_cost_usd, 0)\nlet latency := ifNull(properties.$ai_latency, 0)\n\nif (cost > max_cost) {\n    print(concat('Cost $', toString(cost), ' exceeds budget $', toString(max_cost)))\n    return false\n}\nif (latency > max_latency) {\n    print(concat('Latency ', toString(latency), 's exceeds limit ', toString(max_latency), 's'))\n    return false\n}\nprint(concat('OK — cost: $', toString(cost), ', latency: ', toString(latency), 's'))\nreturn true"
     },
     {
         "label": "Refusal detection",

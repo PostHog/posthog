@@ -269,9 +269,93 @@ class AssistantContextManager(AssistantContextMixin):
             if issue_details:
                 error_tracking_context = f"<error_tracking_context>Error tracking issues the user is referring to:\n{chr(10).join(issue_details)}\n</error_tracking_context>"
 
-        if dashboard_context or insights_context or events_context or actions_context or error_tracking_context:
+        # Format evaluations context
+        evaluations_context = ""
+        if ui_context.evaluations:
+            eval_details = []
+            for evaluation in ui_context.evaluations:
+                name = evaluation.name or f"Evaluation {evaluation.id}"
+                lines = [f"- Name: {name}"]
+                if evaluation.description:
+                    lines.append(f"  Description: {evaluation.description}")
+                lines.append(f"  Type: {evaluation.evaluation_type}")
+                if evaluation.hog_source:
+                    lines.append(f"  Current Hog source:\n```hog\n{evaluation.hog_source}\n```")
+                eval_details.append("\n".join(lines))
+
+            hog_reference = (
+                "Hog language reference for writing evaluations:\n"
+                "\n"
+                "Available globals:\n"
+                "- `input`: LLM prompt/messages as a string (may be JSON — use `jsonParse(input)` to parse)\n"
+                "- `output`: LLM response as a string (may be JSON — use `jsonParse(output)` to parse)\n"
+                "- `properties`: all event properties (e.g. `properties.$ai_model`, `properties.$ai_total_cost_usd`, "
+                "`properties.$ai_latency`, `properties.$ai_total_tokens`)\n"
+                "- `event`: object with `uuid`, `event`, `distinct_id` fields\n"
+                "\n"
+                "Return type: boolean — `true` (pass) or `false` (fail)\n"
+                "\n"
+                "Syntax essentials:\n"
+                "- Strings use SINGLE quotes: `'hello'` (not double quotes)\n"
+                "- Assignment: `let x := 1` (use `:=`, not `=`)\n"
+                "- String length: `length(s)` (NOT `len()`)\n"
+                "- No ternary operator — use `if/else` blocks instead\n"
+                "\n"
+                "CRITICAL — null handling (properties can be null!):\n"
+                "- `ifNull(value, default)`: returns default if value is null. Example: `let cost := ifNull(properties.$ai_total_cost_usd, 0)`\n"
+                "- `coalesce(a, b, c)`: returns first non-null value\n"
+                "- ALWAYS use `ifNull()` when accessing properties before comparing: "
+                "`if (ifNull(properties.$ai_latency, 0) > 10)` — without this, comparing null > number throws a runtime error\n"
+                "\n"
+                "Common patterns:\n"
+                "- Case-insensitive match: `output ilike '%keyword%'`\n"
+                "- Case-sensitive match: `output like '%keyword%'`\n"
+                "- Parse JSON: `let data := jsonParse(output)`\n"
+                "- Regex match: `output =~ 'pattern'`\n"
+                "- Add reasoning: `print('explanation')` (visible in evaluation runs)\n"
+                "- Concat strings: `concat('Cost: $', toString(cost))`\n"
+                "- Array operations: `arrayPushBack(arr, item)`, `has(arr, item)`\n"
+                "- Split string: `splitByString('\\n', output)`\n"
+                "- Type check: `typeof(x) == 'string'`\n"
+                "\n"
+                "Example — cost guard with null safety:\n"
+                "```hog\n"
+                "let cost := ifNull(properties.$ai_total_cost_usd, 0)\n"
+                "let latency := ifNull(properties.$ai_latency, 0)\n"
+                "if (cost > 0.05) {\n"
+                "    print(concat('Cost $', toString(cost), ' exceeds budget'))\n"
+                "    return false\n"
+                "}\n"
+                "if (latency > 10) {\n"
+                "    print(concat('Latency ', toString(latency), 's too high'))\n"
+                "    return false\n"
+                "}\n"
+                "return true\n"
+                "```"
+            )
+
+            evaluations_context = (
+                f"<evaluations_context>The user is editing the following LLM evaluation:\n"
+                f"{chr(10).join(eval_details)}\n\n"
+                f"{hog_reference}\n"
+                f"</evaluations_context>"
+            )
+
+        if (
+            dashboard_context
+            or insights_context
+            or events_context
+            or actions_context
+            or error_tracking_context
+            or evaluations_context
+        ):
             return self._render_user_context_template(
-                dashboard_context, insights_context, events_context, actions_context, error_tracking_context
+                dashboard_context,
+                insights_context,
+                events_context,
+                actions_context,
+                error_tracking_context,
+                evaluations_context,
             )
         return None
 
@@ -371,6 +455,7 @@ class AssistantContextManager(AssistantContextMixin):
         events_context: str,
         actions_context: str,
         error_tracking_context: str = "",
+        evaluations_context: str = "",
     ) -> str:
         """Render the user context template with the provided context strings."""
         template = PromptTemplate.from_template(ROOT_UI_CONTEXT_PROMPT, template_format="mustache")
@@ -380,6 +465,7 @@ class AssistantContextManager(AssistantContextMixin):
             ui_context_events=events_context,
             ui_context_actions=actions_context,
             ui_context_error_tracking=error_tracking_context,
+            ui_context_evaluations=evaluations_context,
         ).to_string()
 
     async def _get_context_messages(self, state: BaseStateWithMessages) -> list[ContextMessage]:

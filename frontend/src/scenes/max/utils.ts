@@ -44,6 +44,7 @@ import {
     MaxContextType,
     MaxDashboardContext,
     MaxErrorTrackingIssueContext,
+    MaxEvaluationContext,
     MaxEventContext,
     MaxInsightContext,
     MaxUIContext,
@@ -235,6 +236,23 @@ export const errorTrackingIssueToMaxContextPayload = (issue: {
     }
 }
 
+export const evaluationToMaxContextPayload = (evaluation: {
+    id: string
+    name?: string | null
+    description?: string | null
+    evaluation_type: 'hog' | 'llm_judge'
+    hog_source?: string | null
+}): MaxEvaluationContext => {
+    return {
+        type: MaxContextType.EVALUATION,
+        id: evaluation.id,
+        name: evaluation.name,
+        description: evaluation.description,
+        evaluation_type: evaluation.evaluation_type,
+        hog_source: evaluation.hog_source,
+    }
+}
+
 /**
  * Generic context that can be passed when opening PostHog AI.
  */
@@ -243,6 +261,14 @@ export interface MaxOpenContext {
     errorTrackingIssue?: {
         id: string
         name?: string | null
+    }
+    /** Evaluation context */
+    evaluation?: {
+        id: string
+        name?: string | null
+        description?: string | null
+        evaluation_type: 'hog' | 'llm_judge'
+        hog_source?: string | null
     }
 }
 
@@ -254,6 +280,10 @@ export function convertToMaxUIContext(openContext: MaxOpenContext): Partial<MaxU
 
     if (openContext.errorTrackingIssue) {
         uiContext.error_tracking_issues = [errorTrackingIssueToMaxContextPayload(openContext.errorTrackingIssue)]
+    }
+
+    if (openContext.evaluation) {
+        uiContext.evaluations = [evaluationToMaxContextPayload(openContext.evaluation)]
     }
 
     return uiContext
