@@ -10,10 +10,9 @@
 /**
  * * `session_replay` - Session replay
  */
-export type SignalSourceConfigSourceProductEnumApi =
-    (typeof SignalSourceConfigSourceProductEnumApi)[keyof typeof SignalSourceConfigSourceProductEnumApi]
+export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
-export const SignalSourceConfigSourceProductEnumApi = {
+export const SourceProductEnumApi = {
     SessionReplay: 'session_replay',
 } as const
 
@@ -29,7 +28,7 @@ export const SignalSourceConfigSourceTypeEnumApi = {
 
 export interface SignalSourceConfigApi {
     readonly id: string
-    source_product: SignalSourceConfigSourceProductEnumApi
+    source_product: SourceProductEnumApi
     source_type: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
     config?: unknown
