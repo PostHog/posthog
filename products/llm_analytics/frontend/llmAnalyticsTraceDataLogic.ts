@@ -33,18 +33,21 @@ export interface TraceDataLogicProps {
     query: DataTableNode
     cachedResults?: AnyResponseType | null
     searchQuery: string
+    tabId?: string
 }
 
-function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogicProps): DataNodeLogicProps {
+function getDataNodeLogicProps({ traceId, query, cachedResults, tabId }: TraceDataLogicProps): DataNodeLogicProps {
+    const tabScope = tabId ?? 'default'
+    const scopedTraceId = `${traceId}:${tabScope}`
     const insightProps: InsightLogicProps<DataTableNode> = {
-        dashboardItemId: `new-Trace.${traceId}`,
-        dataNodeCollectionId: traceId,
+        dashboardItemId: `new-Trace.${scopedTraceId}`,
+        dataNodeCollectionId: scopedTraceId,
     }
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
         key: vizKey,
-        dataNodeCollectionId: traceId,
+        dataNodeCollectionId: scopedTraceId,
         cachedResults: cachedResults || undefined,
     }
     return dataNodeLogicProps
@@ -151,10 +154,10 @@ function findEventWithParents(
 export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsTraceDataLogic']),
     props({} as TraceDataLogicProps),
-    key((props) => props.traceId),
+    key((props) => `${props.traceId}:${props.tabId ?? 'default'}`),
     connect((props: TraceDataLogicProps) => ({
         values: [
-            llmAnalyticsTraceLogic,
+            llmAnalyticsTraceLogic({ tabId: props.tabId }),
             ['eventId', 'searchQuery', 'initialTab'],
             dataNodeLogic(getDataNodeLogicProps(props)),
             ['elapsedTime', 'response', 'responseLoading', 'responseError'],
@@ -333,13 +336,10 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
                 }
 
                 if (!showableEvents?.length) {
-                    return null
+                    return trace || null
                 }
 
-                const matchedEvent =
-                    showableEvents.find((event) => {
-                        return event.id === effectiveEventId
-                    }) || null
+                const matchedEvent = resolveTraceEventById(showableEvents, effectiveEventId)
 
                 // If URL carries a stale/invalid event id, fall back to trace root instead of hard-failing.
                 return matchedEvent || trace || null
@@ -403,17 +403,17 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             })
         },
     })),
-    subscriptions(({ actions, props }) => ({
+    subscriptions(({ props }) => ({
         trace: (trace: LLMTrace | undefined) => {
             if (trace?.createdAt && props.traceId) {
-                llmAnalyticsTraceLogic.actions.loadNeighbors(props.traceId, trace.createdAt)
+                llmAnalyticsTraceLogic({ tabId: props.tabId }).actions.loadNeighbors(props.traceId, trace.createdAt)
             }
 
             if (trace?.distinctId) {
                 llmPersonsLazyLoaderLogic.actions.ensurePersonLoaded(trace.distinctId)
             }
 
-            actions.reportSingleTraceLoadIfReady()
+            llmAnalyticsTraceDataLogic(props).actions.reportSingleTraceLoadIfReady()
         },
     })),
 ])
@@ -564,6 +564,17 @@ export function getEffectiveEventId(eventId: string | null, initialFocusEventId:
 
     // Otherwise, use the initial focus event
     return initialFocusEventId
+}
+
+export function resolveTraceEventById(showableEvents: LLMTraceEvent[], effectiveEventId: string): LLMTraceEvent | null {
+    return (
+        showableEvents.find(
+            (event) =>
+                event.id === effectiveEventId ||
+                event.properties.$ai_generation_id === effectiveEventId ||
+                event.properties.$ai_span_id === effectiveEventId
+        ) || null
+    )
 }
 
 function findOrphanedRoots(idMap: Map<string, LLMTraceEvent>, traceId: string): string[] {

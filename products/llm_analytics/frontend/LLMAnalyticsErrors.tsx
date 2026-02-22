@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconCopy } from '@posthog/icons'
@@ -18,6 +18,7 @@ import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsErrorsLogic } from './tabs/llmAnalyticsErrorsLogic'
 
 export function LLMAnalyticsErrors(): JSX.Element {
+    const sharedLogic = useMountedLogic(llmAnalyticsSharedLogic)
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
     const { setErrorsSort } = useActions(llmAnalyticsErrorsLogic)
     const { errorsQuery, errorsSort } = useValues(llmAnalyticsErrorsLogic)
@@ -27,6 +28,7 @@ export function LLMAnalyticsErrors(): JSX.Element {
 
     return (
         <DataTable
+            attachTo={sharedLogic}
             query={{
                 ...errorsQuery,
                 showSavedFilters: true,

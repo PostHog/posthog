@@ -36,6 +36,7 @@ export function LLMAnalyticsTraces(): JSX.Element {
     return (
         <div data-attr="llm-trace-table">
             <DataTable
+                attachTo={llmAnalyticsSharedLogic}
                 query={{
                     ...tracesQuery,
                     showSavedFilters: true,
