@@ -2604,6 +2604,77 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_1_report["teams"]["4"]["logs_mb_in_period"] == 2500
 
 
+@freeze_time("2022-01-10T00:01:00Z")
+class TestProductTourUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
+    def setUp(self) -> None:
+        Team.objects.all().delete()
+        return super().setUp()
+
+    def _setup_teams(self) -> None:
+        self.org_1 = Organization.objects.create(name="Org 1")
+        self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
+        self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
+        self.org_2 = Organization.objects.create(name="Org 2")
+        self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
+        materialize("events", "$exception_values")
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_product_tour_impressions(self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock) -> None:
+        self._setup_teams()
+
+        for i in range(3):
+            _create_event(
+                distinct_id="user1",
+                event="product tour shown",
+                properties={"tour_id": "tour_1"},
+                timestamp=now() - relativedelta(hours=i),
+                team=self.org_1_team_1,
+            )
+        for i in range(2):
+            _create_event(
+                distinct_id="user2",
+                event="product tour shown",
+                properties={"tour_id": "tour_2"},
+                timestamp=now() - relativedelta(hours=i),
+                team=self.org_1_team_2,
+            )
+        _create_event(
+            distinct_id="user3",
+            event="product tour shown",
+            properties={"tour_id": "tour_3"},
+            timestamp=now() - relativedelta(hours=1),
+            team=self.org_2_team_3,
+        )
+        # out of range event
+        _create_event(
+            distinct_id="user1",
+            event="product tour shown",
+            properties={"tour_id": "tour_1"},
+            timestamp=now() - relativedelta(days=20),
+            team=self.org_1_team_1,
+        )
+        flush_persons_and_events()
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+        org_2_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["product_tour_impressions_count_in_period"] == 5
+        assert org_1_report["teams"]["3"]["product_tour_impressions_count_in_period"] == 3
+        assert org_1_report["teams"]["4"]["product_tour_impressions_count_in_period"] == 2
+
+        assert org_2_report["product_tour_impressions_count_in_period"] == 1
+        assert org_2_report["teams"]["5"]["product_tour_impressions_count_in_period"] == 1
+
+
 @freeze_time("2022-01-10T10:00:00Z")
 class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
     def setUp(self) -> None:
