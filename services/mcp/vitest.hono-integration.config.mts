@@ -19,9 +19,12 @@ export default defineConfig({
     test: {
         globals: true,
         environment: 'node',
-        testTimeout: 15000,
+        testTimeout: 60000,
+        retry: 1,
         setupFiles: ['tests/hono/setup.ts'],
-        include: ['tests/hono/**/*.test.ts'],
-        exclude: ['node_modules/**', 'dist/**', 'tests/hono/**/*.integration.test.ts'],
+        include: ['tests/hono/**/*.integration.test.ts'],
+        exclude: ['node_modules/**', 'dist/**'],
+        fileParallelism: false,
+        maxConcurrency: 3,
     },
 })

@@ -16,6 +16,7 @@
         "test": "vitest",
         "test:integration": "vitest run --config vitest.integration.config.mts",
         "test:hono": "vitest run --config vitest.hono.config.mts",
+        "test:hono:integration": "vitest run --config vitest.hono-integration.config.mts",
         "test:watch": "vitest watch",
         "typecheck": "tsc --noEmit",
         "generate-client": "tsx scripts/update-openapi-client.ts"

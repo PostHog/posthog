@@ -39,7 +39,6 @@ export interface RequestProperties {
 }
 
 export class HonoMcpServer {
-    private redis: Redis
     private env: Env
     private props: RequestProperties
     private cache: RedisCache<State>
@@ -48,7 +47,6 @@ export class HonoMcpServer {
     server: McpServer
 
     constructor(redis: Redis, props: RequestProperties) {
-        this.redis = redis
         this.env = getEnv()
         this.props = props
         this.cache = new RedisCache<State>(props.userHash, redis)

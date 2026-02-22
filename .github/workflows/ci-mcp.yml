@@ -341,6 +341,16 @@ jobs:
                   TEST_ORG_ID: ${{ env.TEST_ORG_ID }}
                   TEST_PROJECT_ID: ${{ env.TEST_PROJECT_ID }}
 
+            - name: Run Hono integration tests
+              run: cd services/mcp && pnpm run test:hono:integration
+              env:
+                  TEST_POSTHOG_API_BASE_URL: http://localhost:8000
+                  TEST_POSTHOG_PERSONAL_API_KEY: e2e_demo_api_key
+                  TEST_ORG_ID: ${{ env.TEST_ORG_ID }}
+                  TEST_PROJECT_ID: ${{ env.TEST_PROJECT_ID }}
+                  REDIS_URL: redis://localhost:6379
+                  POSTHOG_API_BASE_URL: http://localhost:8000
+
             - name: Show server logs on failure
               if: failure()
               run: cat /tmp/server.log || true

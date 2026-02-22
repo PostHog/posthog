@@ -30,45 +30,7 @@ type HonoEnv = {
 
 const SESSION_TTL_MS = 30 * 60 * 1000
 
-type StreamableSessionEntry = {
-    transport: WebStandardStreamableHTTPServerTransport
-    createdAt: number
-}
-
-type SSESessionEntry = {
-    transport: SSEServerTransport
-    server: HonoMcpServer
-    createdAt: number
-}
-
-const streamableSessions = new Map<string, StreamableSessionEntry>()
-const sseSessions = new Map<string, SSESessionEntry>()
-
-function getStreamableTransport(sessionId: string): WebStandardStreamableHTTPServerTransport | undefined {
-    const entry = streamableSessions.get(sessionId)
-    if (!entry) {
-        return undefined
-    }
-    if (Date.now() - entry.createdAt > SESSION_TTL_MS) {
-        streamableSessions.delete(sessionId)
-        return undefined
-    }
-    return entry.transport
-}
-
-function evictStaleSessions(): void {
-    const now = Date.now()
-    for (const [sid, entry] of streamableSessions) {
-        if (now - entry.createdAt > SESSION_TTL_MS) {
-            streamableSessions.delete(sid)
-        }
-    }
-    for (const [sid, entry] of sseSessions) {
-        if (now - entry.createdAt > SESSION_TTL_MS) {
-            sseSessions.delete(sid)
-        }
-    }
-}
+type SessionEntry<T> = { transport: T; createdAt: number }
 
 function getRegionFromHostname(hostname: string): CloudRegion | undefined {
     const h = hostname.toLowerCase()
@@ -102,17 +64,6 @@ function getPublicUrl(request: Request): URL {
         url.protocol = forwardedProto + ':'
     }
     return url
-}
-
-function extractRequestProps(c: import('hono').Context<HonoEnv>): {
-    token: string | undefined
-    url: URL
-    effectiveRegion: CloudRegion | null
-} {
-    const url = new URL(c.req.url)
-    const effectiveRegion = getRegionFromRequest(c.req.raw)
-    const token = c.req.header('Authorization')?.split(' ')[1]
-    return { token, url, effectiveRegion }
 }
 
 function buildAuthErrorResponse(token: string | undefined, url: URL, effectiveRegion: CloudRegion | null, request: Request): Response | null {
@@ -165,8 +116,47 @@ function buildRequestProperties(c: import('hono').Context<HonoEnv>, token: strin
     }
 }
 
+async function errorHandler(response: Response): Promise<Response> {
+    if (!response.ok) {
+        const body = await response.clone().text()
+        if (body.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
+            return new Response('OAuth token is inactive', { status: 401 })
+        }
+    }
+    return response
+}
+
 export function createApp(redis: Redis): Hono<HonoEnv> {
     const app = new Hono<HonoEnv>()
+
+    const streamableSessions = new Map<string, SessionEntry<WebStandardStreamableHTTPServerTransport>>()
+    const sseSessions = new Map<string, SessionEntry<SSEServerTransport> & { server: HonoMcpServer }>()
+
+    function getStreamableTransport(sessionId: string): WebStandardStreamableHTTPServerTransport | undefined {
+        const entry = streamableSessions.get(sessionId)
+        if (!entry) {
+            return undefined
+        }
+        if (Date.now() - entry.createdAt > SESSION_TTL_MS) {
+            streamableSessions.delete(sessionId)
+            return undefined
+        }
+        return entry.transport
+    }
+
+    function evictStaleSessions(): void {
+        const now = Date.now()
+        for (const [sid, entry] of streamableSessions) {
+            if (now - entry.createdAt > SESSION_TTL_MS) {
+                streamableSessions.delete(sid)
+            }
+        }
+        for (const [sid, entry] of sseSessions) {
+            if (now - entry.createdAt > SESSION_TTL_MS) {
+                sseSessions.delete(sid)
+            }
+        }
+    }
 
     app.use('*', cors())
 
@@ -175,10 +165,7 @@ export function createApp(redis: Redis): Hono<HonoEnv> {
         await next()
     })
 
-    app.get('/', (c) => {
-        return c.html(PARSED_LANDING_HTML)
-    })
-
+    app.get('/', (c) => c.html(PARSED_LANDING_HTML))
     app.get('/healthz', (c) => c.json({ status: 'ok' }))
     app.get('/readyz', async (c) => {
         try {
@@ -192,7 +179,6 @@ export function createApp(redis: Redis): Hono<HonoEnv> {
         }
     })
 
-    // Auth server redirects — checked BEFORE well-known endpoints (matches CF impl order)
     const authRedirectPaths = [
         '/.well-known/oauth-authorization-server',
         '/.well-known/jwks.json',
@@ -215,7 +201,6 @@ export function createApp(redis: Redis): Hono<HonoEnv> {
         })
     }
 
-    // OAuth Protected Resource Metadata (RFC 9728)
     app.all('/.well-known/oauth-protected-resource/*', (c) => {
         const url = new URL(c.req.url)
         const effectiveRegion = getRegionFromRequest(c.req.raw)
@@ -238,9 +223,11 @@ export function createApp(redis: Redis): Hono<HonoEnv> {
         )
     })
 
-    // Streamable HTTP MCP endpoint (/mcp)
     async function handleMcpRequest(c: import('hono').Context<HonoEnv>): Promise<Response> {
-        const { token, url, effectiveRegion } = extractRequestProps(c)
+        const url = new URL(c.req.url)
+        const effectiveRegion = getRegionFromRequest(c.req.raw)
+        const token = c.req.header('Authorization')?.split(' ')[1]
+
         const authError = buildAuthErrorResponse(token, url, effectiveRegion, c.req.raw)
         if (authError) {
             return authError
@@ -261,10 +248,10 @@ export function createApp(redis: Redis): Hono<HonoEnv> {
                         streamableSessions.delete(existingSessionId)
                         return new Response(null, { status: 200 })
                     }
-                    return await transport.handleRequest(c.req.raw)
+                    const response = await transport.handleRequest(c.req.raw)
+                    return errorHandler(response)
                 }
             }
-
             if (method === 'DELETE') {
                 return new Response('Session not found', { status: 404 })
             }
@@ -275,7 +262,8 @@ export function createApp(redis: Redis): Hono<HonoEnv> {
             if (existingSessionId) {
                 const transport = getStreamableTransport(existingSessionId)
                 if (transport) {
-                    return await transport.handleRequest(c.req.raw)
+                    const response = await transport.handleRequest(c.req.raw)
+                    return errorHandler(response)
                 }
             }
 
@@ -303,9 +291,11 @@ export function createApp(redis: Redis): Hono<HonoEnv> {
         return new Response('Method not allowed', { status: 405 })
     }
 
-    // SSE MCP endpoint (/sse) — matches CF's MCP.serveSSE('/sse')
     async function handleSseRequest(c: import('hono').Context<HonoEnv>): Promise<Response> {
-        const { token, url, effectiveRegion } = extractRequestProps(c)
+        const url = new URL(c.req.url)
+        const effectiveRegion = getRegionFromRequest(c.req.raw)
+        const token = c.req.header('Authorization')?.split(' ')[1]
+
         const authError = buildAuthErrorResponse(token, url, effectiveRegion, c.req.raw)
         if (authError) {
             return authError
@@ -318,7 +308,6 @@ export function createApp(redis: Redis): Hono<HonoEnv> {
 
         if (method === 'GET') {
             const sessionId = uuidv4()
-
             const mcpServer = new HonoMcpServer(redis, props)
             await mcpServer.init()
 
@@ -339,9 +328,7 @@ export function createApp(redis: Redis): Hono<HonoEnv> {
                     } as unknown as ServerResponse
 
                     const transport = new SSEServerTransport('/sse', pseudoRes)
-
                     sseSessions.set(sessionId, { transport, server: mcpServer, createdAt: Date.now() })
-
                     mcpServer.server.connect(transport).then(() => transport.start())
                 },
             })
@@ -389,14 +376,4 @@ export function createApp(redis: Redis): Hono<HonoEnv> {
     app.all('*', (c) => c.notFound())
 
     return app
-}
-
-async function errorHandler(response: Response): Promise<Response> {
-    if (!response.ok) {
-        const body = await response.clone().text()
-        if (body.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
-            return new Response('OAuth token is inactive', { status: 401 })
-        }
-    }
-    return response
 }
