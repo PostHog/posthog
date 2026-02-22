@@ -5,7 +5,7 @@ from datetime import timedelta
 from typing import Any, Literal, TypedDict
 from zoneinfo import ZoneInfo
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
@@ -25,8 +25,19 @@ class LinkTemplate(TypedDict):
     link: str
 
 
-QuestionType = Literal["open", "rating", "multiple_choice", "link", "thumbs"]
+QuestionType = Literal["open", "rating", "multiple_choice", "link", "thumbs", "nps"]
 SurveyType = Literal["popover", "widget", "api"]
+RequestedQuestionType = Literal["open", "rating", "nps", "thumbs", "single_choice", "multiple_choice", "link"]
+
+QUESTION_TYPE_CHOICES: tuple[RequestedQuestionType, ...] = (
+    "open",
+    "rating",
+    "nps",
+    "thumbs",
+    "single_choice",
+    "multiple_choice",
+    "link",
+)
 
 # Define template types
 OpenTemplates = list[str]
@@ -48,6 +59,12 @@ THUMBS_TEMPLATES: list[str] = [
     "Would you use {feature} again?",
     "Did you find {feature} useful?",
     "Was your experience with {feature} positive?",
+]
+
+NPS_TEMPLATES: list[str] = [
+    "How likely are you to recommend our {feature} to a friend or colleague?",
+    "Based on your experience, how likely are you to recommend our {feature}?",
+    "How likely are you to recommend {feature} to someone on your team?",
 ]
 
 QUESTION_TEMPLATES: QuestionTemplates = {
@@ -317,6 +334,12 @@ class Command(BaseCommand):
             action="store_true",
             help="Wipe all existing surveys and survey events before generating new ones",
         )
+        parser.add_argument(
+            "--question-types",
+            nargs="+",
+            choices=QUESTION_TYPE_CHOICES,
+            help="Specific question types to include in each generated survey. Example: --question-types nps open",
+        )
 
     def generate_question_of_type(
         self, question_type: QuestionType, choice_type: Literal["single_choice", "multiple_choice"] | None = None
@@ -352,6 +375,23 @@ class Command(BaseCommand):
                 "scale": random.choice([5, 7, 10]),
                 "lowerBoundLabel": "Not at all",
                 "upperBoundLabel": "Extremely",
+            }
+
+        elif question_type == "nps":
+            nps_template = random.choice(NPS_TEMPLATES)
+            question_text = nps_template.format(feature=feature)
+            return {
+                "type": "rating",
+                "question": question_text,
+                "description": f"Help us understand satisfaction with {feature}",
+                "descriptionContentType": "text",
+                "optional": random.choice([True, False]),
+                "buttonText": random.choice(["Submit", "Next", "Continue"]),
+                "display": "number",
+                "scale": 10,
+                "lowerBoundLabel": "Not at all likely",
+                "upperBoundLabel": "Extremely likely",
+                "isNpsQuestion": True,
             }
 
         elif question_type == "multiple_choice":
@@ -410,6 +450,61 @@ class Command(BaseCommand):
             self.generate_question_of_type("multiple_choice", choice_type="single_choice"),
             self.generate_question_of_type("multiple_choice", choice_type="multiple_choice"),
         ]
+
+    def generate_nps_questions_with_follow_up(self, start_index: int) -> list[dict[str, Any]]:
+        """Generate an NPS question with sentiment-specific open-ended follow-up questions."""
+        nps_question = self.generate_question_of_type("nps")
+        nps_question["branching"] = {
+            "type": "response_based",
+            "responseValues": {
+                "detractors": start_index + 1,
+                "passives": start_index + 2,
+                "promoters": start_index + 3,
+            },
+        }
+
+        follow_up_questions: list[dict[str, Any]] = [
+            {
+                "type": "open",
+                "question": "Sorry we missed the mark. What could we improve?",
+                "description": "Your feedback helps us prioritize what to fix next.",
+                "descriptionContentType": "text",
+                "optional": False,
+                "buttonText": "Submit",
+            },
+            {
+                "type": "open",
+                "question": "Thanks for the score. What would make this a 9 or 10?",
+                "description": "Tell us what's missing so we can improve your experience.",
+                "descriptionContentType": "text",
+                "optional": False,
+                "buttonText": "Submit",
+            },
+            {
+                "type": "open",
+                "question": "Great to hear. What did we do well?",
+                "description": "We'd love to know what we should keep doing.",
+                "descriptionContentType": "text",
+                "optional": False,
+                "buttonText": "Submit",
+            },
+        ]
+
+        return [nps_question, *follow_up_questions]
+
+    def generate_questions_for_types(self, question_types: list[RequestedQuestionType]) -> list[dict[str, Any]]:
+        """Generate questions matching the requested question types."""
+        questions: list[dict[str, Any]] = []
+        for question_type in question_types:
+            if question_type == "nps":
+                questions.extend(self.generate_nps_questions_with_follow_up(len(questions)))
+            elif question_type == "single_choice":
+                questions.append(self.generate_question_of_type("multiple_choice", choice_type="single_choice"))
+            elif question_type == "multiple_choice":
+                questions.append(self.generate_question_of_type("multiple_choice", choice_type="multiple_choice"))
+            else:
+                questions.append(self.generate_question_of_type(question_type))
+        return questions
 
     def generate_random_question(self) -> dict[str, Any]:
         question_type: QuestionType = random.choice(["open", "rating", "thumbs", "multiple_choice", "link"])
@@ -577,17 +672,23 @@ class Command(BaseCommand):
             "response_sampling_daily_limits": None,
         }
 
-    def generate_random_survey(self, team_id: int, user_id: int) -> dict[str, Any]:
-        # Always include the 4 required actionable question types
+    def generate_random_survey(
+        self, team_id: int, user_id: int, question_types: list[RequestedQuestionType] | None = None
+    ) -> dict[str, Any]:
+        # By default include required actionable question types; optionally allow explicit selection.
         questions = self.generate_required_questions()
-        # Shuffle to vary the order
-        random.shuffle(questions)
+        if question_types:
+            questions = self.generate_questions_for_types(question_types)
+
+        # Preserve order for explicitly requested question types to keep branching indexes stable.
+        if not question_types:
+            random.shuffle(questions)
 
         # Generate a name based on the questions
-        question_types = [q["type"] for q in questions]
+        question_type_names = [q["type"] for q in questions]
         feature_mentions = [f for f in FEATURES if any(f in q.get("question", "") for q in questions)]
         survey_type: SurveyType = random.choice(["popover", "widget", "api"])
-        name = f"[{survey_type.upper()}] {' & '.join(set(question_types))} survey about {' & '.join(feature_mentions)}"
+        name = f"[{survey_type.upper()}] {' & '.join(set(question_type_names))} survey about {' & '.join(feature_mentions)}"
 
         return {
             "team_id": team_id,
@@ -661,6 +762,16 @@ class Command(BaseCommand):
         elif question_type == "rating":
             scale = question.get("scale", 5)
             display = question.get("display", "number")
+            is_nps_question = question.get("isNpsQuestion", False)
+
+            if is_nps_question:
+                # Detractors (0-6): 20%, passives (7-8): 15%, promoters (9-10): 65%
+                rand = random.random()
+                if rand < 0.2:
+                    return str(random.randint(0, 6))
+                elif rand < 0.35:
+                    return str(random.randint(7, 8))
+                return str(random.randint(9, 10))
 
             # Handle thumbs up/down (scale of 2, emoji display)
             # 1 = thumbs up, 2 = thumbs down
@@ -873,30 +984,48 @@ class Command(BaseCommand):
 
                 # Generate response for each question, respecting branching logic
                 questions = survey.questions or []
-                skip_remaining = False
-                for idx, question in enumerate(questions):
-                    if skip_remaining:
-                        break
-
+                idx = 0
+                while idx < len(questions):
+                    question = questions[idx]
                     response = self.generate_response_for_question(question)
+
                     if response is not None:
                         if idx == 0:
                             response_properties["$survey_response"] = response
                         else:
                             response_properties[f"$survey_response_{idx}"] = response
 
-                        # Check branching logic
-                        branching = question.get("branching")
-                        if branching and branching.get("type") == "response_based":
-                            response_values = branching.get("responseValues", {})
-                            # For rating questions (scale 2), determine sentiment from response
-                            # 1 = thumbs up (positive), 2 = thumbs down (negative)
+                    next_index = idx + 1
+                    branching = question.get("branching")
+                    if branching and branching.get("type") == "response_based" and response is not None:
+                        response_values = branching.get("responseValues", {})
+                        branch_key: str | None = None
+
+                        if question.get("type") == "rating":
                             scale = question.get("scale", 5)
-                            if question.get("type") == "rating" and scale == 2:
-                                sentiment = "positive" if response == "1" else "negative"
-                                next_step = response_values.get(sentiment)
-                                if next_step == "end":
-                                    skip_remaining = True
+                            if scale == 2:
+                                branch_key = "positive" if response == "1" else "negative"
+                            elif question.get("isNpsQuestion"):
+                                try:
+                                    score = int(response)
+                                except (TypeError, ValueError):
+                                    score = None
+                                if score is not None:
+                                    if score <= 6:
+                                        branch_key = "detractors"
+                                    elif score <= 8:
+                                        branch_key = "passives"
+                                    else:
+                                        branch_key = "promoters"
+
+                        if branch_key:
+                            next_step = response_values.get(branch_key)
+                            if next_step == "end":
+                                break
+                            if isinstance(next_step, int) and idx < next_step < len(questions):
+                                next_index = next_step
+
+                    idx = next_index
 
                 insert, event_params = self._build_event_row(
                     event_name="survey sent",
@@ -962,6 +1091,10 @@ class Command(BaseCommand):
         with_trace_ids = options["with_trace_ids"]
         llm_feedback = options["llm_feedback"]
         wipe = options["wipe"]
+        question_types: list[RequestedQuestionType] | None = options["question_types"]
+
+        if llm_feedback and question_types:
+            raise CommandError("--question-types cannot be used with --llm-feedback")
 
         if team_id:
             team = Team.objects.filter(id=team_id).first()
@@ -1027,7 +1160,7 @@ class Command(BaseCommand):
             if llm_feedback:
                 survey_data = self.generate_llm_feedback_survey(team.id, user.id)
             else:
-                survey_data = self.generate_random_survey(team.id, user.id)
+                survey_data = self.generate_random_survey(team.id, user.id, question_types=question_types)
             survey = Survey.objects.create(**survey_data)
 
             # Backdate created_at so that generated events (spread over days_back days) fall within
