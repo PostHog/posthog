@@ -1,15 +1,18 @@
+from typing import Any
 from urllib.parse import urlparse
 
-from django.http import HttpResponse, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponse, HttpResponseBase, HttpResponseRedirect
 
 import structlog
 from rest_framework import decorators, exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.models.integration import Integration
 from posthog.utils_cors import KNOWN_ORIGINS
 
 from ee.api.vercel.vercel_error_mixin import VercelErrorResponseMixin
+from ee.api.vercel.vercel_region_proxy_mixin import VercelRegionProxyMixin
 from ee.vercel.integration import SSOParams, VercelIntegration
 
 logger = structlog.get_logger(__name__)
@@ -52,8 +55,22 @@ class VercelSSOSerializer(DataclassSerializer[SSOParams]):
             raise serializers.ValidationError("Invalid URL format")
 
 
-class VercelSSOViewSet(VercelErrorResponseMixin, viewsets.GenericViewSet):
+class VercelSSOViewSet(VercelErrorResponseMixin, VercelRegionProxyMixin, viewsets.GenericViewSet):
     permission_classes = [permissions.AllowAny]
+
+    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
+        # Skip VercelRegionProxyMixin.dispatch — we do browser redirects, not server-side proxying
+        return viewsets.GenericViewSet.dispatch(self, request, *args, **kwargs)
+
+    def _should_redirect_to_eu(self, resource_id: str | None) -> bool:
+        if self.is_dev_env or self.current_region != "us" or not resource_id:
+            return False
+        try:
+            resource_pk = int(resource_id)
+        except (ValueError, TypeError):
+            return False
+        # nosemgrep: idor-lookup-without-team — intentionally cross-team: checking if resource exists anywhere in this region
+        return not Integration.objects.filter(pk=resource_pk, kind=Integration.IntegrationKind.VERCEL).exists()
 
     @decorators.action(detail=False, methods=["get"], url_path="redirect")
     def sso_redirect(self, request: Request) -> HttpResponse:
@@ -65,7 +82,17 @@ class VercelSSOViewSet(VercelErrorResponseMixin, viewsets.GenericViewSet):
             logger.exception("Invalid Vercel SSO parameters", errors=serializer.errors, integration="vercel")
             raise exceptions.ValidationError("Invalid parameters")
 
-        redirect_url = VercelIntegration.authenticate_sso(request=request._request, params=serializer.validated_data)
+        params: SSOParams = serializer.validated_data
+        if self._should_redirect_to_eu(params.resource_id):
+            eu_url = f"https://{self.EU_DOMAIN}/login/vercel/?{request.query_params.urlencode()}"
+            logger.info(
+                "Redirecting SSO to EU region",
+                resource_id=params.resource_id,
+                integration="vercel",
+            )
+            return HttpResponseRedirect(redirect_to=eu_url)
+
+        redirect_url = VercelIntegration.authenticate_sso(request=request._request, params=params)
         return HttpResponseRedirect(redirect_to=redirect_url)
 
     @decorators.action(detail=False, methods=["get"], url_path="continue")
