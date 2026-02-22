@@ -90,7 +90,12 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
     def perform_update(self, serializer):
-        serializer.save()
+        try:
+            serializer.save()
+        except IntegrityError:
+            raise serializers.ValidationError(
+                {"source_product": "A configuration for this source product and type already exists for this team."}
+            )
 
 
 @extend_schema_view(

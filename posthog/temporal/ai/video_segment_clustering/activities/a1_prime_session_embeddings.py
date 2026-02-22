@@ -5,10 +5,12 @@ Identify sessions that need summarization (embedding priming).
 
 import structlog
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.schema import PropertyOperator, RecordingPropertyFilter, RecordingsQuery
 
 from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
@@ -82,17 +84,21 @@ async def get_sessions_to_prime_activity(
 
 
 def _load_user_defined_recordings_query(team_id: int) -> RecordingsQuery | None:
-    # If no session analysis source is enabled, we should fail, as we should not be this far then
-    config = SignalSourceConfig.objects.get(
-        team_id=team_id,
-        source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-        source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-        enabled=True,
-    )
-    recording_filters = config.config.get("recording_filters")
-    if recording_filters and isinstance(recording_filters, dict):
-        return convert_filters_to_recordings_query(recording_filters)
-    return None
+    try:
+        config = SignalSourceConfig.objects.get(
+            team_id=team_id,
+            source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+            source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+            enabled=True,
+        )
+        recording_filters = config.config.get("recording_filters")
+        if recording_filters and isinstance(recording_filters, dict):
+            return convert_filters_to_recordings_query(recording_filters)
+        return None
+    except Exception as e:
+        # If no session analysis source is enabled, we should fail with no retry, as we shouldn't have gotten here
+        capture_exception(e)
+        raise ApplicationError(f"Error loading user defined recordings query") from e
 
 
 _BASELINE_HAVING_PREDICATES: list[RecordingPropertyFilter] = [
