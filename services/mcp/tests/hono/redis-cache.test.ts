@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { RedisCache } from '@/hono/cache/RedisCache'
+import { RedisCache, type RedisLike } from '@/hono/cache/RedisCache'
 
 type TestState = {
     region: string | undefined
@@ -9,18 +9,20 @@ type TestState = {
     orgId: string | undefined
 }
 
-// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
-function createMockRedis() {
+interface MockRedis extends RedisLike {
+    _store: Map<string, string>
+    _ttls: Map<string, number>
+}
+
+function createMockRedis(): MockRedis {
     const store = new Map<string, string>()
     const ttls = new Map<string, number>()
 
     return {
         get: vi.fn(async (key: string) => store.get(key) ?? null),
-        set: vi.fn(async (key: string, value: string, _ex?: string, ttl?: number) => {
+        set: vi.fn(async (key: string, value: string, _ex: string, ttl: number) => {
             store.set(key, value)
-            if (ttl) {
-                ttls.set(key, ttl)
-            }
+            ttls.set(key, ttl)
             return 'OK'
         }),
         del: vi.fn(async (...keys: string[]) => {
@@ -37,7 +39,7 @@ function createMockRedis() {
                 const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$')
                 return regex.test(k)
             })
-            return ['0', matching]
+            return ['0', matching] as [string, string[]]
         }),
         _store: store,
         _ttls: ttls,
@@ -45,12 +47,12 @@ function createMockRedis() {
 }
 
 describe('RedisCache', () => {
-    let mockRedis: ReturnType<typeof createMockRedis>
+    let mockRedis: MockRedis
     let cache: RedisCache<TestState>
 
     beforeEach(() => {
         mockRedis = createMockRedis()
-        cache = new RedisCache<TestState>('test-user-hash', mockRedis as any)
+        cache = new RedisCache<TestState>('test-user-hash', mockRedis)
     })
 
     describe('get', () => {
@@ -80,8 +82,8 @@ describe('RedisCache', () => {
         })
 
         it('should not read another user keys', async () => {
-            const cacheA = new RedisCache<TestState>('user-a', mockRedis as any)
-            const cacheB = new RedisCache<TestState>('user-b', mockRedis as any)
+            const cacheA = new RedisCache<TestState>('user-a', mockRedis)
+            const cacheB = new RedisCache<TestState>('user-b', mockRedis)
             mockRedis._store.set('mcp:user:user-a:region', '"us"')
             mockRedis._store.set('mcp:user:user-b:region', '"eu"')
 
@@ -109,14 +111,14 @@ describe('RedisCache', () => {
         })
 
         it('should use custom TTL when specified', async () => {
-            const customCache = new RedisCache<TestState>('user2', mockRedis as any, 3600)
+            const customCache = new RedisCache<TestState>('user2', mockRedis, 3600)
             await customCache.set('region', 'us')
             expect(mockRedis.set).toHaveBeenCalledWith('mcp:user:user2:region', 'us', 'EX', 3600)
         })
 
         it('should scope set to the user hash', async () => {
-            const cacheA = new RedisCache<TestState>('user-a', mockRedis as any)
-            const cacheB = new RedisCache<TestState>('user-b', mockRedis as any)
+            const cacheA = new RedisCache<TestState>('user-a', mockRedis)
+            const cacheB = new RedisCache<TestState>('user-b', mockRedis)
             await cacheA.set('projectId', '111')
             await cacheB.set('projectId', '222')
 
@@ -181,8 +183,8 @@ describe('RedisCache', () => {
         })
 
         it('should completely isolate different users across all operations', async () => {
-            const cacheA = new RedisCache<TestState>('user-a', mockRedis as any)
-            const cacheB = new RedisCache<TestState>('user-b', mockRedis as any)
+            const cacheA = new RedisCache<TestState>('user-a', mockRedis)
+            const cacheB = new RedisCache<TestState>('user-b', mockRedis)
 
             await cacheA.set('region', 'us')
             await cacheA.set('orgId', 'org-1')

@@ -1,15 +1,20 @@
-import type { Redis } from 'ioredis'
-
 import { ScopedCache } from '@/lib/cache/ScopedCache'
 
 const DEFAULT_TTL_SECONDS = 86400
 
+export interface RedisLike {
+    get(key: string): Promise<string | null>
+    set(key: string, value: string, expiryMode: string, time: number): Promise<string | null>
+    del(...keys: string[]): Promise<number>
+    scan(cursor: string, matchOption: string, pattern: string, countOption: string, count: number): Promise<[cursor: string, keys: string[]]>
+}
+
 export class RedisCache<T extends Record<string, any>> extends ScopedCache<T> {
-    private redis: Redis
+    private redis: RedisLike
     private userHash: string
     private ttl: number
 
-    constructor(scope: string, redis: Redis, ttl: number = DEFAULT_TTL_SECONDS) {
+    constructor(scope: string, redis: RedisLike, ttl: number = DEFAULT_TTL_SECONDS) {
         super(scope)
         this.userHash = scope
         this.redis = redis
@@ -29,7 +34,7 @@ export class RedisCache<T extends Record<string, any>> extends ScopedCache<T> {
         try {
             return JSON.parse(raw) as T[K]
         } catch {
-            return raw as unknown as T[K]
+            return raw as T[K] & string
         }
     }
 

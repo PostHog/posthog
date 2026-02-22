@@ -1,6 +1,5 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js'
-import type { Redis } from 'ioredis'
 import type { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
@@ -17,7 +16,7 @@ import { getToolsFromContext } from '@/tools'
 import type { CloudRegion, Context, Env, State, Tool } from '@/tools/types'
 import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
 
-import { RedisCache } from './cache/RedisCache'
+import { RedisCache, type RedisLike } from './cache/RedisCache'
 import {
     POSTHOG_EU_BASE_URL,
     POSTHOG_US_BASE_URL,
@@ -46,7 +45,7 @@ export class HonoMcpServer {
     private _sessionManager: SessionManager | undefined
     server: McpServer
 
-    constructor(redis: Redis, props: RequestProperties) {
+    constructor(redis: RedisLike, props: RequestProperties) {
         this.env = getEnv()
         this.props = props
         this.cache = new RedisCache<State>(props.userHash, redis)

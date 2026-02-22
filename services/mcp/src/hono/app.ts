@@ -1,9 +1,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
-import type { Redis } from 'ioredis'
-import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js'
 import { v4 as uuidv4 } from 'uuid'
 
 import { ErrorCode } from '@/lib/errors'
@@ -11,7 +9,9 @@ import { hash } from '@/lib/utils'
 import { matchAuthServerRedirect, buildRedirectUrl } from '@/lib/routing'
 import type { CloudRegion } from '@/tools/types'
 
+import type { RedisLike } from './cache/RedisCache'
 import { HonoMcpServer, type RequestProperties } from './mcp-server'
+import { createSSEResponseAdapter, handleSSEPostMessage } from './sse-adapter'
 import {
     MCP_DOCS_URL,
     OAUTH_SCOPES_SUPPORTED,
@@ -24,7 +24,7 @@ const PARSED_LANDING_HTML = RAW_LANDING_HTML.replace('{{DOCS_URL}}', MCP_DOCS_UR
 
 type HonoEnv = {
     Variables: {
-        redis: Redis
+        redis: RedisLike
     }
 }
 
@@ -126,7 +126,7 @@ async function errorHandler(response: Response): Promise<Response> {
     return response
 }
 
-export function createApp(redis: Redis): Hono<HonoEnv> {
+export function createApp(redis: RedisLike & { ping(): Promise<string> }): Hono<HonoEnv> {
     const app = new Hono<HonoEnv>()
 
     const streamableSessions = new Map<string, SessionEntry<WebStandardStreamableHTTPServerTransport>>()
@@ -313,23 +313,11 @@ export function createApp(redis: Redis): Hono<HonoEnv> {
 
             const stream = new ReadableStream({
                 start(controller) {
-                    const encoder = new TextEncoder()
-                    const pseudoRes = {
-                        writeHead: () => pseudoRes,
-                        write: (chunk: string) => {
-                            controller.enqueue(encoder.encode(chunk))
-                            return true
-                        },
-                        on: () => pseudoRes,
-                        end: () => {
-                            controller.close()
-                            sseSessions.delete(sessionId)
-                        },
-                    } as unknown as ServerResponse
-
-                    const transport = new SSEServerTransport('/sse', pseudoRes)
+                    const { transport, start } = createSSEResponseAdapter(controller, () => {
+                        sseSessions.delete(sessionId)
+                    })
                     sseSessions.set(sessionId, { transport, server: mcpServer, createdAt: Date.now() })
-                    mcpServer.server.connect(transport).then(() => transport.start())
+                    mcpServer.server.connect(transport).then(start)
                 },
             })
 
@@ -352,16 +340,7 @@ export function createApp(redis: Redis): Hono<HonoEnv> {
                 return new Response('Session not found', { status: 404 })
             }
             const body = await c.req.json()
-            const pseudoReq = {
-                method: 'POST',
-                headers: Object.fromEntries(c.req.raw.headers.entries()),
-                url: c.req.url,
-            } as unknown as IncomingMessage
-            const pseudoRes = {
-                writeHead: () => pseudoRes,
-                end: () => undefined,
-            } as unknown as ServerResponse
-            await session.transport.handlePostMessage(pseudoReq, pseudoRes, body)
+            await handleSSEPostMessage(session.transport, c.req.raw.headers, c.req.url, body)
             return new Response('Accepted', { status: 202 })
         }
 

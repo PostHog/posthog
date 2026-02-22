@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { Redis } from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
@@ -77,9 +78,9 @@ describe.skipIf(!HAS_ENV)('Hono MCP Integration', { concurrent: false, timeout: 
             expect(toolNames).toContain('projects-get')
             expect(toolNames).toContain('feature-flag-get-all')
 
-            const result = await client.callTool({ name: 'projects-get', arguments: {} })
+            const result = await client.callTool({ name: 'projects-get', arguments: {} }) as CallToolResult
             expect(result.content).toBeTruthy()
-            expect((result.content as any[]).length).toBeGreaterThan(0)
+            expect(result.content.length).toBeGreaterThan(0)
 
             await client.close()
         })
@@ -118,7 +119,7 @@ describe.skipIf(!HAS_ENV)('Hono MCP Integration', { concurrent: false, timeout: 
         it('should call feature-flag-get-all tool', async () => {
             const client = await connectClient(createTransport('/mcp'))
 
-            const result = await client.callTool({ name: 'feature-flag-get-all', arguments: {} })
+            const result = await client.callTool({ name: 'feature-flag-get-all', arguments: {} }) as CallToolResult
             expect(result.content).toBeTruthy()
             expect(result.isError).not.toBe(true)
 
@@ -128,7 +129,7 @@ describe.skipIf(!HAS_ENV)('Hono MCP Integration', { concurrent: false, timeout: 
         it('should call organizations-get tool', async () => {
             const client = await connectClient(createTransport('/mcp'))
 
-            const result = await client.callTool({ name: 'organizations-get', arguments: {} })
+            const result = await client.callTool({ name: 'organizations-get', arguments: {} }) as CallToolResult
             expect(result.content).toBeTruthy()
             expect(result.isError).not.toBe(true)
 
