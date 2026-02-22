@@ -90,7 +90,7 @@ Fixing a slow query is usually a 3 steps process:
 2. Can check writes IO with something like:
 
 ```sql
-SELECT total_time, blk_write_time, calls, query
+SELECT total_exec_time, blk_write_time, calls, query
 FROM pg_stat_statements
 ORDER BY (blk_write_time) DESC
 LIMIT 10;
