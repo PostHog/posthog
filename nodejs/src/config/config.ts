@@ -161,7 +161,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         OTEL_SERVICE_NAME: null,
         OTEL_SERVICE_ENVIRONMENT: null,
         // Internal API authentication
-        INTERNAL_API_SECRET: '',
+        INTERNAL_API_SECRET: isProdEnv() ? '' : 'posthog123',
 
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
