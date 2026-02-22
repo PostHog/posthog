@@ -111,6 +111,7 @@ MIDDLEWARE = [
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "posthog.models.scoping.middleware.TeamScopingMiddleware",
     "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
     "posthog.middleware.ActivityLoggingMiddleware",
