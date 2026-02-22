@@ -102,6 +102,7 @@ import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
 import { FeedbackTab } from './FeatureFlagFeedbackTab'
 import { FeatureFlagForm } from './FeatureFlagForm'
+import { FeatureFlagOverviewV2 } from './FeatureFlagOverviewV2'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
@@ -232,7 +233,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         {
             label: 'Overview',
             key: FeatureFlagsTab.OVERVIEW,
-            content: (
+            content: useFormUI ? (
+                <FeatureFlagOverviewV2 featureFlag={featureFlag} onGetFeedback={handleGetFeedback} />
+            ) : (
                 <>
                     <div className="flex flex-col gap-4">
                         <FeatureFlagRollout readOnly onGetFeedback={handleGetFeedback} />
