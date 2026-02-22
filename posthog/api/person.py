@@ -1,4 +1,3 @@
-import json
 import builtins
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -21,7 +20,6 @@ from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
-from statshog.defaults.django import statsd
 
 from posthog.schema import ProductKey
 
@@ -35,7 +33,6 @@ from posthog.api.utils import action, format_paginated_url, get_pk_or_uuid, get_
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_by_filters
-from posthog.logging.timing import timed
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Cohort, Filter, Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
@@ -58,7 +55,6 @@ from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUno
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.properties_timeline import PropertiesTimeline
-from posthog.queries.property_values import get_person_property_values_for_key
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.trends_actors import TrendsActors
@@ -67,7 +63,7 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateTh
 from posthog.renderers import SafeJSONRenderer
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
-from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id
+from posthog.utils import format_query_params_absolute_url, is_anonymous_id
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -514,46 +510,62 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             span.set_attribute("property_key", key or "")
             span.set_attribute("has_value_filter", value is not None)
 
-            flattened = []
-            if key and not key.startswith("$virt"):
-                result = self._get_person_property_values_for_key(key, value)
+            if not key or key.startswith("$virt"):
+                span.set_attribute("result_count", 0)
+                return response.Response({"results": [], "refreshing": False})
 
-                for value, count in result:
-                    try:
-                        # Try loading as json for dicts or arrays
-                        flattened.append(
-                            {
-                                "name": convert_property_value(json.loads(value)),
-                                "count": count,
-                            }
-                        )
-                    except json.decoder.JSONDecodeError:
-                        flattened.append({"name": convert_property_value(value), "count": count})
-
-            span.set_attribute("result_count", len(flattened))
-            return response.Response(flattened)
-
-    @timed("get_person_property_values_for_key_timer")
-    def _get_person_property_values_for_key(self, key, value):
-        try:
-            result = get_person_property_values_for_key(key, self.team, value)
-            statsd.incr(
-                "get_person_property_values_for_key_success",
-                tags={"team_id": self.team.id},
+            from posthog.api.property_value_cache import (
+                get_cached_property_values,
+                is_refresh_on_cooldown,
+                is_task_running,
+                set_refresh_cooldown,
+                set_task_running,
             )
-        except Exception as e:
-            statsd.incr(
-                "get_person_property_values_for_key_error",
-                tags={
-                    "error": str(e),
-                    "key": key,
-                    "value": value,
-                    "team_id": self.team.id,
-                },
+            from posthog.tasks.property_value_cache import (
+                refresh_person_property_values_cache,
+                run_person_property_query_and_cache,
             )
-            raise
 
-        return result
+            cached = get_cached_property_values(
+                team_id=self.team.pk,
+                property_type="person",
+                property_key=key,
+                search_value=value,
+            )
+
+            if cached is not None:
+                on_cooldown = is_refresh_on_cooldown(
+                    team_id=self.team.pk,
+                    property_type="person",
+                    property_key=key,
+                    search_value=value,
+                )
+                task_in_flight = is_task_running(
+                    team_id=self.team.pk,
+                    property_type="person",
+                    property_key=key,
+                    search_value=value,
+                )
+                if not on_cooldown and not task_in_flight:
+                    set_refresh_cooldown(
+                        team_id=self.team.pk,
+                        property_type="person",
+                        property_key=key,
+                        search_value=value,
+                    )
+                    set_task_running(
+                        team_id=self.team.pk,
+                        property_type="person",
+                        property_key=key,
+                        search_value=value,
+                    )
+                    refresh_person_property_values_cache.delay(self.team.pk, key, value)
+                span.set_attribute("result_count", len(cached))
+                return response.Response({"results": cached, "refreshing": task_in_flight or not on_cooldown})
+
+            result = run_person_property_query_and_cache(self.team.pk, key, value)
+            span.set_attribute("result_count", len(result))
+            return response.Response({"results": result, "refreshing": False})
 
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def split(self, request: request.Request, pk=None, **kwargs) -> response.Response:

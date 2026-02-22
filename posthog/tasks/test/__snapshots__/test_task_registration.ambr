@@ -75,6 +75,8 @@
     'posthog.tasks.llm_analytics_usage_report.send_llm_analytics_usage_reports',
     'posthog.tasks.plugin_server.fatal_plugin_error',
     'posthog.tasks.plugin_server.hog_function_state_transition',
+    'posthog.tasks.property_value_cache.refresh_event_property_values_cache',
+    'posthog.tasks.property_value_cache.refresh_person_property_values_cache',
     'posthog.tasks.remote_config.sync_all_remote_configs',
     'posthog.tasks.remote_config.update_team_remote_config',
     'posthog.tasks.split_person.split_person',
