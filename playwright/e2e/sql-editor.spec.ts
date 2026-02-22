@@ -32,8 +32,10 @@ test.describe('SQL Editor', () => {
         await page.locator('[data-attr=hogql-query-editor]').click()
         await page.locator('[data-attr=hogql-query-editor]').pressSequentially('SELECT 1')
 
-        // Wait for save button to be enabled before clicking
-        await expect(page.locator('[data-attr=sql-editor-save-view-button]')).toBeEnabled()
+        // Open save options, then click save as view
+        await expect(page.locator('[data-attr=sql-editor-save-options-button]')).toBeEnabled()
+        await page.locator('[data-attr=sql-editor-save-options-button]').click()
+        await expect(page.locator('[data-attr=sql-editor-save-view-button]')).toBeVisible()
         await page.locator('[data-attr=sql-editor-save-view-button]').click()
 
         // Wait for the modal/dialog to appear and be ready
@@ -53,7 +55,7 @@ test.describe('SQL Editor', () => {
 
         // Wait for the success message which confirms the API call completed
         await expect(page.getByText(`${uniqueViewName} successfully created`)).toBeVisible()
-        await expect(page.getByText(`Editing view "${uniqueViewName}"`)).toBeVisible()
+        await expect(page.getByText(uniqueViewName, { exact: true })).toBeVisible()
     })
 
     test('Materialize view pane', async ({ page }) => {
