@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.conf import settings
@@ -23,26 +24,65 @@ SCOPE_TO_PATH_MAPPING: dict[str, str] = {
     "Experiment": "/experiments/{item_id}",
 }
 
+TICKET_COMMENT_SCOPES = {"conversations_ticket", "Ticket"}
 
-def build_comment_item_url(scope: str, item_id: Optional[str], slug: Optional[str] = None) -> str:
+
+def is_ticket_comment_scope(scope: str) -> bool:
+    return scope in TICKET_COMMENT_SCOPES
+
+
+def _get_user_display_name(user: User) -> str:
+    first_name = (user.first_name or "").strip()
+    if first_name:
+        return first_name
+
+    if user.email:
+        return user.email.split("@")[0]
+
+    return f"user:{user.id}"
+
+
+def build_mention_display_name_lookup(user_ids: Iterable[int]) -> dict[int, str]:
+    unique_user_ids = set(user_ids)
+    if not unique_user_ids:
+        return {}
+
+    mentioned_users = User.objects.filter(id__in=unique_user_ids).only("id", "first_name", "email")
+    return {mentioned_user.id: _get_user_display_name(mentioned_user) for mentioned_user in mentioned_users}
+
+
+def build_comment_item_url(
+    scope: str, item_id: Optional[str], slug: Optional[str] = None, team_id: Optional[int] = None
+) -> str:
+    is_ticket_scope = is_ticket_comment_scope(scope)
+
     if slug:
         url = f"{settings.SITE_URL}{slug}"
+    elif is_ticket_scope and item_id and team_id is not None:
+        url = f"{settings.SITE_URL}/project/{team_id}/conversations/tickets/{item_id}"
     elif scope in SCOPE_TO_PATH_MAPPING and item_id:
         path = SCOPE_TO_PATH_MAPPING[scope].format(item_id=item_id)
         url = f"{settings.SITE_URL}{path}"
     else:
         url = settings.SITE_URL
 
-    if "#panel=discussion" not in url:
+    if is_ticket_scope:
+        url = url.split("#", 1)[0]
+
+    should_append_discussion_panel = not is_ticket_scope and "/conversations/tickets/" not in url
+    if should_append_discussion_panel and "#panel=discussion" not in url:
         url = f"{url}#panel=discussion"
 
     return url
 
 
-def extract_plain_text_from_rich_content(rich_content: Optional[dict]) -> str:
+def extract_plain_text_from_rich_content(
+    rich_content: Optional[dict], mention_display_names: Optional[dict[int, str]] = None
+) -> str:
     if not rich_content:
         return ""
 
+    mention_display_names = mention_display_names or {}
     text_parts: list[str] = []
 
     def traverse(node: Any) -> None:
@@ -53,13 +93,20 @@ def extract_plain_text_from_rich_content(rich_content: Optional[dict]) -> str:
             elif node_type == "ph-mention":
                 attrs = node.get("attrs", {})
                 label = attrs.get("label", "")
+                mention_id = attrs.get("id")
                 if label:
                     text_parts.append(f"@{label}")
+                elif isinstance(mention_id, int):
+                    mention_display_name = mention_display_names.get(mention_id)
+                    if mention_display_name:
+                        text_parts.append(f"@{mention_display_name}")
+                    else:
+                        text_parts.append(f"@member:{mention_id}")
             elif node_type == "hardBreak":
                 text_parts.append("\n")
 
             for value in node.values():
-                if isinstance(value, dict | list):
+                if isinstance(value, (dict, list)):
                     traverse(value)
         elif isinstance(node, list):
             for item in node:
@@ -79,12 +126,17 @@ def produce_discussion_mention_events(
         if not commenter:
             return
 
-        mentioned_users = User.objects.filter(id__in=mentioned_user_ids).exclude(id=commenter.id)
-        if not mentioned_users.exists():
+        mentioned_users = list(User.objects.filter(id__in=mentioned_user_ids).exclude(id=commenter.id))
+        if not mentioned_users:
             return
 
-        item_url = build_comment_item_url(comment.scope, comment.item_id, slug)
-        comment_content = extract_plain_text_from_rich_content(comment.rich_content) or comment.content
+        mention_display_names = {
+            mentioned_user.id: _get_user_display_name(mentioned_user) for mentioned_user in mentioned_users
+        }
+        item_url = build_comment_item_url(comment.scope, comment.item_id, slug, team_id=comment.team_id)
+        comment_content = (
+            extract_plain_text_from_rich_content(comment.rich_content, mention_display_names) or comment.content
+        )
 
         commenter_data = {
             "id": str(commenter.id),

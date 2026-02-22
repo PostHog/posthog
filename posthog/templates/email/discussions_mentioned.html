@@ -1,15 +1,15 @@
 {% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
-{% block heading %}You were mentioned in a discussion{% endblock %}
+{% block heading %}{{ mention_heading }}{% endblock %}
 {% block section %}
 <!-- prettier-ignore -->
 <p>
-    <b>{{ commenter.first_name }}</b> mentioned you in a comment in the project <b>{{ team.name }}</b>.
+    <b>{{ commenter.first_name }}</b> mentioned you in a comment in {{ mention_location }} in the project <b>{{ team.name }}</b>.
 </p>
 <p>
     {{ content }}
 </p>
 <div class="mb mt text-center">
-    <a class="button" href="{{ href }}">Reply to comment</a>
+    <a class="button" href="{{ href }}">{{ reply_button_label }}</a>
 </div>
 <div class="mt">
     <p>

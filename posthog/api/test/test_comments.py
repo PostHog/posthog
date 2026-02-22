@@ -700,6 +700,19 @@ class TestCommentHelperFunctions(APIBaseTest):
         result = build_comment_item_url(scope, item_id, slug if slug else None)
         assert result == f"{settings.SITE_URL}{expected_suffix}"
 
+    def test_build_comment_item_url_for_ticket_without_slug_uses_ticket_path(self) -> None:
+        result = build_comment_item_url("conversations_ticket", "ticket-123", team_id=self.team.id)
+        assert result == f"{settings.SITE_URL}/project/{self.team.id}/conversations/tickets/ticket-123"
+
+    def test_build_comment_item_url_for_ticket_with_slug_strips_discussion_hash(self) -> None:
+        result = build_comment_item_url(
+            "conversations_ticket",
+            "ticket-123",
+            slug=f"/project/{self.team.id}/conversations/tickets/ticket-123#panel=discussion",
+            team_id=self.team.id,
+        )
+        assert result == f"{settings.SITE_URL}/project/{self.team.id}/conversations/tickets/ticket-123"
+
     @parameterized.expand(
         [
             ("simple_text", {"type": "doc", "content": [{"type": "text", "text": "Hello"}]}, "Hello"),
@@ -735,3 +748,37 @@ class TestCommentHelperFunctions(APIBaseTest):
     def test_extract_plain_text_from_rich_content(self, name: str, rich_content: dict | None, expected: str) -> None:
         result = extract_plain_text_from_rich_content(rich_content)
         assert result == expected
+
+    def test_extract_plain_text_from_rich_content_resolves_mention_name_without_label(self) -> None:
+        rich_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "Hey "},
+                        {"type": "ph-mention", "attrs": {"id": 1}},
+                    ],
+                }
+            ],
+        }
+
+        result = extract_plain_text_from_rich_content(rich_content, mention_display_names={1: "Ben"})
+        assert result == "Hey @Ben"
+
+    def test_extract_plain_text_from_rich_content_falls_back_to_member_placeholder_without_lookup(self) -> None:
+        rich_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "Hey "},
+                        {"type": "ph-mention", "attrs": {"id": 1}},
+                    ],
+                }
+            ],
+        }
+
+        result = extract_plain_text_from_rich_content(rich_content)
+        assert result == "Hey @member:1"
