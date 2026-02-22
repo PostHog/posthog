@@ -12,13 +12,14 @@ import {
     DataTableNode,
     LLMTrace,
     LLMTraceEvent,
+    NodeKind,
+    TraceQuery,
     TraceQueryResponse,
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import type { llmAnalyticsTraceDataLogicType } from './llmAnalyticsTraceDataLogicType'
 import { llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
-import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import {
     SearchOccurrence,
     eventMatchesSearch,
@@ -30,19 +31,28 @@ import { formatLLMUsage, getEventType, isLLMEvent, normalizeMessages } from './u
 
 export interface TraceDataLogicProps {
     traceId: string
-    query: DataTableNode
+    query?: DataTableNode | null
     cachedResults?: AnyResponseType | null
     searchQuery: string
 }
 
 function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogicProps): DataNodeLogicProps {
+    const fallbackTraceQuery: TraceQuery = {
+        kind: NodeKind.TraceQuery,
+        traceId,
+        // Match trace logic defaults so we still fetch data if query is briefly undefined.
+        dateRange: {
+            date_from: dayjs.utc().subtract(1, 'year').startOf('day').toISOString(),
+        },
+    }
+
     const insightProps: InsightLogicProps<DataTableNode> = {
         dashboardItemId: `new-Trace.${traceId}`,
         dataNodeCollectionId: traceId,
     }
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeLogicProps: DataNodeLogicProps = {
-        query: query.source,
+        query: query?.source ?? fallbackTraceQuery,
         key: vizKey,
         dataNodeCollectionId: traceId,
         cachedResults: cachedResults || undefined,
@@ -333,13 +343,10 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
                 }
 
                 if (!showableEvents?.length) {
-                    return null
+                    return trace || null
                 }
 
-                const matchedEvent =
-                    showableEvents.find((event) => {
-                        return event.id === effectiveEventId
-                    }) || null
+                const matchedEvent = resolveTraceEventById(showableEvents, effectiveEventId)
 
                 // If URL carries a stale/invalid event id, fall back to trace root instead of hard-failing.
                 return matchedEvent || trace || null
@@ -407,10 +414,6 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
         trace: (trace: LLMTrace | undefined) => {
             if (trace?.createdAt && props.traceId) {
                 llmAnalyticsTraceLogic.actions.loadNeighbors(props.traceId, trace.createdAt)
-            }
-
-            if (trace?.distinctId) {
-                llmPersonsLazyLoaderLogic.actions.ensurePersonLoaded(trace.distinctId)
             }
 
             actions.reportSingleTraceLoadIfReady()
@@ -564,6 +567,17 @@ export function getEffectiveEventId(eventId: string | null, initialFocusEventId:
 
     // Otherwise, use the initial focus event
     return initialFocusEventId
+}
+
+export function resolveTraceEventById(showableEvents: LLMTraceEvent[], effectiveEventId: string): LLMTraceEvent | null {
+    return (
+        showableEvents.find(
+            (event) =>
+                event.id === effectiveEventId ||
+                event.properties.$ai_generation_id === effectiveEventId ||
+                event.properties.$ai_span_id === effectiveEventId
+        ) || null
+    )
 }
 
 function findOrphanedRoots(idMap: Map<string, LLMTraceEvent>, traceId: string): string[] {
