@@ -7,7 +7,8 @@ use uuid::Uuid;
 
 use crate::{
     api::types::FlagsQueryParams, cohorts::cohort_cache_manager::CohortCacheManager,
-    flags::flag_models::FeatureFlagList, router, utils::user_agent::UserAgentInfo,
+    flags::flag_models::FeatureFlagList, personhog_client::PersonhogFetcher, router,
+    utils::user_agent::UserAgentInfo,
 };
 
 pub struct RequestContext {
@@ -62,6 +63,8 @@ pub struct FeatureFlagEvaluationContext {
     pub optimize_experience_continuity_lookups: bool,
     /// Flag count threshold for switching from sequential to parallel evaluation.
     pub parallel_eval_threshold: usize,
+    /// Optional personhog gRPC client for fetching person data
+    pub personhog_client: Option<Arc<dyn PersonhogFetcher>>,
 }
 
 /// SDK type classification based on user-agent parsing.

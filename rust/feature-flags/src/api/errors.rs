@@ -123,6 +123,8 @@ pub enum FlagError {
     CacheMiss,
     #[error("Failed to parse data")]
     DataParsingError,
+    #[error("Personhog service error: {0}")]
+    PersonhogError(String),
     #[error(transparent)]
     CookielessError(#[from] CookielessManagerError),
 }
@@ -174,6 +176,9 @@ impl FlagError {
 
             // Data parsing errors (500) - internal errors, not service unavailability
             FlagError::DataParsingErrorWithContext(_) => ("flag_data_parsing_error", 500),
+
+            // Personhog gRPC errors (503) - transient, service may recover
+            FlagError::PersonhogError(_) => ("personhog_error", 503),
 
             // Service unavailable errors (503) - transient issues, retry may help
             FlagError::RedisUnavailable => ("redis_unavailable", 503),
@@ -309,7 +314,8 @@ impl FlagError {
             | FlagError::CacheMiss
             | FlagError::PersonNotFound
             | FlagError::PropertiesNotInCache
-            | FlagError::StaticCohortMatchesNotCached => StatusCode::SERVICE_UNAVAILABLE,
+            | FlagError::StaticCohortMatchesNotCached
+            | FlagError::PersonhogError(_) => StatusCode::SERVICE_UNAVAILABLE,
 
             FlagError::CookielessError(
                 CookielessManagerError::HashError(_)
@@ -490,6 +496,13 @@ impl IntoResponse for FlagError {
             FlagError::DataParsingError => {
                 tracing::error!("Failed to parse data");
                 (StatusCode::INTERNAL_SERVER_ERROR, "Failed to parse internal data. This is likely a temporary issue. Please try again later.".to_string())
+            }
+            FlagError::PersonhogError(ref msg) => {
+                tracing::error!("Personhog service error: {}", msg);
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Person data service is currently unavailable. Please try again later.".to_string(),
+                )
             }
             FlagError::CookielessError(err) => {
                 match err {
@@ -720,6 +733,7 @@ mod tests {
             FlagError::StaticCohortMatchesNotCached,
             FlagError::CacheMiss,
             FlagError::DataParsingError,
+            FlagError::PersonhogError("test".to_string()),
             CookielessManagerError::MissingProperty("test".to_string()).into(), // CookielessError
         ];
 
@@ -828,6 +842,7 @@ mod tests {
             FlagError::PersonNotFound,
             FlagError::PropertiesNotInCache,
             FlagError::StaticCohortMatchesNotCached,
+            FlagError::PersonhogError("test".to_string()),
             FlagError::ClientFacing(ClientFacingError::ServiceUnavailable),
         ];
 
@@ -915,6 +930,7 @@ mod tests {
             FlagError::StaticCohortMatchesNotCached,
             FlagError::CacheMiss,
             FlagError::DataParsingError,
+            FlagError::PersonhogError("test".to_string()),
             CookielessManagerError::MissingProperty("test".to_string()).into(),
         ];
 

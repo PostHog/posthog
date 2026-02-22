@@ -10,6 +10,7 @@ use tokio_retry::{
 use crate::database::{
     get_connection_with_metrics, get_writer_connection_with_metrics, PostgresRouter,
 };
+use crate::personhog_client::PersonhogFetcher;
 use common_database::PostgresReader;
 use common_types::{Person, PersonId, TeamId};
 use once_cell::sync::Lazy;
@@ -155,6 +156,7 @@ pub fn populate_missing_initial_properties(properties: &mut HashMap<String, Valu
 ///
 /// This function fetches both person and group properties for a specified distinct ID and team ID.
 /// It updates the properties cache with the fetched properties and returns void if it succeeds.
+#[allow(clippy::too_many_arguments)]
 #[instrument(skip_all, fields(
     team_id = %team_id,
     distinct_id = %distinct_id,
@@ -170,7 +172,20 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     group_type_indexes: &HashSet<GroupTypeIndex>,
     group_keys: &HashSet<String>,
     static_cohort_ids: Vec<CohortId>,
+    personhog_client: Option<&dyn PersonhogFetcher>,
 ) -> Result<(), FlagError> {
+    if let Some(client) = personhog_client {
+        return fetch_properties_via_personhog(
+            flag_evaluation_state,
+            client,
+            distinct_id,
+            team_id,
+            group_type_indexes,
+            group_keys,
+            static_cohort_ids,
+        )
+        .await;
+    }
     // Add the test-specific counter increment
     #[cfg(test)]
     increment_fetch_calls_count();
@@ -432,6 +447,68 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     Ok(())
 }
 
+/// Fetches person, cohort, and group properties via the personhog gRPC service
+/// instead of direct SQL queries.
+async fn fetch_properties_via_personhog(
+    flag_evaluation_state: &mut FlagEvaluationState,
+    client: &dyn PersonhogFetcher,
+    distinct_id: String,
+    team_id: TeamId,
+    group_type_indexes: &HashSet<GroupTypeIndex>,
+    group_keys: &HashSet<String>,
+    static_cohort_ids: Vec<CohortId>,
+) -> Result<(), FlagError> {
+    // Fetch person by distinct_id
+    let person = client
+        .get_person_by_distinct_id(team_id, &distinct_id)
+        .await?;
+    let (person_id, person_props) = person
+        .map(|p| (Some(p.id), Some(p.properties)))
+        .unwrap_or((None, None));
+
+    if let Some(person_id) = person_id {
+        flag_evaluation_state.set_person_id(person_id);
+
+        if !static_cohort_ids.is_empty() {
+            let cohort_results = client
+                .check_cohort_membership(person_id, &static_cohort_ids)
+                .await?;
+            flag_evaluation_state.set_static_cohort_matches(cohort_results);
+        } else {
+            flag_evaluation_state.set_static_cohort_matches(HashMap::new());
+        }
+    }
+
+    let mut all_person_properties: HashMap<String, Value> = if let Some(person_props) = person_props
+    {
+        person_props
+            .as_object()
+            .unwrap_or(&serde_json::Map::new())
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    } else {
+        HashMap::new()
+    };
+    all_person_properties.insert("distinct_id".to_string(), Value::String(distinct_id));
+    flag_evaluation_state.set_person_properties(all_person_properties);
+
+    // Fetch group properties if needed
+    if !group_type_indexes.is_empty() {
+        let group_identifiers: Vec<(GroupTypeIndex, String)> = group_type_indexes
+            .iter()
+            .flat_map(|idx| group_keys.iter().map(move |key| (*idx, key.clone())))
+            .collect();
+
+        let group_properties = client.get_groups(team_id, group_identifiers).await?;
+        for (group_type_index, properties) in group_properties {
+            flag_evaluation_state.set_group_properties(group_type_index, properties);
+        }
+    }
+
+    Ok(())
+}
+
 /// Return any locally computable property overrides (non-cohort properties).
 /// This returns the subset of overrides that can be computed locally, even if not all flag properties are overridden.
 pub fn locally_computable_property_overrides(
@@ -596,10 +673,17 @@ pub async fn get_feature_flag_hash_key_overrides(
     reader: PostgresReader,
     team_id: TeamId,
     distinct_id_and_hash_key_override: Vec<String>,
+    personhog_client: Option<&dyn PersonhogFetcher>,
 ) -> Result<HashMap<String, String>, FlagError> {
     // Track hash key override lookups for testing
     #[cfg(test)]
     increment_hash_key_override_lookup_count();
+
+    if let Some(client) = personhog_client {
+        return client
+            .get_hash_key_override_context(team_id, distinct_id_and_hash_key_override)
+            .await;
+    }
 
     let retry_strategy = ExponentialBackoff::from_millis(50)
         .max_delay(Duration::from_millis(300))
@@ -768,7 +852,63 @@ pub async fn set_feature_flag_hash_key_overrides(
     team_id: TeamId,
     distinct_ids: Vec<String>,
     hash_key_override: String,
+    personhog_client: Option<&dyn PersonhogFetcher>,
 ) -> Result<bool, FlagError> {
+    if let Some(client) = personhog_client {
+        // When using personhog, we need to resolve person_id and feature_flag_keys.
+        // Get person from first distinct_id
+        let person = client
+            .get_person_by_distinct_id(team_id, &distinct_ids[0])
+            .await?
+            .ok_or_else(|| {
+                FlagError::PersonhogError(format!(
+                    "Person not found for distinct_id {}",
+                    distinct_ids[0]
+                ))
+            })?;
+
+        // Get active flags with ensure_experience_continuity from non-persons DB
+        let mut non_persons_conn = get_connection_with_metrics(
+            router.get_non_persons_reader(),
+            "non_persons_reader",
+            "set_hash_key_overrides_personhog",
+        )
+        .await
+        .map_err(FlagError::from)?;
+
+        let flags_query = r#"
+            SELECT key FROM posthog_featureflag flag
+            JOIN posthog_team team ON flag.team_id = team.id
+            WHERE team.id = $1
+                AND flag.ensure_experience_continuity = TRUE
+                AND flag.active = TRUE
+                AND flag.deleted = FALSE
+        "#;
+
+        let flag_rows = sqlx::query(flags_query)
+            .bind(team_id)
+            .fetch_all(&mut *non_persons_conn)
+            .await
+            .map_err(|e| {
+                FlagError::DatabaseError(
+                    e,
+                    Some("Failed to fetch flags for personhog upsert".to_string()),
+                )
+            })?;
+
+        let feature_flag_keys: Vec<String> = flag_rows.iter().map(|row| row.get("key")).collect();
+
+        if feature_flag_keys.is_empty() {
+            return Ok(false);
+        }
+
+        client
+            .upsert_hash_key_overrides(team_id, person.id, feature_flag_keys, hash_key_override)
+            .await?;
+
+        return Ok(true);
+    }
+
     let retry_strategy = ExponentialBackoff::from_millis(100)
         .max_delay(Duration::from_millis(300))
         .take(2)
@@ -1093,7 +1233,19 @@ pub async fn should_write_hash_key_override(
     team_id: TeamId,
     distinct_id: String,
     hash_key_override: String,
+    personhog_client: Option<&dyn PersonhogFetcher>,
 ) -> Result<bool, FlagError> {
+    if let Some(client) = personhog_client {
+        return should_write_hash_key_override_via_personhog(
+            router,
+            client,
+            team_id,
+            distinct_id,
+            hash_key_override,
+        )
+        .await;
+    }
+
     let retry_strategy = ExponentialBackoff::from_millis(100)
         .max_delay(Duration::from_millis(300))
         .take(2)
@@ -1366,6 +1518,57 @@ async fn try_should_write_hash_key_override(
     Ok::<bool, FlagError>(false) // All flags have overrides
 }
 
+/// Personhog version of should_write_hash_key_override.
+/// Uses the personhog client to get existing overrides and the non-persons DB for flag definitions.
+async fn should_write_hash_key_override_via_personhog(
+    router: &PostgresRouter,
+    client: &dyn PersonhogFetcher,
+    team_id: TeamId,
+    distinct_id: String,
+    hash_key_override: String,
+) -> Result<bool, FlagError> {
+    let distinct_ids = vec![distinct_id, hash_key_override];
+
+    // Step 1: Get existing overrides via personhog
+    let existing_overrides = client
+        .get_hash_key_override_context(team_id, distinct_ids)
+        .await?;
+
+    // Step 2: Get active EEC flags from non-persons DB
+    let flags_query = r#"
+        SELECT key FROM posthog_featureflag flag
+        JOIN posthog_team team ON flag.team_id = team.id
+        WHERE team.id = $1
+            AND flag.ensure_experience_continuity = TRUE
+            AND flag.active = TRUE
+            AND flag.deleted = FALSE
+    "#;
+
+    let mut non_persons_conn = get_connection_with_metrics(
+        router.get_non_persons_reader(),
+        "non_persons_reader",
+        "should_write_check_personhog",
+    )
+    .await
+    .map_err(FlagError::from)?;
+
+    let flag_rows = sqlx::query(flags_query)
+        .bind(team_id)
+        .fetch_all(&mut *non_persons_conn)
+        .await
+        .map_err(|e| FlagError::DatabaseError(e, Some("Failed to fetch flags".to_string())))?;
+
+    // Step 3: Check if any EEC flag is missing an override
+    for row in flag_rows {
+        let flag_key: String = row.get("key");
+        if !existing_overrides.contains_key(&flag_key) {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
 #[cfg(test)]
 pub fn get_fetch_calls_count() -> u64 {
     FETCH_CALLS.with(|counter| *counter.borrow())
@@ -1466,6 +1669,7 @@ mod tests {
             team.id,
             vec![distinct_id.clone()],
             "hash_key_2".to_string(),
+            None,
         )
         .await
         .unwrap();
@@ -1579,6 +1783,7 @@ mod tests {
             team.id,
             distinct_ids.clone(),
             hash_key.clone(),
+            None,
         )
         .await
         .expect("Failed to set hash key overrides");
@@ -1715,6 +1920,7 @@ mod tests {
             team.id,
             distinct_ids.clone(),
             new_hash.clone(),
+            None,
         )
         .await
         .expect("Failed to set hash key overrides");
@@ -1865,6 +2071,7 @@ mod tests {
             team.id,
             vec!["filter_test_user".to_string()],
             "filter_hash".to_string(),
+            None,
         )
         .await
         .expect("Should not error");
@@ -1944,6 +2151,7 @@ mod tests {
             team.id,
             "should_write_user".to_string(),
             "hash_key_1".to_string(),
+            None,
         )
         .await
         .expect("Should not error");
@@ -1957,6 +2165,7 @@ mod tests {
             team.id,
             vec!["should_write_user".to_string()],
             "hash_key_1".to_string(),
+            None,
         )
         .await
         .expect("Failed to set override");
@@ -1968,6 +2177,7 @@ mod tests {
             team.id,
             "should_write_user".to_string(),
             "hash_key_1".to_string(),
+            None,
         )
         .await
         .expect("Should not error");
@@ -1984,6 +2194,7 @@ mod tests {
             team.id,
             "non_existent_user".to_string(),
             "hash_key_2".to_string(),
+            None,
         )
         .await
         .expect("Should not error");
@@ -2029,6 +2240,7 @@ mod tests {
                 "nonexistent_user2".to_string(),
             ],
             "some_hash".to_string(),
+            None,
         )
         .await
         .expect("Should not error even with non-existent users");
@@ -2403,5 +2615,214 @@ mod tests {
         assert_eq!(properties.len(), 3);
         assert!(!properties.contains_key("$initial_email"));
         assert!(!properties.contains_key("$initial_name"));
+    }
+
+    mod personhog_tests {
+        use super::*;
+        use crate::personhog_client::mock::MockPersonhogClient;
+        use common_types::Person;
+
+        fn make_test_person(id: PersonId, team_id: TeamId) -> Person {
+            Person {
+                id,
+                team_id,
+                uuid: uuid::Uuid::new_v4(),
+                properties: json!({"email": "test@example.com", "age": 30}),
+                is_identified: true,
+                is_user_id: None,
+                version: Some(1),
+                created_at: chrono::Utc::now(),
+            }
+        }
+
+        #[tokio::test]
+        async fn test_fetch_properties_via_personhog() {
+            let team_id: TeamId = 1;
+            let person_id: PersonId = 42;
+            let distinct_id = "user_123";
+
+            let person = make_test_person(person_id, team_id);
+
+            let mut cohort_memberships = HashMap::new();
+            cohort_memberships.insert(100_i32, true);
+            cohort_memberships.insert(200_i32, false);
+
+            let mut group_props = HashMap::new();
+            let mut org_props = HashMap::new();
+            org_props.insert("name".to_string(), json!("PostHog"));
+            group_props.insert(0_i32, org_props);
+
+            let mock = MockPersonhogClient::new()
+                .with_person(team_id, distinct_id, Some(person))
+                .with_cohort_membership(person_id, cohort_memberships.clone())
+                .with_groups(team_id, group_props);
+
+            let mut state = FlagEvaluationState::default();
+            let group_type_indexes: HashSet<GroupTypeIndex> = [0].into_iter().collect();
+            let group_keys: HashSet<String> = ["org_key".to_string()].into_iter().collect();
+
+            fetch_properties_via_personhog(
+                &mut state,
+                &mock,
+                distinct_id.to_string(),
+                team_id,
+                &group_type_indexes,
+                &group_keys,
+                vec![100, 200],
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(state.get_person_id(), Some(person_id));
+
+            let person_props = state.get_person_properties().unwrap();
+            assert_eq!(person_props.get("email"), Some(&json!("test@example.com")));
+            assert_eq!(person_props.get("distinct_id"), Some(&json!("user_123")));
+
+            let cohort_matches = state.get_static_cohort_matches().unwrap();
+            assert_eq!(cohort_matches.get(&100), Some(&true));
+            assert_eq!(cohort_matches.get(&200), Some(&false));
+
+            let groups = state.get_group_properties();
+            let org = groups.get(&0).unwrap();
+            assert_eq!(org.get("name"), Some(&json!("PostHog")));
+        }
+
+        #[tokio::test]
+        async fn test_fetch_properties_via_personhog_person_not_found() {
+            let team_id: TeamId = 1;
+            let distinct_id = "unknown_user";
+
+            let mock = MockPersonhogClient::new();
+
+            let mut state = FlagEvaluationState::default();
+
+            fetch_properties_via_personhog(
+                &mut state,
+                &mock,
+                distinct_id.to_string(),
+                team_id,
+                &HashSet::new(),
+                &HashSet::new(),
+                vec![],
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(state.get_person_id(), None);
+
+            let person_props = state.get_person_properties().unwrap();
+            assert_eq!(
+                person_props.get("distinct_id"),
+                Some(&json!("unknown_user"))
+            );
+            assert_eq!(person_props.len(), 1);
+        }
+
+        #[tokio::test]
+        async fn test_get_hash_key_overrides_via_personhog() {
+            let team_id: TeamId = 1;
+
+            let mut overrides = HashMap::new();
+            overrides.insert("flag_1".to_string(), "hash_a".to_string());
+            overrides.insert("flag_2".to_string(), "hash_b".to_string());
+
+            let mock = MockPersonhogClient::new().with_hash_key_overrides(team_id, overrides);
+
+            // Need a dummy reader; the personhog path won't use it
+            let context = TestContext::new(None).await;
+            let router = context.create_postgres_router();
+
+            let result = get_feature_flag_hash_key_overrides(
+                router.get_persons_reader().clone(),
+                team_id,
+                vec!["user1".to_string()],
+                Some(&mock),
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(result.get("flag_1"), Some(&"hash_a".to_string()));
+            assert_eq!(result.get("flag_2"), Some(&"hash_b".to_string()));
+        }
+
+        #[tokio::test]
+        async fn test_set_hash_key_overrides_via_personhog() {
+            let context = TestContext::new(None).await;
+            let team = context.insert_new_team(None).await.unwrap();
+            let team_id = team.id;
+            let person_id: PersonId = 99;
+            let distinct_id = "eec_user";
+
+            let person = make_test_person(person_id, team_id);
+            let mock = MockPersonhogClient::new().with_person(team_id, distinct_id, Some(person));
+
+            // Insert an active flag with ensure_experience_continuity in non-persons DB
+            let flag_row = FeatureFlagRow {
+                id: 60001,
+                team_id,
+                name: Some("EEC Flag".to_string()),
+                key: "eec_flag".to_string(),
+                filters: json!({"groups": [{"rollout_percentage": 50}]}),
+                deleted: false,
+                active: true,
+                ensure_experience_continuity: Some(true),
+                version: Some(1),
+                evaluation_runtime: None,
+                evaluation_tags: None,
+                bucketing_identifier: None,
+            };
+            context.insert_flag(team_id, Some(flag_row)).await.unwrap();
+
+            let router = context.create_postgres_router();
+            let result = set_feature_flag_hash_key_overrides(
+                &router,
+                team_id,
+                vec![distinct_id.to_string()],
+                "anon_hash".to_string(),
+                Some(&mock),
+            )
+            .await
+            .unwrap();
+
+            assert!(result);
+
+            let calls = mock.get_upsert_calls();
+            assert_eq!(calls.len(), 1);
+            let (call_team_id, call_person_id, call_keys, call_hash) = &calls[0];
+            assert_eq!(*call_team_id, team_id);
+            assert_eq!(*call_person_id, person_id);
+            assert_eq!(call_keys, &vec!["eec_flag".to_string()]);
+            assert_eq!(call_hash, "anon_hash");
+        }
+
+        #[tokio::test]
+        async fn test_personhog_error_propagation() {
+            let team_id: TeamId = 1;
+            let distinct_id = "error_user";
+
+            let mock = MockPersonhogClient::new()
+                .with_error(FlagError::PersonhogError("service unavailable".to_string()));
+
+            let mut state = FlagEvaluationState::default();
+
+            let result = fetch_properties_via_personhog(
+                &mut state,
+                &mock,
+                distinct_id.to_string(),
+                team_id,
+                &HashSet::new(),
+                &HashSet::new(),
+                vec![],
+            )
+            .await;
+
+            assert!(result.is_err());
+            let err = result.unwrap_err();
+            assert!(
+                err.to_string().contains("service unavailable"),
+                "Error should propagate: {err}"
+            );
+        }
     }
 }

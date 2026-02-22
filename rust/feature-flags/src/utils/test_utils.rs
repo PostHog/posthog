@@ -1052,6 +1052,7 @@ impl TestContext {
             self.persons_reader.clone(),
             team_id,
             distinct_ids,
+            None,
         )
         .await
     }

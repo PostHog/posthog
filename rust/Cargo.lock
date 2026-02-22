@@ -3207,6 +3207,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "assert-json-diff",
+ "async-trait",
  "axum 0.7.5",
  "axum-client-ip",
  "base64 0.22.1",
@@ -3242,6 +3243,7 @@ dependencies = [
  "opentelemetry_sdk 0.22.1",
  "pbkdf2",
  "percent-encoding",
+ "personhog-proto",
  "petgraph 0.6.5",
  "rand 0.8.5",
  "rayon",
@@ -3261,6 +3263,7 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "tokio-retry",
+ "tonic 0.12.3",
  "tower 0.4.13",
  "tower-http",
  "tracing",

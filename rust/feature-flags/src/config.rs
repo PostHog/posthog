@@ -472,6 +472,19 @@ pub struct Config {
     // Default: 100 (sequential is faster for typical workloads of ~50 flags)
     #[envconfig(from = "PARALLEL_EVAL_THRESHOLD", default = "100")]
     pub parallel_eval_threshold: usize,
+
+    // Personhog gRPC client configuration
+    // When enabled, person-related data (properties, cohorts, groups, hash key overrides)
+    // is fetched via the personhog-router gRPC service instead of direct SQL queries
+    #[envconfig(from = "USE_PERSONHOG", default = "false")]
+    pub use_personhog: FlexBool,
+
+    #[envconfig(from = "PERSONHOG_URL", default = "http://localhost:50052")]
+    pub personhog_url: String,
+
+    // Timeout for personhog gRPC requests in milliseconds
+    #[envconfig(from = "PERSONHOG_TIMEOUT_MS", default = "3000")]
+    pub personhog_timeout_ms: u64,
 }
 
 impl Config {
@@ -592,6 +605,9 @@ impl Config {
             redis_client_retry_count: 3,
             optimize_experience_continuity_lookups: FlexBool(true),
             parallel_eval_threshold: 100,
+            use_personhog: FlexBool(false),
+            personhog_url: "http://localhost:50052".to_string(),
+            personhog_timeout_ms: 3000,
         }
     }
 
