@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from abc import abstractmethod
+from typing import TYPE_CHECKING
 
 import structlog
 from redis.asyncio import Redis
 
 from llm_gateway.config import get_settings
+
+if TYPE_CHECKING:
+    from llm_gateway.config import UserCostLimit
 from llm_gateway.rate_limiting.redis_limiter import CostRateLimiter
 from llm_gateway.rate_limiting.throttles import Throttle, ThrottleContext, ThrottleResult, get_team_multiplier
 
@@ -145,6 +149,12 @@ class _UserCostThrottleBase(CostThrottle):
     def _has_config(self, context: ThrottleContext) -> bool:
         return context.product in get_settings().user_cost_limits
 
+    def _require_config(self, context: ThrottleContext) -> UserCostLimit:
+        config = get_settings().user_cost_limits.get(context.product)
+        if not config:
+            raise RuntimeError(f"No user_cost_limits config for product '{context.product}' — guard check missed")
+        return config
+
     async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
         if not context.end_user_id or not self._has_config(context):
             return ThrottleResult.allow()
@@ -167,10 +177,7 @@ class UserCostBurstThrottle(_UserCostThrottleBase):
         return "User daily rate limit exceeded"
 
     def _get_limit_and_window(self, context: ThrottleContext) -> tuple[float, int]:
-        settings = get_settings()
-        config = settings.user_cost_limits.get(context.product)
-        if not config:
-            return 0.0, 1
+        config = self._require_config(context)
         team_mult = self._get_team_multiplier(context)
         return config.burst_limit_usd * team_mult, config.burst_window_seconds
 
@@ -182,9 +189,6 @@ class UserCostSustainedThrottle(_UserCostThrottleBase):
         return "User monthly rate limit exceeded"
 
     def _get_limit_and_window(self, context: ThrottleContext) -> tuple[float, int]:
-        settings = get_settings()
-        config = settings.user_cost_limits.get(context.product)
-        if not config:
-            return 0.0, 1
+        config = self._require_config(context)
         team_mult = self._get_team_multiplier(context)
         return config.sustained_limit_usd * team_mult, config.sustained_window_seconds
