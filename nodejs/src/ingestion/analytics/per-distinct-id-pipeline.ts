@@ -69,7 +69,6 @@ export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipeline
                             options,
                             teamManager,
                             groupTypeManager,
-                            personsStore,
                             groupStore,
                             kafkaProducer,
                         })

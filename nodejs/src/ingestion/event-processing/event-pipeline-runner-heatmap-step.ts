@@ -6,7 +6,6 @@ import { TeamManager } from '../../utils/team-manager'
 import { EventPipelineRunner, EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
-import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { PipelineResult, drop, isOkResult } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
@@ -26,7 +25,6 @@ export function createEventPipelineRunnerHeatmapStep<TInput extends EventPipelin
     kafkaProducer: KafkaProducerWrapper,
     teamManager: TeamManager,
     groupTypeManager: GroupTypeManager,
-    personsStore: PersonsStore,
     groupStore: BatchWritingGroupStore
 ): ProcessingStep<TInput, EventPipelineRunnerHeatmapStepResult<TInput>> {
     return async function eventPipelineRunnerHeatmapStep(
@@ -45,7 +43,6 @@ export function createEventPipelineRunnerHeatmapStep<TInput extends EventPipelin
             teamManager,
             groupTypeManager,
             normalizedEvent,
-            personsStore,
             groupStore,
             headers
         )

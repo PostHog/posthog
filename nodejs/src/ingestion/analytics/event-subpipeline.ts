@@ -18,6 +18,7 @@ import { createHogTransformEventStep } from '../event-processing/hog-transform-e
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from '../event-processing/normalize-process-person-flag-step'
 import { createProcessPersonlessStep } from '../event-processing/process-personless-step'
+import { createProcessPersonsStep } from '../event-processing/process-persons-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 
 export interface EventSubpipelineInput {
@@ -53,16 +54,8 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
         .pipe(createHogTransformEventStep(hogTransformer))
         .pipe(createNormalizeEventStep())
         .pipe(createProcessPersonlessStep(personsStore))
-        .pipe(
-            createEventPipelineRunnerV1Step(
-                options,
-                kafkaProducer,
-                teamManager,
-                groupTypeManager,
-                personsStore,
-                groupStore
-            )
-        )
+        .pipe(createProcessPersonsStep(options, kafkaProducer, personsStore))
+        .pipe(createEventPipelineRunnerV1Step(options, kafkaProducer, teamManager, groupTypeManager, groupStore))
         .pipe(
             createExtractHeatmapDataStep({
                 kafkaProducer,

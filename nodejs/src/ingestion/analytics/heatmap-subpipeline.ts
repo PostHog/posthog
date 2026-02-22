@@ -6,7 +6,6 @@ import { TeamManager } from '../../utils/team-manager'
 import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
-import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { createDisablePersonProcessingStep } from '../event-processing/disable-person-processing-step'
 import { createEventPipelineRunnerHeatmapStep } from '../event-processing/event-pipeline-runner-heatmap-step'
 import { createExtractHeatmapDataStep } from '../event-processing/extract-heatmap-data-step'
@@ -26,7 +25,6 @@ export interface HeatmapSubpipelineConfig {
     }
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
-    personsStore: PersonsStore
     groupStore: BatchWritingGroupStore
     kafkaProducer: KafkaProducerWrapper
 }
@@ -35,21 +33,12 @@ export function createHeatmapSubpipeline<TInput extends HeatmapSubpipelineInput,
     builder: StartPipelineBuilder<TInput, TContext>,
     config: HeatmapSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { options, teamManager, groupTypeManager, personsStore, groupStore, kafkaProducer } = config
+    const { options, teamManager, groupTypeManager, groupStore, kafkaProducer } = config
 
     return builder
         .pipe(createDisablePersonProcessingStep())
         .pipe(createNormalizeEventStep())
-        .pipe(
-            createEventPipelineRunnerHeatmapStep(
-                options,
-                kafkaProducer,
-                teamManager,
-                groupTypeManager,
-                personsStore,
-                groupStore
-            )
-        )
+        .pipe(createEventPipelineRunnerHeatmapStep(options, kafkaProducer, teamManager, groupTypeManager, groupStore))
         .pipe(
             createExtractHeatmapDataStep({
                 kafkaProducer,
