@@ -11,16 +11,21 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
+    ACCESS_CONTROL_RESOURCES,
+    AccessControlLevel,
     AccessSource,
     UserAccessControl,
     default_access_level,
+    get_effective_access_level_for_member,
+    get_effective_access_level_for_role,
     highest_access_level,
     minimum_access_level,
     ordered_access_levels,
 )
-from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
+from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject, APIScopeObjectOrNotSupported
 
 from ee.models.rbac.access_control import AccessControl
+from ee.models.rbac.role import Role
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -198,6 +203,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
             "resource_access_controls",
             "global_access_controls",  # DEPRECATED - use resource_access_controls instead.
             "users_with_access",
+            "access_control_defaults",
+            "access_control_roles",
+            "access_control_members",
         ]:
             return ["access_control:read"]
         elif request.method == "PUT" and self.action in [
@@ -394,3 +402,255 @@ class AccessControlViewSetMixin(_GenericViewSet):
         Get all users with access to this resource, including explicit and implicit access.
         """
         return self._get_users_with_access(request)
+
+    # ----------------------------------------------------------------
+    # Endpoints for the new access control settings UI
+    # ----------------------------------------------------------------
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=True, url_path="access_control_defaults")
+    def access_control_defaults(self, request: Request, *args, **kwargs):
+        team = cast(Team, self.team)  # type: ignore
+        user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
+
+        default_access_controls = AccessControl.objects.filter(team=team, organization_member=None, role=None)
+
+        project_access_level = None
+        saved_resource_levels: dict[str, str] = {}
+
+        for ac in default_access_controls:
+            if ac.resource == "project":
+                project_access_level = ac.access_level
+            elif ac.resource_id is None and ac.resource in set(ACCESS_CONTROL_RESOURCES):
+                saved_resource_levels[ac.resource] = ac.access_level
+
+        resource_access_levels = {
+            r: {
+                "access_level": saved_resource_levels.get(r),
+                "minimum": minimum_access_level(r),
+                "maximum": highest_access_level(r),
+            }
+            for r in ACCESS_CONTROL_RESOURCES
+        }
+
+        return Response(
+            {
+                "available_project_levels": list(ordered_access_levels("project")),
+                "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
+                "can_edit": user_access_control.check_can_modify_access_levels_for_object(team),
+                "project_access_level": project_access_level,
+                "resource_access_levels": resource_access_levels,
+            }
+        )
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=True, url_path="access_control_roles")
+    def access_control_roles(self, request: Request, *args, **kwargs):
+        team = cast(Team, self.team)  # type: ignore
+        user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
+
+        from django.db.models import Q
+
+        access_controls = AccessControl.objects.filter(team=team).filter(Q(resource="project") | Q(resource_id=None))
+
+        # Build lookup dicts from saved access controls
+        project_default_level: AccessControlLevel = default_access_level("project")
+        resource_default_levels: dict[APIScopeObject, AccessControlLevel] = {}
+        role_project_overrides: dict[str, AccessControlLevel] = {}
+        role_resource_overrides: dict[tuple[str, APIScopeObject], AccessControlLevel] = {}
+
+        for ac in access_controls:
+            level: AccessControlLevel = ac.access_level
+            resource_type: APIScopeObject = ac.resource
+            role_id = ac.role_id
+            is_default = ac.organization_member_id is None and role_id is None
+
+            if is_default:
+                if ac.resource == "project":
+                    project_default_level = level
+                else:
+                    resource_default_levels[resource_type] = level
+            elif role_id:
+                if ac.resource == "project":
+                    role_project_overrides[str(role_id)] = level
+                else:
+                    role_resource_overrides[(str(role_id), resource_type)] = level
+
+        # Build results for each role
+        roles = Role.objects.filter(organization=team.organization)
+        results = []
+
+        for role in roles:
+            rid = str(role.id)
+
+            project_role_level = role_project_overrides.get(rid)
+            project_result = get_effective_access_level_for_role(
+                resource="project",
+                default_level=project_default_level,
+                role_level=project_role_level,
+            )
+
+            resource_entries: dict[str, dict] = {}
+            for resource in ACCESS_CONTROL_RESOURCES:
+                resource_role_level = role_resource_overrides.get((rid, resource))
+                resource_default = resource_default_levels.get(resource)
+                resource_result = get_effective_access_level_for_role(
+                    resource=resource,
+                    default_level=resource_default,
+                    role_level=resource_role_level,
+                )
+                resource_entries[resource] = {
+                    "access_level": resource_role_level,
+                    "effective_access_level": resource_result.effective_access_level,
+                    "inherited_access_level": resource_result.inherited_access_level,
+                    "inherited_access_level_reason": resource_result.inherited_access_level_reason,
+                    "minimum": minimum_access_level(resource),
+                    "maximum": highest_access_level(resource),
+                }
+
+            results.append(
+                {
+                    "role_id": role.id,
+                    "role_name": role.name,
+                    "project": {
+                        "access_level": project_role_level,
+                        "effective_access_level": project_result.effective_access_level,
+                        "inherited_access_level": project_result.inherited_access_level,
+                        "inherited_access_level_reason": project_result.inherited_access_level_reason,
+                        "minimum": minimum_access_level("project"),
+                        "maximum": highest_access_level("project"),
+                    },
+                    "resources": resource_entries,
+                }
+            )
+
+        return Response(
+            {
+                "available_project_levels": list(ordered_access_levels("project")),
+                "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
+                "can_edit": user_access_control.check_can_modify_access_levels_for_object(team),
+                "results": results,
+            }
+        )
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=True, url_path="access_control_members")
+    def access_control_members(self, request: Request, *args, **kwargs):
+        team = cast(Team, self.team)  # type: ignore
+        user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
+
+        from django.db.models import Q
+
+        access_controls = AccessControl.objects.filter(team=team).filter(Q(resource="project") | Q(resource_id=None))
+
+        # Build lookup dicts from saved access controls
+        project_default_level: AccessControlLevel = default_access_level("project")
+        resource_default_levels: dict[APIScopeObject, AccessControlLevel] = {}
+        role_project_overrides: dict[str, AccessControlLevel] = {}
+        role_resource_overrides: dict[tuple[str, APIScopeObject], AccessControlLevel] = {}
+        member_project_overrides: dict[str, AccessControlLevel] = {}
+        member_resource_overrides: dict[tuple[str, APIScopeObject], AccessControlLevel] = {}
+
+        for ac in access_controls:
+            level: AccessControlLevel = ac.access_level
+            resource_type: APIScopeObject = ac.resource
+            role_id = ac.role_id
+            member_id = ac.organization_member_id
+            is_default = member_id is None and role_id is None
+
+            if is_default:
+                if ac.resource == "project":
+                    project_default_level = level
+                else:
+                    resource_default_levels[resource_type] = level
+            elif role_id:
+                if ac.resource == "project":
+                    role_project_overrides[str(role_id)] = level
+                else:
+                    role_resource_overrides[(str(role_id), resource_type)] = level
+            elif member_id:
+                if ac.resource == "project":
+                    member_project_overrides[str(member_id)] = level
+                else:
+                    member_resource_overrides[(str(member_id), resource_type)] = level
+
+        # Build results for each member
+        memberships = (
+            OrganizationMembership.objects.filter(organization=team.organization, user__is_active=True)
+            .select_related("user")
+            .prefetch_related("role_memberships")
+        )
+
+        results = []
+        for membership in memberships:
+            mid = str(membership.id)
+            is_org_admin = membership.level >= OrganizationMembership.Level.ADMIN
+            member_role_ids = [str(rm.role_id) for rm in membership.role_memberships.all()]
+
+            project_member_level = member_project_overrides.get(mid)
+            project_role_levels: list[AccessControlLevel] = [
+                role_project_overrides[rid] for rid in member_role_ids if rid in role_project_overrides
+            ]
+            project_result = get_effective_access_level_for_member(
+                resource="project",
+                default_level=project_default_level,
+                role_levels=project_role_levels,
+                member_level=project_member_level,
+                is_org_admin=is_org_admin,
+            )
+
+            resource_entries: dict[str, dict] = {}
+            for resource in ACCESS_CONTROL_RESOURCES:
+                resource_member_level = member_resource_overrides.get((mid, resource))
+                resource_default = resource_default_levels.get(resource)
+                resource_role_levels: list[AccessControlLevel] = [
+                    role_resource_overrides[(rid, resource)]
+                    for rid in member_role_ids
+                    if (rid, resource) in role_resource_overrides
+                ]
+                resource_result = get_effective_access_level_for_member(
+                    resource=resource,
+                    default_level=resource_default,
+                    role_levels=resource_role_levels,
+                    member_level=resource_member_level,
+                    is_org_admin=is_org_admin,
+                )
+                resource_entries[resource] = {
+                    "access_level": resource_member_level,
+                    "effective_access_level": resource_result.effective_access_level,
+                    "inherited_access_level": resource_result.inherited_access_level,
+                    "inherited_access_level_reason": resource_result.inherited_access_level_reason,
+                    "minimum": minimum_access_level(resource),
+                    "maximum": highest_access_level(resource),
+                }
+
+            user = membership.user
+            results.append(
+                {
+                    "organization_membership_id": membership.id,
+                    "user": {
+                        "uuid": user.uuid,
+                        "first_name": user.first_name,
+                        "email": user.email,
+                    },
+                    "organization_level": membership.level,
+                    "project": {
+                        "access_level": project_member_level,
+                        "effective_access_level": project_result.effective_access_level,
+                        "inherited_access_level": project_result.inherited_access_level,
+                        "inherited_access_level_reason": project_result.inherited_access_level_reason,
+                        "minimum": minimum_access_level("project"),
+                        "maximum": highest_access_level("project"),
+                    },
+                    "resources": resource_entries,
+                }
+            )
+
+        return Response(
+            {
+                "available_project_levels": list(ordered_access_levels("project")),
+                "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
+                "can_edit": user_access_control.check_can_modify_access_levels_for_object(team),
+                "results": results,
+            }
+        )
