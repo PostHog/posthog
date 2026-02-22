@@ -24,6 +24,7 @@ import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-
 import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { getSurveyStatus, surveysLogic } from 'scenes/surveys/surveysLogic'
+import { getSurveyEndDateForQuery, getSurveyStartDateForQuery } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
 import {
@@ -39,6 +40,7 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     ActivityScope,
+    EventPropertyFilter,
     ProgressStatus,
     Survey,
     SurveyEventName,
@@ -340,47 +342,90 @@ function SurveyStatusAction(): JSX.Element | null {
 }
 
 function SurveySummaryContent({ onViewResponses }: { onViewResponses: () => void }): JSX.Element {
-    const { survey, isAnyResultsLoading, processedSurveyStats, isSurveyHeadlineEnabled } = useValues(surveyLogic)
+    const {
+        survey,
+        isAnyResultsLoading,
+        processedSurveyStats,
+        isSurveyHeadlineEnabled,
+        answerFilters,
+        defaultAnswerFilters,
+        propertyFilters,
+        dateRange,
+    } = useValues(surveyLogic)
+    const { setAnswerFilters, setPropertyFilters, setDateRange } = useActions(surveyLogic)
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
+    const hasActiveAnswerFilters = answerFilters.some((filter: EventPropertyFilter) => {
+        if (!filter?.value) {
+            return false
+        }
+        return Array.isArray(filter.value) ? filter.value.length > 0 : filter.value !== ''
+    })
+    const surveyStartDate = getSurveyStartDateForQuery(survey as Survey)
+    const surveyEndDate = getSurveyEndDateForQuery(survey as Survey)
+    const hasActiveDateRange =
+        !!dateRange && (dateRange.date_from !== surveyStartDate || dateRange.date_to !== surveyEndDate)
+    const hasActiveFilters = hasActiveAnswerFilters || propertyFilters.length > 0 || hasActiveDateRange
+
+    const clearCurrentFilters = (): void => {
+        setAnswerFilters(defaultAnswerFilters)
+        setPropertyFilters([])
+        setDateRange({
+            date_from: surveyStartDate,
+            date_to: surveyEndDate,
+        })
+    }
 
     if (!isAnyResultsLoading && !atLeastOneResponse) {
         return (
-            <div className="space-y-4 px-4 pb-4">
-                <SurveyResultsFiltersBar />
-                <SurveyStatsSummary />
-                <SurveyNoResponsesBanner type="survey" />
+            <div className="px-4 pb-4">
+                <div className="mx-auto w-full max-w-[1200px] space-y-4">
+                    <SurveyResultsFiltersBar />
+                    <SurveyStatsSummary />
+                    <SurveyNoResponsesBanner
+                        type="survey"
+                        isFiltered={hasActiveFilters}
+                        onClearFilters={hasActiveFilters ? clearCurrentFilters : undefined}
+                        activeFilterTypes={{
+                            dateRange: hasActiveDateRange,
+                            answerFilters: hasActiveAnswerFilters,
+                            propertyFilters: propertyFilters.length > 0,
+                        }}
+                    />
+                </div>
             </div>
         )
     }
 
     return (
-        <div className="space-y-4 px-4 pb-4">
-            <SurveyResultsFiltersBar />
-            <SurveyStatsSummary />
-            {isSurveyHeadlineEnabled && <SurveyHeadline />}
+        <div className="px-4 pb-4">
+            <div className="mx-auto w-full max-w-[1200px] space-y-4">
+                <SurveyResultsFiltersBar />
+                <SurveyStatsSummary />
+                {isSurveyHeadlineEnabled && <SurveyHeadline />}
 
-            <div className="flex flex-col gap-2">
-                {survey.questions.map((question, i) => {
-                    if (!question.id || question.type === SurveyQuestionType.Link) {
-                        return null
-                    }
-                    return (
-                        <div key={question.id} className="flex flex-col gap-2">
-                            <SurveyQuestionVisualization question={question} questionIndex={i} />
-                            <LemonDivider />
-                        </div>
-                    )
-                })}
+                <div className="flex flex-col gap-2">
+                    {survey.questions.map((question, i) => {
+                        if (!question.id || question.type === SurveyQuestionType.Link) {
+                            return null
+                        }
+                        return (
+                            <div key={question.id} className="flex flex-col gap-2">
+                                <SurveyQuestionVisualization question={question} questionIndex={i} />
+                                <LemonDivider />
+                            </div>
+                        )
+                    })}
+                </div>
+                <LemonButton
+                    type="tertiary"
+                    data-attr="survey-results-view-responses"
+                    onClick={onViewResponses}
+                    size="small"
+                >
+                    Looking for all responses?
+                </LemonButton>
             </div>
-            <LemonButton
-                type="tertiary"
-                data-attr="survey-results-view-responses"
-                onClick={onViewResponses}
-                size="small"
-            >
-                Looking for all responses?
-            </LemonButton>
         </div>
     )
 }
