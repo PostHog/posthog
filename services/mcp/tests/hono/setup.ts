@@ -8,3 +8,9 @@ vi.mock('cloudflare:workers', () => ({
         POSTHOG_UI_APPS_TOKEN: undefined,
     },
 }))
+
+vi.mock('@/resources/ui-apps', () => ({
+    registerUiAppResources: vi.fn().mockResolvedValue(undefined),
+    QUERY_RESULTS_RESOURCE_URI: 'posthog://ui-apps/query-results',
+    DEMO_RESOURCE_URI: 'posthog://ui-apps/demo',
+}))

@@ -25,22 +25,51 @@ type HonoEnv = {
     }
 }
 
-const sessionTransports = new Map<string, WebStandardStreamableHTTPServerTransport>()
+const SESSION_TTL_MS = 30 * 60 * 1000
 
-function getRegionFromHostname(url: URL): CloudRegion | undefined {
-    if (url.hostname.toLowerCase() === 'mcp-eu.posthog.com') {
-        return 'eu'
-    }
-    return undefined
+type SessionEntry = {
+    transport: WebStandardStreamableHTTPServerTransport
+    createdAt: number
 }
 
-function getRegionFromRequest(url: URL, _request: Request): CloudRegion | null {
-    const hostnameRegion = getRegionFromHostname(url)
-    if (hostnameRegion) {
-        return hostnameRegion
+const sessionEntries = new Map<string, SessionEntry>()
+
+function getTransport(sessionId: string): WebStandardStreamableHTTPServerTransport | undefined {
+    const entry = sessionEntries.get(sessionId)
+    if (!entry) {
+        return undefined
     }
-    const queryRegion = url.searchParams.get('region') as CloudRegion | null
-    return queryRegion
+    if (Date.now() - entry.createdAt > SESSION_TTL_MS) {
+        sessionEntries.delete(sessionId)
+        return undefined
+    }
+    return entry.transport
+}
+
+function storeTransport(sessionId: string, transport: WebStandardStreamableHTTPServerTransport): void {
+    sessionEntries.set(sessionId, { transport, createdAt: Date.now() })
+}
+
+function removeTransport(sessionId: string): void {
+    sessionEntries.delete(sessionId)
+}
+
+function evictStaleSessions(): void {
+    const now = Date.now()
+    for (const [sid, entry] of sessionEntries) {
+        if (now - entry.createdAt > SESSION_TTL_MS) {
+            sessionEntries.delete(sid)
+        }
+    }
+}
+
+function getRegionFromRequest(request: Request): CloudRegion | null {
+    const publicUrl = getPublicUrl(request)
+    if (publicUrl.hostname.toLowerCase() === 'mcp-eu.posthog.com') {
+        return 'eu'
+    }
+    const url = new URL(request.url)
+    return url.searchParams.get('region') as CloudRegion | null
 }
 
 function getPublicUrl(request: Request): URL {
@@ -85,7 +114,7 @@ export function createApp(redis: Redis): Hono<HonoEnv> {
 
     app.all('/.well-known/oauth-protected-resource/*', (c) => {
         const url = new URL(c.req.url)
-        const effectiveRegion = getRegionFromRequest(url, c.req.raw)
+        const effectiveRegion = getRegionFromRequest(c.req.raw)
         const wellKnownPrefix = '/.well-known/oauth-protected-resource'
         const resourcePath = url.pathname.slice(wellKnownPrefix.length) || '/'
         const resourceUrl = getPublicUrl(c.req.raw)
@@ -116,7 +145,7 @@ export function createApp(redis: Redis): Hono<HonoEnv> {
     for (const path of authRedirectPaths) {
         app.all(path, (c) => {
             const url = new URL(c.req.url)
-            const effectiveRegion = getRegionFromRequest(url, c.req.raw)
+            const effectiveRegion = getRegionFromRequest(c.req.raw)
             const redirect = matchAuthServerRedirect(url.pathname)
             if (redirect) {
                 const authServer = getAuthorizationServerUrl(effectiveRegion)
@@ -129,7 +158,7 @@ export function createApp(redis: Redis): Hono<HonoEnv> {
 
     async function handleMcpRequest(c: import('hono').Context<HonoEnv>): Promise<Response> {
         const url = new URL(c.req.url)
-        const effectiveRegion = getRegionFromRequest(url, c.req.raw)
+        const effectiveRegion = getRegionFromRequest(c.req.raw)
 
         const token = c.req.header('Authorization')?.split(' ')[1]
         if (!token) {
@@ -178,16 +207,20 @@ export function createApp(redis: Redis): Hono<HonoEnv> {
 
         const method = c.req.method
 
+        evictStaleSessions()
+
         if (method === 'GET' || method === 'DELETE') {
             const existingSessionId = c.req.header('mcp-session-id')
-            if (existingSessionId && sessionTransports.has(existingSessionId)) {
-                const transport = sessionTransports.get(existingSessionId)!
-                if (method === 'DELETE') {
-                    await transport.handleRequest(c.req.raw)
-                    sessionTransports.delete(existingSessionId)
-                    return new Response(null, { status: 200 })
+            if (existingSessionId) {
+                const transport = getTransport(existingSessionId)
+                if (transport) {
+                    if (method === 'DELETE') {
+                        await transport.handleRequest(c.req.raw)
+                        removeTransport(existingSessionId)
+                        return new Response(null, { status: 200 })
+                    }
+                    return await transport.handleRequest(c.req.raw)
                 }
-                return await transport.handleRequest(c.req.raw)
             }
 
             if (method === 'DELETE') {
@@ -197,9 +230,11 @@ export function createApp(redis: Redis): Hono<HonoEnv> {
 
         if (method === 'POST') {
             const existingSessionId = c.req.header('mcp-session-id')
-            if (existingSessionId && sessionTransports.has(existingSessionId)) {
-                const transport = sessionTransports.get(existingSessionId)!
-                return await transport.handleRequest(c.req.raw)
+            if (existingSessionId) {
+                const transport = getTransport(existingSessionId)
+                if (transport) {
+                    return await transport.handleRequest(c.req.raw)
+                }
             }
 
             const mcpServer = new HonoMcpServer(redis, props)
@@ -208,13 +243,13 @@ export function createApp(redis: Redis): Hono<HonoEnv> {
             const transport = new WebStandardStreamableHTTPServerTransport({
                 sessionIdGenerator: () => uuidv4(),
                 onsessioninitialized: (sid) => {
-                    sessionTransports.set(sid, transport)
+                    storeTransport(sid, transport)
                 },
             })
 
             transport.onclose = () => {
                 if (transport.sessionId) {
-                    sessionTransports.delete(transport.sessionId)
+                    removeTransport(transport.sessionId)
                 }
             }
 

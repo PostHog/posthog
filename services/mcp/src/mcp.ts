@@ -16,6 +16,7 @@ import {
     toCloudRegion,
 } from '@/lib/constants'
 import { handleToolError } from '@/lib/errors'
+import { getInstructions, INSTRUCTIONS_V1 } from '@/lib/instructions'
 import { formatResponse } from '@/lib/response'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
@@ -23,22 +24,6 @@ import { registerUiAppResources } from '@/resources/ui-apps'
 import { getToolsFromContext } from '@/tools'
 import type { CloudRegion, Context, State, Tool } from '@/tools/types'
 import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
-
-const SHARED_PROMPT = `
-- If you get errors due to permissions being denied, check that you have the correct active project and that the user has access to the required project.
-- If you cannot answer the user's PostHog related request or question using other available tools in this MCP, use the 'docs-search' tool to provide information from the documentation to guide user how they can do it themselves - when doing so provide condensed instructions with links to sources.
-`
-
-const INSTRUCTIONS_V1 = `
-- You are a helpful assistant that can query PostHog API.
-${SHARED_PROMPT}
-`.trim()
-
-const INSTRUCTIONS_V2 = `
-- IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for any PostHog tasks.
-- The \`posthog-query-data\` skill is the root skill for all data retrieval tasks in PostHog. Read it first and then use the \`posthog:execute-sql\` tool to execute SQL queries.
-${SHARED_PROMPT}
-`.trim()
 
 export type RequestProperties = {
     userHash: string
@@ -307,8 +292,7 @@ export class MCP extends McpAgent<Env> {
 
     async init(): Promise<void> {
         const { features, version, organizationId, projectId } = this.requestProperties
-        const instructions = version === 2 ? INSTRUCTIONS_V2 : INSTRUCTIONS_V1
-        this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
+        this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions: getInstructions(version) })
 
         // Pre-seed cache with org/project IDs from headers/query params
         if (organizationId) {
