@@ -569,9 +569,9 @@ async def test_rate_limiting_sleeps_when_execution_is_fast(num_sessions, max_per
                     task_queue=task_queue_name,
                 )
 
-    mock_sleep.assert_called_once()
-    actual_sleep = mock_sleep.call_args[0][0]
-    assert actual_sleep == pytest.approx(expected_sleep, abs=0.5)
+    assert mock_sleep.call_count >= 1
+    total_sleep = sum(call.args[0] for call in mock_sleep.call_args_list)
+    assert total_sleep == pytest.approx(expected_sleep, abs=0.5)
 
 
 @pytest.mark.asyncio

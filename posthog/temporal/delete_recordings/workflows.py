@@ -38,10 +38,10 @@ async def _delete_page(
 ) -> None:
     """Batch-delete a page of session IDs and update progress."""
     if page.session_ids:
-        batch_start = workflow.now()
         progress.total_found += len(page.session_ids)
 
         for batch in batched(page.session_ids, config.batch_size):
+            batch_start = workflow.now()
             result: BulkDeleteResult = await workflow.execute_activity(
                 bulk_delete_recordings,
                 BulkDeleteInput(team_id=team_id, session_ids=list(batch), dry_run=config.dry_run),
@@ -55,11 +55,11 @@ async def _delete_page(
             progress.total_deleted += len(result.deleted)
             progress.total_failed += result.failed_count
 
-        if config.max_deletions_per_second > 0:
-            elapsed = (workflow.now() - batch_start).total_seconds()
-            target = len(page.session_ids) / config.max_deletions_per_second
-            if elapsed < target:
-                await asyncio.sleep(target - elapsed)
+            if config.max_deletions_per_second > 0:
+                elapsed = (workflow.now() - batch_start).total_seconds()
+                target = len(batch) / config.max_deletions_per_second
+                if elapsed < target:
+                    await asyncio.sleep(target - elapsed)
 
     progress.cursor = page.next_cursor
 
