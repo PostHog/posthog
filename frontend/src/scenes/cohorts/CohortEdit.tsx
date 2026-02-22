@@ -1,6 +1,9 @@
 import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconDownload } from 'lib/lemon-ui/icons'
+import { downloadFile } from 'lib/utils'
 
 import { IconClock, IconCopy, IconRefresh, IconTrash, IconUpload, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonDialog, LemonDivider, LemonFileInput, Link, Tooltip } from '@posthog/lemon-ui'
@@ -11,7 +14,6 @@ import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { TZLabel } from 'lib/components/TZLabel'
 import { CohortTypeEnum, FEATURE_FLAGS } from 'lib/constants'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -370,7 +372,21 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                             </span>
                                         </div>
                                     )}
-                                    {/* TODO: @adamleithp Allow users to download a template CSV file */}
+                                    <div className="mb-4">
+                                        <LemonButton
+                                            type="secondary"
+                                            icon={<IconDownload />}
+                                            onClick={() => {
+                                                downloadFile(
+                                                    'distinct_id,email\nexample_id,example@posthog.com',
+                                                    'posthog_cohort_template.csv',
+                                                    'text/csv'
+                                                )
+                                            }}
+                                        >
+                                            Download template CSV
+                                        </LemonButton>
+                                    </div>
                                     {/* TODO: @adamleithp Tell users that adding ANOTHER file will NOT(?) replace the current one */}
                                     {/* TODO: @adamleithp Render the csv file and validate it */}
                                     {/* TODO: @adamleithp Adding a csv file doesn't show up with cohort.csv... */}
