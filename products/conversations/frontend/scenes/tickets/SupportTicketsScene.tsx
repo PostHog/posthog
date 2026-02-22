@@ -264,6 +264,16 @@ export function SupportTicketsScene(): JSX.Element {
                     {
                         title: 'Status',
                         key: 'status',
+                        sorter: (a, b) => {
+                            const order: Record<string, number> = {
+                                new: 0,
+                                open: 1,
+                                pending: 2,
+                                on_hold: 3,
+                                resolved: 4,
+                            }
+                            return (order[a.status] ?? 5) - (order[b.status] ?? 5)
+                        },
                         render: (_, ticket) => (
                             <LemonTag
                                 type={
@@ -281,6 +291,10 @@ export function SupportTicketsScene(): JSX.Element {
                     {
                         title: 'Priority',
                         key: 'priority',
+                        sorter: (a, b) => {
+                            const order: Record<string, number> = { high: 0, medium: 1, low: 2 }
+                            return (order[a.priority ?? ''] ?? 3) - (order[b.priority ?? ''] ?? 3)
+                        },
                         render: (_, ticket) =>
                             ticket.priority ? (
                                 <LemonTag
@@ -301,6 +315,23 @@ export function SupportTicketsScene(): JSX.Element {
                     {
                         title: 'Assignee',
                         key: 'assignee',
+                        sorter: (a, b) => {
+                            const aAssignee = a.assignee
+                            const bAssignee = b.assignee
+                            if (!aAssignee && !bAssignee) {
+                                return 0
+                            }
+                            if (!aAssignee) {
+                                return 1
+                            }
+                            if (!bAssignee) {
+                                return -1
+                            }
+                            if (aAssignee.type !== bAssignee.type) {
+                                return aAssignee.type.localeCompare(bAssignee.type)
+                            }
+                            return String(aAssignee.id).localeCompare(String(bAssignee.id))
+                        },
                         render: (_, ticket) => (
                             <AssigneeResolver assignee={ticket.assignee ?? null}>
                                 {({ assignee }) => <AssigneeDisplay assignee={assignee} size="small" />}
@@ -315,6 +346,7 @@ export function SupportTicketsScene(): JSX.Element {
                     {
                         title: 'Created',
                         key: 'created_at',
+                        sorter: (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
                         render: (_, ticket) => {
                             return (
                                 <span className="text-xs text-muted-alt">
