@@ -3,7 +3,7 @@ import { join } from 'node:path'
 
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
-import { getDecompressionWorkerManager } from './DecompressionWorkerManager'
+import { decompressSnappy, getDecompressionWorkerManager } from './DecompressionWorkerManager'
 import { hasAnyWireframes, parseEncodedSnapshots, processAllSnapshots } from './process-all-snapshots'
 import { keyForSource } from './source-key'
 
@@ -108,10 +108,7 @@ jest.mock('scenes/session-recordings/mobile-replay', () => ({
     }),
 }))
 
-// Mock the decompression worker manager
-jest.mock('./DecompressionWorkerManager', () => ({
-    getDecompressionWorkerManager: jest.fn(),
-}))
+jest.mock('./DecompressionWorkerManager')
 
 const pathForKeyZero = join(__dirname, '../__mocks__/perf-snapshot-key0.jsonl')
 
@@ -324,9 +321,9 @@ describe('process all snapshots', () => {
 
     describe('parseEncodedSnapshots with compressed data', () => {
         const mockWorkerManager = {
-            decompress: jest.fn(),
-            decompressBatch: jest.fn(),
             terminate: jest.fn(),
+            processSnapshots: jest.fn(),
+            snapshotWorkerAvailable: false,
         }
 
         beforeEach(() => {
@@ -378,11 +375,11 @@ describe('process all snapshots', () => {
             const fakeCompressedBlock = new Uint8Array([1, 2, 3, 4, 5])
             const mockCompressedData = createLengthPrefixedData([fakeCompressedBlock])
 
-            mockWorkerManager.decompress.mockResolvedValue(decompressedBytes)
+            ;(decompressSnappy as jest.Mock).mockResolvedValue(decompressedBytes)
 
             const result = await parseEncodedSnapshots(convertInput(mockCompressedData), sessionId)
 
-            expect(mockWorkerManager.decompress).toHaveBeenCalledWith(fakeCompressedBlock, { isParallel: false })
+            expect(decompressSnappy).toHaveBeenCalledWith(fakeCompressedBlock)
             expect(result).toHaveLength(1)
             expect(result[0].windowId).toBe(1)
             expect(result[0].timestamp).toBe(1234567890)
@@ -406,7 +403,7 @@ describe('process all snapshots', () => {
             const fakeCompressedBlock2 = new Uint8Array([4, 5, 6])
             const mockCompressedData = createLengthPrefixedData([fakeCompressedBlock1, fakeCompressedBlock2])
 
-            mockWorkerManager.decompress
+            ;(decompressSnappy as jest.Mock)
                 .mockResolvedValueOnce(decompressedBytes1)
                 .mockResolvedValueOnce(decompressedBytes2)
 
@@ -421,7 +418,7 @@ describe('process all snapshots', () => {
             const sessionId = 'test-session'
             const mockCompressedData = new Uint8Array([1, 2, 3])
 
-            mockWorkerManager.decompress.mockRejectedValue(new Error('Decompression failed'))
+            ;(decompressSnappy as jest.Mock).mockRejectedValue(new Error('Decompression failed'))
 
             const result = await parseEncodedSnapshots(mockCompressedData, sessionId)
 
@@ -439,7 +436,7 @@ describe('process all snapshots', () => {
             const fakeCompressedBlock = new Uint8Array([10, 11, 12])
             const mockCompressedData = createLengthPrefixedData([fakeCompressedBlock])
 
-            mockWorkerManager.decompress.mockResolvedValue(decompressedBytes)
+            ;(decompressSnappy as jest.Mock).mockResolvedValue(decompressedBytes)
 
             const result = await parseEncodedSnapshots(mockCompressedData, sessionId)
 
@@ -462,14 +459,127 @@ describe('process all snapshots', () => {
             const decompressedBytes = new TextEncoder().encode(snapshotJson + '\n')
             const fakeRawSnappyData = new Uint8Array([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b])
 
-            mockWorkerManager.decompress.mockResolvedValue(decompressedBytes)
+            ;(decompressSnappy as jest.Mock).mockResolvedValue(decompressedBytes)
 
             const result = await parseEncodedSnapshots(fakeRawSnappyData, sessionId)
 
-            expect(mockWorkerManager.decompress).toHaveBeenCalledWith(fakeRawSnappyData, { isParallel: false })
+            expect(decompressSnappy).toHaveBeenCalledWith(fakeRawSnappyData)
             expect(result).toHaveLength(1)
             expect(result[0].windowId).toBe(1)
             expect(result[0].timestamp).toBe(1234567890)
+        })
+
+        describe('snapshot processing worker path', () => {
+            const mockPosthog = {
+                getFeatureFlag: jest.fn().mockReturnValue('test'),
+                capture: jest.fn(),
+            } as any
+
+            beforeEach(() => {
+                mockWorkerManager.snapshotWorkerAvailable = true
+            })
+
+            afterEach(() => {
+                mockWorkerManager.snapshotWorkerAvailable = false
+            })
+
+            it('uses worker to process binary data when available', async () => {
+                const sessionId = 'test-session'
+                const fakeData = new Uint8Array([1, 2, 3, 4, 5])
+
+                mockWorkerManager.processSnapshots.mockResolvedValue({
+                    snapshots: [{ type: 2, timestamp: 1000, windowId: 1, data: { href: 'https://example.com' } }],
+                    windowIdMappings: [{ uuid: 'window-1', index: 1 }],
+                    metrics: {
+                        decompressDurationMs: 5,
+                        parseDurationMs: 10,
+                        snapshotCount: 1,
+                        lineCount: 1,
+                        compressionType: 'raw_snappy',
+                    },
+                })
+
+                const result = await parseEncodedSnapshots(fakeData, sessionId, mockPosthog)
+
+                expect(mockWorkerManager.processSnapshots).toHaveBeenCalledWith(fakeData, sessionId)
+                expect(result).toHaveLength(1)
+                expect(result[0].timestamp).toBe(1000)
+                expect(result[0].windowId).toBe(1)
+            })
+
+            it('skips worker when feature flag is control', async () => {
+                const controlPosthog = {
+                    getFeatureFlag: jest.fn().mockReturnValue('control'),
+                    capture: jest.fn(),
+                } as any
+                const sessionId = 'test-session'
+
+                const snapshotJson = JSON.stringify({
+                    window_id: '1',
+                    data: [{ type: 2, timestamp: 1234567890, data: { href: 'https://example.com' } }],
+                })
+                const decompressedBytes = new TextEncoder().encode(snapshotJson + '\n')
+                const fakeCompressedBlock = new Uint8Array([1, 2, 3, 4, 5])
+                const mockCompressedData = createLengthPrefixedData([fakeCompressedBlock])
+
+                ;(decompressSnappy as jest.Mock).mockResolvedValue(decompressedBytes)
+
+                const result = await parseEncodedSnapshots(mockCompressedData, sessionId, controlPosthog)
+
+                expect(mockWorkerManager.processSnapshots).not.toHaveBeenCalled()
+                expect(decompressSnappy).toHaveBeenCalled()
+                expect(result).toHaveLength(1)
+                expect(result[0].timestamp).toBe(1234567890)
+            })
+
+            it('falls back to main thread when worker processing fails', async () => {
+                const sessionId = 'test-session'
+
+                const snapshotJson = JSON.stringify({
+                    window_id: '1',
+                    data: [{ type: 2, timestamp: 1234567890, data: { href: 'https://example.com' } }],
+                })
+                const decompressedBytes = new TextEncoder().encode(snapshotJson + '\n')
+                const fakeCompressedBlock = new Uint8Array([1, 2, 3, 4, 5])
+                const mockCompressedData = createLengthPrefixedData([fakeCompressedBlock])
+
+                mockWorkerManager.processSnapshots.mockRejectedValue(new Error('Worker timeout'))
+                ;(decompressSnappy as jest.Mock).mockResolvedValue(decompressedBytes)
+
+                const result = await parseEncodedSnapshots(mockCompressedData, sessionId, mockPosthog)
+
+                expect(mockWorkerManager.processSnapshots).toHaveBeenCalled()
+                expect(decompressSnappy).toHaveBeenCalled()
+                expect(result).toHaveLength(1)
+                expect(result[0].timestamp).toBe(1234567890)
+            })
+
+            it('registers window ID mappings from worker results', async () => {
+                const sessionId = 'test-session'
+                const fakeData = new Uint8Array([1, 2, 3])
+
+                mockWorkerManager.processSnapshots.mockResolvedValue({
+                    snapshots: [
+                        { type: 2, timestamp: 1000, windowId: 1, data: {} },
+                        { type: 3, timestamp: 2000, windowId: 2, data: {} },
+                    ],
+                    windowIdMappings: [
+                        { uuid: 'window-abc', index: 1 },
+                        { uuid: 'window-def', index: 2 },
+                    ],
+                    metrics: null,
+                })
+
+                const windowIds: string[] = []
+                const registerFn = (uuid: string): number => {
+                    windowIds.push(uuid)
+                    return windowIds.length
+                }
+
+                await parseEncodedSnapshots(fakeData, sessionId, mockPosthog, registerFn)
+
+                expect(windowIds).toEqual(['window-abc', 'window-def'])
+            })
         })
     })
 

@@ -1,34 +1,33 @@
-export class DecompressionWorkerManager {
-    async decompress(compressedData: Uint8Array): Promise<Uint8Array> {
-        return compressedData
-    }
+export const decompressSnappy = jest.fn(async (compressedData: Uint8Array): Promise<Uint8Array> => {
+    return compressedData
+})
 
-    terminate(): void {
-        // No-op for tests
-    }
+export class DecompressionWorkerManager {
+    processSnapshots = jest.fn(async (): Promise<{ snapshots: never[]; windowIdMappings: never[] }> => {
+        throw new Error('Snapshot processing worker not available in tests')
+    })
+
+    snapshotWorkerAvailable = false
+
+    terminate = jest.fn()
 }
 
 let workerManager: DecompressionWorkerManager | null = null
-let currentPosthog: any | undefined
 
-export function getDecompressionWorkerManager(posthog?: any): DecompressionWorkerManager {
-    const configChanged = currentPosthog !== posthog
-
-    if (configChanged && workerManager) {
-        terminateDecompressionWorker()
-    }
-
-    if (!workerManager) {
+export const getDecompressionWorkerManager = jest.fn((posthog?: any): DecompressionWorkerManager | null => {
+    if (!workerManager && posthog) {
         workerManager = new DecompressionWorkerManager()
-        currentPosthog = posthog
     }
     return workerManager
-}
+})
 
 export function terminateDecompressionWorker(): void {
     if (workerManager) {
         workerManager.terminate()
         workerManager = null
     }
-    currentPosthog = undefined
+}
+
+export function preWarmDecompression(): void {
+    // No-op for tests
 }

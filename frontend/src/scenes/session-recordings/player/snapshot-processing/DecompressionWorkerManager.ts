@@ -1,32 +1,63 @@
 import type { PostHog } from 'posthog-js'
 import snappyInit, { decompress_raw } from 'snappy-wasm'
 
-import type { DecompressionRequest, DecompressionResponse } from './decompressionWorker'
+import type { RecordingSnapshot } from '~/types'
 
-interface PendingRequest {
-    resolve: (data: Uint8Array) => void
+import type {
+    SnapshotProcessingRequest,
+    SnapshotProcessingResponse,
+    WindowIdMapping,
+} from './snapshot-processing-types'
+
+export interface ProcessSnapshotsResult {
+    snapshots: RecordingSnapshot[]
+    windowIdMappings: WindowIdMapping[]
+    metrics?: SnapshotProcessingResponse['metrics']
+}
+
+interface PendingSnapshotRequest {
+    resolve: (result: ProcessSnapshotsResult) => void
     reject: (error: Error) => void
 }
 
-export class DecompressionWorkerManager {
-    private readonly readyPromise: Promise<void>
-    private snappyInitialized = false
-    private worker: Worker | null = null
-    private messageId = 0
-    private pendingRequests = new Map<number, PendingRequest>()
-    private workerInitFailed = false
+let snappyInitPromise: Promise<void> | null = null
 
-    constructor(private readonly posthog?: PostHog) {
-        this.readyPromise = this.initWorker()
+function ensureSnappyInitialized(): Promise<void> {
+    if (!snappyInitPromise) {
+        snappyInitPromise = snappyInit().then(() => undefined)
     }
+    return snappyInitPromise
+}
+
+export async function decompressSnappy(compressedData: Uint8Array): Promise<Uint8Array> {
+    await ensureSnappyInitialized()
+    return decompress_raw(compressedData)
+}
+
+export class DecompressionWorkerManager {
+    private worker: Worker | null = null
+    private workerReady: Promise<void> | null = null
+    private workerInitFailed = false
+    private messageId = 0
+    private pendingRequests = new Map<number, PendingSnapshotRequest>()
+
+    constructor(private readonly posthog: PostHog) {}
 
     private getErrorMessage(error: unknown): string {
         return error instanceof Error ? error.message : 'Unknown error'
     }
 
+    private ensureWorker(): Promise<void> {
+        if (this.workerReady) {
+            return this.workerReady
+        }
+        this.workerReady = this.initWorker()
+        return this.workerReady
+    }
+
     private async initWorker(): Promise<void> {
         try {
-            this.worker = new Worker('/static/decompressionWorker.js', { type: 'module' })
+            this.worker = new Worker('/static/snapshotProcessingWorker.js', { type: 'module' })
 
             const readyPromise = Promise.race([
                 new Promise<void>((resolve) => {
@@ -39,7 +70,7 @@ export class DecompressionWorkerManager {
                     this.worker?.addEventListener('message', handler)
                 }),
                 new Promise<void>((_, reject) =>
-                    setTimeout(() => reject(new Error('Worker initialization timeout')), 5000)
+                    setTimeout(() => reject(new Error('Worker initialization timeout')), 10000)
                 ),
             ])
 
@@ -50,19 +81,22 @@ export class DecompressionWorkerManager {
                     return
                 }
 
-                const { id, decompressedData, error } = data as DecompressionResponse
-
-                const pending = this.pendingRequests.get(id)
+                const response = data as SnapshotProcessingResponse
+                const pending = this.pendingRequests.get(response.id)
                 if (!pending) {
                     return
                 }
 
-                this.pendingRequests.delete(id)
+                this.pendingRequests.delete(response.id)
 
-                if (error || !decompressedData) {
-                    pending.reject(new Error(error || 'Decompression failed'))
+                if (response.error || !response.snapshots) {
+                    pending.reject(new Error(response.error || 'Snapshot processing failed'))
                 } else {
-                    pending.resolve(decompressedData)
+                    pending.resolve({
+                        snapshots: response.snapshots,
+                        windowIdMappings: response.windowIdMappings,
+                        metrics: response.metrics,
+                    })
                 }
             })
 
@@ -82,86 +116,43 @@ export class DecompressionWorkerManager {
             )
             this.workerInitFailed = true
             this.worker = null
-            await this.initSnappy()
-            if (this.posthog) {
-                this.posthog.capture('replay_worker_init_failed', {
-                    error: this.getErrorMessage(error),
-                })
-            }
-        }
-    }
-
-    private async initSnappy(): Promise<void> {
-        if (this.snappyInitialized) {
-            return
-        }
-        await snappyInit()
-        this.snappyInitialized = true
-    }
-
-    async decompress(compressedData: Uint8Array, metadata?: { isParallel?: boolean }): Promise<Uint8Array> {
-        await this.readyPromise
-
-        if (this.shouldUseWorker()) {
-            return this.decompressWithFallback(compressedData, metadata)
-        }
-        return this.decompressMainThread(compressedData)
-    }
-
-    private shouldUseWorker(): boolean {
-        return this.worker !== null && !this.workerInitFailed
-    }
-
-    private async decompressWithFallback(
-        compressedData: Uint8Array,
-        metadata?: { isParallel?: boolean }
-    ): Promise<Uint8Array> {
-        try {
-            return await this.decompressWithWorker(compressedData, metadata)
-        } catch (error) {
-            this.reportWorkerFailure(error, compressedData.length, metadata?.isParallel)
-            return await this.decompressMainThread(compressedData)
-        }
-    }
-
-    private reportWorkerFailure(error: unknown, dataSize: number, isParallel?: boolean): void {
-        console.warn('[DecompressionWorkerManager] Worker decompression failed, falling back to main thread:', error)
-        if (this.posthog) {
-            this.posthog.capture('replay_worker_decompression_failed', {
+            this.posthog.capture('replay_snapshot_worker_init_failed', {
                 error: this.getErrorMessage(error),
-                dataSize,
-                isParallel,
             })
         }
     }
 
-    private async decompressWithWorker(
-        compressedData: Uint8Array,
-        metadata?: { isParallel?: boolean }
-    ): Promise<Uint8Array> {
-        const id = this.messageId++
+    async processSnapshots(compressedData: Uint8Array, sessionId: string): Promise<ProcessSnapshotsResult> {
+        await this.ensureWorker()
 
-        return new Promise<Uint8Array>((resolve, reject) => {
-            // Timeout safeguard: if worker doesn't respond, reject and fallback
-            const DECOMPRESSION_TIMEOUT_MS = 10000
+        if (this.worker && !this.workerInitFailed) {
+            return this.processSnapshotsWithWorker(compressedData, sessionId)
+        }
+
+        throw new Error('Snapshot processing worker not available')
+    }
+
+    get snapshotWorkerAvailable(): boolean {
+        return !this.workerInitFailed
+    }
+
+    private processSnapshotsWithWorker(compressedData: Uint8Array, sessionId: string): Promise<ProcessSnapshotsResult> {
+        const id = this.messageId++
+        const PROCESSING_TIMEOUT_MS = 30000
+
+        return new Promise<ProcessSnapshotsResult>((resolve, reject) => {
             const timeout = setTimeout(() => {
                 const pending = this.pendingRequests.get(id)
                 if (pending) {
                     this.pendingRequests.delete(id)
-                    console.error('[DecompressionWorkerManager] Worker decompression timeout', {
-                        id,
-                        dataSize: compressedData.length,
-                        isParallel: metadata?.isParallel,
-                        timeoutMs: DECOMPRESSION_TIMEOUT_MS,
-                    })
-                    reject(new Error('Worker decompression timeout'))
+                    reject(new Error('Snapshot processing worker timeout'))
                 }
-            }, DECOMPRESSION_TIMEOUT_MS)
+            }, PROCESSING_TIMEOUT_MS)
 
             this.pendingRequests.set(id, {
-                resolve: (data) => {
+                resolve: (result) => {
                     clearTimeout(timeout)
-                    resolve(data)
+                    resolve(result)
                 },
                 reject: (error) => {
                     clearTimeout(timeout)
@@ -169,9 +160,10 @@ export class DecompressionWorkerManager {
                 },
             })
 
-            const message: DecompressionRequest = {
+            const message: SnapshotProcessingRequest = {
                 id,
                 compressedData,
+                sessionId,
             }
 
             try {
@@ -182,15 +174,6 @@ export class DecompressionWorkerManager {
                 reject(error instanceof Error ? error : new Error(this.getErrorMessage(error)))
             }
         })
-    }
-
-    private async decompressMainThread(compressedData: Uint8Array): Promise<Uint8Array> {
-        try {
-            return decompress_raw(compressedData)
-        } catch (error) {
-            console.error('Decompression error:', error)
-            throw error instanceof Error ? error : new Error('Unknown decompression error')
-        }
     }
 
     terminate(): void {
@@ -209,16 +192,14 @@ export class DecompressionWorkerManager {
 let workerManager: DecompressionWorkerManager | null = null
 let currentPosthog: PostHog | undefined
 
-export function getDecompressionWorkerManager(posthog?: PostHog): DecompressionWorkerManager {
-    const configChanged = currentPosthog !== posthog
-
-    if (configChanged && workerManager) {
-        terminateDecompressionWorker()
+export function getDecompressionWorkerManager(posthog?: PostHog): DecompressionWorkerManager | null {
+    if (posthog && currentPosthog && posthog !== currentPosthog) {
+        workerManager?.terminate()
+        workerManager = null
     }
-
-    if (!workerManager) {
-        workerManager = new DecompressionWorkerManager(posthog)
+    if (!workerManager && posthog) {
         currentPosthog = posthog
+        workerManager = new DecompressionWorkerManager(posthog)
     }
     return workerManager
 }
@@ -231,15 +212,8 @@ export function terminateDecompressionWorker(): void {
     currentPosthog = undefined
 }
 
-/**
- * Pre-warm the WASM decompression module.
- * Call this during app initialization to avoid cold start penalty.
- * Safe to call multiple times - will only initialize once.
- */
 export function preWarmDecompression(): void {
-    // Initialize WASM module in background
-    // Don't await - let it warm up while app loads
-    snappyInit().catch((error) => {
+    ensureSnappyInitialized().catch((error) => {
         console.error('[DecompressionWorkerManager] Failed to pre-warm WASM:', error)
     })
 }

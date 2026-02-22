@@ -3,14 +3,14 @@ import posthog, { PostHog } from 'posthog-js'
 import { EventType, eventWithTime, fullSnapshotEvent } from '@posthog/rrweb-types'
 
 import { isEmptyObject, isObject } from 'lib/utils'
-import { transformEventToWeb } from 'scenes/session-recordings/mobile-replay'
-import { getDecompressionWorkerManager } from 'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
+import {
+    decompressSnappy,
+    getDecompressionWorkerManager,
+} from 'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
 import {
     CHROME_EXTENSION_DENY_LIST,
     stripChromeExtensionDataFromNode,
 } from 'scenes/session-recordings/player/snapshot-processing/chrome-extension-stripping'
-import { chunkMutationSnapshot } from 'scenes/session-recordings/player/snapshot-processing/chunk-large-mutations'
-import { decompressEvent } from 'scenes/session-recordings/player/snapshot-processing/decompress'
 import {
     ViewportResolution,
     extractDimensionsFromMobileSnapshot,
@@ -25,18 +25,27 @@ import {
     SessionRecordingSnapshotSourceResponse,
 } from '~/types'
 
-export type RegisterWindowIdCallback = (uuid: string) => number
+import {
+    type RegisterWindowIdCallback,
+    createWindowIdRegistry,
+    isLengthPrefixedSnappy,
+    processSnapshotLine,
+} from './snapshot-parsing-utils'
+import { toEventWithTime } from './to-event-with-time'
 
-export const createWindowIdRegistry = (): RegisterWindowIdCallback => {
-    const uuidToIndex: Record<string, number> = {}
-    return (uuid: string): number => {
-        if (uuid in uuidToIndex) {
-            return uuidToIndex[uuid]
-        }
-        const index = Object.keys(uuidToIndex).length + 1
-        uuidToIndex[uuid] = index
-        return index
-    }
+export type { RegisterWindowIdCallback } from './snapshot-parsing-utils'
+export { createWindowIdRegistry } from './snapshot-parsing-utils'
+
+function coerceToEventWithTime(d: unknown, sessionId: string): eventWithTime {
+    return toEventWithTime(d, (e, phase) => {
+        throttleCapture(`${sessionId}-${phase}-error`, () => {
+            posthog.captureException(e instanceof Error ? e : new Error(String(e)), {
+                sessionId,
+                feature:
+                    phase === 'decompress' ? 'session-recording-decompression' : 'session-recording-mobile-transform',
+            })
+        })
+    })
 }
 
 export type ProcessingCache = {
@@ -351,17 +360,6 @@ function processSnapshot(
     context.previousTimestamp = currentTimestamp
 }
 
-function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
-    return (
-        typeof x === 'object' &&
-        x !== null &&
-        'type' in x &&
-        'timestamp' in x &&
-        'windowId' in x &&
-        typeof (x as RecordingSnapshot).windowId === 'number'
-    )
-}
-
 const mobileFullSnapshot = (x: Record<string, any>): boolean => isObject(x.data) && 'wireframes' in x.data
 
 // the mobileFullSnapshot above wasn't catching recordings from React Native SDK 4.1.0 that were missing meta events so...
@@ -387,45 +385,11 @@ function hashSnapshot(snapshot: RecordingSnapshot): number {
     return cyrb53(JSON.stringify(delayFreeSnapshot))
 }
 
-/**
- * We can receive data in one of multiple formats, so we treat it as unknown,
- * And if we can't process it, force it into eventWithTime
- *
- * If it can't be case as eventWithTime by this point, then it's probably not a valid event anyway
- */
-function coerceToEventWithTime(d: unknown, sessionRecordingId: string): eventWithTime {
-    // we decompress first so that we could support partial compression on mobile in the future
-    const currentEvent = decompressEvent(d, sessionRecordingId)
-    return transformEventToWeb(currentEvent) ?? (currentEvent as eventWithTime)
-}
-
-function isLengthPrefixedSnappy(uint8Data: Uint8Array): boolean {
-    if (uint8Data.byteLength < 4) {
-        return false
-    }
-
-    const firstLength = ((uint8Data[0] << 24) | (uint8Data[1] << 16) | (uint8Data[2] << 8) | uint8Data[3]) >>> 0
-
-    if (firstLength === 0 || firstLength > uint8Data.byteLength) {
-        return false
-    }
-
-    if (4 + firstLength > uint8Data.byteLength) {
-        return false
-    }
-
-    return true
-}
-
-const lengthPrefixedSnappyDecompress = async (uint8Data: Uint8Array, posthogInstance?: PostHog): Promise<string> => {
-    const workerManager = getDecompressionWorkerManager(posthogInstance)
-
-    // Phase 1: Parse and collect all compressed blocks
+const lengthPrefixedSnappyDecompress = async (uint8Data: Uint8Array): Promise<string> => {
     const compressedBlocks: Uint8Array[] = []
     let offset = 0
 
     while (offset < uint8Data.byteLength) {
-        // Read 4-byte length prefix (big-endian unsigned int)
         if (offset + 4 > uint8Data.byteLength) {
             console.error('Incomplete length prefix at offset', offset)
             break
@@ -439,7 +403,6 @@ const lengthPrefixedSnappyDecompress = async (uint8Data: Uint8Array, posthogInst
             0
         offset += 4
 
-        // Read compressed block
         if (offset + length > uint8Data.byteLength) {
             console.error(
                 `Incomplete block at offset ${offset}, expected ${length} bytes, available ${uint8Data.byteLength - offset}`
@@ -447,38 +410,30 @@ const lengthPrefixedSnappyDecompress = async (uint8Data: Uint8Array, posthogInst
             break
         }
 
-        // Create a copy of the block to avoid ArrayBuffer detachment issues
-        // when transferring to workers in parallel
         const compressedBlock = uint8Data.slice(offset, offset + length)
         compressedBlocks.push(compressedBlock)
         offset += length
     }
 
-    // Phase 2: Decompress blocks in batches, yielding between batches to avoid
-    // microtask storms that block the main thread when many blocks resolve at once
-    const isParallel = compressedBlocks.length > 1
     const DECOMPRESSION_BATCH_SIZE = 10
     const decompressedBlocks: Uint8Array[] = []
     for (let i = 0; i < compressedBlocks.length; i += DECOMPRESSION_BATCH_SIZE) {
         const batch = compressedBlocks.slice(i, i + DECOMPRESSION_BATCH_SIZE)
-        const results = await Promise.all(batch.map((block) => workerManager.decompress(block, { isParallel })))
+        const results = await Promise.all(batch.map((block) => decompressSnappy(block)))
         decompressedBlocks.push(...results)
         if (i + DECOMPRESSION_BATCH_SIZE < compressedBlocks.length) {
             await new Promise<void>((r) => setTimeout(r, 0))
         }
     }
 
-    // Phase 3: Decode all blocks to strings
     const textDecoder = new TextDecoder('utf-8')
     const decompressedParts = decompressedBlocks.map((data) => textDecoder.decode(data))
 
     return decompressedParts.join('\n')
 }
 
-const rawSnappyDecompress = async (uint8Data: Uint8Array, posthogInstance?: PostHog): Promise<string> => {
-    const workerManager = getDecompressionWorkerManager(posthogInstance)
-
-    const decompressedData = await workerManager.decompress(uint8Data, { isParallel: false })
+const rawSnappyDecompress = async (uint8Data: Uint8Array): Promise<string> => {
+    const decompressedData = await decompressSnappy(uint8Data)
 
     const textDecoder = new TextDecoder('utf-8')
     return textDecoder.decode(decompressedData)
@@ -503,6 +458,59 @@ function reportParseStats(
     })
 }
 
+const parseEncodedSnapshotsBinaryMainThread = async (
+    uint8Data: Uint8Array,
+    sessionId: string,
+    startTime: number,
+    posthogInstance: PostHog | undefined,
+    registerFn: RegisterWindowIdCallback
+): Promise<RecordingSnapshot[]> => {
+    if (isLengthPrefixedSnappy(uint8Data)) {
+        try {
+            const combinedText = await lengthPrefixedSnappyDecompress(uint8Data)
+            const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
+            const snapshots = await parseEncodedSnapshots(lines, sessionId, posthogInstance, registerFn)
+            const parseDuration = performance.now() - startTime
+            reportParseStats(posthogInstance, snapshots.length, parseDuration, lines.length, 'length_prefixed_snappy')
+            return snapshots
+        } catch (error) {
+            console.error('Length-prefixed Snappy decompression failed:', error)
+            posthog.captureException(new Error('Failed to decompress length-prefixed snapshot data'), {
+                sessionId,
+                error: error instanceof Error ? error.message : 'Unknown error',
+                feature: 'session-recording-client-side-decompression',
+            })
+            return []
+        }
+    }
+
+    try {
+        const combinedText = await rawSnappyDecompress(uint8Data)
+        const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
+        const snapshots = await parseEncodedSnapshots(lines, sessionId, posthogInstance, registerFn)
+        const parseDuration = performance.now() - startTime
+        reportParseStats(posthogInstance, snapshots.length, parseDuration, lines.length, 'raw_snappy')
+        return snapshots
+    } catch (error) {
+        try {
+            const textDecoder = new TextDecoder('utf-8')
+            const combinedText = textDecoder.decode(uint8Data)
+
+            const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
+            return parseEncodedSnapshots(lines, sessionId, posthogInstance, registerFn)
+        } catch (decodeError) {
+            console.error('Failed to decompress or decode binary data:', error, decodeError)
+            posthog.captureException(new Error('Failed to process snapshot data'), {
+                sessionId,
+                decompressionError: error instanceof Error ? error.message : 'Unknown error',
+                decodeError: decodeError instanceof Error ? decodeError.message : 'Unknown error',
+                feature: 'session-recording-client-side-decompression',
+            })
+            return []
+        }
+    }
+}
+
 export const parseEncodedSnapshots = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[] | ArrayBuffer | Uint8Array,
     sessionId: string,
@@ -517,56 +525,41 @@ export const parseEncodedSnapshots = async (
     if (items instanceof ArrayBuffer || items instanceof Uint8Array) {
         const uint8Data = items instanceof Uint8Array ? items : new Uint8Array(items)
 
-        if (isLengthPrefixedSnappy(uint8Data)) {
-            try {
-                const combinedText = await lengthPrefixedSnappyDecompress(uint8Data, posthogInstance)
-                const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
-                const snapshots = await parseEncodedSnapshots(lines, sessionId, posthogInstance, registerFn)
-                const parseDuration = performance.now() - startTime
-                reportParseStats(
-                    posthogInstance,
-                    snapshots.length,
-                    parseDuration,
-                    lines.length,
-                    'length_prefixed_snappy'
-                )
-                return snapshots
-            } catch (error) {
-                console.error('Length-prefixed Snappy decompression failed:', error)
-                posthog.captureException(new Error('Failed to decompress length-prefixed snapshot data'), {
-                    sessionId,
-                    error: error instanceof Error ? error.message : 'Unknown error',
-                    feature: 'session-recording-client-side-decompression',
-                })
-                return []
+        const useWorker = posthogInstance?.getFeatureFlag('replay-snapshot-processing-worker') === 'test'
+        if (useWorker) {
+            const workerManager = getDecompressionWorkerManager(posthogInstance)
+            if (workerManager?.snapshotWorkerAvailable) {
+                try {
+                    const result = await workerManager.processSnapshots(uint8Data, sessionId)
+                    for (const mapping of result.windowIdMappings) {
+                        registerFn(mapping.uuid)
+                    }
+                    if (result.metrics && posthogInstance) {
+                        reportParseStats(
+                            posthogInstance,
+                            result.metrics.snapshotCount,
+                            result.metrics.parseDurationMs,
+                            result.metrics.lineCount,
+                            result.metrics.compressionType as 'length_prefixed_snappy' | 'raw_snappy'
+                        )
+                    }
+                    return result.snapshots
+                } catch (error) {
+                    console.warn(
+                        '[parseEncodedSnapshots] Snapshot processing worker failed, falling back to main thread:',
+                        error
+                    )
+                    if (posthogInstance) {
+                        posthogInstance.capture('replay_snapshot_worker_processing_failed', {
+                            error: error instanceof Error ? error.message : 'Unknown error',
+                            sessionId,
+                        })
+                    }
+                }
             }
         }
 
-        try {
-            const combinedText = await rawSnappyDecompress(uint8Data, posthogInstance)
-            const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
-            const snapshots = await parseEncodedSnapshots(lines, sessionId, posthogInstance, registerFn)
-            const parseDuration = performance.now() - startTime
-            reportParseStats(posthogInstance, snapshots.length, parseDuration, lines.length, 'raw_snappy')
-            return snapshots
-        } catch (error) {
-            try {
-                const textDecoder = new TextDecoder('utf-8')
-                const combinedText = textDecoder.decode(uint8Data)
-
-                const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
-                return parseEncodedSnapshots(lines, sessionId, posthogInstance, registerFn)
-            } catch (decodeError) {
-                console.error('Failed to decompress or decode binary data:', error, decodeError)
-                posthog.captureException(new Error('Failed to process snapshot data'), {
-                    sessionId,
-                    decompressionError: error instanceof Error ? error.message : 'Unknown error',
-                    decodeError: decodeError instanceof Error ? decodeError.message : 'Unknown error',
-                    feature: 'session-recording-client-side-decompression',
-                })
-                return []
-            }
-        }
+        return parseEncodedSnapshotsBinaryMainThread(uint8Data, sessionId, startTime, posthogInstance, registerFn)
     }
 
     const lineCount = items.length
@@ -578,60 +571,8 @@ export const parseEncodedSnapshots = async (
             return
         }
         try {
-            let snapshotLine:
-                | { windowId?: string; window_id?: string; data?: unknown[] }
-                | EncodedRecordingSnapshot
-                | RecordingSnapshot
-            if (typeof l === 'string') {
-                snapshotLine = JSON.parse(l) as EncodedRecordingSnapshot
-
-                if (Array.isArray(snapshotLine)) {
-                    snapshotLine = {
-                        windowId: snapshotLine[0],
-                        data: [snapshotLine[1]],
-                    }
-                }
-            } else {
-                snapshotLine = l
-            }
-
-            if (isRecordingSnapshot(snapshotLine)) {
-                const snap = coerceToEventWithTime(snapshotLine, sessionId)
-                const baseSnapshot: RecordingSnapshot = {
-                    windowId: snapshotLine.windowId,
-                    ...snap,
-                }
-                const chunkedSnapshots = chunkMutationSnapshot(baseSnapshot)
-                parsedLines.push(...chunkedSnapshots)
-            } else if (
-                'type' in snapshotLine &&
-                'timestamp' in snapshotLine &&
-                typeof snapshotLine['windowId'] === 'string'
-            ) {
-                const rawWindowId: string = snapshotLine['windowId']
-                const windowId = registerFn(rawWindowId)
-                const snap = coerceToEventWithTime(snapshotLine, sessionId)
-                const baseSnapshot: RecordingSnapshot = {
-                    windowId,
-                    ...snap,
-                }
-                const chunkedSnapshots = chunkMutationSnapshot(baseSnapshot)
-                parsedLines.push(...chunkedSnapshots)
-            } else {
-                const snapshotData = snapshotLine['data'] || []
-                const rawWindowId: string = snapshotLine['window_id'] || snapshotLine['windowId'] || ''
-                const windowId = registerFn(rawWindowId)
-
-                for (const d of snapshotData) {
-                    const snap = coerceToEventWithTime(d, sessionId)
-                    const baseSnapshot: RecordingSnapshot = {
-                        windowId,
-                        ...snap,
-                    }
-                    const chunkedSnapshots = chunkMutationSnapshot(baseSnapshot)
-                    parsedLines.push(...chunkedSnapshots)
-                }
-            }
+            const parsed = typeof l === 'string' ? (JSON.parse(l) as unknown) : l
+            parsedLines.push(...processSnapshotLine(parsed, sessionId, registerFn, coerceToEventWithTime))
         } catch {
             if (typeof l === 'string') {
                 unparseableLines.push(l)
