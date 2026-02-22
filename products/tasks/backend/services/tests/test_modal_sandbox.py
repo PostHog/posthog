@@ -172,11 +172,13 @@ class TestModalSandboxAgentServer:
 
         start_call = mock_sandbox.execute.call_args_list[0]
         command = start_call[0][0]
+        import shlex
+
         assert f"--port {AGENT_SERVER_PORT}" in command
-        assert "--repositoryPath /tmp/workspace/repos/posthog/posthog" in command
-        assert "--taskId task-123" in command
-        assert "--runId run-456" in command
-        assert "--mode background" in command
+        assert f"--repositoryPath {shlex.quote('/tmp/workspace/repos/posthog/posthog')}" in command
+        assert f"--taskId {shlex.quote('task-123')}" in command
+        assert f"--runId {shlex.quote('run-456')}" in command
+        assert f"--mode {shlex.quote('background')}" in command
 
     def test_start_agent_server_raises_when_not_running(self, mock_sandbox: Any):
         mock_sandbox._sandbox.poll.return_value = 0
@@ -232,3 +234,72 @@ class TestModalSandboxAgentServer:
         assert result is True
         assert mock_sandbox.execute.call_count == 3
         assert mock_sleep.call_count == 2
+
+
+class TestModalSandboxCommandEscaping:
+    @pytest.mark.parametrize(
+        "repository",
+        [
+            "PostHog/posthog",
+            "org/repo-name",
+            "org/repo; echo hacked",
+            "org/repo$(whoami)",
+            "org'/repo",
+            "org/repo`id`",
+        ],
+    )
+    def test_clone_repository_command_escaping(self, repository):
+        import shlex
+
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._sandbox = MagicMock()
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                sandbox.clone_repository(repository, github_token="test-token")
+                command = mock_execute.call_args[0][0]
+
+                org, repo = repository.lower().split("/")
+                target_path = f"/tmp/workspace/repos/{org}/{repo}"
+                org_path = f"/tmp/workspace/repos/{org}"
+
+                assert shlex.quote(target_path) in command
+                assert shlex.quote(org_path) in command
+                assert shlex.quote(repo) in command
+
+    @pytest.mark.parametrize(
+        "repository,task_id,run_id,mode",
+        [
+            ("PostHog/posthog", "task-123", "run-456", "background"),
+            ("org/repo; echo hacked", "task-123", "run-456", "background"),
+            ("PostHog/posthog", "task; echo hacked", "run-456", "background"),
+            ("PostHog/posthog", "task-123", "run$(whoami)", "background"),
+            ("PostHog/posthog", "task-123", "run-456", "mode`id`"),
+        ],
+    )
+    def test_start_agent_server_command_escaping(self, repository, task_id, run_id, mode):
+        import shlex
+
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._sandbox = MagicMock()
+        sandbox._sandbox_url = None
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                mock_execute.return_value = MagicMock(exit_code=0)
+                with patch.object(sandbox, "_wait_for_health_check", return_value=True):
+                    sandbox.start_agent_server(repository, task_id, run_id, mode)
+
+                command = mock_execute.call_args_list[0][0][0]
+
+                org, repo = repository.lower().split("/")
+                repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+                assert shlex.quote(repo_path) in command
+                assert shlex.quote(task_id) in command
+                assert shlex.quote(run_id) in command
+                assert shlex.quote(mode) in command
