@@ -82,10 +82,6 @@ export function PropertyValue({
     const isAssigneeProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
 
-    // TODO: Add semver input validation when a semver operator is selected.
-    // This will require detecting isOperatorSemver(operator) and validating the input
-    // matches semver format (e.g., "1.2.3", "1.2.3-alpha", etc.)
-
     // we first load a set of suggested values when there is no user input yet to avoid
     // options jumping around as the user types, we keep the initially loaded options
     // in state and show those first, then any new options based on user input after
