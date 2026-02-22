@@ -198,7 +198,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                 props.id !== 'link' &&
                 featureFlag?.id
         ),
-        deps: [currentTeamId, featureFlag?.id, featureFlagMissing, accessDeniedToFeatureFlag, props.id],
     })
 
     if (featureFlagMissing) {

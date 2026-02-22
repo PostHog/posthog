@@ -78,7 +78,6 @@ function DashboardScene(): JSX.Element {
         type: 'dashboard',
         ref: dashboard?.id,
         enabled: Boolean(currentTeamId && dashboard?.id && !dashboardFailedToLoad && !accessDeniedToDashboard),
-        deps: [currentTeamId, dashboard?.id, dashboardFailedToLoad, accessDeniedToDashboard],
     })
 
     useOnMountEffect(() => {

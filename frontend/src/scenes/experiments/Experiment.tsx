@@ -37,7 +37,6 @@ export function Experiment(props: ExperimentSceneLogicProps): JSX.Element {
         type: 'experiment',
         ref: experimentId,
         enabled: Boolean(currentTeamId && !experimentMissing && typeof experimentId === 'number'),
-        deps: [currentTeamId, experimentId, experimentMissing],
     })
 
     const logicProps: ExperimentLogicProps = { experimentId, formMode, tabId }
