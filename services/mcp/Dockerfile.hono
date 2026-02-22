@@ -1,0 +1,46 @@
+FROM node:22-slim AS base
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+FROM base AS deps
+WORKDIR /app
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY services/mcp/package.json services/mcp/package.json
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile --filter @posthog/mcp
+
+FROM base AS build
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/services/mcp/node_modules ./services/mcp/node_modules
+COPY services/mcp/ services/mcp/
+WORKDIR /app/services/mcp
+RUN pnpm exec tsx scripts/build-hono.ts
+
+FROM base AS prod-deps
+WORKDIR /app
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY services/mcp/package.json services/mcp/package.json
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile --filter @posthog/mcp --prod
+
+FROM node:22-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /app/services/mcp/dist/hono-server.mjs ./hono-server.mjs
+COPY --from=build /app/services/mcp/dist/hono-server.mjs.map ./hono-server.mjs.map
+COPY --from=prod-deps /app/services/mcp/node_modules ./node_modules
+
+ENV NODE_ENV=production
+ENV PORT=3001
+
+EXPOSE 3001
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -sf http://localhost:3001/healthz || exit 1
+
+USER node
+
+CMD ["node", "hono-server.mjs"]

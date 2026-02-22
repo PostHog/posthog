@@ -1,20 +1,11 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { AnalyticsEvent, getPostHogClient } from '@/lib/analytics'
-import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
-import {
-    CUSTOM_API_BASE_URL,
-    POSTHOG_EU_BASE_URL,
-    POSTHOG_US_BASE_URL,
-    getBaseUrlForRegion,
-    toCloudRegion,
-} from '@/lib/constants'
 import { handleToolError } from '@/lib/errors'
 import { getInstructions, INSTRUCTIONS_V1 } from '@/lib/instructions'
 import { formatResponse } from '@/lib/response'
@@ -22,72 +13,55 @@ import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import { getToolsFromContext } from '@/tools'
-import type { CloudRegion, Context, State, Tool } from '@/tools/types'
+import type { CloudRegion, Context, Env, State, Tool } from '@/tools/types'
 import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
 
-export type RequestProperties = {
+import { RedisCache, type RedisLike } from './cache/RedisCache'
+import {
+    POSTHOG_EU_BASE_URL,
+    POSTHOG_US_BASE_URL,
+    getBaseUrlForRegion,
+    getCustomApiBaseUrl,
+    getEnv,
+    toCloudRegion,
+} from './constants'
+
+export interface RequestProperties {
     userHash: string
     apiToken: string
-    sessionId?: string
-    features?: string[]
-    region?: string
-    version?: number
-    organizationId?: string
-    projectId?: string
+    sessionId?: string | undefined
+    features?: string[] | undefined
+    region?: string | undefined
+    version?: number | undefined
+    organizationId?: string | undefined
+    projectId?: string | undefined
 }
 
-export class MCP extends McpAgent<Env> {
-    server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions: INSTRUCTIONS_V1 })
+export class HonoMcpServer {
+    private env: Env
+    private props: RequestProperties
+    private cache: RedisCache<State>
+    private _api: ApiClient | undefined
+    private _sessionManager: SessionManager | undefined
+    server: McpServer
 
-    initialState: State = {
-        projectId: undefined,
-        orgId: undefined,
-        distinctId: undefined,
-        region: undefined,
-        apiKey: undefined,
-        clientName: undefined,
-    }
-
-    _cache: DurableObjectCache<State> | undefined
-
-    _api: ApiClient | undefined
-
-    _sessionManager: SessionManager | undefined
-
-    get requestProperties(): RequestProperties {
-        return this.props as RequestProperties
-    }
-
-    get cache(): DurableObjectCache<State> {
-        if (!this.requestProperties.userHash) {
-            throw new Error('User hash is required to use the cache')
-        }
-
-        if (!this._cache) {
-            this._cache = new DurableObjectCache<State>(this.requestProperties.userHash, this.ctx.storage)
-        }
-
-        return this._cache
+    constructor(redis: RedisLike, props: RequestProperties) {
+        this.env = getEnv()
+        this.props = props
+        this.cache = new RedisCache<State>(props.userHash, redis)
+        this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions: INSTRUCTIONS_V1 })
     }
 
     get sessionManager(): SessionManager {
         if (!this._sessionManager) {
             this._sessionManager = new SessionManager(this.cache)
         }
-
         return this._sessionManager
     }
 
     async detectRegion(): Promise<CloudRegion | undefined> {
-        const usClient = new ApiClient({
-            apiToken: this.requestProperties.apiToken,
-            baseUrl: POSTHOG_US_BASE_URL,
-        })
-
-        const euClient = new ApiClient({
-            apiToken: this.requestProperties.apiToken,
-            baseUrl: POSTHOG_EU_BASE_URL,
-        })
+        const usClient = new ApiClient({ apiToken: this.props.apiToken, baseUrl: POSTHOG_US_BASE_URL })
+        const euClient = new ApiClient({ apiToken: this.props.apiToken, baseUrl: POSTHOG_EU_BASE_URL })
 
         const [usResult, euResult] = await Promise.all([usClient.users().me(), euClient.users().me()])
 
@@ -95,50 +69,41 @@ export class MCP extends McpAgent<Env> {
             await this.cache.set('region', 'us')
             return 'us'
         }
-
         if (euResult.success) {
             await this.cache.set('region', 'eu')
             return 'eu'
         }
-
         return undefined
     }
 
     async getBaseUrl(): Promise<string> {
-        if (CUSTOM_API_BASE_URL) {
-            return CUSTOM_API_BASE_URL
+        const custom = getCustomApiBaseUrl()
+        if (custom) {
+            return custom
         }
 
-        // Check region from request props first (passed via URL param), then cache, then detect
-        const propsRegion = this.requestProperties.region
+        const propsRegion = this.props.region
         if (propsRegion) {
             const region = toCloudRegion(propsRegion)
-            // Cache it for future requests
             await this.cache.set('region', region)
             return getBaseUrlForRegion(region)
         }
 
         const cachedRegion = await this.cache.get('region')
         const region = cachedRegion ? toCloudRegion(cachedRegion) : await this.detectRegion()
-
         return getBaseUrlForRegion(region || 'us')
     }
 
     async api(): Promise<ApiClient> {
         if (!this._api) {
             const baseUrl = await this.getBaseUrl()
-            this._api = new ApiClient({
-                apiToken: this.requestProperties.apiToken,
-                baseUrl,
-            })
+            this._api = new ApiClient({ apiToken: this.props.apiToken, baseUrl })
         }
-
         return this._api
     }
 
     async getDistinctId(): Promise<string> {
         let _distinctId = await this.cache.get('distinctId')
-
         if (!_distinctId) {
             const userResult = await (await this.api()).users().me()
             if (!userResult.success) {
@@ -147,22 +112,18 @@ export class MCP extends McpAgent<Env> {
             await this.cache.set('distinctId', userResult.data.distinct_id)
             _distinctId = userResult.data.distinct_id as string
         }
-
         return _distinctId
     }
 
     private async getBaseEventProperties(): Promise<Record<string, any>> {
         const props: Record<string, any> = {}
-
-        if (this.requestProperties.sessionId) {
-            props.$session_id = await this.sessionManager.getSessionUuid(this.requestProperties.sessionId)
+        if (this.props.sessionId) {
+            props.$session_id = await this.sessionManager.getSessionUuid(this.props.sessionId)
         }
-
         const clientName = await this.cache.get('clientName')
         if (clientName) {
             props.client_name = clientName
         }
-
         return props
     }
 
@@ -170,13 +131,13 @@ export class MCP extends McpAgent<Env> {
         try {
             const distinctId = await this.getDistinctId()
             const client = getPostHogClient()
-
             client.capture({
                 distinctId,
                 event,
                 properties: {
                     ...(await this.getBaseEventProperties()),
                     ...properties,
+                    mcp_runtime: 'hono',
                 },
             })
         } catch {
@@ -190,57 +151,32 @@ export class MCP extends McpAgent<Env> {
     ): void {
         const wrappedHandler = async (params: z.infer<z.ZodObject<TSchema>>): Promise<any> => {
             const validation = tool.schema.safeParse(params)
-
             if (!validation.success) {
                 await this.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, {
                     tool: tool.name,
                     valid_input: false,
                     input: params,
                 })
-                return [
-                    {
-                        type: 'text',
-                        text: `Invalid input: ${validation.error.message}`,
-                    },
-                ]
+                return [{ type: 'text', text: `Invalid input: ${validation.error.message}` }]
             }
 
-            await this.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, {
-                tool: tool.name,
-                valid_input: true,
-            })
+            await this.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, { tool: tool.name, valid_input: true })
 
             try {
                 const result = await handler(params)
                 await this.trackEvent(AnalyticsEvent.MCP_TOOL_RESPONSE, { tool: tool.name })
 
-                // For tools with UI resources, include structuredContent for better UI rendering
-                // structuredContent is not added to model context, only used by UI apps
                 const hasUiResource = tool._meta?.ui?.resourceUri
-
-                // If there's a UI resource, include analytics metadata for the UI app
-                // The structuredContent is typed as WithAnalytics<T> where T is the tool result
                 let structuredContent: WithAnalytics<typeof result> | typeof result = result
+
                 if (hasUiResource) {
                     const distinctId = await this.getDistinctId()
-                    const analyticsMetadata: AnalyticsMetadata = {
-                        distinctId,
-                        toolName: tool.name,
-                    }
-                    structuredContent = {
-                        ...result,
-                        _analytics: analyticsMetadata,
-                    }
+                    const analyticsMetadata: AnalyticsMetadata = { distinctId, toolName: tool.name }
+                    structuredContent = { ...result, _analytics: analyticsMetadata }
                 }
 
                 return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: formatResponse(result),
-                        },
-                    ],
-                    // Include raw result as structuredContent for UI apps to consume
+                    content: [{ type: 'text', text: formatResponse(result) }],
                     ...(hasUiResource ? { structuredContent } : {}),
                 }
             } catch (error: any) {
@@ -249,21 +185,14 @@ export class MCP extends McpAgent<Env> {
                     error,
                     tool.name,
                     distinctId,
-                    this.requestProperties.sessionId
-                        ? await this.sessionManager.getSessionUuid(this.requestProperties.sessionId)
-                        : undefined
+                    this.props.sessionId ? await this.sessionManager.getSessionUuid(this.props.sessionId) : undefined
                 )
             }
         }
 
-        // Normalize _meta to include both new (ui.resourceUri) and legacy (ui/resourceUri) formats
-        // for compatibility with different MCP clients
         let normalizedMeta = tool._meta
         if (tool._meta?.ui?.resourceUri && !tool._meta[RESOURCE_URI_META_KEY]) {
-            normalizedMeta = {
-                ...tool._meta,
-                [RESOURCE_URI_META_KEY]: tool._meta.ui.resourceUri,
-            }
+            normalizedMeta = { ...tool._meta, [RESOURCE_URI_META_KEY]: tool._meta.ui.resourceUri }
         }
 
         this.server.registerTool(
@@ -291,10 +220,9 @@ export class MCP extends McpAgent<Env> {
     }
 
     async init(): Promise<void> {
-        const { features, version, organizationId, projectId } = this.requestProperties
+        const { features, version, organizationId, projectId } = this.props
         this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions: getInstructions(version) })
 
-        // Pre-seed cache with org/project IDs from headers/query params
         if (organizationId) {
             await this.cache.set('orgId', organizationId)
         }
@@ -302,8 +230,6 @@ export class MCP extends McpAgent<Env> {
             await this.cache.set('projectId', projectId)
         }
 
-        // When project ID is provided, both switch tools are removed (project implies org).
-        // When only organization ID is provided, only switch-organization is removed.
         const excludeTools: string[] = []
         if (projectId) {
             excludeTools.push('switch-organization', 'switch-project')
@@ -313,16 +239,14 @@ export class MCP extends McpAgent<Env> {
 
         const context = await this.getContext()
 
-        // Register prompts and resources
         await registerPrompts(this.server)
         await registerResources(this.server, context)
         await registerUiAppResources(this.server, context)
 
-        // Register tools
         const allTools = await getToolsFromContext(context, { features, version, excludeTools })
-
         for (const tool of allTools) {
             this.registerTool(tool, async (params) => tool.handler(context, params))
         }
     }
+
 }
