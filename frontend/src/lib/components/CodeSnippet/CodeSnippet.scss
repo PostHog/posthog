@@ -32,3 +32,151 @@
         border-radius: var(--radius) !important;
     }
 }
+
+// highlight.js light theme (VS Code light inspired)
+.hljs {
+    color: rgb(0 0 0);
+}
+
+.hljs-comment,
+.hljs-quote {
+    color: rgb(0 128 0);
+}
+
+.hljs-keyword,
+.hljs-selector-tag {
+    color: rgb(0 0 255);
+}
+
+.hljs-string,
+.hljs-deletion {
+    color: rgb(163 21 21);
+}
+
+.hljs-number,
+.hljs-variable,
+.hljs-addition {
+    color: rgb(9 134 88);
+}
+
+.hljs-title,
+.hljs-section {
+    color: rgb(0 0 255);
+}
+
+.hljs-title.class_ {
+    color: rgb(38 127 153);
+}
+
+.hljs-built_in {
+    color: rgb(0 112 193);
+}
+
+.hljs-literal {
+    color: rgb(129 31 63);
+}
+
+.hljs-tag {
+    color: rgb(128 0 0);
+}
+
+.hljs-attr {
+    color: rgb(255 0 0);
+}
+
+.hljs-name {
+    color: rgb(128 0 0);
+}
+
+.hljs-type,
+.hljs-params {
+    color: rgb(38 127 153);
+}
+
+.hljs-punctuation {
+    color: rgb(4 81 165);
+}
+
+.hljs-meta {
+    color: rgb(0 112 193);
+}
+
+.hljs-emphasis {
+    font-style: italic;
+}
+
+.hljs-strong {
+    font-weight: bold;
+}
+
+// highlight.js dark theme (VS Code dark inspired)
+.hljs-dark {
+    color: rgb(212 212 212);
+
+    .hljs-comment,
+    .hljs-quote {
+        color: rgb(106 153 85);
+    }
+
+    .hljs-keyword,
+    .hljs-selector-tag {
+        color: rgb(86 156 214);
+    }
+
+    .hljs-string,
+    .hljs-deletion {
+        color: rgb(206 145 120);
+    }
+
+    .hljs-number,
+    .hljs-addition {
+        color: rgb(181 206 168);
+    }
+
+    .hljs-variable,
+    .hljs-attr {
+        color: rgb(156 220 254);
+    }
+
+    .hljs-title,
+    .hljs-section {
+        color: rgb(220 220 170);
+    }
+
+    .hljs-title.class_ {
+        color: rgb(78 201 176);
+    }
+
+    .hljs-built_in {
+        color: rgb(86 156 214);
+    }
+
+    .hljs-literal {
+        color: rgb(100 102 149);
+    }
+
+    .hljs-tag {
+        color: rgb(78 201 176);
+    }
+
+    .hljs-name {
+        color: rgb(78 201 176);
+    }
+
+    .hljs-type,
+    .hljs-params {
+        color: rgb(78 201 176);
+    }
+
+    .hljs-punctuation {
+        color: rgb(212 212 212);
+    }
+
+    .hljs-meta {
+        color: rgb(86 156 214);
+    }
+
+    .hljs-selector-class {
+        color: rgb(215 186 125);
+    }
+}
