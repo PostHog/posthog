@@ -54,7 +54,10 @@ class RoleSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "created_by", "is_default"]
 
     def validate_name(self, name):
-        if Role.objects.filter(name__iexact=name, organization=self.context["request"].user.organization).exists():
+        qs = Role.objects.filter(name__iexact=name, organization=self.context["request"].user.organization)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
             raise serializers.ValidationError("There is already a role with this name.", code="unique")
         return name
 
