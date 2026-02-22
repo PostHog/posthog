@@ -3,17 +3,18 @@ import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { memo, useMemo } from 'react'
 
-import { IconBook, IconDownload, IconInfo, IconPlayFilled } from '@posthog/icons'
-import { LemonDivider, Spinner } from '@posthog/lemon-ui'
+import { IconBook, IconDownload, IconFilter, IconInfo, IconPlayFilled } from '@posthog/icons'
+import { LemonDivider, LemonDropdown, Spinner } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
-import { IconCancel } from 'lib/lemon-ui/icons'
+import { IconCancel, IconWithCount } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -21,6 +22,7 @@ import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSection'
+import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 
@@ -32,6 +34,75 @@ import { QueryVariablesMenu } from './QueryVariablesMenu'
 import { FixErrorButton } from './components/FixErrorButton'
 import { draftsLogic } from './draftsLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
+
+function FiltersDropdown({ disabledReason }: { disabledReason?: string }): JSX.Element {
+    const { sourceQuery, hasTestAccountFilters } = useValues(sqlEditorLogic)
+    const { setSourceQuery, runQuery, setLocalDefault } = useActions(sqlEditorLogic)
+
+    const hasDateRange = !!(
+        sourceQuery.source.filters?.dateRange?.date_from || sourceQuery.source.filters?.dateRange?.date_to
+    )
+    const hasTestFilter = hasTestAccountFilters && !!sourceQuery.source.filters?.filterTestAccounts
+    const activeFilterCount = (hasDateRange ? 1 : 0) + (hasTestFilter ? 1 : 0)
+
+    return (
+        <LemonDropdown
+            closeOnClickInside={false}
+            overlay={
+                <div className="flex flex-col gap-2 p-2 min-w-64">
+                    <DateRange
+                        key="date-range"
+                        query={sourceQuery.source}
+                        setQuery={(query) => {
+                            setSourceQuery({
+                                ...sourceQuery,
+                                source: query,
+                            })
+                            runQuery(query.query)
+                        }}
+                    />
+                    <TestAccountFilterSwitch
+                        checked={hasTestFilter}
+                        onChange={(checked: boolean) => {
+                            setSourceQuery({
+                                ...sourceQuery,
+                                source: {
+                                    ...sourceQuery.source,
+                                    filters: {
+                                        ...sourceQuery.source.filters,
+                                        filterTestAccounts: checked,
+                                    },
+                                },
+                            })
+                            setLocalDefault(checked)
+                            runQuery()
+                        }}
+                        size="xsmall"
+                    />
+                </div>
+            }
+        >
+            <LemonButton
+                icon={
+                    <IconWithCount
+                        count={activeFilterCount}
+                        showZero={false}
+                        className={activeFilterCount > 0 ? 'mr-1' : undefined}
+                    >
+                        <IconFilter />
+                    </IconWithCount>
+                }
+                disabledReason={disabledReason}
+                tooltipDocLink={disabledReason ? 'https://posthog.com/docs/data-warehouse/sql/filters' : undefined}
+                type="tertiary"
+                size="xsmall"
+                className="overflow-visible"
+            >
+                Filters
+            </LemonButton>
+        </LemonDropdown>
+    )
+}
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
@@ -54,6 +125,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
         currentDraft,
         changesToSave,
         inProgressViewEdits,
+        showLegacyFilters,
     } = useValues(sqlEditorLogic)
 
     const {
@@ -262,6 +334,13 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                 )}
                 <FixErrorButton type="tertiary" size="xsmall" source="action-bar" />
                 <div className="ml-auto flex items-center gap-1">
+                    <FiltersDropdown
+                        disabledReason={
+                            !showLegacyFilters
+                                ? "Add a '{filters}' placeholder to your query to use filters"
+                                : undefined
+                        }
+                    />
                     <QueryVariablesMenu
                         disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
                     />
@@ -270,7 +349,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                             checked={editorVimModeEnabled}
                             onChange={setEditorVimModeEnabled}
                             label="Vim"
-                            size="small"
+                            size="xsmall"
                             data-attr="sql-editor-vim-toggle"
                         />
                     )}
