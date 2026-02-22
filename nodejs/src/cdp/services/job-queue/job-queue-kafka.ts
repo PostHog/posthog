@@ -3,12 +3,9 @@
  * To make this easier this class is designed to abstract the queue as much as possible from
  * the underlying implementation.
  */
-import { Message, KafkaConsumer as RdKafkaConsumer } from 'node-rdkafka'
-import { hostname } from 'os'
-import { Counter, Histogram } from 'prom-client'
+import { Message } from 'node-rdkafka'
 import { compress, uncompress } from 'snappy'
 
-import { getKafkaConfigFromEnv } from '../../../kafka/config'
 import { KafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { HealthCheckResult, HealthCheckResultError, PluginsServerConfig } from '../../../types'
@@ -16,23 +13,12 @@ import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { cdpJobSizeKb } from './shared'
-
-export const cdpSeekLatencyMs = new Histogram({
-    name: 'cdp_seek_latency_ms',
-    help: 'Latency in ms of seeking back to a specific offset to re-read a message',
-    buckets: [1, 5, 10, 25, 50, 100, 150, 200, 250, 500, 1000, 2500, 5000, 10000],
-})
-
-export const cdpSeekResult = new Counter({
-    name: 'cdp_seek_result_total',
-    help: 'Count of seek test results by outcome',
-    labelNames: ['result'],
-})
+import { WarpstreamFetchTester } from './warpstream-fetch-tester'
 
 export class CyclotronJobQueueKafka {
     private kafkaConsumer?: KafkaConsumer
     private kafkaProducer?: KafkaProducerWrapper
-    private seekTestConsumer?: RdKafkaConsumer
+    private fetchTester?: WarpstreamFetchTester
 
     constructor(
         private config: PluginsServerConfig,
@@ -61,49 +47,15 @@ export class CyclotronJobQueueKafka {
             return { backgroundTask }
         })
 
-        // Initialize seek test consumer if enabled
         if (this.config.CDP_CYCLOTRON_TEST_SEEK_LATENCY) {
-            try {
-                this.seekTestConsumer = new RdKafkaConsumer(
-                    {
-                        'client.id': `${hostname()}-seek-test`,
-                        'metadata.broker.list': this.config.KAFKA_HOSTS,
-                        ...getKafkaConfigFromEnv('CONSUMER'),
-                        // Static group.id is safe here: we only use assign() (not subscribe()),
-                        // so no group coordination or rebalancing occurs across consumers.
-                        'group.id': 'cdp-seek-test',
-                        'enable.auto.commit': false,
-                        'enable.auto.offset.store': false,
-                    },
-                    { 'auto.offset.reset': 'earliest' }
-                )
-                this.seekTestConsumer.setDefaultConsumeTimeout(5000)
-                await new Promise((resolve, reject) =>
-                    this.seekTestConsumer!.connect({}, (error, data) => (error ? reject(error) : resolve(data)))
-                )
-                logger.info('🔄', 'Seek test consumer connected')
-            } catch (error) {
-                logger.warn('🔄', 'Failed to initialize seek test consumer, seek tests will be skipped', {
-                    error: String(error),
-                })
-                this.seekTestConsumer = undefined
-            }
+            this.fetchTester = new WarpstreamFetchTester(this.config)
+            this.fetchTester.start()
+            logger.info('🔄', 'WarpStream fetch tester initialized')
         }
     }
 
     public async stopConsumer() {
         await this.kafkaConsumer?.disconnect()
-
-        if (this.seekTestConsumer) {
-            await new Promise<void>((resolve) => {
-                this.seekTestConsumer!.disconnect((error) => {
-                    if (error) {
-                        logger.warn('Failed to disconnect seek test consumer', { error })
-                    }
-                    resolve()
-                })
-            })
-        }
     }
 
     public async stopProducer() {
@@ -212,73 +164,20 @@ export class CyclotronJobQueueKafka {
 
         const result = await this.consumeBatch(invocations)
 
-        // Seek-back latency test: for a sample of messages, seek to a random older offset
-        // on the same partition and measure how long the read takes (for WarpStream evaluation).
-        // Runs as background task so it doesn't block batch processing.
-        if (this.seekTestConsumer) {
-            const seekTestMessages = messages.filter(
-                () => Math.random() < this.config.CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE
-            )
-
-            if (seekTestMessages.length > 0) {
-                const seekTestTask = (async () => {
-                    for (const message of seekTestMessages) {
-                        await this.testSeekLatency(message)
-                    }
-                })()
-
-                return {
-                    backgroundTask: Promise.all([result.backgroundTask, seekTestTask]),
+        if (this.fetchTester) {
+            const fetchTester = this.fetchTester
+            const fetchTestTask = (async () => {
+                for (const message of messages) {
+                    await fetchTester.maybeMeasureFetchLatency(message)
                 }
+            })()
+
+            return {
+                backgroundTask: Promise.all([result.backgroundTask, fetchTestTask]),
             }
         }
 
         return result
-    }
-
-    private async testSeekLatency(message: Message): Promise<void> {
-        if (!this.seekTestConsumer) {
-            return
-        }
-
-        const { topic, partition, offset } = message
-        const maxSeekBack = Math.min(this.config.CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET, offset)
-        if (maxSeekBack <= 0) {
-            return
-        }
-
-        const seekBack = Math.floor(Math.random() * maxSeekBack) + 1
-        const targetOffset = offset - seekBack
-
-        try {
-            this.seekTestConsumer.assign([{ topic, partition, offset: targetOffset }])
-
-            const start = performance.now()
-
-            const consumed = await new Promise<Message[]>((resolve, reject) => {
-                this.seekTestConsumer!.consume(1, (error, messages) => (error ? reject(error) : resolve(messages)))
-            })
-
-            const latencyMs = performance.now() - start
-            cdpSeekLatencyMs.observe(latencyMs)
-
-            if (consumed.length > 0) {
-                cdpSeekResult.labels({ result: 'success' }).inc()
-                logger.info('seek_test', {
-                    latencyMs: Math.round(latencyMs * 100) / 100,
-                    partition,
-                    currentOffset: offset,
-                    targetOffset,
-                    seekBack,
-                    sizeBytes: consumed[0].value?.length,
-                })
-            } else {
-                cdpSeekResult.labels({ result: 'empty' }).inc()
-            }
-        } catch (error) {
-            cdpSeekResult.labels({ result: 'error' }).inc()
-            logger.warn('seek_test_error', { error: String(error), topic, partition })
-        }
     }
 }
 
