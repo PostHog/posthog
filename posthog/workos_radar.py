@@ -4,9 +4,9 @@ WorkOS Radar integration for bot/fraud detection during authentication flows.
 This module provides a client for the WorkOS Radar Attempts API to evaluate
 signup and signin attempts for potential fraud or bot activity.
 
-The integration operates in LOG-ONLY mode - it records the Radar decision as
-a PostHog event but does not actually block or challenge users based on the verdict.
-This allows evaluation of the potential impact before enabling enforcement.
+When bypass=False and Radar returns a BLOCK verdict, the attempt is rejected
+with a SuspiciousAttemptBlocked exception unless the email is on the Redis
+bypass list managed via the admin tool.
 """
 
 import time
@@ -20,13 +20,25 @@ from django.http import HttpRequest
 import requests
 import structlog
 import posthoganalytics
+from rest_framework.exceptions import APIException
 
+from posthog.redis import get_client
 from posthog.utils import get_ip_address, get_short_user_agent
 
 logger = structlog.get_logger(__name__)
 
 WORKOS_RADAR_API_URL = "https://api.workos.com/radar/attempts"
 WORKOS_RADAR_TIMEOUT = 5.0
+WORKOS_RADAR_BYPASS_REDIS_KEY = "workos_radar_bypass_emails"
+
+
+class SuspiciousAttemptBlocked(APIException):
+    status_code = 403
+    default_detail = (
+        "Your account has been flagged for suspicious activity. Please contact support@posthog.com to resolve this."
+    )
+    default_code = "suspicious_attempt_blocked"
+    default_type = "authentication_error"
 
 
 class RadarAction(StrEnum):
@@ -57,18 +69,28 @@ def _get_raw_user_agent(request: HttpRequest) -> str:
     return request.headers.get("user-agent", "")
 
 
+def is_radar_bypass_email(email: str) -> bool:
+    return bool(get_client().sismember(WORKOS_RADAR_BYPASS_REDIS_KEY, email.lower()))
+
+
+def add_radar_bypass_email(email: str) -> None:
+    get_client().sadd(WORKOS_RADAR_BYPASS_REDIS_KEY, email.lower())
+
+
+def remove_radar_bypass_email(email: str) -> None:
+    get_client().srem(WORKOS_RADAR_BYPASS_REDIS_KEY, email.lower())
+
+
 def evaluate_auth_attempt(
     request: HttpRequest,
     email: str,
     action: RadarAction,
     auth_method: RadarAuthMethod,
     user_id: Optional[str] = None,
+    bypass: bool = False,
 ) -> Optional[RadarVerdict]:
     """
     Evaluate an authentication attempt using the WorkOS Radar Attempts API.
-
-    This function operates in LOG-ONLY mode - it logs the Radar decision as a
-    PostHog event but always returns the verdict without blocking.
 
     Args:
         request: The Django/DRF request object
@@ -76,9 +98,17 @@ def evaluate_auth_attempt(
         action: Whether this is a signup or signin attempt
         auth_method: The authentication method (password or passkey)
         user_id: Optional user ID if the user already exists (for signin)
+        bypass: When True, blocking is skipped (log-only mode).
+            When False (default), and verdict is BLOCK, raises
+            SuspiciousAttemptBlocked (unless the email is in the Redis
+            bypass list).
 
     Returns:
         The Radar verdict (allow, challenge, block, error, or disabled)
+
+    Raises:
+        SuspiciousAttemptBlocked: When bypass=False and verdict is BLOCK and
+            the email is not in the bypass list.
     """
     if not settings.WORKOS_RADAR_ENABLED or not settings.WORKOS_RADAR_API_KEY:
         return None
@@ -97,6 +127,14 @@ def evaluate_auth_attempt(
     )
     duration_ms = (time.perf_counter() - start_time) * 1000
 
+    will_block = False
+    was_bypassed = False
+    if not bypass and verdict == RadarVerdict.BLOCK:
+        if is_radar_bypass_email(email):
+            was_bypassed = True
+        else:
+            will_block = True
+
     _log_radar_event(
         email=email,
         user_id=user_id,
@@ -106,7 +144,17 @@ def evaluate_auth_attempt(
         ip_address=ip_address,
         user_agent=short_user_agent,
         duration_ms=duration_ms,
+        was_blocked=will_block,
+        was_bypassed=was_bypassed,
     )
+
+    if will_block:
+        logger.warning(
+            "workos_radar_attempt_blocked",
+            action=action.value,
+            email_hash=_hash_email(email),
+        )
+        raise SuspiciousAttemptBlocked()
 
     return verdict
 
@@ -188,6 +236,8 @@ def _log_radar_event(
     ip_address: str,
     user_agent: str,
     duration_ms: float,
+    was_blocked: bool = False,
+    was_bypassed: bool = False,
 ) -> None:
     """
     Log the Radar decision as a PostHog event for analysis.
@@ -200,6 +250,8 @@ def _log_radar_event(
         "verdict": verdict.value,
         "would_challenge": verdict == RadarVerdict.CHALLENGE,
         "would_block": verdict == RadarVerdict.BLOCK,
+        "was_blocked": was_blocked,
+        "was_bypassed": was_bypassed,
         "is_error": verdict == RadarVerdict.ERROR,
         "ip_address_hash": hashlib.sha256(ip_address.encode()).hexdigest()[:16],
         "user_agent": user_agent,

@@ -296,7 +296,6 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Evaluate signin attempt with WorkOS Radar (log-only mode, does not block)
         evaluate_auth_attempt(
             request=request._request,
             email=user.email,
