@@ -2219,7 +2219,7 @@ class FeatureFlagViewSet(
                                         WHERE elem->>'rollout_percentage' = '100'
                                         AND (elem->'properties')::text = '[]'::text
                                     )
-                                    AND (posthog_featureflag.filters->>'multivariate' IS NULL OR jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') = 0)
+                                    AND (posthog_featureflag.filters->'multivariate' IS NULL OR posthog_featureflag.filters->'multivariate' = '{}'::jsonb)
                                 )
                                 OR
                                 (
