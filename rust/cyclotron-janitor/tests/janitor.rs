@@ -51,6 +51,8 @@ async fn janitor_test(db: PgPool) {
         max_touches,
         id: "test_janitor".to_string(),
         shard_id: "test_shard".to_string(),
+        delete_batch_limit: 0,
+        skip_aggregation: false,
     };
     let janitor = Janitor {
         inner: cyclotron_core::Janitor::from_pool(db.clone()),
@@ -371,4 +373,113 @@ async fn janitor_test(db: PgPool) {
     assert_eq!(result.canceled, 0);
     assert_eq!(result.poisoned, 0);
     assert_eq!(result.stalled, 0);
+}
+
+#[sqlx::test(migrations = "../cyclotron-core/migrations")]
+async fn janitor_skip_aggregation_test(db: PgPool) {
+    let default_worker_cfg = WorkerConfig::default();
+    let should_compress_vm_state = default_worker_cfg.should_compress_vm_state();
+
+    let worker = Worker::from_pool(db.clone(), default_worker_cfg);
+    let manager = QueueManager::from_pool(db.clone(), should_compress_vm_state, false);
+
+    let stall_timeout = Duration::milliseconds(100);
+    let max_touches = 3;
+
+    let (mock_cluster, mock_producer) = create_mock_kafka().await;
+    mock_cluster
+        .create_topic(APP_METRICS2_TOPIC, 1, 1)
+        .expect("failed to create mock app_metrics2 topic");
+
+    let kafka_consumer: StreamConsumer = ClientConfig::new()
+        .set("bootstrap.servers", mock_cluster.bootstrap_servers())
+        .set("group.id", "mock")
+        .set("auto.offset.reset", "earliest")
+        .create()
+        .expect("failed to create mock consumer");
+    kafka_consumer.subscribe(&[APP_METRICS2_TOPIC]).unwrap();
+
+    let settings = JanitorSettings {
+        stall_timeout,
+        max_touches,
+        id: "test_janitor".to_string(),
+        shard_id: "test_shard".to_string(),
+        delete_batch_limit: 2,
+        skip_aggregation: true,
+    };
+    let janitor = Janitor {
+        inner: cyclotron_core::Janitor::from_pool(db.clone()),
+        kafka_producer: mock_producer,
+        settings,
+        metrics_labels: vec![],
+    };
+
+    let now = Utc::now() - Duration::seconds(10);
+    let queue_name = "default".to_string();
+    let uuid = Uuid::now_v7();
+
+    let job_init = JobInit {
+        id: None,
+        team_id: 1,
+        queue_name: queue_name.clone(),
+        priority: 0,
+        scheduled: now,
+        function_id: Some(uuid),
+        parent_run_id: None,
+        vm_state: None,
+        parameters: None,
+        blob: None,
+        metadata: None,
+    };
+
+    // Create 3 jobs, complete them all
+    for _ in 0..3 {
+        manager.create_job(job_init.clone()).await.unwrap();
+    }
+    let jobs = worker.dequeue_jobs(&queue_name, 3).await.unwrap();
+    for job in &jobs {
+        worker.set_state(job.id, JobState::Completed).unwrap();
+        worker.release_job(job.id, None).await.unwrap();
+    }
+
+    // With skip_aggregation, completed/failed/canceled counts are 0
+    // (no per-state breakdown available). Verify via DB row count instead.
+    let job_count = sqlx::query_scalar!("SELECT COUNT(*) FROM cyclotron_jobs")
+        .fetch_one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(job_count, 3);
+
+    // Batch limit of 2: first run deletes 2
+    janitor.run_once().await.unwrap();
+    let job_count = sqlx::query_scalar!("SELECT COUNT(*) FROM cyclotron_jobs")
+        .fetch_one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(job_count, 1);
+
+    // Second run deletes the remaining 1
+    janitor.run_once().await.unwrap();
+    let job_count = sqlx::query_scalar!("SELECT COUNT(*) FROM cyclotron_jobs")
+        .fetch_one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(job_count, 0);
+
+    // Third run finds nothing
+    janitor.run_once().await.unwrap();
+    let job_count = sqlx::query_scalar!("SELECT COUNT(*) FROM cyclotron_jobs")
+        .fetch_one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(job_count, 0);
+
+    // No Kafka messages should have been produced
+    use std::time::Duration as StdDuration;
+    let poll = tokio::time::timeout(StdDuration::from_millis(500), kafka_consumer.recv()).await;
+    assert!(poll.is_err(), "Expected no Kafka messages but got one");
 }
