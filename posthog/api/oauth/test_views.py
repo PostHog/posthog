@@ -1161,6 +1161,7 @@ class TestOAuthAPI(APIBaseTest):
         response = self.client.get("/oauth/userinfo/", headers={"Authorization": "Bearer invalid_token"})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    @freeze_time("2024-01-01T12:00:00Z")
     def test_userinfo_endpoint_with_expired_token(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
         code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
@@ -1943,6 +1944,7 @@ class TestOAuthAPI(APIBaseTest):
         assert location
         self.assertIn("error=invalid_scope", location)
 
+    @freeze_time("2024-01-01T12:00:00Z")
     def test_token_endpoint_with_json_payload(self):
         grant = OAuthGrant.objects.create(
             application=self.confidential_application,
@@ -2318,6 +2320,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertTrue(data["active"])
         self.assertEqual(data["scope"], "openid user:read")
 
+    @freeze_time("2024-01-01T12:00:00Z")
     def test_dcr_client_gets_extended_token_expiry(self):
         self.public_application.is_dcr_client = True
         self.public_application.save()

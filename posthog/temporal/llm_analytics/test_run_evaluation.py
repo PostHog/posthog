@@ -156,7 +156,9 @@ class TestRunEvaluationWorkflow:
             with patch("posthog.temporal.llm_analytics.run_evaluation.create_event") as mock_create:
                 mock_team_get.return_value = team
 
-                await emit_evaluation_event_activity(evaluation, event_data, result, start_time=datetime.now())
+                await emit_evaluation_event_activity(
+                    evaluation, event_data, result, start_time=datetime(2024, 1, 1, 12, 0, 0)
+                )
 
                 mock_create.assert_called_once()
                 call_kwargs = mock_create.call_args[1]
@@ -290,7 +292,9 @@ class TestRunEvaluationWorkflow:
             with patch("posthog.temporal.llm_analytics.run_evaluation.create_event") as mock_create:
                 mock_team_get.return_value = team
 
-                await emit_evaluation_event_activity(evaluation, event_data, result, start_time=datetime.now())
+                await emit_evaluation_event_activity(
+                    evaluation, event_data, result, start_time=datetime(2024, 1, 1, 12, 0, 0)
+                )
 
                 mock_create.assert_called_once()
                 call_kwargs = mock_create.call_args[1]
@@ -328,7 +332,9 @@ class TestRunEvaluationWorkflow:
             with patch("posthog.temporal.llm_analytics.run_evaluation.create_event") as mock_create:
                 mock_team_get.return_value = team
 
-                await emit_evaluation_event_activity(evaluation, event_data, result, start_time=datetime.now())
+                await emit_evaluation_event_activity(
+                    evaluation, event_data, result, start_time=datetime(2024, 1, 1, 12, 0, 0)
+                )
 
                 mock_create.assert_called_once()
                 call_kwargs = mock_create.call_args[1]
