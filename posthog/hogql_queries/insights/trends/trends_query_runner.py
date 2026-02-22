@@ -153,6 +153,10 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     query_date_range = self.query_date_range
                 else:
                     query_date_range = self.query_previous_date_range
+                    # Align the previous period's interval count with the current period
+                    # so both produce the same number of data points. DST transitions can
+                    # cause dateDiff to return different counts for the same wall-clock duration.
+                    query_date_range._num_intervals_override = self.query_date_range.num_intervals()
 
                 query_date_range._earliest_timestamp_fallback = earliest_timestamp
 

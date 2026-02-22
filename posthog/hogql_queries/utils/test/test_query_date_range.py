@@ -1,9 +1,10 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from posthog.test.base import APIBaseTest
 
 from dateutil import parser
+from parameterized import parameterized
 
 from posthog.schema import DateRange, IntervalType
 
@@ -257,6 +258,45 @@ class TestQueryDateRange(APIBaseTest):
         query_date_range = QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.DAY, now=now)
         self.assertEqual(query_date_range.date_from(), parser.isoparse("2025-09-21T00:00:00Z"))
         self.assertEqual(query_date_range.date_to(), parser.isoparse("2025-09-27T23:59:59.999999Z"))
+
+    @parameterized.expand(
+        [
+            # DST fall-back: Nov 3, 2024 in US/Eastern has 25 hours
+            ("fall_back_single_day", "2024-11-03 00:00:00", "2024-11-03 23:59:59", IntervalType.HOUR, "US/Eastern", 25),
+            # DST spring-forward: Mar 10, 2024 in US/Eastern has 23 hours
+            (
+                "spring_forward_single_day",
+                "2024-03-10 00:00:00",
+                "2024-03-10 23:59:59",
+                IntervalType.HOUR,
+                "US/Eastern",
+                23,
+            ),
+            # Normal day: no DST transition, 24 hours
+            ("normal_day", "2024-11-04 00:00:00", "2024-11-04 23:59:59", IntervalType.HOUR, "US/Eastern", 24),
+            # Two days spanning DST fall-back: 25 + 24 = 49 hours
+            (
+                "two_days_across_fall_back",
+                "2024-11-03 00:00:00",
+                "2024-11-04 23:59:59",
+                IntervalType.HOUR,
+                "US/Eastern",
+                49,
+            ),
+            # Day interval across DST: should count calendar days, not UTC hours
+            ("day_interval_across_dst", "2024-11-01", "2024-11-05", IntervalType.DAY, "US/Eastern", 5),
+            # UTC timezone: no DST, always 24 hours
+            ("utc_no_dst", "2024-11-03 00:00:00", "2024-11-03 23:59:59", IntervalType.HOUR, "UTC", 24),
+        ]
+    )
+    def test_num_intervals(self, _name, date_from, date_to, interval, timezone, expected):
+        self.team.timezone = timezone
+        self.team.save()
+
+        now = datetime(2024, 12, 1, 0, 0, 0, tzinfo=ZoneInfo(timezone))
+        date_range = DateRange(date_from=date_from, date_to=date_to, explicitDate=True)
+        query_date_range = QueryDateRange(date_range=date_range, team=self.team, interval=interval, now=now)
+        self.assertEqual(query_date_range.num_intervals(), expected)
 
 
 class TestQueryDateRangeWithIntervals(APIBaseTest):

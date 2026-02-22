@@ -20,6 +20,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from pydantic import ValidationError
 
 from posthog.schema import (
@@ -6324,6 +6325,95 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_trends_daily_compare_to_7_days_ago(self):
         self._compare_trends_test(CompareFilter(compare=True, compare_to="-7d"))
+
+    @parameterized.expand(
+        [
+            # (date_from, date_to, explicit_date, interval, timezone, freeze_at, compare_filters)
+            # Relative hourly across DST fall-back (the original bug: current spans Nov 3-4 with 25h day)
+            (
+                "relative_hourly_across_dst",
+                "-1d",
+                None,
+                False,
+                IntervalType.HOUR,
+                "US/Eastern",
+                "2024-11-04T23:00:00-05:00",
+                CompareFilter(compare=True),
+            ),
+            # Multi-day daily interval across DST boundary
+            (
+                "multi_day_across_dst",
+                "2024-11-01",
+                "2024-11-05",
+                True,
+                IntervalType.DAY,
+                "US/Eastern",
+                "2024-11-10T12:00:00-05:00",
+                CompareFilter(compare=True),
+            ),
+            # Relative monthly (no DST issue expected, but verify)
+            (
+                "relative_monthly",
+                "-1m",
+                None,
+                False,
+                IntervalType.DAY,
+                "US/Eastern",
+                "2024-11-10T12:00:00-05:00",
+                CompareFilter(compare=True),
+            ),
+            # compare_to mode across DST
+            (
+                "compare_to_across_dst",
+                "-1d",
+                None,
+                False,
+                IntervalType.HOUR,
+                "US/Eastern",
+                "2024-11-04T23:00:00-05:00",
+                CompareFilter(compare=True, compare_to="-7d"),
+            ),
+        ]
+    )
+    def test_compare_equal_data_point_count(
+        self, _name, date_from, date_to, explicit_date, interval, timezone, freeze_at, compare_filters
+    ):
+        self.team.timezone = timezone
+        self.team.save()
+
+        _create_person(team_id=self.team.pk, distinct_ids=["test_user"], properties={})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="test_user",
+            timestamp="2024-11-04T12:00:00-05:00",
+        )
+
+        with freeze_time(freeze_at):
+            response = TrendsQueryRunner(
+                query=self._create_trends_query(
+                    date_from=date_from,
+                    date_to=date_to,
+                    interval=interval,
+                    series=[EventsNode(event="$pageview")],
+                    trends_filters=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+                    compare_filters=compare_filters,
+                    explicit_date=explicit_date,
+                ),
+                team=self.team,
+            ).calculate()
+
+        self.assertEqual(2, len(response.results))
+
+        current_len = len(response.results[0]["data"])
+        previous_len = len(response.results[1]["data"])
+        self.assertEqual(
+            current_len,
+            previous_len,
+            f"Current period has {current_len} data points but previous period has {previous_len}. "
+            f"date_from={date_from}, date_to={date_to}, explicit_date={explicit_date}, "
+            f"interval={interval}, timezone={timezone}",
+        )
 
     def test_trends_all_time(self):
         self._create_test_events()

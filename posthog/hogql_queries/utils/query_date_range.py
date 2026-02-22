@@ -49,6 +49,7 @@ class QueryDateRange:
     _interval_count: int
     _now_without_timezone: datetime
     _earliest_timestamp_fallback: Optional[datetime]
+    _num_intervals_override: Optional[int]
 
     def __init__(
         self,
@@ -69,6 +70,7 @@ class QueryDateRange:
         self._earliest_timestamp_fallback = earliest_timestamp_fallback
         self._timezone_info = timezone_info or self._team.timezone_info
         self._exact_timerange = exact_timerange
+        self._num_intervals_override = None
 
         # Hour intervals have strange behaviour in clickhouse:
         # From the docs:
@@ -232,6 +234,29 @@ class QueryDateRange:
             start += delta
         return values
 
+    def num_intervals(self) -> int:
+        """Compute the number of date intervals, matching ClickHouse's dateDiff.
+
+        For sub-day intervals (hour, minute, second), DST transitions cause a
+        difference between wall-clock stepping (Python relativedelta) and UTC-based
+        counting (ClickHouse dateDiff). This method uses UTC-based calculation to
+        match ClickHouse.
+
+        Note: we use .timestamp() instead of (end - start).total_seconds() because
+        Python's datetime subtraction with the same ZoneInfo does a naive calculation
+        that ignores DST offset changes.
+        """
+        start = self.align_with_interval(self.date_from())
+        end = self.align_with_interval(self.date_to())
+
+        if self.interval_name in ("second", "minute", "hour"):
+            seconds_per = {"second": 1, "minute": 60, "hour": 3600}
+            seconds_per_interval = seconds_per[self.interval_name] * self.interval_count
+            diff_seconds = end.timestamp() - start.timestamp()
+            return round(diff_seconds / seconds_per_interval) + 1
+
+        return len(self.all_values())
+
     def date_to_as_hogql(self) -> ast.Expr:
         return ast.Call(
             name="assumeNotNull",
@@ -358,7 +383,7 @@ class QueryDateRange:
         )
 
     def to_placeholders(self) -> dict[str, ast.Expr]:
-        return {
+        placeholders: dict[str, ast.Expr] = {
             "interval": self.interval_period_string_as_hogql_constant(),
             "interval_count": self.interval_count_as_hogql_constant(),
             "one_interval_period": self.one_interval_period(),
@@ -373,6 +398,9 @@ class QueryDateRange:
                 else self.date_from_as_hogql()
             ),
         }
+        if self._num_intervals_override is not None:
+            placeholders["num_intervals"] = ast.Constant(value=self._num_intervals_override)
+        return placeholders
 
 
 PERIOD_MAP: dict[str, timedelta | relativedelta] = {
