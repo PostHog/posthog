@@ -7,21 +7,17 @@ import { toast } from 'react-toastify'
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import MaxTool from 'scenes/max/MaxTool'
 import { useOpenAi } from 'scenes/max/useOpenAi'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
-import { captureMaxAISurveyCreationException } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { Survey } from '~/types'
 
 import { FeaturedTemplateCard, TemplateCard } from '../../SurveyTemplates'
 import {
     QuickSurveyFromTemplate,
-    SURVEY_CREATED_SOURCE,
     SurveyTemplate,
     SurveyTemplateType,
     defaultSurveyAppearance,
@@ -34,12 +30,13 @@ interface Props {
 }
 
 export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
-    const { createSurveyFromTemplate, addProductIntent } = useActions(surveysLogic)
+    const { createSurveyFromTemplate } = useActions(surveysLogic)
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { openAi } = useOpenAi()
     const {
         data: { surveysCount },
+        guidedEditorEnabled,
     } = useValues(surveysLogic)
 
     const [quickModalOpen, setQuickModalOpen] = useState<boolean>(false)
@@ -72,6 +69,11 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
         .at(0)
 
     const handleTemplateClick = async (survey: SurveyTemplate): Promise<void> => {
+        if (guidedEditorEnabled) {
+            router.actions.push(urls.surveyWizard() + `?template=${encodeURIComponent(survey.templateType)}`)
+            return
+        }
+
         if (survey.quickSurvey) {
             setQuickSurveyContext(survey.quickSurvey)
             setQuickModalOpen(true)
@@ -134,49 +136,22 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
 
                         <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
                             {user?.uuid && (
-                                <MaxTool
-                                    identifier="create_survey"
-                                    initialMaxPrompt="Create a survey to collect "
-                                    suggestions={[
-                                        'Create an NPS survey for customers who completed checkout',
-                                        'Create a feedback survey asking about our new dashboard',
-                                    ]}
-                                    context={{}}
-                                    callback={(toolOutput: {
-                                        survey_id?: string
-                                        error?: string
-                                        error_message?: string
-                                    }) => {
-                                        addProductIntent({
-                                            product_type: ProductKey.SURVEYS,
-                                            intent_context: ProductIntentContext.SURVEY_CREATED,
-                                            metadata: {
-                                                survey_id: toolOutput.survey_id,
-                                                source: SURVEY_CREATED_SOURCE.SURVEY_EMPTY_STATE,
-                                                created_successfully: !toolOutput?.error,
-                                            },
-                                        })
-
-                                        if (toolOutput?.error || !toolOutput?.survey_id) {
-                                            return captureMaxAISurveyCreationException(
-                                                toolOutput.error,
-                                                SURVEY_CREATED_SOURCE.SURVEY_EMPTY_STATE
-                                            )
-                                        }
-
-                                        router.actions.push(urls.survey(toolOutput.survey_id))
-                                    }}
+                                <LemonButton
+                                    type="primary"
+                                    icon={<IconSparkles />}
+                                    onClick={() => openAi('Create a survey to collect ')}
                                 >
-                                    <LemonButton
-                                        type="primary"
-                                        icon={<IconSparkles />}
-                                        onClick={() => openAi('Create a survey to collect ')}
-                                    >
-                                        Create your own custom survey with PostHog AI
-                                    </LemonButton>
-                                </MaxTool>
+                                    Create your own custom survey with PostHog AI
+                                </LemonButton>
                             )}
-                            <LemonButton type="secondary" onClick={() => router.actions.push(urls.surveyTemplates())}>
+                            <LemonButton
+                                type="secondary"
+                                onClick={() =>
+                                    router.actions.push(
+                                        guidedEditorEnabled ? urls.surveyWizard() : urls.surveyTemplates()
+                                    )
+                                }
+                            >
                                 See all other templates
                             </LemonButton>
                         </div>
