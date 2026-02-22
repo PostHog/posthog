@@ -684,8 +684,8 @@ export const LLMMessageDisplay = React.memo(
                         {renderMessageContent(content, searchQuery)}
                     </div>
                 )}
-                {show && !minimal && Object.keys(additionalKwargsEntries).length > 0 && (
-                    <div className="p-2 text-xs border-t">
+                {show && (!minimal || !content) && Object.keys(additionalKwargsEntries).length > 0 && (
+                    <div className={clsx(!minimal ? 'p-2 text-xs border-t' : 'p-1 text-xs')}>
                         <HighlightedJSONViewer
                             src={additionalKwargsEntries}
                             name={null}

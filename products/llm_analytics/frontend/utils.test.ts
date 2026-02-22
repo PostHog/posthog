@@ -1007,6 +1007,278 @@ describe('LLM Analytics utils', () => {
         })
     })
 
+    describe('OTel parts format', () => {
+        it('normalizes a single text part into a string content', () => {
+            const message = {
+                role: 'assistant',
+                parts: [{ type: 'text', content: 'Hello from OTel!' }],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([{ role: 'assistant', content: 'Hello from OTel!' }])
+        })
+
+        it('normalizes multiple text parts into an array content', () => {
+            const message = {
+                role: 'assistant',
+                parts: [
+                    { type: 'text', content: 'First part.' },
+                    { type: 'text', content: 'Second part.' },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'assistant',
+                    content: [
+                        { type: 'text', text: 'First part.' },
+                        { type: 'text', text: 'Second part.' },
+                    ],
+                },
+            ])
+        })
+
+        it('normalizes tool_call parts into CompatToolCall format', () => {
+            const message = {
+                role: 'assistant',
+                parts: [
+                    {
+                        type: 'tool_call',
+                        id: 'call_1',
+                        name: 'get_weather',
+                        arguments: { location: 'London' },
+                    },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'call_1',
+                            function: {
+                                name: 'get_weather',
+                                arguments: { location: 'London' },
+                            },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('handles mixed text and tool_call parts', () => {
+            const message = {
+                role: 'assistant',
+                parts: [
+                    { type: 'text', content: 'Let me check that.' },
+                    {
+                        type: 'tool_call',
+                        id: 'call_1',
+                        name: 'get_weather',
+                        arguments: { location: 'London' },
+                    },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'assistant',
+                    content: 'Let me check that.',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'call_1',
+                            function: {
+                                name: 'get_weather',
+                                arguments: { location: 'London' },
+                            },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('preserves top-level fields via spread', () => {
+            const message = {
+                role: 'assistant',
+                finish_reason: 'stop',
+                parts: [{ type: 'text', content: 'Done.' }],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                { role: 'assistant', finish_reason: 'stop', content: 'Done.' },
+            ])
+        })
+
+        it('handles tool_call without id', () => {
+            const message = {
+                role: 'assistant',
+                parts: [
+                    {
+                        type: 'tool_call',
+                        name: 'do_thing',
+                        arguments: { x: 1 },
+                    },
+                ],
+            }
+
+            const result = normalizeMessage(message, 'user')
+            expect(result[0].tool_calls![0].id).toBeUndefined()
+            expect(result[0].tool_calls![0].function.name).toBe('do_thing')
+        })
+
+        it('handles tool_call without arguments', () => {
+            const message = {
+                role: 'assistant',
+                parts: [{ type: 'tool_call', id: 'call_1', name: 'no_args' }],
+            }
+
+            const result = normalizeMessage(message, 'user')
+            expect(result[0].tool_calls![0].function.arguments).toEqual({})
+        })
+
+        it('normalizes role aliases', () => {
+            const message = {
+                role: 'human',
+                parts: [{ type: 'text', content: 'Hi' }],
+            }
+
+            expect(normalizeMessage(message, 'assistant')).toEqual([{ role: 'user', content: 'Hi' }])
+        })
+
+        it('normalizes tool_call_response parts into tool messages', () => {
+            const message = {
+                role: 'user',
+                parts: [
+                    {
+                        type: 'tool_call_response',
+                        id: 'call_abc',
+                        name: 'get_weather',
+                        result: 'Sunny, 25°C',
+                    },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                { role: 'tool', content: 'Sunny, 25°C', tool_call_id: 'call_abc' },
+            ])
+        })
+
+        it('stringifies non-string tool_call_response results', () => {
+            const message = {
+                role: 'user',
+                parts: [
+                    {
+                        type: 'tool_call_response',
+                        id: 'call_1',
+                        name: 'get_data',
+                        result: { temperature: 25, unit: 'C' },
+                    },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'tool',
+                    content: '{"temperature":25,"unit":"C"}',
+                    tool_call_id: 'call_1',
+                },
+            ])
+        })
+
+        it('parses stringified JSON tool_call arguments', () => {
+            const message = {
+                role: 'assistant',
+                parts: [
+                    {
+                        type: 'tool_call',
+                        id: 'call_1',
+                        name: 'get_weather',
+                        arguments: '{"latitude":45.5,"longitude":-73.5}',
+                    },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'call_1',
+                            function: {
+                                name: 'get_weather',
+                                arguments: { latitude: 45.5, longitude: -73.5 },
+                            },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('handles a full tool-use conversation', () => {
+            const messages = [
+                {
+                    role: 'assistant',
+                    parts: [
+                        {
+                            type: 'tool_call',
+                            id: 'call_1',
+                            name: 'get_weather',
+                            arguments: '{"location":"Montreal"}',
+                        },
+                    ],
+                    finish_reason: 'tool_call',
+                },
+                {
+                    role: 'user',
+                    parts: [
+                        {
+                            type: 'tool_call_response',
+                            id: 'call_1',
+                            name: 'get_weather',
+                            result: '-10°C, partly cloudy',
+                        },
+                    ],
+                },
+            ]
+
+            const result = normalizeMessages(messages, 'user')
+
+            expect(result).toEqual([
+                {
+                    role: 'assistant',
+                    finish_reason: 'tool_call',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'call_1',
+                            function: { name: 'get_weather', arguments: { location: 'Montreal' } },
+                        },
+                    ],
+                },
+                {
+                    role: 'tool',
+                    content: '-10°C, partly cloudy',
+                    tool_call_id: 'call_1',
+                },
+            ])
+        })
+
+        it('handles empty parts array', () => {
+            const message = {
+                role: 'assistant',
+                parts: [],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([{ role: 'assistant', content: '' }])
+        })
+    })
+
     describe('getSessionID', () => {
         const baseEvent = (overrides: Partial<LLMTraceEvent> = {}): LLMTraceEvent => ({
             id: 'event-id',
