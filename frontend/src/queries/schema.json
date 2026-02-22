@@ -8076,6 +8076,9 @@
                 "heatmap": {
                     "$ref": "#/definitions/HeatmapSettings"
                 },
+                "incompletePeriodDisplay": {
+                    "$ref": "#/definitions/IncompletePeriodDisplay"
+                },
                 "leftYAxisSettings": {
                     "$ref": "#/definitions/YAxisSettings"
                 },
@@ -17810,6 +17813,10 @@
             },
             "required": ["type", "content"],
             "type": "object"
+        },
+        "IncompletePeriodDisplay": {
+            "enum": ["dashed", "solid", "hidden"],
+            "type": "string"
         },
         "InfinityValue": {
             "enum": [999999, -999999],
@@ -32618,6 +32625,9 @@
                         "$ref": "#/definitions/integer"
                     },
                     "type": "array"
+                },
+                "incompletePeriodDisplay": {
+                    "$ref": "#/definitions/IncompletePeriodDisplay"
                 },
                 "minDecimalPlaces": {
                     "type": "number"

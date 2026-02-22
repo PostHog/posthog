@@ -2177,6 +2177,12 @@ class HogQueryResponse(BaseModel):
     stdout: str | None = None
 
 
+class IncompletePeriodDisplay(StrEnum):
+    DASHED = "dashed"
+    SOLID = "solid"
+    HIDDEN = "hidden"
+
+
 class InfinityValue(float, Enum):
     NUMBER_999999 = 999999
     NUMBER__999999 = -999999
@@ -4920,6 +4926,7 @@ class ChartSettings(BaseModel):
     )
     goalLines: list[GoalLine] | None = None
     heatmap: HeatmapSettings | None = None
+    incompletePeriodDisplay: IncompletePeriodDisplay | None = None
     leftYAxisSettings: YAxisSettings | None = None
     rightYAxisSettings: YAxisSettings | None = None
     seriesBreakdownColumn: str | None = None
@@ -6896,6 +6903,7 @@ class TrendsFilter(BaseModel):
     formulas: list[str] | None = None
     goalLines: list[GoalLine] | None = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: list[int] | None = None
+    incompletePeriodDisplay: IncompletePeriodDisplay | None = None
     minDecimalPlaces: float | None = None
     movingAverageIntervals: float | None = None
     resultCustomizationBy: ResultCustomizationBy | None = Field(

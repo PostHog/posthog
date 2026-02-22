@@ -1,7 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { DataColorTheme, DataColorToken } from 'lib/colors'
-import { dayjs } from 'lib/dayjs'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -16,6 +15,7 @@ import {
     getTrendResultCustomizationColorToken,
     getTrendResultCustomizationKey,
 } from 'scenes/insights/utils'
+import { computeIncompleteOffset } from 'scenes/insights/utils/incompletePeriodUtils'
 
 import {
     BreakdownFilter,
@@ -263,24 +263,36 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             },
         ],
 
+        incompletePeriodDisplay: [
+            (s) => [s.trendsFilter],
+            (trendsFilter: TrendsFilter | undefined | null) => {
+                return trendsFilter?.incompletePeriodDisplay ?? 'dashed'
+            },
+        ],
+
         incompletenessOffsetFromEnd: [
             (s) => [s.results, s.interval],
             (results, interval) => {
-                // Returns negative number of points to paint over starting from end of array
                 if (results[0]?.days === undefined) {
                     return 0
                 }
-                const startDate = dayjs()
-                    .tz('utc', true)
-                    .startOf(interval ?? 'd')
-                const startIndex = results[0].days.findIndex((day: string) => {
-                    return dayjs(day).tz('utc', true) >= startDate
-                })
+                return computeIncompleteOffset(results[0].days, interval ?? 'd')
+            },
+        ],
 
-                if (startIndex !== undefined && startIndex !== -1) {
-                    return startIndex - results[0].days.length
+        visibleIndexedResults: [
+            (s) => [s.indexedResults, s.incompletePeriodDisplay, s.incompletenessOffsetFromEnd],
+            (indexedResults, incompletePeriodDisplay, incompletenessOffsetFromEnd): IndexedTrendResult[] => {
+                if (incompletePeriodDisplay !== 'hidden' || incompletenessOffsetFromEnd >= 0) {
+                    return indexedResults
                 }
-                return 0
+                const truncateCount = Math.abs(incompletenessOffsetFromEnd)
+                return indexedResults.map((result) => ({
+                    ...result,
+                    data: result.data.slice(0, result.data.length - truncateCount),
+                    days: result.days?.slice(0, result.days.length - truncateCount),
+                    labels: result.labels?.slice(0, result.labels.length - truncateCount),
+                }))
             },
         ],
 

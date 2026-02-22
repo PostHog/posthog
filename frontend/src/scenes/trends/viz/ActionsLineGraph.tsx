@@ -27,8 +27,10 @@ export function ActionsLineGraph({
 
     const {
         indexedResults,
+        visibleIndexedResults,
         labelGroupType,
         incompletenessOffsetFromEnd,
+        incompletePeriodDisplay,
         formula,
         display,
         interval,
@@ -60,10 +62,10 @@ export function ActionsLineGraph({
     )
 
     const labels =
-        (indexedResults.length === 2 &&
-            indexedResults.every((x) => x.compare) &&
-            indexedResults.find((x) => x.compare_label === 'current')?.labels) ||
-        (indexedResults[0] && indexedResults[0].labels) ||
+        (visibleIndexedResults.length === 2 &&
+            visibleIndexedResults.every((x) => x.compare) &&
+            visibleIndexedResults.find((x) => x.compare_label === 'current')?.labels) ||
+        (visibleIndexedResults[0] && visibleIndexedResults[0].labels) ||
         []
 
     const shortenLifecycleLabels = (s: string | undefined): string => {
@@ -95,7 +97,7 @@ export function ActionsLineGraph({
         return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
     }
 
-    const finalDatasets = indexedResults.flatMap((originalDataset, index) => {
+    const finalDatasets = visibleIndexedResults.flatMap((originalDataset, index) => {
         const yAxisID = showMultipleYAxes && index > 0 ? `y${index}` : 'y'
         const mainSeries = { ...originalDataset, yAxisID }
         const datasets = [mainSeries]
@@ -204,7 +206,7 @@ export function ActionsLineGraph({
                           filter: (s) => !s.hideTooltip,
                       }
             }
-            isInProgress={!isStickiness && incompletenessOffsetFromEnd < 0}
+            isInProgress={!isStickiness && incompletePeriodDisplay === 'dashed' && incompletenessOffsetFromEnd < 0}
             isArea={display === ChartDisplayType.ActionsAreaGraph}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             legend={legend}

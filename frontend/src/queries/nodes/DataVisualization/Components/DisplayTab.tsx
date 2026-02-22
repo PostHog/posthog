@@ -15,6 +15,8 @@ export const DisplayTab = (): JSX.Element => {
     const { goalLines, chartSettings } = useValues(displayLogic)
     const { addGoalLine, updateGoalLine, removeGoalLine, updateChartSettings } = useActions(displayLogic)
 
+    const isBarChart =
+        visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar
     const isStackedBarChart = visualizationType === ChartDisplayType.ActionsStackedBar
 
     const renderYAxisSettings = (name: 'leftYAxisSettings' | 'rightYAxisSettings'): JSX.Element => {
@@ -56,7 +58,9 @@ export const DisplayTab = (): JSX.Element => {
                     label="Show grid lines"
                     checked={chartSettings[name]?.showGridLines ?? true}
                     onChange={(value) => {
-                        updateChartSettings({ [name]: { showGridLines: value } })
+                        updateChartSettings({
+                            [name]: { showGridLines: value },
+                        })
                     }}
                 />
             </>
@@ -81,7 +85,9 @@ export const DisplayTab = (): JSX.Element => {
                                     label="Show legend"
                                     checked={chartSettings.showLegend ?? false}
                                     onChange={(value) => {
-                                        updateChartSettings({ showLegend: value })
+                                        updateChartSettings({
+                                            showLegend: value,
+                                        })
                                     }}
                                 />
                                 <LemonSwitch
@@ -89,7 +95,9 @@ export const DisplayTab = (): JSX.Element => {
                                     label="Show total row"
                                     checked={chartSettings.showTotalRow ?? true}
                                     onChange={(value) => {
-                                        updateChartSettings({ showTotalRow: value })
+                                        updateChartSettings({
+                                            showTotalRow: value,
+                                        })
                                     }}
                                 />
                                 <LemonSwitch
@@ -97,7 +105,9 @@ export const DisplayTab = (): JSX.Element => {
                                     label="Show X-axis labels"
                                     checked={chartSettings.showXAxisTicks ?? true}
                                     onChange={(value) => {
-                                        updateChartSettings({ showXAxisTicks: value })
+                                        updateChartSettings({
+                                            showXAxisTicks: value,
+                                        })
                                     }}
                                 />
                                 <LemonSwitch
@@ -105,7 +115,9 @@ export const DisplayTab = (): JSX.Element => {
                                     label="Show X-axis border"
                                     checked={chartSettings.showXAxisBorder ?? true}
                                     onChange={(value) => {
-                                        updateChartSettings({ showXAxisBorder: value })
+                                        updateChartSettings({
+                                            showXAxisBorder: value,
+                                        })
                                     }}
                                 />
                                 <LemonSwitch
@@ -113,9 +125,39 @@ export const DisplayTab = (): JSX.Element => {
                                     label="Show Y-axis border"
                                     checked={chartSettings.showYAxisBorder ?? true}
                                     onChange={(value) => {
-                                        updateChartSettings({ showYAxisBorder: value })
+                                        updateChartSettings({
+                                            showYAxisBorder: value,
+                                        })
                                     }}
                                 />
+                                {!isBarChart && (
+                                    <div className="flex gap-2 items-center justify-between">
+                                        <span className="font-medium">Incomplete period</span>
+                                        <LemonSelect
+                                            size="xsmall"
+                                            value={chartSettings.incompletePeriodDisplay ?? 'dashed'}
+                                            options={[
+                                                {
+                                                    value: 'dashed',
+                                                    label: 'Dashed line',
+                                                },
+                                                {
+                                                    value: 'solid',
+                                                    label: 'Solid line',
+                                                },
+                                                {
+                                                    value: 'hidden',
+                                                    label: 'Hidden',
+                                                },
+                                            ]}
+                                            onChange={(value) => {
+                                                updateChartSettings({
+                                                    incompletePeriodDisplay: value,
+                                                })
+                                            }}
+                                        />
+                                    </div>
+                                )}
                             </>
                         ),
                     },
@@ -142,7 +184,9 @@ export const DisplayTab = (): JSX.Element => {
                                       label="Stack bars 100%"
                                       checked={chartSettings.stackBars100 ?? false}
                                       onChange={(value) => {
-                                          updateChartSettings({ stackBars100: value })
+                                          updateChartSettings({
+                                              stackBars100: value,
+                                          })
                                       }}
                                   />
                               ),

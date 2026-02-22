@@ -1066,6 +1066,7 @@ export interface ChartSettings {
     showLegend?: boolean
     showTotalRow?: boolean
     heatmap?: HeatmapSettings
+    incompletePeriodDisplay?: IncompletePeriodDisplay
 }
 
 export interface ConditionalFormattingRule {
@@ -1258,6 +1259,8 @@ export enum ResultCustomizationBy {
     Position = 'position',
 }
 
+export type IncompletePeriodDisplay = 'dashed' | 'solid' | 'hidden'
+
 export type TrendsFormulaNode = {
     formula: string
     /** Optional user-defined name for the formula */
@@ -1313,6 +1316,7 @@ export type TrendsFilter = {
     movingAverageIntervals?: number
     /** detailed results table */
     detailedResultsAggregationType?: 'total' | 'average' | 'median'
+    incompletePeriodDisplay?: IncompletePeriodDisplay
 }
 
 export type CalendarHeatmapFilter = {
@@ -1335,6 +1339,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showPercentStackView',
     'yAxisScaleType',
     'hiddenLegendIndexes',
+    'incompletePeriodDisplay',
 ])
 
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
