@@ -149,9 +149,13 @@ export function SidePanel({
 
     const activeTab = sidePanelOpen && selectedTab
 
-    const isInfoTabActive = activeTab === SidePanelTab.Info && scenePanelIsPresent
-    const PanelContent =
-        activeTab && (visibleTabs.includes(activeTab) || isInfoTabActive) ? SIDE_PANEL_TABS[activeTab]?.Content : null
+    // When the flag is on, keep the content component mounted (display:none) even
+    // when closed. This avoids the unmount/remount cycle so opening is near-instant,
+    // without the layout cost of visibility:hidden.
+    const contentTab = isRemovingSidePanelFlag ? selectedTab : activeTab
+    const isContentTabValid =
+        contentTab && (visibleTabs.includes(contentTab) || (contentTab === SidePanelTab.Info && scenePanelIsPresent))
+    const PanelContent = isContentTabValid ? SIDE_PANEL_TABS[contentTab]?.Content : null
 
     const ref = useRef<HTMLDivElement>(null)
 
@@ -357,7 +361,7 @@ export function SidePanel({
                         </div>
                     ) : (
                         <SidePanelNavigation
-                            activeTab={activeTab as SidePanelTab}
+                            activeTab={contentTab as SidePanelTab}
                             onTabChange={(tab) => openSidePanel(tab)}
                         >
                             <ErrorBoundary>
