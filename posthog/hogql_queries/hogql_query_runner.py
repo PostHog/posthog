@@ -110,6 +110,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             filters=self.query.filters,
             modifiers=self.query.modifiers or self.modifiers,
             team=self.team,
+            user=self.user,
             timings=self.timings,
             variables=self.query.variables,
             limit_context=self.limit_context,

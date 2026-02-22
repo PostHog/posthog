@@ -886,6 +886,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     query_id: Optional[str]
 
     team: Team
+    user: Optional[User]
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
@@ -903,8 +904,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         query_id: Optional[str] = None,
         workload: Workload = Workload.DEFAULT,
         extract_modifiers=lambda query: (query.modifiers if hasattr(query, "modifiers") else None),
+        user: Optional[User] = None,
     ):
         self.team = team
+        self.user = user
         self.timings = timings or HogQLTimings()
         self.limit_context = limit_context or LimitContext.QUERY
         self.query_id = query_id
@@ -1156,6 +1159,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         dashboard_id: Optional[int] = None,
         cache_age_seconds: Optional[int] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
+        # Set user for access control during query execution
+        if user is not None:
+            self.user = user
         start_time = perf_counter()
         cache_key = self.get_cache_key()
 
@@ -1697,8 +1703,8 @@ class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
         # We create a new context here because we need to access the database
         # below in the to_query method and creating a database is pretty heavy
         # so we'll reuse this database for the query once it eventually runs
-        self.database = Database.create_for(team=self.team)
-        self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database)
+        self.database = Database.create_for(team=self.team, user=self.user)
+        self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database, user=self.user)
 
 
 ### START OF BACKWARDS COMPATIBILITY CODE

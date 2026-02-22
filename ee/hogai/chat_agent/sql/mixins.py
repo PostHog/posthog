@@ -18,6 +18,7 @@ from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.models import Team
+from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.chat_agent.schema_generator.utils import SchemaGeneratorOutput
@@ -37,12 +38,13 @@ SQLSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantHogQLQuery]
 
 class HogQLDatabaseMixin:
     _team: Team
+    _user: User
     _database_instance: Database | None = None
 
     def _get_database(self):
         if self._database_instance:
             return self._database_instance
-        self._database_instance = Database.create_for(team=self._team)
+        self._database_instance = Database.create_for(team=self._team, user=self._user)
         return self._database_instance
 
     @database_sync_to_async
@@ -50,7 +52,7 @@ class HogQLDatabaseMixin:
         return self._get_database()
 
     def _get_default_hogql_context(self, database: Database):
-        hogql_context = HogQLContext(team=self._team, database=database, enable_select_queries=True)
+        hogql_context = HogQLContext(team=self._team, user=self._user, database=database, enable_select_queries=True)
         return hogql_context
 
     async def _serialize_database_schema(self):

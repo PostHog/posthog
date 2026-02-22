@@ -131,7 +131,8 @@ from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
 
 if TYPE_CHECKING:
-    from posthog.models import Team
+    from posthog.models import Team, User
+    from posthog.rbac.user_access_control import UserAccessControl
 
 tracer = trace.get_tracer(__name__)
 
@@ -249,6 +250,7 @@ class Database(BaseModel):
     _warehouse_table_names: list[str] = []
     _warehouse_self_managed_table_names: list[str] = []
     _view_table_names: list[str] = []
+    _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
 
     _timezone: str | None
     _week_start_day: WeekStartDay | None
@@ -262,6 +264,7 @@ class Database(BaseModel):
 
         self._week_start_day = week_start_day
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
+        self.user_access_control: Optional[UserAccessControl] = None
 
     def get_timezone(self) -> str:
         return self._timezone or "UTC"
@@ -293,6 +296,8 @@ class Database(BaseModel):
         except ResolutionError as e:
             if isinstance(table_name, list):
                 table_name = ".".join(table_name)
+            if table_name in self._denied_tables:
+                raise QueryError(f"You don't have access to table `{table_name}`.") from e
             raise QueryError(f"Unknown table `{table_name}`.") from e
 
     def get_all_table_names(self) -> list[str]:
@@ -342,6 +347,39 @@ class Database(BaseModel):
         self.tables.merge_with(node)
         for name in sorted(node.resolve_all_table_names()):
             self._view_table_names.append(name)
+
+    def _filter_system_tables_for_user(self, user: "User", team: "Team") -> None:
+        """Remove system tables user doesn't have resource access to."""
+        from posthog.hogql.database.postgres_table import PostgresTable
+
+        from posthog.models import OrganizationMembership
+        from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
+
+        self.user_access_control = UserAccessControl(user=user, team=team)
+
+        org_membership = self.user_access_control._organization_membership
+        if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
+            return
+
+        system_node = self.tables.children.get("system")
+        if not system_node or not hasattr(system_node, "children"):
+            return
+
+        denied: set[str] = set()
+        for table_node in list(system_node.children.values()):
+            table = table_node.table
+            if not isinstance(table, PostgresTable) or table.access_scope is None:
+                continue  # Not access-controlled, keep it
+
+            access_level = self.user_access_control.access_level_for_resource(table.access_scope)
+            if access_level and access_level != NO_ACCESS_LEVEL:
+                continue  # User has access, keep it
+
+            # No access — remove from schema
+            del system_node.children[table_node.name]
+            denied.add(f"system.{table_node.name}")
+
+        self._denied_tables = denied
 
     def serialize(
         self,
@@ -558,6 +596,7 @@ class Database(BaseModel):
         team_id: int | None = None,
         *,
         team: Optional["Team"] = None,
+        user: Optional["User"] = None,
         modifiers: HogQLQueryModifiers | None = None,
         timings: HogQLTimings | None = None,
     ) -> "Database":
@@ -610,6 +649,21 @@ class Database(BaseModel):
 
         with timings.measure("database"):
             database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
+
+        with timings.measure("filter_system_tables_for_user"):
+            if user is not None and team is not None:
+                is_hogql_access_control_enabled = posthoganalytics.feature_enabled(
+                    "hogql-access-control",
+                    str(team.uuid),
+                    groups={"organization": str(team.organization_id), "project": str(team.id)},
+                    group_properties={
+                        "organization": {"id": str(team.organization_id)},
+                        "project": {"id": str(team.id)},
+                    },
+                    send_feature_flag_events=False,
+                )
+                if is_hogql_access_control_enabled:
+                    database._filter_system_tables_for_user(user, team)
 
         with timings.measure("modifiers"):
             modifiers = create_default_modifiers_for_team(team, modifiers)

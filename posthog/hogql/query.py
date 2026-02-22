@@ -34,6 +34,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 tracer = trace.get_tracer(__name__)
@@ -58,13 +59,14 @@ class HogQLQueryExecutor:
     hogql_context: Optional[HogQLContext] = None
     clickhouse_prepared_ast: Optional[ast.AST] = None
     clickhouse_sql: Optional[str] = None
+    user: Optional[User] = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
     @tracer.start_as_current_span("HogQLQueryExecutor.__post_init__")
     def __post_init__(self):
         if self.context is self.__uninitialized_context:
-            self.context = HogQLContext(team_id=self.team.pk)
+            self.context = HogQLContext(team_id=self.team.pk, user=self.user)
 
         self.query_modifiers = create_default_modifiers_for_team(self.team, self.modifiers)
         self.debug = self.modifiers is not None and self.modifiers.debug
@@ -148,6 +150,7 @@ class HogQLQueryExecutor:
             self.context,
             team_id=self.team.pk,
             team=self.team,
+            user=self.user,
             enable_select_queries=True,
             timings=self.timings,
             modifiers=self.query_modifiers,
@@ -214,6 +217,7 @@ class HogQLQueryExecutor:
                 self.context,
                 team_id=self.team.pk,
                 team=self.team,
+                user=self.user,
                 enable_select_queries=True,
                 timings=self.timings,
                 modifiers=self.query_modifiers,
