@@ -106,7 +106,7 @@ export function SummarizeExperimentButton({ disabledReason }: { disabledReason?:
             icon={<IconAI />}
             disabledReason={disabledReason}
         >
-            Summarize
+            Summarize results
         </LemonButton>
     )
 }
