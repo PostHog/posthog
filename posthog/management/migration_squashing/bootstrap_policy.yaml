@@ -1,0 +1,1334 @@
+version: 1
+entries:
+- app: posthog
+  migration: 0287_add_session_recording_model
+  operation_index: 5
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:055ade1d6c4ebf78e14455a7e94314a9ac41d02be93dd7597580448980ffffce
+  reason: Historical playlist-to-recording backfill only; bootstrap starts empty and
+    guard enforces that.
+  operation_type: RunPython
+  tables:
+  - posthog_sessionrecordingplaylistitem
+- app: posthog
+  migration: 0292_property_definitions_persons_and_groups_support
+  operation_index: 2
+  nested_path: null
+  action: keep
+  fingerprint: sha256:0c7d787819dc82384de0a01486f5d698d8af817ff469afc45c9b0049282427b8
+  reason: Schema add-column DDL and state operation are required for final property
+    definition schema.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0299_set_templates_global
+  operation_index: 1
+  nested_path: null
+  action: keep
+  fingerprint: sha256:320f9104e9bbb113e9eba567a9eea25fa2bb69a3811f71d34dac1ea2547fdc8d
+  reason: Keeps template scope normalization behavior for bootstrap seed data.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0300_add_constraints_to_person_override
+  operation_index: 1
+  nested_path: null
+  action: keep
+  fingerprint: sha256:111e77fdd0f227533fbe5534f2aa9550dfdc11495c109ba87a50208650b87a6f
+  reason: Function definition is part of the person override constraint transition
+    and must execute in order.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0304_store_dashboard_template_in_db
+  operation_index: 6
+  nested_path: null
+  action: keep
+  fingerprint: sha256:04988c95f7780c43bc8fab7aebe3425062c630830498724de001bacf237b1e65
+  reason: AlterFieldNullSafe adjusts dashboard template field definitions and should
+    be preserved in bootstrap.
+  operation_type: AlterFieldNullSafe
+- app: posthog
+  migration: 0304_store_dashboard_template_in_db
+  operation_index: 7
+  nested_path: null
+  action: keep
+  fingerprint: sha256:15796334d30bc4e5f703dcb8734ec394c33aff141ba94f6ef424e674991c9964
+  reason: AlterFieldNullSafe adjusts dashboard template field definitions and should
+    be preserved in bootstrap.
+  operation_type: AlterFieldNullSafe
+- app: posthog
+  migration: 0304_store_dashboard_template_in_db
+  operation_index: 8
+  nested_path: null
+  action: keep
+  fingerprint: sha256:cb27e4804b7fd7a2bc7221b2a0230b29dd0bac8bbdfe2601228d9cef0eb58e2a
+  reason: AlterFieldNullSafe adjusts dashboard template field definitions and should
+    be preserved in bootstrap.
+  operation_type: AlterFieldNullSafe
+- app: posthog
+  migration: 0304_store_dashboard_template_in_db
+  operation_index: 9
+  nested_path: null
+  action: keep
+  fingerprint: sha256:b1e3c469c684eb14d8d267ad68858862bae5ae8abec8eecb6af2d4aacfd38e54
+  reason: AlterFieldNullSafe adjusts dashboard template field definitions and should
+    be preserved in bootstrap.
+  operation_type: AlterFieldNullSafe
+- app: posthog
+  migration: 0304_store_dashboard_template_in_db
+  operation_index: 10
+  nested_path: null
+  action: keep
+  fingerprint: sha256:52a0ca97066bdf26edbba2554eaf6f6ef214686faca818a22aaa4750b5927ce8
+  reason: AlterFieldNullSafe adjusts dashboard template field definitions and should
+    be preserved in bootstrap.
+  operation_type: AlterFieldNullSafe
+- app: posthog
+  migration: 0308_add_indirect_person_override_constraints
+  operation_index: 5
+  nested_path: null
+  action: keep
+  fingerprint: sha256:2a77d7f5be29c93a8224a92fa225969f6614291a19664995d547ffdfb4cc0323
+  reason: Removes the superseded function as part of constraint migration cleanup.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0310_add_starter_dashboard_template
+  operation_index: 1
+  nested_path: null
+  action: keep
+  fingerprint: null
+  reason: Bootstrap should create the starter Product analytics template.
+  operation_type: RunPython
+- app: posthog
+  migration: 0311_dashboard_template_scope
+  operation_index: 2
+  nested_path: null
+  action: keep
+  fingerprint: sha256:2eca2ae339b23356b9acc90bcf838ca8433ecd8eebc0e3805e81194d9b3fd985
+  reason: Data normalization for starter/global dashboard templates should run in
+    bootstrap.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0311_dashboard_template_scope
+  operation_index: 3
+  nested_path: null
+  action: keep
+  fingerprint: sha256:3b42c6d35497a049a64ee0a94768381c82ea19a15f62434ceff9df55f671f32a
+  reason: Data normalization for starter/team dashboard templates should run in bootstrap.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0328_add_starter_feature_flag_template
+  operation_index: 1
+  nested_path: null
+  action: keep
+  fingerprint: null
+  reason: Seed fixture should run on bootstrap to preserve starter template behavior.
+  operation_type: RunPython
+- app: posthog
+  migration: 0365_update_created_by_flag_constraint
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: keep
+  fingerprint: sha256:20e9d698155a22a55f8192572cd90535e3692d2a92fa91bd29cd96e22c8c2baa
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0365_update_created_by_flag_constraint
+  operation_index: 1
+  nested_path: database_operations[1]
+  action: keep
+  fingerprint: sha256:483d7f962b81b38fca13b0e2961ac11d31e281c224faefc37b5368b8c82d10f8
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0385_exception_autocapture_off_for_all
+  operation_index: 1
+  nested_path: null
+  action: noop
+  fingerprint: sha256:2bda13e5e0c45ce851f8815621993d69eb5e51eca8e3a513d42b0a080a466639
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0397_projects_backfill
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: noop_if_empty
+  fingerprint: sha256:bc6feabef8b264cd2ade6d36384d76f170c0156cff5ec8e7eb280069f9c5e786
+  reason: Project/team backfill for existing installs; bootstrap path can skip on
+    empty teams.
+  operation_type: RunSQL
+  tables:
+  - posthog_team
+- app: posthog
+  migration: 0401_experiment_exposure_cohort
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: keep
+  fingerprint: sha256:0382b2848e5822efc5a513fb52bf34d4ebaca7b9c85100f1fbaa1ede26ec9656
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0410_action_steps_population
+  operation_index: 1
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:68ae10a5dec334281d0efe1b3370f1a6f7373e45ad4a529b6cd3818190418726
+  reason: Action JSON backfill for existing rows; bootstrap path can skip when no
+    actions exist.
+  operation_type: RunPython
+  tables:
+  - posthog_action
+- app: posthog
+  migration: 0415_pluginconfig_match_action
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: keep
+  fingerprint: sha256:6337f3ea54def4380a63c34b11aac3139d1c34af0ed92e1b1a779464e4e03db6
+  reason: Schema add-column/FK DDL required for final bootstrap schema.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0416_survey_internal_targeting_flag
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: keep
+  fingerprint: sha256:910169910519ba5b35f655f3cdf5e823e2769ffaf78f5da2aed8d3092f20894e
+  reason: Schema add-column/FK DDL required for final bootstrap schema.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0417_remove_organizationmembership_only_one_owner_per_organization_and_more
+  operation_index: 3
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:e2b88f2e2c72337e0ea28c64248924e0f0033ead4e7de0e889bba8313fb15c24
+  reason: Invite level data backfill only; bootstrap path can skip on empty invite
+    table.
+  operation_type: RunSQL
+  tables:
+  - posthog_organizationinvite
+- app: posthog
+  migration: 0417_remove_organizationmembership_only_one_owner_per_organization_and_more
+  operation_index: 4
+  nested_path: null
+  action: keep
+  fingerprint: sha256:e9e7aeee8286445374a9e9a525ee7eaca6f02cf83870c64a6188a18a5f15779f
+  reason: NOT NULL DDL required for final bootstrap schema.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0419_remove_organization_available_features
+  operation_index: 1
+  nested_path: null
+  action: keep
+  fingerprint: sha256:8dbb5ec7f2d8d397f2996b49e2fc581639746bf975b21ff958edb77c7cf29884
+  reason: Schema column drop required for final bootstrap schema.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0421_set_all_survey_responses_to_be_strings
+  operation_index: 1
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:ef44124ed929d7faaf3d145908edf240059a245511f5ad101b02387a4c86de89
+  reason: Property-definition cleanup backfill only; bootstrap path can skip on empty
+    table.
+  operation_type: RunSQL
+  tables:
+  - posthog_propertydefinition
+- app: posthog
+  migration: 0428_externaldataschema_sync_type
+  operation_index: 2
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:d80d5f8b74e4f2f2f8a1c8fedc659f039b0ac73e9d7d25f077cd7eae1bc7e733
+  reason: Source-specific sync-type backfill; bootstrap path can skip on empty schemas
+    table.
+  operation_type: RunSQL
+  tables:
+  - posthog_externaldataschema
+- app: posthog
+  migration: 0431_externaldataschema_sync_type_payload
+  operation_index: 3
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:301dac6268e00af8022f60f0db3c1178fb69ddcdd9dc6002bfe9bb43d7dd9db7
+  reason: Data-only backfill for existing schemas; bootstrap should be empty and guard
+    enforces that.
+  operation_type: RunSQL
+  tables:
+  - posthog_externaldataschema
+- app: posthog
+  migration: 0431_externaldataschema_sync_type_payload
+  operation_index: 4
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:455753fd9668ac5226c3390edec453574c10e893f4a22d1975a28f8cd8a48c12
+  reason: Data-only backfill for existing schemas; bootstrap should be empty and guard
+    enforces that.
+  operation_type: RunSQL
+  tables:
+  - posthog_externaldataschema
+- app: posthog
+  migration: 0437_externaldataschema_sync_frequency
+  operation_index: 3
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:5f2895db6a7e918bcdb080cff88073745f5c5b881549002cdd40cd508f374023
+  reason: Data-only backfill for existing schemas; bootstrap should be empty and guard
+    enforces that.
+  operation_type: RunSQL
+  tables:
+  - posthog_externaldataschema
+- app: posthog
+  migration: 0444_integration_unique_id
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: null
+  fingerprint: sha256:f6c41ed33e86f501084eb9a1ff7ab23a87c8093e822983797dd8336fa3807df0
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0446_annotation_dashboard_alter_annotation_scope
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: null
+  fingerprint: sha256:ffa3958441ea66a3d20f2e3a46b168b3b66ca3dfcc368139031dc87e4f0b7bbf
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0449_alter_plugin_organization_alter_plugin_plugin_type_and_more
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: null
+  fingerprint: sha256:818124f7783a0b5210e30e303844d48c2647a471a8d2a4651d6af583fc5b65d4
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0450_externaldataschema_sync_frequency_interval_and_more
+  operation_index: 2
+  nested_path: null
+  action: null
+  fingerprint: sha256:d536ae166dbac5d1c96219aa4d0b40be3b8a3a99dcf6b9ccafc0d87f18e916d2
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0450_externaldataschema_sync_frequency_interval_and_more
+  operation_index: 3
+  nested_path: null
+  action: null
+  fingerprint: sha256:12e6a2d1e337c24c3ee2f4e7490549ef31199eaf8704760b32259d1d6375ab02
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0450_externaldataschema_sync_frequency_interval_and_more
+  operation_index: 4
+  nested_path: null
+  action: null
+  fingerprint: sha256:9dc62134abd68e4992f699512a3e1828144e1bec2d410b2c46b732ea5c83080a
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0452_organization_logo
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: null
+  fingerprint: sha256:aca41caaa09c4ac1395470d7a38ac2031ecc1d0fe509c09279ca75e6a9d57c90
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0458_alter_insightviewed_team_alter_insightviewed_user
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: keep
+  fingerprint: sha256:82042e6fb7515f9f1f9cc3fde34ed2393bad8d40fc8e36a69ad13147cd27fdf7
+  reason: Schema nullability DDL is required to match final bootstrap schema.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0458_alter_insightviewed_team_alter_insightviewed_user
+  operation_index: 1
+  nested_path: database_operations[1]
+  action: keep
+  fingerprint: sha256:823abb05d1d3e49ec9327c1551e91e2b3d4dbe4a3b29a0f9844ebb293d25de6a
+  reason: Schema nullability DDL is required to match final bootstrap schema.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0459_convert_personsnode_insights_to_actorsquery
+  operation_index: 1
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:41db756c745f79fa675e86d39ad2c9c2a2a1cd16508b206ff30d95641431caad
+  reason: Historical query-shape backfill; bootstrap should have no insights and guard
+    enforces emptiness.
+  operation_type: RunPython
+  tables:
+  - posthog_insight
+- app: posthog
+  migration: 0465_datawarehouse_stripe_account
+  operation_index: 1
+  nested_path: null
+  action: noop
+  fingerprint: sha256:cc660cd4d85a83f0047929988073ac7f78c2d0acd56f87cde6000048e80e9a5e
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0477_datawarehouse_salesforce_order
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:ad55e7cf70ec04161728ef5eaa3cdbdd40898cc244d549caa477e16a087d2e00
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0478_migrate_encrypted_fields
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:2eeaa41acb25c0dee80f0391a4c4566c5d1240d169e1fce99ae4145a8393e641
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0479_alter_sensitive_config_2
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:bed96604328cd8e733367d3adc3507c31cd7456f5ab0026ae6c1a5c6913057bf
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0483_datawarehousesavedquery_table
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: keep
+  fingerprint: sha256:f9fb7266b750b5ea2ddf2ab5163897b850ad4eb0bdfad6f98cf053a81a7fdde8
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0497_experimentholdout_experiment_holdout
+  operation_index: 2
+  nested_path: database_operations[0]
+  action: keep
+  fingerprint: sha256:d7d9fd39b9cc46e1fe9a3b6266c052d74c77749c6d9d0639d369b95156fe8410
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0499_hog_function_type
+  operation_index: 2
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:8be06cd03bd0f29d1a52602c890f3649bf7137ede5e6c978dabcbba7abf6a3eb
+  reason: Data-only type backfill for existing rows; bootstrap should be empty and
+    guard enforces that.
+  operation_type: RunSQL
+  tables:
+  - posthog_hogfunction
+- app: posthog
+  migration: 0501_create_group_billing_team
+  operation_index: 1
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:545d4f55d15844014ab8901e53f9824b1132621ff8ff795bc3e749c3fa11cc3d
+  reason: Historical group seed; bootstrap should not require existing auth groups
+    and guard enforces emptiness before skip.
+  operation_type: RunPython
+  tables:
+  - auth_group
+- app: posthog
+  migration: 0505_grouptypemapping_project
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: null
+  fingerprint: sha256:eb5d287d3a1edcbf22a1d929f0d1ff6bfdea8d3f155b795fb56ae8e4658fe11b
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0510_salesforce_missing_schemas
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:cfeb5d0944e8e2ae0e4ac61c8471969efa525664dc189eb3aae766b9ba96adee
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0511_grouptypemapping_project_backfill
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:430a7290f8d58c10b7c6369d769c3738f2e9833a2766a23a33212ccf86b3e2e3
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0518_survey_internal_response_sampling_flag
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: null
+  fingerprint: sha256:587d87acecc599ec715347f83d5035f6cf895913fc1d7b8d3383ac63ffb62cc7
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0522_datawarehouse_salesforce_opportunity
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:62dbcd363c4e2971d659c16ca51cc198a8d163d5fe6ad4b77b120b57a99aa126
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0527_project_name_sync
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:939f4617eaa2867092b3c4f8e6e2cb91897cd2a39f67d62748f4b6f3c84f08cb
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0528_project_field_in_taxonomy
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:c5dfa9bc0fdddcab812f02851895d7a40af018249faa78ae8311fc2234a94282
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0530_convert_dashboard_templates_to_queries
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:60f0fbbf5b52979d4800c05c254cff4959f76ec9d34e6e121a5dee95105baa32
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0532_taxonomy_unique_on_project
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:a87b8e6e8c4722f807103ac5245bd6810e8474f4941754efa715989f012b9a51
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0532_taxonomy_unique_on_project
+  operation_index: 2
+  nested_path: null
+  action: null
+  fingerprint: sha256:d673f628d2f5be8249add77f361f8dc3087ad37703e81e51cd4777f367fca746
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0532_taxonomy_unique_on_project
+  operation_index: 3
+  nested_path: null
+  action: null
+  fingerprint: sha256:a3042299a72f18c5b323f6918f4f3d44cc0bd8299b188df34e9babb2e4e63fbf
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0533_externaldatajob_pipeline_version
+  operation_index: 2
+  nested_path: null
+  action: null
+  fingerprint: sha256:f1158e42585a6f5b541443299fa5128d982894ba82442cf03f5315eb9c45f9e3
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0537_data_color_themes
+  operation_index: 2
+  nested_path: null
+  action: null
+  fingerprint: sha256:27e127964ed52b1f7c36b865e19987bba79d132edab64193f4b0e5fcc78184fa
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0542_remove_errortrackingissueassignment_unique_on_user_and_issue_and_more
+  operation_index: 1
+  nested_path: database_operations[1]
+  action: null
+  fingerprint: sha256:5f930a6e9cea7f516b7155af45633c04a5ff158dba35010ef80a1f431c8c0f66
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0542_remove_errortrackingissueassignment_unique_on_user_and_issue_and_more
+  operation_index: 1
+  nested_path: database_operations[2]
+  action: null
+  fingerprint: sha256:5e9eb0411e81355636ae5e99fae3f9ee0fc42ad846120751ea9c012f4282bd53
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0542_remove_errortrackingissueassignment_unique_on_user_and_issue_and_more
+  operation_index: 1
+  nested_path: database_operations[3]
+  action: null
+  fingerprint: sha256:91db98f345228bf59ccdcec21c9c0cf2c543c587e87d9244ca798ee46d1e0d0e
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0545_insight_filters_to_query
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:b7ff853495d62b32bc8fc1ac0af277ba7f2190ba2d02231fd13bd320ea4dcc4b
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0546_update_creation_mode_on_generated_dashboards
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:5cfb2483eac8418032ac7b97612b4402656fe9025bf40d14dfddc7c719dbd097
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0547_externaldatajob_billable
+  operation_index: 2
+  nested_path: null
+  action: null
+  fingerprint: sha256:e5856f20001324b03eeec6441b1eed799fe92902c8e924e3cbd2049023b07136
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0550_migrate_action_webhooks_to_destinations
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:1627f6335499269abeb1b32c01750358997155c478289e885d8af937984e85ed
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0552_turn_off_all_action_webhooks
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:49a4859a2e93bfcc3baa1e80cb0a0d9a2b4f28dba65635612bb92a46f2c2b478
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0554_remove_incremental_field_last_value_v2
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:79f32d1a8047ff352baf4d35076f4c08672393da60291c4f236e2466f8da5773
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0557_add_tags_to_experiment_saved_metrics
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: null
+  fingerprint: sha256:94ef65df04dee935c294827db02481bb45aeece8515b775085913b58ae476ebb
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0664_batchexportrun_backfill
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: null
+  fingerprint: sha256:b2e269e441b34204c18c3c2c27eff7196403f8e5d04984cc06695eda00bd1081
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0672_resave_hogFns_from_token_refresh_incident
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:686913839591f17811c5b458c3291ab3bcb37f3641dfc89bee13b862304dddff
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0680_alter_integration_kind
+  operation_index: 2
+  nested_path: null
+  action: null
+  fingerprint: sha256:8c1e8d2825db40c8b5331941f2876d4c39c540023a49f0580960435425d3e300
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0688_update_default_version
+  operation_index: 2
+  nested_path: null
+  action: null
+  fingerprint: sha256:75574cad1b2b9fddd257d5f3d202db6bfa5e301eff8fe860194aed3d571b1fdf
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0690_alter_personid_persondistinctid
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: null
+  fingerprint: sha256:753613dcf0bee4b64928f123eb95be0615a64fbb61074f15850595d23fab8229
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0692_grouptypemapping_detail_dashboard
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: null
+  fingerprint: sha256:dc5653eaecfca6e70d2d0e4d59a02a3d2b43764b9335b126368db8aace2f5c3d
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0694_fix_revenue_tracking_config
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:619273ccc4acc9eb43132f3c93c99c632db44b0e26b207ab0fe7d3239ed2a7a1
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0696_file_system_project_id
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: null
+  fingerprint: sha256:2f8d07f1dfca993413d3a29c7cd3f6eb5230cc7b83bafe46f21263ee36cdb218
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0698_action_project
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: null
+  fingerprint: sha256:3ee1334719b6738821723d679c8e547a125a458c854ab176e5676307a16cfcf4
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0701_uploadedmedia_project
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: null
+  fingerprint: sha256:59f6ba16e225b58a03a064aadf169f5ba18a492b1c0e08fdbeb34a4d202b8b35
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0702_datacolortheme_project
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: null
+  fingerprint: sha256:2d762347ce368c7921fdc381190aa56dd64430e7d941c3642fddcb46dcb07689
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0703_dashboard_breakdown_colors_and_more
+  operation_index: 2
+  nested_path: database_operations[0]
+  action: null
+  fingerprint: sha256:48b0a46924115b8fe0f23f6e954bf0b4844dccee39fb42787419fa5e1f2949c5
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0705_team_parent_team
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: null
+  fingerprint: sha256:11bbaefd2baed272ae73e28d01cd8edaa8e9dc9dc12b0f5b15030a59aa7813bd
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0710_add_salesforce_tables
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:0a27be758e285f31aa2f72b9f077917991a9f5046f1da7b3635bf2d32475a195
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0716_backfill_team_revenue_analytics_config
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:b885a7aa79009c17ba5eee396a2edd28f320a31f4d29bb5c056789b63c279bec
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0717_errortrackingassignmentrule_role_and_more
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: null
+  fingerprint: sha256:e17a34ab86ac67ed7427d37a10aa0967d1684f0a300fc9d673fb55b165e79814
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0717_errortrackingassignmentrule_role_and_more
+  operation_index: 1
+  nested_path: database_operations[1]
+  action: null
+  fingerprint: sha256:7b9c7a89eef56d24e7e1bbe0ac381dec4db6c24a33db090d52c9c6e6dd579795
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0719_replace_person_with_person_display_name_in_live_events_columns
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:09f8e4d76185a990851bbb05f8d8832499145f971965928ba445fc79fd31e233
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0730_add_hog_function_template_as_fk_to_hog_function
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: keep
+  fingerprint: sha256:e747169d6aba452fb4f401188afb2f55ff281f369cb774971b39c8473670db60
+  reason: Schema add-column/FK DDL required for final bootstrap schema.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0731_backfill_hog_function_template_fk
+  operation_index: 1
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:a4f24c9dc7750c85077dde8085706deaed241ccd2c790f1050071e653e651bad
+  reason: Data-only FK backfill for existing rows; bootstrap should be empty and guard
+    enforces that.
+  operation_type: RunPython
+  tables:
+  - posthog_hogfunction
+- app: posthog
+  migration: 0732_teamrevenueanalyticsconfig_notified_first_sync
+  operation_index: 2
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:6c7a4d7c3651fbd85281d0bcad90c45d6ba10d128071644eac3d73f449be17ea
+  reason: Data-only backfill for existing config rows; bootstrap should be empty and
+    guard enforces that.
+  operation_type: RunPython
+  tables:
+  - posthog_teamrevenueanalyticsconfig
+- app: posthog
+  migration: 0743_errortrackingrelease_errortrackingsymbolset_release_and_more
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: null
+  fingerprint: sha256:85d60aff16d3ea816964faf0f3351950838d4ae2a423a7367069bac70e191ca7
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0743_errortrackingrelease_errortrackingsymbolset_release_and_more
+  operation_index: 1
+  nested_path: database_operations[2]
+  action: null
+  fingerprint: sha256:2c3c466bfa297fafe692b5e532ca3b821ba85b2b8d105472e7de3b6546aa7f79
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0748_update_featureflag_super_groups
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:61bcd359443266a33b6762039c170e74ae31c11af5c934159bd719c9d9e7bc27
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0750_dwh_model_statuses
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:a970dc3a3c695ef38152d11d22a16f41b22b9b5962875423a09327dcc3985f73
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0750_dwh_model_statuses
+  operation_index: 2
+  nested_path: null
+  action: null
+  fingerprint: sha256:a1f7c27e4dd7339ae894adda109fa6384417b70245b3a48559d6d0d24b4a7c23
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0750_dwh_model_statuses
+  operation_index: 3
+  nested_path: null
+  action: null
+  fingerprint: sha256:8e35a0ea350bab0700a7d858c6726b4ffd83c847f05a8c7f88f279fb54c21810
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0761_drop_is_user_fk_and_index
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:b699272dabe1a25cd8e6038ab109a8b373ed08811f44a56848bc9027cb1ae8c8
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0761_drop_is_user_fk_and_index
+  operation_index: 2
+  nested_path: null
+  action: null
+  fingerprint: sha256:e91e4e5a74eaa3c147b5b36bb3d1656def397851e19c0d8c2791b869e79a5495
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0763_migrate_team_base_currency
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:8ae0d824c1f06edde4d183674686f23174e04c0182c165f0ee44ca48b1ec0bd0
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0766_fix_sub_template_ids_to_template_ids
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:6f25f5afab02d31389a2a437b19d19f3cf316a1a09e6274be9d71eac0b02227a
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0771_teamrevenueanalyticsconfig_filter_test_accounts_and_more
+  operation_index: 2
+  nested_path: null
+  action: null
+  fingerprint: sha256:aed2371b0066243738f823d56c97ce2c77e4409788a61e95870c939e2b731c4d
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0776_move_stripe_to_append
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:632c7492336d6ae90ffafbdf8fa4e35ce636113a2b33655b3948332f532d96ea
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0782_remove_segment_hidden_destinations
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:b17a2915fc9a8993583de2900fc13f69e12320902df4b1c57fb47186e60a8a07
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0783_remove_segment_engage_destinations
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:7e72f506cc10d6c8671bfa25e92836e2df5eef0621c0c49251ae79977f072cd4
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0784_fix_null_event_triggers
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:6186a3710d57223dbdd605123d408be51d49944f740b76954e9097601e2f3391
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0789_migrate_playlist_types
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:3dc2ccbf009aa165aef28eddf736197c4b9724c2f4213b6c7819b6affe80625b
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0794_fix_stripe_tables
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:702ddd41ddc64ab93a651cf6dbbd6ea5355b080eb213e8fd65e0cb40840f2231
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0796_fix_revenue_analytics_modifiers_in_queries
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: sha256:4672a4b6fc85069dbf28d3f17ae63d8b76dc8748c45d569965c24ea4ab15b625
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0799_migrate_playlist_types_take_2
+  operation_index: 1
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:ad799667e1478a0c82e9f8b7dfd17aca2b39fe936dfe273ae2d94bc28fd39b99
+  reason: Historical playlist type backfill; bootstrap should have no playlists and
+    guard enforces emptiness.
+  operation_type: RunPython
+  tables:
+  - posthog_sessionrecordingplaylist
+- app: posthog
+  migration: 0803_move_recording_annotation_to_comments
+  operation_index: 1
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:e64d43723b0aea6e973c6a9ad228213a91f7297fb11ad4c4bb5c1fdbaa7c2e1b
+  reason: Historical annotation migration; bootstrap should have no annotations and
+    guard enforces emptiness.
+  operation_type: RunPython
+  tables:
+  - posthog_annotation
+- app: posthog
+  migration: 0807_dwh_source_refactor
+  operation_index: 1
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:6549ef1703daa519544ac9157b27ff79e5923e71a2a287f704391d5f9afb2d14
+  reason: Historical source config rewrite; bootstrap should have no external data
+    sources and guard enforces emptiness.
+  operation_type: RunPython
+  tables:
+  - posthog_externaldatasource
+- app: posthog
+  migration: 0808_add_evaluation_environment_to_feature_flag
+  operation_index: 2
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:e282e3f6e611b98cf012cd74175129146a6735f166dd6d5a423700696227aa3a
+  reason: Data-only backfill step; bootstrap should have no feature flags and guard
+    enforces emptiness.
+  operation_type: RunPython
+  tables:
+  - posthog_featureflag
+- app: posthog
+  migration: 0809_insight_query_metadata
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: keep
+  fingerprint: sha256:ee4b38b968ac8cabce041e4809040532ff7cde5488618cc23f30d85f7ffb945a
+  reason: Schema add-column DDL is required to match final bootstrap schema.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0822_person_properties_size_constraint
+  operation_index: 1
+  nested_path: null
+  action: keep
+  fingerprint: sha256:d37dd0e62d16061293a65d0c3789c24c5c32e86f1a03172934fb312200637571
+  reason: Schema CHECK constraint DDL is required for final bootstrap schema.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0829_organization_default_role
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: keep
+  fingerprint: sha256:67ae3b42a844ae0ece77743ec3a9cc15c1472e125d0160f3c9c33bb01d0fc6e0
+  reason: Schema add-column/FK DDL required for final bootstrap schema.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0830_add_evaluation_runtimes_to_featureflags
+  operation_index: 1
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:3dc6b9c784015fe0d01fe57ed6f599aaaec16d89302aa4bfb8bcfb17dc55dab2
+  reason: Historical data backfill; bootstrap should have no feature flags and guard
+    enforces emptiness.
+  operation_type: RunPython
+  tables:
+  - posthog_featureflag
+- app: posthog
+  migration: 0838_remove_null_values_from_team_arrays
+  operation_index: 1
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:7d72593877440f6008a8e6a32cb7ca4a88e19db0787ae83eb6b0238a01d96110
+  reason: Data cleanup only; bootstrap should have no teams and guard enforces emptiness.
+  operation_type: RunSQL
+  tables:
+  - posthog_team
+- app: posthog
+  migration: 0838_remove_null_values_from_team_arrays
+  operation_index: 2
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:09843a7fe32253cedf967a3bfa54931ebb4a1aacf907b097abf4c44636b1d53c
+  reason: Data cleanup only; bootstrap should have no teams and guard enforces emptiness.
+  operation_type: RunSQL
+  tables:
+  - posthog_team
+- app: posthog
+  migration: 0840_externaldatasourcerevenueanalyticsconfig
+  operation_index: 2
+  nested_path: null
+  action: keep
+  fingerprint: sha256:9181ee11df06ae3d630867de8baaf64aa7d3651013f7b659a3806839ab596ffd
+  reason: Schema default DDL is required to preserve final database defaults.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0840_externaldatasourcerevenueanalyticsconfig
+  operation_index: 3
+  nested_path: null
+  action: keep
+  fingerprint: sha256:48221779f8ed0abaa756fdd4ab9d90b2c4409555ab61e5983d629a2072e99a66
+  reason: Schema default DDL is required to preserve final database defaults.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0841_backfill_eds_revenue_analytics_config
+  operation_index: 1
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:4da0382217d910ac9dcd919b28a3bfc4faeeb0c90dbe9cc1c8bc4af663fae61c
+  reason: Historical data backfill; bootstrap should have no external data sources
+    and guard enforces emptiness.
+  operation_type: RunPython
+  tables:
+  - posthog_externaldatasource
+- app: posthog
+  migration: 0843_datawarehousesavedquery_is_materialized
+  operation_index: 2
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:2b5f978f19136c570ffad33d71bd45ceeb372b5373d55952150230eda24741e1
+  reason: Data-only backfill for existing saved queries; bootstrap should be empty
+    and guard enforces that.
+  operation_type: RunSQL
+  tables:
+  - posthog_datawarehousesavedquery
+- app: posthog
+  migration: 0845_delete_invalid_personalapikeys
+  operation_index: 1
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:fd5577a1698c22626a0082afb2610a706a86a42c781dcf048a8ca9e57d124c49
+  reason: Data cleanup only; bootstrap should have no personal API keys and guard
+    enforces emptiness.
+  operation_type: RunPython
+  tables:
+  - posthog_personalapikey
+- app: posthog
+  migration: 0849_duplicate_warehouse_tables
+  operation_index: 1
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:f229db34e1d6657b38a64f2af68ed1a29336f8a4215467f4d3e465f79e2ce3c4
+  reason: Data deduplication only; bootstrap should have no warehouse tables and guard
+    enforces emptiness.
+  operation_type: RunSQL
+  tables:
+  - posthog_datawarehousetable
+- app: posthog
+  migration: 0860_add_namedquery
+  operation_index: 1
+  nested_path: null
+  action: null
+  fingerprint: null
+  reason: No manual override needed after migration serialization-safe rewrite.
+  operation_type: CreateModel
+- app: posthog
+  migration: 0862_alter_team_session_recording_retention_period
+  operation_index: 1
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:af2088a12fc0a072bb7db2e7a49526d08f5de96248aac00c31141793f6f67f1b
+  reason: Legacy retention value backfill only; bootstrap from empty DB should skip.
+  operation_type: RunPython
+  tables:
+  - posthog_team
+- app: posthog
+  migration: 0866_add_integration_to_batch_export_destination
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: keep
+  fingerprint: sha256:a068055860f535e52948edade6dd0675bbe316402c3295b1d7d38cf00ddba0fe
+  reason: Schema DDL add-column + FK needed for final bootstrap schema.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0867_add_updated_at_to_feature_flags
+  operation_index: 1
+  nested_path: database_operations[1]
+  action: keep
+  fingerprint: sha256:ab3a2c3c3d3c0fb6a481f72f4ba1c6b87b808d5ede298ce869fa1d09c1d641b7
+  reason: Deterministic data backfill SQL; safe to run and preserves behavior when
+    rows exist.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0867_add_updated_at_to_feature_flags
+  operation_index: 1
+  nested_path: database_operations[2]
+  action: keep
+  fingerprint: sha256:2be98e508bb7f7a05481a5f4858656fea0dd452bf62be2adf5685a4aae4a9601
+  reason: Deterministic data backfill SQL; safe to run and preserves behavior when
+    rows exist.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0868_move_recording_activity_log_to_replay
+  operation_index: 1
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:6bb84620973ee46dbb3a88d3e0fd1310daad26cd5fb0824ed504d3c515e4eeb8
+  reason: Historical scope backfill only; bootstrap from empty DB should skip, guarded
+    by table emptiness.
+  operation_type: RunPython
+  tables:
+  - posthog_activitylog
+- app: posthog
+  migration: 0870_move_recording_coment_to_replay
+  operation_index: 1
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:817def95a31dac35db169d9b87be87d770d6c050e85cbd023f77d21fe13a7f08
+  reason: Historical scope backfill only; bootstrap from empty DB should skip, guarded
+    by table emptiness.
+  operation_type: RunPython
+  tables:
+  - posthog_comment
+- app: posthog
+  migration: 0879_migrate_error_tracking_models
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: noop
+  fingerprint: sha256:7bf91623768e527453fc48a2f45a5d55346f65768d40ad5fe425f6692c0aaa71
+  reason: Historical content-type relabel for moved models; safe to skip on bootstrap
+    path.
+  operation_type: RunPython
+- app: posthog
+  migration: 0885_migrate_notebooks_models
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: noop
+  fingerprint: sha256:bbde42e701d8a64bff3fd7fa22c6dde42002b6ebcb0aead59554c79182c02a99
+  reason: Historical content-type relabel for moved models; safe to skip on bootstrap
+    path.
+  operation_type: RunPython
+- app: posthog
+  migration: 0886_fake_social_django_jsonfield_migrations
+  operation_index: 1
+  nested_path: null
+  action: noop
+  fingerprint: sha256:8ef961475bf440af1be4e72295f463675d01c0a0c8d803122ce2b6092ef23665
+  reason: Historical migration-recorder patch for upgraded installs; bootstrap can
+    skip.
+  operation_type: RunPython
+- app: posthog
+  migration: 0887_drop_named_query
+  operation_index: 1
+  nested_path: null
+  action: keep
+  fingerprint: sha256:ae231ada43af5c557673fa02b47b290f73b38e15833101d62df18967cde64285
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0888_datawarehousemanagedviewset_and_more
+  operation_index: 3
+  nested_path: database_operations[0]
+  action: keep
+  fingerprint: sha256:0e0724f513ed5c8627a35164655f552394e7c63d933ea7416949ac819422b16d
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0897_migrate_data_warehouse_models
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: noop
+  fingerprint: sha256:7ba838fc3f974ace2c1561edeb8e3fcc22aa05992332a71e5075096cb3648955
+  reason: Historical content-type relabel for moved models; safe to skip on bootstrap
+    path.
+  operation_type: RunPython
+- app: posthog
+  migration: 0906_user_allow_sidebar_suggestions
+  operation_index: 2
+  nested_path: null
+  action: noop
+  fingerprint: sha256:bfeae135995262914d9a84b188d6000a19cbf10f03a687d8dd7e88bb36d0ac18
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0929_remove_legacy_batch_export_notification_setting
+  operation_index: 1
+  nested_path: null
+  action: noop
+  fingerprint: sha256:d104eae78066dcb5b42c1ad9c29424457a24bd04cb2aeef1ed2cb35e1c132bc3
+  reason: Opaque operation type requires manual review before squashing.
+  operation_type: RunPython
+- app: posthog
+  migration: 0946_fix_insightviewed_null_duplicates
+  operation_index: 1
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:dc01b28ba3d96395b265fabe3556597b3e199aa138f4c6a4c630cbae41d0d1e8
+  reason: Duplicate cleanup backfill only; bootstrap from empty DB should skip, guarded
+    by table emptiness.
+  operation_type: RunPython
+  tables:
+  - posthog_insightviewed
+- app: posthog
+  migration: 0948_hogfunction_batch_export_and_more
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: keep
+  fingerprint: sha256:4d9e517ed5fbc2069f319ef96a04de42db55ce182f98351da68ae7256057605c
+  reason: Schema DDL add-column + FK needed for final bootstrap schema.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0958_drop_teamcoreeventsconfig_table
+  operation_index: 1
+  nested_path: null
+  action: keep
+  fingerprint: sha256:d9bbe0bfb54d8fca1f4c703731bee87b5d4a64e2fdd307fbadabafdb8b4b31f0
+  reason: DDL cleanup ensuring obsolete table removal; safe/idempotent DROP IF EXISTS.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0973_alter_integration_kind
+  operation_index: 1
+  nested_path: state_operations[0]
+  action: null
+  fingerprint: null
+  reason: No manual override needed after migration serialization-safe rewrite.
+  operation_type: AlterPosthogIntegrationKindField
+- app: posthog
+  migration: 0976_copy_evaluation_contexts_data
+  operation_index: 1
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:403b8e10430816233b18137f010e8e0699b7669038597d527a74d6a232cfb00e
+  reason: Settings copy backfill only; bootstrap from empty DB should skip.
+  operation_type: RunPython
+  tables:
+  - posthog_team
+- app: posthog
+  migration: 0984_clear_temporary_tokens
+  operation_index: 1
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:6cfe58dbf922711d557bfb1d8826ee59d968fb74ee3244ee0528061d04a86fdd
+  reason: Credential cleanup backfill only; bootstrap from empty DB should skip.
+  operation_type: RunPython
+  tables:
+  - posthog_user
+- app: posthog
+  migration: 0985_drop_column_configuration_unique_constraint
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: keep
+  fingerprint: sha256:f4b11d6620c3b4fce8ecc823b73e7fe4d585ecf0e743b1aea00bf610930800ae
+  reason: Schema constraint drop is required for final bootstrap schema.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0992_drop_approvalpolicy_bypass_roles_column
+  operation_index: 1
+  nested_path: null
+  action: keep
+  fingerprint: sha256:225118f09b6e83fc695abf7f3926490442c333c1559c9edf90afe27ea19458df
+  reason: Schema column drop is required for final bootstrap schema.
+  operation_type: RunSQL
+- app: posthog
+  migration: 0999_remove_presorted_events_modifier
+  operation_index: 1
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:b7dbe2d6991f7b14ae2d8047addb87b4f5632a168e103ee76a6644e3094c6e38
+  reason: Historical query JSON cleanup; bootstrap from empty DB should skip.
+  operation_type: RunPython
+  tables:
+  - posthog_dashboarditem
+- app: posthog
+  migration: 1001_fix_person_property_in_operator
+  operation_index: 1
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:804ac95e8caad5d9c2a40f867557d8c2e79ce0b3d0b704452f456fcf377bd422
+  reason: Historical feature flag JSON cleanup; bootstrap from empty DB should skip.
+  operation_type: RunPython
+  tables:
+  - posthog_featureflag
+- app: posthog
+  migration: 1003_clean_up_stale_alert_subscriptions
+  operation_index: 1
+  nested_path: null
+  action: noop_if_empty
+  fingerprint: sha256:9908471752bc27c2eb68d8611f9b8470e86f81c965a30b7804e693573858de25
+  reason: Historical stale row cleanup; bootstrap from empty DB should skip.
+  operation_type: RunPython
+  tables:
+  - posthog_alertsubscription
+- app: posthog
+  migration: 1007_resourcetransfer_created_by
+  operation_index: 1
+  nested_path: database_operations[0]
+  action: keep
+  fingerprint: sha256:cb046a476e18825bc5356f92d504836dd01f194a24d0cc2c3928e5695577023f
+  reason: Schema add-column FK DDL is required for final bootstrap schema.
+  operation_type: RunSQL
