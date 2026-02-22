@@ -17,6 +17,13 @@ html = template.render(
     {
         "team": type("Team", (), {"name": "My Project", "pk": 2})(),
         "exception_count": 12483,
+        "exception_change": {
+            "percent": 23,
+            "direction": "Down",
+            "color": "#2f7d4f",
+            "text": "Down 23%",
+            "long_text": "Down 23% from previous week",
+        },
         "ingestion_failure_count": 347,
         "daily_counts": [
             {"day": "Tue", "count": 1200, "height_percent": 60},
@@ -163,6 +170,27 @@ html = template.render(
             "total_sessions": 284532,
             "crash_sessions": 3421,
             "crash_free_rate": 98.80,
+            "crash_free_rate_change": {
+                "percent": 1,
+                "direction": "Up",
+                "color": "#2f7d4f",
+                "text": "Up 1%",
+                "long_text": "Up 1% from previous week",
+            },
+            "total_sessions_change": {
+                "percent": 12,
+                "direction": "Up",
+                "color": "#2f7d4f",
+                "text": "Up 12%",
+                "long_text": "Up 12% from previous week",
+            },
+            "crash_sessions_change": {
+                "percent": 8,
+                "direction": "Up",
+                "color": "#a13232",
+                "text": "Up 8%",
+                "long_text": "Up 8% from previous week",
+            },
         },
         "error_tracking_url": "https://us.posthog.com/project/2/error_tracking?utm_source=error_tracking_weekly_digest",
         "ingestion_failures_url": "https://us.posthog.com/project/2/activity/explore",

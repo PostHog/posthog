@@ -19,6 +19,7 @@ import { createNormalizeEventStep } from '../event-processing/normalize-event-st
 import { createNormalizeProcessPersonFlagStep } from '../event-processing/normalize-process-person-flag-step'
 import { createProcessPersonlessStep } from '../event-processing/process-personless-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
+import { TopHogWrapper, counter } from '../pipelines/extensions/tophog'
 
 export interface EventSubpipelineInput {
     message: Message
@@ -39,14 +40,24 @@ export interface EventSubpipelineConfig {
     groupStore: BatchWritingGroupStore
     kafkaProducer: KafkaProducerWrapper
     groupId: string
+    topHog: TopHogWrapper
 }
 
 export function createEventSubpipeline<TInput extends EventSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: EventSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { options, teamManager, groupTypeManager, hogTransformer, personsStore, groupStore, kafkaProducer, groupId } =
-        config
+    const {
+        options,
+        teamManager,
+        groupTypeManager,
+        hogTransformer,
+        personsStore,
+        groupStore,
+        kafkaProducer,
+        groupId,
+        topHog,
+    } = config
 
     return builder
         .pipe(createNormalizeProcessPersonFlagStep())
@@ -71,10 +82,13 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
         )
         .pipe(createCreateEventStep())
         .pipe(
-            createEmitEventStep({
-                kafkaProducer,
-                clickhouseJsonEventsTopic: options.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                groupId,
-            })
+            topHog(
+                createEmitEventStep({
+                    kafkaProducer,
+                    clickhouseJsonEventsTopic: options.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                    groupId,
+                }),
+                [counter('emitted_events', (input) => ({ team_id: String(input.eventToEmit.team_id) }))]
+            )
         )
 }

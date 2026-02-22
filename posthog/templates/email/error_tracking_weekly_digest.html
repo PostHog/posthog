@@ -17,9 +17,14 @@
     <h3 style="margin: 0 0 4px 0; text-align: left;">Total</h3>
     <p style="margin: 0 0 16px 0; font-size: 0.85em; color: #6b7280; text-align: left;">All exceptions captured across <strong>{{ team.name }}</strong> in the last 7 days.</p>
     <div style="text-align: center;">
-        <p style="margin: 0 0 16px 0; font-size: 2.5em; font-weight: bold;">
+        <p style="margin: 0; font-size: 2.5em; font-weight: bold; line-height: 1.1;">
             {{ exception_count|compact_number }}
         </p>
+        {% if exception_change %}
+        <p style="margin: 0 0 12px 0; font-size: 0.85em; color: {{ exception_change.color }};">{{ exception_change.long_text }}</p>
+        {% else %}
+        <div style="margin-bottom: 12px;"></div>
+        {% endif %}
         {% if daily_counts %}
         <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 0 auto;">
             <tr>
@@ -44,14 +49,23 @@
             <td align="center" style="text-align: center; padding: 8px;">
                 <div style="font-size: 0.8em; color: #6b7280;">Crash free sessions</div>
                 <div style="font-size: 1.5em; font-weight: bold;">{{ crash_free.crash_free_rate }}%</div>
+                {% if crash_free.crash_free_rate_change %}
+                <div style="font-size: 0.75em; color: {{ crash_free.crash_free_rate_change.color }};">{{ crash_free.crash_free_rate_change.text }}</div>
+                {% endif %}
             </td>
             <td align="center" style="text-align: center; padding: 8px;">
                 <div style="font-size: 0.8em; color: #6b7280;">Total sessions</div>
                 <div style="font-size: 1.5em; font-weight: bold;">{{ crash_free.total_sessions|compact_number }}</div>
+                {% if crash_free.total_sessions_change %}
+                <div style="font-size: 0.75em; color: {{ crash_free.total_sessions_change.color }};">{{ crash_free.total_sessions_change.text }}</div>
+                {% endif %}
             </td>
             <td align="center" style="text-align: center; padding: 8px;">
                 <div style="font-size: 0.8em; color: #6b7280;">Crashed sessions</div>
                 <div style="font-size: 1.5em; font-weight: bold;">{{ crash_free.crash_sessions|compact_number }}</div>
+                {% if crash_free.crash_sessions_change %}
+                <div style="font-size: 0.75em; color: {{ crash_free.crash_sessions_change.color }};">{{ crash_free.crash_sessions_change.text }}</div>
+                {% endif %}
             </td>
         </tr>
     </table>
