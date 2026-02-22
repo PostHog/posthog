@@ -22,14 +22,10 @@ export function NewTicket(): JSX.Element {
                 <span className="font-semibold">New ticket</span>
             </div>
 
-            <p className="text-sm text-muted-alt m-0">
-                Describe what you need help with and our team will get back to you.
-            </p>
-
             <MessageInput
                 onSendMessage={(content, _richContent, _isPrivate, onSuccess) => sendMessage(content, onSuccess)}
                 messageSending={messageSending}
-                placeholder="What can we help you with?"
+                placeholder="Describe what you need help with and our team will get back to you."
                 buttonText="Submit ticket"
                 minRows={4}
             />
