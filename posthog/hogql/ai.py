@@ -26,8 +26,30 @@ openai_client = (
 )
 
 UNCLEAR_PREFIX = "UNCLEAR:"
+# -------------------------------------------------------------------------
+# NEW: Few-Shot Examples to ground the AI and prevent hallucinations
+# -------------------------------------------------------------------------
+HOGQL_FEW_SHOT_EXAMPLES = """
+<example>
+User: "Show me the text of the buttons users clicked on the pricing page"
+SQL: SELECT extract(elements_chain, '[:|"]attr__text="(.*?)"') AS button_text, count() FROM events WHERE event = '$autocapture' AND current_url LIKE '%/pricing%' GROUP BY button_text ORDER BY count() DESC
+</example>
 
-IDENTITY_MESSAGE = """You are an expert in writing HogQL. HogQL is PostHog's variant of SQL. It supports most of ClickHouse SQL. We're going to use terms "HogQL" and "SQL" interchangeably.
+<example>
+User: "Break down active feature flags for users in the last week"
+SQL: SELECT arrayJoin(JSONExtractArrayRaw(properties.$active_feature_flags ?? '[]')) AS flag, count() FROM events WHERE timestamp > now() - INTERVAL 1 WEEK GROUP BY flag ORDER BY count() DESC
+</example>
+
+<example>
+User: "How many users have a gentle-tencent email?"
+SQL: SELECT count(DISTINCT person_id) FROM events WHERE person.properties.email LIKE '%@gentle-tencent.com'
+</example>
+"""
+
+IDENTITY_MESSAGE = f"""You are an expert in writing HogQL. HogQL is PostHog's variant of SQL. It supports most of ClickHouse SQL. We're going to use terms "HogQL" and "SQL" interchangeably.
+
+Here are examples of correct HogQL queries to learn from:
+{HOGQL_FEW_SHOT_EXAMPLES}
 
 Important HogQL differences versus other SQL dialects:
 - JSON properties are accessed using `properties.foo.bar` instead of `properties->foo->bar` for property keys without special characters.
