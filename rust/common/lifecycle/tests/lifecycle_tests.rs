@@ -793,7 +793,9 @@ async fn failure_during_drain_resolves_component_without_global_timeout() {
 
     let result = tokio::time::timeout(Duration::from_millis(500), guard.wait())
         .await
-        .expect("manager should resolve promptly via Failure in drain, not wait for global timeout");
+        .expect(
+            "manager should resolve promptly via Failure in drain, not wait for global timeout",
+        );
 
     assert!(matches!(
         result,
