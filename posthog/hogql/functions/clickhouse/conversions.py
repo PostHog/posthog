@@ -87,8 +87,10 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
     "toBool": HogQLFunctionMeta("toBool", 1, 1),
     "toJSONString": HogQLFunctionMeta("toJSONString", 1, 1),
-    "parseDateTime": HogQLFunctionMeta("parseDateTimeOrNull", 2, 3, tz_aware=True),
-    "parseDateTimeBestEffort": HogQLFunctionMeta("parseDateTime64BestEffortOrNull", 1, 2, tz_aware=True),
+    "parseDateTime": HogQLFunctionMeta("parseDateTimeOrNull", 2, 3, tz_aware=True, use_or_null_variant=True),
+    "parseDateTimeBestEffort": HogQLFunctionMeta(
+    "parseDateTime64BestEffortOrNull", 1, 2, tz_aware=True, use_or_null_variant=True
+),
     "toTypeName": HogQLFunctionMeta("toTypeName", 1, 1),
     "cityHash64": HogQLFunctionMeta("cityHash64", 1, 1),
     "UUIDv7ToDateTime": HogQLFunctionMeta("UUIDv7ToDateTime", 1, 1, tz_aware=True),
@@ -116,6 +118,7 @@ DATE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         2,
         # Incorrect for parseDateTime64BestEffortOrNull but it is required because when we overload to toDateTime, we use this to figure out if timestamp is already in a function.
         tz_aware=True,
+        use_or_null_variant=True,
         overloads=[
             ((ast.DateTimeType, ast.DateType, ast.IntegerType), "toDateTime"),
             # ((ast.StringType,), "parseDateTime64"),
@@ -142,6 +145,7 @@ DATE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         1,
         2,
         tz_aware=True,
+        use_or_null_variant=True,
         signatures=[
             ((StringType(),), DateTimeType()),
             ((StringType(), IntegerType()), DateTimeType()),

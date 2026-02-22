@@ -24,7 +24,6 @@ from posthog.hogql.database.models import FunctionCallTable, Table
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_string
 from posthog.hogql.functions import (
-    ADD_OR_NULL_DATETIME_FUNCTIONS,
     FIRST_ARG_DATETIME_FUNCTIONS,
     find_hogql_aggregation,
     find_hogql_function,
@@ -660,7 +659,13 @@ class HogQLPrinter(Visitor[str]):
                     args: list[str] = []
                     for idx, arg in enumerate(node_args):
                         if idx == 0:
-                            if isinstance(arg, ast.Call) and arg.name in ADD_OR_NULL_DATETIME_FUNCTIONS:
+                            is_or_null_variant = False
+                            if isinstance(arg, ast.Call):
+                                meta = find_hogql_function(arg.name)
+                                if meta and getattr(meta, "use_or_null_variant", False):
+                                    is_or_null_variant = True
+
+                            if is_or_null_variant:
                                 args.append(f"assumeNotNull(toDateTime({self.visit(arg)}))")
                             else:
                                 args.append(f"toDateTime({self.visit(arg)}, 'UTC')")
