@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
 
+import { TeamMembershipLevel } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { CurrencyCode } from '~/queries/schema/schema-general'
 
+import { RestrictionScope, useRestrictedArea } from '../RestrictedArea'
 import { CurrencyDropdown } from './CurrencyDropdown'
 
 interface BaseCurrencyProps {
@@ -15,6 +17,10 @@ interface BaseCurrencyProps {
 export function BaseCurrency({ hideTitle = false, disabledReason }: BaseCurrencyProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     return (
         <SceneSection
@@ -27,7 +33,7 @@ export function BaseCurrency({ hideTitle = false, disabledReason }: BaseCurrency
                     onChange={(currency: CurrencyCode | null) => {
                         updateCurrentTeam({ base_currency: currency ?? undefined })
                     }}
-                    disabledReason={disabledReason}
+                    disabledReason={disabledReason ?? restrictedReason ?? undefined}
                 />
             </div>
         </SceneSection>

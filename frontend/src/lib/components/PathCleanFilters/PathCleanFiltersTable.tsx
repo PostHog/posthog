@@ -17,11 +17,13 @@ import { useEffect, useState } from 'react'
 import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
+import { TeamMembershipLevel } from 'lib/constants'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { isValidRegexp } from 'lib/utils/regexp'
 
 import { PathCleaningFilter } from '~/types'
 
+import { RestrictionScope, useRestrictedArea } from '../RestrictedArea'
 import { parseAliasToReadable } from './PathCleanFilterItem'
 import { PathRegexModal } from './PathRegexModal'
 import { ensureFilterOrder, updateFilterOrder } from './pathCleaningUtils'
@@ -36,9 +38,10 @@ interface SortableRowProps {
     index: number
     onEdit: (filter: PathCleaningFilter) => void
     onRemove: () => void
+    disabledReason?: string | null
 }
 
-function SortableRow({ filter, index, onEdit, onRemove }: SortableRowProps): JSX.Element {
+function SortableRow({ filter, index, onEdit, onRemove, disabledReason }: SortableRowProps): JSX.Element {
     const [isModalVisible, setIsModalVisible] = useState(false)
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
         id: `filter-${index}`,
@@ -68,7 +71,7 @@ function SortableRow({ filter, index, onEdit, onRemove }: SortableRowProps): JSX
                 />
             )}
             <tr
-                ref={setNodeRef}
+                ref={disabledReason ? null : setNodeRef}
                 style={style}
                 className={clsx('border-b border-border hover:bg-bg-light transition-colors duration-150 bg-bg-light', {
                     'border-warning': isInvalidRegex,
@@ -114,6 +117,7 @@ function SortableRow({ filter, index, onEdit, onRemove }: SortableRowProps): JSX
                             size="xsmall"
                             onClick={() => setIsModalVisible(true)}
                             tooltip="Edit rule"
+                            disabledReason={disabledReason}
                         />
                         <LemonButton
                             icon={<IconTrash />}
@@ -121,6 +125,7 @@ function SortableRow({ filter, index, onEdit, onRemove }: SortableRowProps): JSX
                             status="danger"
                             onClick={onRemove}
                             tooltip="Delete rule"
+                            disabledReason={disabledReason}
                         />
                     </div>
                 </td>
@@ -132,6 +137,10 @@ function SortableRow({ filter, index, onEdit, onRemove }: SortableRowProps): JSX
 export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFiltersTableProps): JSX.Element {
     const [localFilters, setLocalFilters] = useState(filters)
     const [isDragging, setIsDragging] = useState(false)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     // Sync local state with props, but not during drag to avoid flicker
     useEffect(() => {
@@ -230,6 +239,7 @@ export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFil
                                         index={index}
                                         onEdit={(updatedFilter) => onEditFilter(index, updatedFilter)}
                                         onRemove={() => onRemoveFilter(index)}
+                                        disabledReason={restrictedReason}
                                     />
                                 ))}
                             </SortableContext>
