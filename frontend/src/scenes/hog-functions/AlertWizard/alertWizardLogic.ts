@@ -14,12 +14,11 @@ import { CyclotronJobInputType, HogFunctionSubTemplateIdType, HogFunctionTemplat
 
 import type { alertWizardLogicType } from './alertWizardLogicType'
 
-export type WizardDestinationKey = 'slack' | 'discord' | 'github' | 'microsoft-teams' | 'linear'
 export type WizardStep = 'destination' | 'trigger' | 'configure'
 export type AlertCreationView = 'none' | 'wizard' | 'traditional'
 
 export interface WizardDestination {
-    key: WizardDestinationKey
+    key: string
     name: string
     description: string
     icon: string
@@ -36,57 +35,14 @@ export interface AlertWizardLogicProps {
     logicKey: string
     subTemplateIds: HogFunctionSubTemplateIdType[]
     triggers: WizardTrigger[]
+    destinations: WizardDestination[]
+    // Controls how many top destinations to show, sorted by prior usage. Ordered by default priority.
+    destinationPriority: string[]
     // URL glob pattern for syncing wizard state to query params (e.g. '**/error_tracking/configuration')
     urlPattern?: string
     // Label used in test invocation globals
     sourceName: string
 }
-
-const ALL_DESTINATIONS: WizardDestination[] = [
-    {
-        key: 'slack',
-        name: 'Slack',
-        description: 'Send a message to a channel',
-        icon: '/static/services/slack.png',
-        templateId: 'template-slack',
-    },
-    {
-        key: 'discord',
-        name: 'Discord',
-        description: 'Post a notification via webhook',
-        icon: '/static/services/discord.png',
-        templateId: 'template-discord',
-    },
-    {
-        key: 'github',
-        name: 'GitHub',
-        description: 'Create an issue in a repository',
-        icon: '/static/services/github.png',
-        templateId: 'template-github',
-    },
-    {
-        key: 'microsoft-teams',
-        name: 'Microsoft Teams',
-        description: 'Send a message to a channel',
-        icon: '/static/services/microsoft-teams.png',
-        templateId: 'template-microsoft-teams',
-    },
-    {
-        key: 'linear',
-        name: 'Linear',
-        description: 'Create an issue in a project',
-        icon: '/static/services/linear.png',
-        templateId: 'template-linear',
-    },
-]
-
-const DESTINATIONS_DEFAULT_PRIORITY: WizardDestinationKey[] = [
-    'slack',
-    'discord',
-    'github',
-    'microsoft-teams',
-    'linear',
-]
 
 function hasSubTemplateForDestination(
     triggerKey: HogFunctionSubTemplateIdType,
@@ -96,12 +52,12 @@ function hasSubTemplateForDestination(
     return subTemplates?.some((t) => t.template_id === destination.templateId) ?? false
 }
 
-function extractDestinationKeyFromAlert(alert: HogFunctionType): WizardDestinationKey | null {
+function extractDestinationKeyFromAlert(alert: HogFunctionType, allDestinations: WizardDestination[]): string | null {
     const templateId = alert.template?.id
     if (!templateId) {
         return null
     }
-    for (const destination of ALL_DESTINATIONS) {
+    for (const destination of allDestinations) {
         if (templateId.startsWith(destination.templateId)) {
             return destination.key
         }
@@ -117,12 +73,12 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
     actions({
         setAlertCreationView: (view: AlertCreationView) => ({ view }),
         setStep: (step: WizardStep) => ({ step }),
-        setDestinationKey: (destinationKey: WizardDestinationKey) => ({ destinationKey }),
+        setDestinationKey: (destinationKey: string) => ({ destinationKey }),
         setTriggerKey: (triggerKey: HogFunctionSubTemplateIdType) => ({ triggerKey }),
         setInputValue: (key: string, value: CyclotronJobInputType) => ({ key, value }),
         restoreWizardState: (state: {
             step: WizardStep
-            destinationKey: WizardDestinationKey | null
+            destinationKey: string | null
             triggerKey: HogFunctionSubTemplateIdType | null
         }) => ({ state }),
         resetWizard: true,
@@ -135,6 +91,8 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
     reducers(({ props: logicProps }) => ({
         subTemplateIds: [logicProps.subTemplateIds, {}],
         triggers: [logicProps.triggers as WizardTrigger[], {}],
+        allDestinations: [logicProps.destinations as WizardDestination[], {}],
+        destinationPriority: [logicProps.destinationPriority as string[], {}],
         sourceName: [logicProps.sourceName, {}],
         alertCreationView: [
             'none' as AlertCreationView,
@@ -154,7 +112,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             },
         ],
         selectedDestinationKey: [
-            null as WizardDestinationKey | null,
+            null as string | null,
             {
                 setDestinationKey: (_, { destinationKey }) => destinationKey,
                 restoreWizardState: (_, { state }) => state.destinationKey,
@@ -232,39 +190,39 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
 
     selectors({
         usedDestinationKeys: [
-            (s) => [s.existingAlerts],
-            (existingAlerts): Set<WizardDestinationKey> => {
-                const usedDestinationKeys = new Set<WizardDestinationKey>()
+            (s) => [s.existingAlerts, s.allDestinations],
+            (existingAlerts, allDestinations): Set<string> => {
+                const used = new Set<string>()
                 for (const alert of existingAlerts) {
-                    const destinationKey = extractDestinationKeyFromAlert(alert)
-                    if (destinationKey) {
-                        usedDestinationKeys.add(destinationKey)
+                    const key = extractDestinationKeyFromAlert(alert, allDestinations)
+                    if (key) {
+                        used.add(key)
                     }
                 }
-                return usedDestinationKeys
+                return used
             },
         ],
 
         destinations: [
-            (s) => [s.usedDestinationKeys],
-            (usedDestinationKeys): WizardDestination[] => {
-                const sorted = [...DESTINATIONS_DEFAULT_PRIORITY].sort((a, b) => {
+            (s) => [s.usedDestinationKeys, s.allDestinations, s.destinationPriority],
+            (usedDestinationKeys, allDestinations, destinationPriority): WizardDestination[] => {
+                const sorted = [...destinationPriority].sort((a, b) => {
                     const aUsed = usedDestinationKeys.has(a) ? 1 : 0
                     const bUsed = usedDestinationKeys.has(b) ? 1 : 0
                     return bUsed - aUsed
                 })
                 const top3 = sorted.slice(0, 3)
-                return top3.map((destinationKey) => ALL_DESTINATIONS.find((d) => d.key === destinationKey)!)
+                return top3.map((key) => allDestinations.find((d) => d.key === key)!).filter(Boolean)
             },
         ],
 
         availableTriggers: [
-            (s) => [s.selectedDestinationKey, s.triggers],
-            (selectedDestinationKey, triggers): WizardTrigger[] => {
+            (s) => [s.selectedDestinationKey, s.triggers, s.allDestinations],
+            (selectedDestinationKey, triggers, allDestinations): WizardTrigger[] => {
                 if (!selectedDestinationKey) {
                     return triggers
                 }
-                const destination = ALL_DESTINATIONS.find((d) => d.key === selectedDestinationKey)
+                const destination = allDestinations.find((d) => d.key === selectedDestinationKey)
                 if (!destination) {
                     return triggers
                 }
@@ -273,12 +231,12 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
         ],
 
         activeSubTemplate: [
-            (s) => [s.selectedDestinationKey, s.selectedTriggerKey],
-            (selectedDestinationKey, selectedTriggerKey) => {
+            (s) => [s.selectedDestinationKey, s.selectedTriggerKey, s.allDestinations],
+            (selectedDestinationKey, selectedTriggerKey, allDestinations) => {
                 if (!selectedDestinationKey || !selectedTriggerKey) {
                     return null
                 }
-                const destination = ALL_DESTINATIONS.find((d) => d.key === selectedDestinationKey)
+                const destination = allDestinations.find((d) => d.key === selectedDestinationKey)
                 if (!destination) {
                     return null
                 }
@@ -326,7 +284,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
 
         restoreWizardState: ({ state }) => {
             if (state.destinationKey && state.triggerKey) {
-                const destination = ALL_DESTINATIONS.find((d) => d.key === state.destinationKey)
+                const destination = values.allDestinations.find((d) => d.key === state.destinationKey)
                 if (destination) {
                     actions.loadTemplate(destination.templateId)
                 }
@@ -337,7 +295,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
         setTriggerKey: () => {
             const destinationKey = values.selectedDestinationKey
             if (destinationKey) {
-                const destination = ALL_DESTINATIONS.find((d) => d.key === destinationKey)!
+                const destination = values.allDestinations.find((d) => d.key === destinationKey)!
                 actions.loadTemplate(destination.templateId)
             }
             actions.setStep('configure')
@@ -351,7 +309,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                 return
             }
 
-            const destination = ALL_DESTINATIONS.find((d) => d.key === destinationKey)!
+            const destination = values.allDestinations.find((d) => d.key === destinationKey)!
             const subTemplates = HOG_FUNCTION_SUB_TEMPLATES[triggerKey]
             const subTemplate = subTemplates.find((t) => t.template_id === destination.templateId)
 
@@ -429,7 +387,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                 return
             }
 
-            const destination = ALL_DESTINATIONS.find((d) => d.key === destinationKey)!
+            const destination = values.allDestinations.find((d) => d.key === destinationKey)!
             const subTemplates = HOG_FUNCTION_SUB_TEMPLATES[triggerKey]
             const subTemplate = subTemplates.find((t) => t.template_id === destination.templateId)
 
@@ -505,7 +463,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
         return {
             [logicProps.urlPattern]: (_, searchParams) => {
                 const wizardStep = searchParams.wizard_step as WizardStep | undefined
-                const wizardDest = searchParams.wizard_dest as WizardDestinationKey | undefined
+                const wizardDest = searchParams.wizard_dest as string | undefined
                 const wizardTrigger = searchParams.wizard_trigger as HogFunctionSubTemplateIdType | undefined
 
                 if (wizardStep && values.alertCreationView !== 'wizard') {
