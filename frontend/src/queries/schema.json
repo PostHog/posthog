@@ -34354,6 +34354,9 @@
                 "includeBounceRate": {
                     "type": "boolean"
                 },
+                "includeHost": {
+                    "type": "boolean"
+                },
                 "includeRevenue": {
                     "deprecated": "ignored, always treated as disabled",
                     "type": "boolean"
