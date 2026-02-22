@@ -97,7 +97,7 @@ jobs:
 
             - name: Check if any Dockerfile has changed
               id: changed-files
-              uses: step-security/changed-files@95b56dadb92a30ca9036f16423fd3c088a71ee94 # v46.0.5
+              uses: step-security/changed-files@60967b822d3001fa82242f8d6b4ed46bc3600a68  # v47.0.1
               with:
                   files: |
                       **/Dockerfile
@@ -106,7 +106,7 @@ jobs:
                   separator: ' '
 
             - name: Lint changed Dockerfile(s) with Hadolint
-              uses: jbergstroem/hadolint-gh-action@2b00b87f8a56783930b6a4749837d7c45c567ff2 # v1.13.0
+              uses: jbergstroem/hadolint-gh-action@d2f58da7f4f242dc0b6c5ef882ad4f8e871ba96b  # v1.15.0
               if: steps.changed-files.outputs.any_changed == 'true'
               with:
                   dockerfile: '${{ steps.changed-files.outputs.all_modified_files }}'

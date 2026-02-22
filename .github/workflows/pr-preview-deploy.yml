@@ -28,15 +28,15 @@ jobs:
               uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
 
             - name: Set up Depot CLI
-              uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1.6.0
+              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461  # v1.7.1
 
             - name: Login to DockerHub
-              uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+              uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
               with:
                   username: ${{ secrets.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-            - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
+            - uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7  # v6.0.0
               with:
                   aws-region: us-east-1
                   role-to-assume: arn:aws:iam::169684386827:role/github-terraform-infra-role
