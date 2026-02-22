@@ -9,7 +9,7 @@ from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Prefetch, Q, QuerySet, deletion
+from django.db.models import Count, Prefetch, Q, QuerySet, deletion
 
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
@@ -82,6 +82,7 @@ from posthog.rate_limit import BurstRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
+from posthog.views import format_bytes
 
 from products.product_tours.backend.models import ProductTour
 
@@ -203,6 +204,42 @@ def _get_flag_rollout_info(flag: FeatureFlag, checker: FeatureFlagStatusChecker)
         return {"rollout_state": "not_rolled_out", "active_variant": None}
 
     return {"rollout_state": "partial", "active_variant": None}
+
+
+def calculate_filter_size_bytes(filters: dict | None) -> int:
+    """Calculate the approximate byte size of a flag's filters JSON.
+
+    Uses sorted keys and compact separators for consistent sizing regardless of
+    dict ordering. The result differs slightly from PostgreSQL's JSONB text
+    representation (which adds spaces after separators), but exact parity isn't
+    needed -- these limits prevent abuse, not enforce precise measurements.
+    """
+    if not filters:
+        return 0
+    filter_json = json.dumps(filters, separators=(",", ":"), sort_keys=True, ensure_ascii=False)
+    return len(filter_json.encode("utf-8"))
+
+
+def check_flag_limits_for_team(
+    team_id: int,
+    is_create: bool = True,
+) -> None:
+    """
+    Check if creating a flag would exceed the team's flag count limit.
+
+    Only enforced on create -- updates to existing flags don't change the count.
+    """
+    if not is_create:
+        return
+
+    count_limit = settings.MAX_FEATURE_FLAGS_PER_TEAM
+    flag_count = FeatureFlag.objects.filter(team_id=team_id, deleted=False).count()
+
+    if flag_count >= count_limit:
+        raise serializers.ValidationError(
+            f"Maximum of {count_limit:,} feature flags allowed per team. "
+            f"Please delete unused flags or contact support to increase this limit."
+        )
 
 
 def extract_etag_from_header(header_value: str | None) -> str | None:
@@ -584,6 +621,10 @@ class FeatureFlagSerializer(
         """Validate feature flag creation/update including evaluation tag requirements."""
         attrs = super().validate(attrs)
 
+        # Validate team-wide flag count limit before any early returns, since it
+        # applies to all creates regardless of creation context (surveys, etc.)
+        self._validate_flag_limits()
+
         request = self.context.get("request")
         if not request:
             return attrs
@@ -665,6 +706,13 @@ class FeatureFlagSerializer(
             )
 
         return value
+
+    def _validate_flag_limits(self) -> None:
+        """Validate that the team has not exceeded its flag count limit."""
+        check_flag_limits_for_team(
+            team_id=self.context["team_id"],
+            is_create=self.instance is None,
+        )
 
     def validate_filters(self, filters):
         # For some weird internal REST framework reason this field gets validated on a partial PATCH call, even if filters isn't being updatd
@@ -831,6 +879,17 @@ class FeatureFlagSerializer(
         else:
             if len(payloads) > 1 or any(key != "true" for key in payloads):  # only expect one key
                 raise serializers.ValidationError("Payload keys must be 'true' for boolean flags")
+
+        # Validate per-flag filter size
+        filter_size = calculate_filter_size_bytes(filters)
+        per_flag_limit = settings.MAX_FEATURE_FLAG_FILTER_SIZE_BYTES
+
+        if filter_size > per_flag_limit:
+            raise serializers.ValidationError(
+                f"Feature flag filters exceed maximum size of {format_bytes(per_flag_limit)}. "
+                f"Current size: {format_bytes(filter_size)}. "
+                f"Please simplify conditions or reduce payload sizes."
+            )
 
         return filters
 
@@ -2194,7 +2253,6 @@ class FeatureFlagViewSet(
         Handles both string values (from URL query params) and native Python types (from JSON body).
         Used by both _filter_request and bulk_delete endpoints.
         """
-        from django.db.models import Count
 
         for key, value in filters.items():
             if key == "active":
