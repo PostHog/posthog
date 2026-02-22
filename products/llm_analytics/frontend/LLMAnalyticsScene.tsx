@@ -38,6 +38,7 @@ import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
 import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
 import { LLMAnalyticsSetupPrompt } from './LLMAnalyticsSetupPrompt'
+import { LLMAnalyticsTools } from './LLMAnalyticsTools'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
 import { useSortableColumns } from './hooks/useSortableColumns'
@@ -342,6 +343,7 @@ const DOCS_URLS_BY_TAB: Record<string, string> = {
     generations: 'https://posthog.com/docs/llm-analytics/generations',
     sessions: 'https://posthog.com/docs/llm-analytics/sessions',
     errors: 'https://posthog.com/docs/llm-analytics/errors',
+    tools: 'https://posthog.com/docs/llm-analytics',
 }
 
 const TAB_DESCRIPTIONS: Record<string, string> = {
@@ -350,6 +352,7 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
     generations: 'View individual LLM generations and their details.',
     users: 'Understand how users are interacting with your LLM features.',
     errors: 'Monitor and debug errors in your LLM pipeline.',
+    tools: 'See which tools your LLMs are calling and how often.',
     sessions: 'Analyze user sessions containing LLM interactions.',
     playground: 'Test and experiment with LLM prompts in a sandbox environment.',
 }
@@ -450,6 +453,20 @@ export function LLMAnalyticsScene(): JSX.Element {
         link: combineUrl(urls.llmAnalyticsErrors(), searchParams).url,
         'data-attr': 'errors-tab',
     })
+
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]) {
+        tabs.push({
+            key: 'tools',
+            label: 'Tools',
+            content: (
+                <LLMAnalyticsSetupPrompt>
+                    <LLMAnalyticsTools />
+                </LLMAnalyticsSetupPrompt>
+            ),
+            link: combineUrl(urls.llmAnalyticsTools(), searchParams).url,
+            'data-attr': 'tools-tab',
+        })
+    }
 
     // TODO: Once we remove FF, should add to the shortcuts list at the top of the component
     if (

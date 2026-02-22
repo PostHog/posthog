@@ -23,3 +23,9 @@ export const aiCostTotalOutcomeCounter = new Counter({
     help: 'Outcome of total cost calculation (positive, zero, negative)',
     labelNames: ['outcome'],
 })
+
+export const aiToolCallExtractionCounter = new Counter({
+    name: 'llma_ai_tool_call_extraction_total',
+    help: 'AI tool call extraction outcomes',
+    labelNames: ['status'],
+})
