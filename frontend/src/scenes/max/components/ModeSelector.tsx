@@ -148,6 +148,7 @@ interface GetModeOptionsParams {
     surveyModeEnabled: boolean
     hasExistingMessages: boolean
     flagsModeEnabled: boolean
+    evaluationsModeEnabled: boolean
 }
 
 function getModeOptions({
@@ -158,6 +159,7 @@ function getModeOptions({
     surveyModeEnabled,
     hasExistingMessages,
     flagsModeEnabled,
+    evaluationsModeEnabled,
 }: GetModeOptionsParams): LemonSelectSection<ModeValue>[] {
     const specialOptions = [
         {
@@ -213,6 +215,9 @@ function getModeOptions({
         if (mode === AgentMode.Flags && !flagsModeEnabled) {
             return false
         }
+        if (mode === AgentMode.Evaluations && !evaluationsModeEnabled) {
+            return false
+        }
         return true
     })
 
@@ -247,6 +252,7 @@ export function ModeSelector(): JSX.Element | null {
     const errorTrackingModeEnabled = useFeatureFlag('PHAI_ERROR_TRACKING_MODE')
     const surveyModeEnabled = useFeatureFlag('PHAI_SURVEY_MODE')
     const flagsModeEnabled = useFeatureFlag('POSTHOG_AI_FLAGS_MODE')
+    const evaluationsModeEnabled = useFeatureFlag('POSTHOG_AI_EVALUATIONS_MODE')
 
     const hasExistingMessages = threadMessageCount > 0
     const modeOptions = useMemo(
@@ -258,6 +264,7 @@ export function ModeSelector(): JSX.Element | null {
                 errorTrackingModeEnabled,
                 flagsModeEnabled,
                 surveyModeEnabled,
+                evaluationsModeEnabled,
                 hasExistingMessages,
             }),
         [
@@ -268,7 +275,7 @@ export function ModeSelector(): JSX.Element | null {
             surveyModeEnabled,
             hasExistingMessages,
             flagsModeEnabled,
-            surveyModeEnabled,
+            evaluationsModeEnabled,
         ]
     )
 

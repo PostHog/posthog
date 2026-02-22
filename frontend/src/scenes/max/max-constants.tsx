@@ -958,6 +958,19 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Recommending products...'
         },
     },
+    run_hog_eval_test: {
+        name: 'Test evaluation',
+        description: 'Test evaluation code against sample events',
+        product: Scene.LLMAnalyticsEvaluation,
+        icon: iconForType('llm_evaluations'),
+        modes: [AgentMode.Evaluations],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Tested evaluation code'
+            }
+            return 'Testing evaluation code...'
+        },
+    },
 }
 
 export const MODE_DEFINITIONS: Record<
@@ -1020,6 +1033,12 @@ export const MODE_DEFINITIONS: Record<
             Scene.ExperimentsSharedMetric,
             Scene.ExperimentsSharedMetrics,
         ]),
+    },
+    [AgentMode.Evaluations]: {
+        name: 'Evaluations',
+        description: 'Writes and tests Hog evaluation code for LLM analytics.',
+        icon: iconForType('llm_evaluations'),
+        scenes: new Set([Scene.LLMAnalyticsEvaluation, Scene.LLMAnalyticsEvaluations]),
     },
 }
 

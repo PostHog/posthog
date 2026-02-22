@@ -437,6 +437,7 @@ export type AssistantTool =
     | 'list_data'
     | 'finalize_plan'
     | 'recommend_products'
+    | 'run_hog_eval_test'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
@@ -449,6 +450,7 @@ export enum AgentMode {
     Onboarding = 'onboarding',
     Research = 'research',
     Flags = 'flags',
+    Evaluations = 'evaluations',
 }
 
 export enum SlashCommandName {

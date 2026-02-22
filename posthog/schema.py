@@ -48,6 +48,7 @@ class AgentMode(StrEnum):
     ONBOARDING = "onboarding"
     RESEARCH = "research"
     FLAGS = "flags"
+    EVALUATIONS = "evaluations"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -372,6 +373,7 @@ class AssistantTool(StrEnum):
     LIST_DATA = "list_data"
     FINALIZE_PLAN = "finalize_plan"
     RECOMMEND_PRODUCTS = "recommend_products"
+    RUN_HOG_EVAL_TEST = "run_hog_eval_test"
 
 
 class AssistantToolCall(BaseModel):
@@ -2674,6 +2676,23 @@ class MaxErrorTrackingSearchResponse(BaseModel):
     order_direction: str | None = Field(default=None, description="Order direction (ASC or DESC)")
     search_query: str | None = Field(default=None, description="Free text search query")
     status: str | None = Field(default=None, description="Issue status filter (active, resolved, etc.)")
+
+
+class EvaluationType(StrEnum):
+    HOG = "hog"
+    LLM_JUDGE = "llm_judge"
+
+
+class MaxEvaluationContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = None
+    evaluation_type: EvaluationType
+    hog_source: str | None = None
+    id: str
+    name: str | None = None
+    type: Literal["evaluation"] = "evaluation"
 
 
 class MaxEventContext(BaseModel):
@@ -19022,6 +19041,7 @@ class MaxUIContext(BaseModel):
     actions: list[MaxActionContext] | None = None
     dashboards: list[MaxDashboardContext] | None = None
     error_tracking_issues: list[MaxErrorTrackingIssueContext] | None = None
+    evaluations: list[MaxEvaluationContext] | None = None
     events: list[MaxEventContext] | None = None
     form_answers: dict[str, str] | None = None
     insights: list[MaxInsightContext] | None = None
