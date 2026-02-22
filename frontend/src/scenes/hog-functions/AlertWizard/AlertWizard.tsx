@@ -4,22 +4,19 @@ import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AlertWizardStepper } from './AlertWizardStepper'
-import { errorTrackingAlertWizardLogic } from './errorTrackingAlertWizardLogic'
+import { alertWizardLogic } from './alertWizardLogic'
 import { ConfigureStep } from './steps/ConfigureStep'
 import { DestinationStep } from './steps/DestinationStep'
 import { TriggerStep } from './steps/TriggerStep'
 
-export interface ErrorTrackingAlertWizardProps {
+export interface AlertWizardProps {
     onCancel: () => void
     onSwitchToTraditional: () => void
 }
 
-export function ErrorTrackingAlertWizard({
-    onCancel,
-    onSwitchToTraditional,
-}: ErrorTrackingAlertWizardProps): JSX.Element {
-    const { currentStep } = useValues(errorTrackingAlertWizardLogic)
-    const { setStep } = useActions(errorTrackingAlertWizardLogic)
+export function AlertWizard({ onCancel, onSwitchToTraditional }: AlertWizardProps): JSX.Element {
+    const { currentStep } = useValues(alertWizardLogic)
+    const { setStep } = useActions(alertWizardLogic)
 
     return (
         <div className="flex flex-col min-h-[400px]">

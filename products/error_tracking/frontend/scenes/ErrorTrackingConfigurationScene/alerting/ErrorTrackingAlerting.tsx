@@ -1,63 +1,45 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { AlertWizardAlerting } from 'scenes/hog-functions/AlertWizard/AlertWizardAlerting'
+import {
+    AlertWizardLogicProps,
+    WizardTrigger,
+    alertWizardLogic,
+} from 'scenes/hog-functions/AlertWizard/alertWizardLogic'
 
-import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
-import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
-import { getFiltersFromSubTemplateId } from 'scenes/hog-functions/list/LinkedHogFunctions'
+import { HogFunctionSubTemplateIdType } from '~/types'
 
-import { CyclotronJobFiltersType } from '~/types'
+const ERROR_TRACKING_SUB_TEMPLATE_IDS: HogFunctionSubTemplateIdType[] = [
+    'error-tracking-issue-created',
+    'error-tracking-issue-reopened',
+    'error-tracking-issue-spiking',
+]
 
-import { ErrorTrackingAlertWizard } from './ErrorTrackingAlertWizard'
-import { SUB_TEMPLATE_IDS, errorTrackingAlertWizardLogic } from './errorTrackingAlertWizardLogic'
+const ERROR_TRACKING_TRIGGERS: WizardTrigger[] = [
+    {
+        key: 'error-tracking-issue-created',
+        name: 'Issue created',
+        description: 'Get notified when a new error issue is detected',
+    },
+    {
+        key: 'error-tracking-issue-reopened',
+        name: 'Issue reopened',
+        description: 'Get notified when a previously resolved issue comes back',
+    },
+]
 
-const HOG_FUNCTION_FILTER_LIST = SUB_TEMPLATE_IDS.map(getFiltersFromSubTemplateId).filter(
-    (f) => !!f
-) as CyclotronJobFiltersType[]
+const ALERT_WIZARD_PROPS: AlertWizardLogicProps = {
+    logicKey: 'error-tracking',
+    subTemplateIds: ERROR_TRACKING_SUB_TEMPLATE_IDS,
+    triggers: ERROR_TRACKING_TRIGGERS,
+    urlPattern: '**/error_tracking/configuration',
+    sourceName: 'Error tracking alert wizard',
+}
 
 export function ErrorTrackingAlerting(): JSX.Element {
-    const { alertCreationView } = useValues(errorTrackingAlertWizardLogic)
-    const { setAlertCreationView, resetWizard } = useActions(errorTrackingAlertWizardLogic)
-
-    if (alertCreationView === 'wizard') {
-        return (
-            <ErrorTrackingAlertWizard
-                onCancel={() => {
-                    setAlertCreationView('none')
-                    resetWizard()
-                }}
-                onSwitchToTraditional={() => {
-                    setAlertCreationView('traditional')
-                    resetWizard()
-                }}
-            />
-        )
-    }
-
-    if (alertCreationView === 'traditional') {
-        return (
-            <HogFunctionTemplateList
-                type="destination"
-                subTemplateIds={SUB_TEMPLATE_IDS}
-                getConfigurationOverrides={(id) => (id ? getFiltersFromSubTemplateId(id) : undefined)}
-                extraControls={
-                    <LemonButton type="secondary" size="small" onClick={() => setAlertCreationView('none')}>
-                        Cancel
-                    </LemonButton>
-                }
-            />
-        )
-    }
-
     return (
-        <HogFunctionList
-            forceFilterGroups={HOG_FUNCTION_FILTER_LIST}
-            type="internal_destination"
-            extraControls={
-                <LemonButton type="primary" size="small" onClick={() => setAlertCreationView('wizard')}>
-                    New notification
-                </LemonButton>
-            }
-        />
+        <BindLogic logic={alertWizardLogic} props={ALERT_WIZARD_PROPS}>
+            <AlertWizardAlerting />
+        </BindLogic>
     )
 }

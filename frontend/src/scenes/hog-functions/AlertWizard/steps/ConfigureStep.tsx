@@ -9,12 +9,12 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import { CyclotronJobInputSchemaType } from '~/types'
 
-import { errorTrackingAlertWizardLogic } from '../errorTrackingAlertWizardLogic'
+import { alertWizardLogic } from '../alertWizardLogic'
 
 export function ConfigureStep(): JSX.Element {
     const { requiredInputsSchema, configuration, selectedTemplateLoading, submitting, testing } =
-        useValues(errorTrackingAlertWizardLogic)
-    const { setInputValue, submitConfiguration, testConfiguration } = useActions(errorTrackingAlertWizardLogic)
+        useValues(alertWizardLogic)
+    const { setInputValue, submitConfiguration, testConfiguration } = useActions(alertWizardLogic)
 
     if (selectedTemplateLoading) {
         return (

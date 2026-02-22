@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -12,18 +12,11 @@ import {
 
 import { CyclotronJobInputType, HogFunctionSubTemplateIdType, HogFunctionTemplateType, HogFunctionType } from '~/types'
 
-import type { errorTrackingAlertWizardLogicType } from './errorTrackingAlertWizardLogicType'
+import type { alertWizardLogicType } from './alertWizardLogicType'
 
 export type WizardDestinationKey = 'slack' | 'discord' | 'github' | 'microsoft-teams' | 'linear'
-export type WizardTriggerKey = 'error-tracking-issue-created' | 'error-tracking-issue-reopened'
 export type WizardStep = 'destination' | 'trigger' | 'configure'
 export type AlertCreationView = 'none' | 'wizard' | 'traditional'
-
-export const SUB_TEMPLATE_IDS: HogFunctionSubTemplateIdType[] = [
-    'error-tracking-issue-created',
-    'error-tracking-issue-reopened',
-    'error-tracking-issue-spiking',
-]
 
 export interface WizardDestination {
     key: WizardDestinationKey
@@ -31,6 +24,22 @@ export interface WizardDestination {
     description: string
     icon: string
     templateId: string
+}
+
+export interface WizardTrigger {
+    key: HogFunctionSubTemplateIdType
+    name: string
+    description: string
+}
+
+export interface AlertWizardLogicProps {
+    logicKey: string
+    subTemplateIds: HogFunctionSubTemplateIdType[]
+    triggers: WizardTrigger[]
+    // URL glob pattern for syncing wizard state to query params (e.g. '**/error_tracking/configuration')
+    urlPattern?: string
+    // Label used in test invocation globals
+    sourceName: string
 }
 
 const ALL_DESTINATIONS: WizardDestination[] = [
@@ -79,27 +88,11 @@ const DESTINATIONS_DEFAULT_PRIORITY: WizardDestinationKey[] = [
     'linear',
 ]
 
-export interface WizardTrigger {
-    key: WizardTriggerKey
-    name: string
-    description: string
-}
-
-const ALL_TRIGGERS: WizardTrigger[] = [
-    {
-        key: 'error-tracking-issue-created',
-        name: 'Issue created',
-        description: 'Get notified when a new error issue is detected',
-    },
-    {
-        key: 'error-tracking-issue-reopened',
-        name: 'Issue reopened',
-        description: 'Get notified when a previously resolved issue comes back',
-    },
-]
-
-function hasSubTemplateForDestination(triggerKey: WizardTriggerKey, destination: WizardDestination): boolean {
-    const subTemplates = HOG_FUNCTION_SUB_TEMPLATES[triggerKey as HogFunctionSubTemplateIdType]
+function hasSubTemplateForDestination(
+    triggerKey: HogFunctionSubTemplateIdType,
+    destination: WizardDestination
+): boolean {
+    const subTemplates = HOG_FUNCTION_SUB_TEMPLATES[triggerKey]
     return subTemplates?.some((t) => t.template_id === destination.templateId) ?? false
 }
 
@@ -116,19 +109,21 @@ function extractDestinationKeyFromAlert(alert: HogFunctionType): WizardDestinati
     return null
 }
 
-export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicType>([
-    path(['products', 'error_tracking', 'frontend', 'alerting', 'errorTrackingAlertWizardLogic']),
+export const alertWizardLogic = kea<alertWizardLogicType>([
+    props({} as AlertWizardLogicProps),
+    key((p) => p.logicKey),
+    path((key) => ['scenes', 'hog-functions', 'AlertWizard', 'alertWizardLogic', key]),
 
     actions({
         setAlertCreationView: (view: AlertCreationView) => ({ view }),
         setStep: (step: WizardStep) => ({ step }),
         setDestinationKey: (destinationKey: WizardDestinationKey) => ({ destinationKey }),
-        setTriggerKey: (triggerKey: WizardTriggerKey) => ({ triggerKey }),
+        setTriggerKey: (triggerKey: HogFunctionSubTemplateIdType) => ({ triggerKey }),
         setInputValue: (key: string, value: CyclotronJobInputType) => ({ key, value }),
         restoreWizardState: (state: {
             step: WizardStep
             destinationKey: WizardDestinationKey | null
-            triggerKey: WizardTriggerKey | null
+            triggerKey: HogFunctionSubTemplateIdType | null
         }) => ({ state }),
         resetWizard: true,
         createAlertSuccess: true,
@@ -137,7 +132,10 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
         testConfigurationComplete: true,
     }),
 
-    reducers({
+    reducers(({ props: logicProps }) => ({
+        subTemplateIds: [logicProps.subTemplateIds, {}],
+        triggers: [logicProps.triggers as WizardTrigger[], {}],
+        sourceName: [logicProps.sourceName, {}],
         alertCreationView: [
             'none' as AlertCreationView,
             {
@@ -164,7 +162,7 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
             },
         ],
         selectedTriggerKey: [
-            null as WizardTriggerKey | null,
+            null as HogFunctionSubTemplateIdType | null,
             {
                 setTriggerKey: (_, { triggerKey }) => triggerKey,
                 restoreWizardState: (_, { state }) => state.triggerKey,
@@ -183,7 +181,6 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
             {
                 setInputValue: (state, { key, value }) => ({ ...state, [key]: value }),
                 resetWizard: () => ({}),
-                // Reset inputs when switching destination or trigger
                 setDestinationKey: () => ({}),
                 setTriggerKey: () => ({}),
             },
@@ -202,26 +199,22 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
                 testConfigurationComplete: () => false,
             },
         ],
-    }),
+    })),
 
-    loaders({
+    loaders(({ props: logicProps }) => ({
         existingAlerts: [
             [] as HogFunctionType[],
             {
                 loadExistingAlerts: async () => {
-                    const errorTrackingFilters = [
-                        HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-created'].filters,
-                        HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-reopened'].filters,
-                    ].filter(Boolean)
+                    const filters = logicProps.subTemplateIds
+                        .map((id) => HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[id]?.filters)
+                        .filter(Boolean)
 
                     const response = await api.hogFunctions.list({
                         types: ['internal_destination'],
-                        filter_groups: errorTrackingFilters as any[],
+                        filter_groups: filters as any[],
                         limit: 100,
                     })
-
-                    // TODO: REMOVE THIS ON PROD
-                    await new Promise((resolve) => setTimeout(resolve, 1_000))
 
                     return response.results
                 },
@@ -235,7 +228,7 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
                 },
             },
         ],
-    }),
+    })),
 
     selectors({
         usedDestinationKeys: [
@@ -266,16 +259,16 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
         ],
 
         availableTriggers: [
-            (s) => [s.selectedDestinationKey],
-            (selectedDestinationKey): WizardTrigger[] => {
+            (s) => [s.selectedDestinationKey, s.triggers],
+            (selectedDestinationKey, triggers): WizardTrigger[] => {
                 if (!selectedDestinationKey) {
-                    return ALL_TRIGGERS
+                    return triggers
                 }
                 const destination = ALL_DESTINATIONS.find((d) => d.key === selectedDestinationKey)
                 if (!destination) {
-                    return ALL_TRIGGERS
+                    return triggers
                 }
-                return ALL_TRIGGERS.filter((trigger) => hasSubTemplateForDestination(trigger.key, destination))
+                return triggers.filter((trigger) => hasSubTemplateForDestination(trigger.key, destination))
             },
         ],
 
@@ -289,7 +282,7 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
                 if (!destination) {
                     return null
                 }
-                const subTemplates = HOG_FUNCTION_SUB_TEMPLATES[selectedTriggerKey as HogFunctionSubTemplateIdType]
+                const subTemplates = HOG_FUNCTION_SUB_TEMPLATES[selectedTriggerKey]
                 return subTemplates?.find((t) => t.template_id === destination.templateId) ?? null
             },
         ],
@@ -407,7 +400,7 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
                     url: window.location.origin,
                 },
                 source: {
-                    name: 'Error tracking alert wizard',
+                    name: values.sourceName,
                     url: window.location.href,
                 },
             }
@@ -505,21 +498,26 @@ export const errorTrackingAlertWizardLogic = kea<errorTrackingAlertWizardLogicTy
         }
     }),
 
-    urlToAction(({ actions, values }) => ({
-        '**/error_tracking/configuration': (_, searchParams) => {
-            const wizardStep = searchParams.wizard_step as WizardStep | undefined
-            const wizardDest = searchParams.wizard_dest as WizardDestinationKey | undefined
-            const wizardTrigger = searchParams.wizard_trigger as WizardTriggerKey | undefined
+    urlToAction(({ actions, values, props: logicProps }) => {
+        if (!logicProps.urlPattern) {
+            return {}
+        }
+        return {
+            [logicProps.urlPattern]: (_, searchParams) => {
+                const wizardStep = searchParams.wizard_step as WizardStep | undefined
+                const wizardDest = searchParams.wizard_dest as WizardDestinationKey | undefined
+                const wizardTrigger = searchParams.wizard_trigger as HogFunctionSubTemplateIdType | undefined
 
-            if (wizardStep && values.alertCreationView !== 'wizard') {
-                actions.restoreWizardState({
-                    step: wizardStep,
-                    destinationKey: wizardDest ?? null,
-                    triggerKey: wizardTrigger ?? null,
-                })
-            }
-        },
-    })),
+                if (wizardStep && values.alertCreationView !== 'wizard') {
+                    actions.restoreWizardState({
+                        step: wizardStep,
+                        destinationKey: wizardDest ?? null,
+                        triggerKey: wizardTrigger ?? null,
+                    })
+                }
+            },
+        }
+    }),
 
     afterMount(({ actions }) => {
         actions.loadExistingAlerts()

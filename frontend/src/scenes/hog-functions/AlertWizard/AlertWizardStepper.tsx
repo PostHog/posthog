@@ -2,7 +2,7 @@ import { IconCheckCircle } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { WizardStep } from './errorTrackingAlertWizardLogic'
+import { WizardStep } from './alertWizardLogic'
 
 interface Step {
     key: WizardStep

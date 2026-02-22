@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { WizardTrigger, errorTrackingAlertWizardLogic } from '../errorTrackingAlertWizardLogic'
+import { WizardTrigger, alertWizardLogic } from '../alertWizardLogic'
 import { WizardCard } from './WizardCard'
 
 export function TriggerStep(): JSX.Element {
-    const { availableTriggers } = useValues(errorTrackingAlertWizardLogic)
-    const { setTriggerKey } = useActions(errorTrackingAlertWizardLogic)
+    const { availableTriggers } = useValues(alertWizardLogic)
+    const { setTriggerKey } = useActions(alertWizardLogic)
 
     return (
         <div className="space-y-4">

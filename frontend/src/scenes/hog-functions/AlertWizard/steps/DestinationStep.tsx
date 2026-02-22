@@ -2,12 +2,12 @@ import { useActions, useValues } from 'kea'
 
 import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
 
-import { WizardDestination, errorTrackingAlertWizardLogic } from '../errorTrackingAlertWizardLogic'
+import { WizardDestination, alertWizardLogic } from '../alertWizardLogic'
 import { WizardCard } from './WizardCard'
 
 export function DestinationStep(): JSX.Element {
-    const { destinations, usedDestinationKeys, existingAlertsLoading } = useValues(errorTrackingAlertWizardLogic)
-    const { setDestinationKey } = useActions(errorTrackingAlertWizardLogic)
+    const { destinations, usedDestinationKeys, existingAlertsLoading } = useValues(alertWizardLogic)
+    const { setDestinationKey } = useActions(alertWizardLogic)
 
     if (existingAlertsLoading) {
         return (
