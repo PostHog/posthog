@@ -1,6 +1,7 @@
-import { DashboardPage } from '../../page-models/dashboardPage'
+import { CompactDashboardPage, DashboardPage } from '../../page-models/dashboardPage'
 import { InsightPage } from '../../page-models/insightPage'
 import { randomString } from '../../utils'
+import { mockFeatureFlags } from '../../utils/mockApi'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
 test.describe('Dashboards', () => {
@@ -289,6 +290,98 @@ test.describe('Dashboard duplication', () => {
             await expect(dashboard.textCards).toContainText(cardText)
             await expect(dashboard.dateFilter).toContainText('Last 30 days')
             await expect(dashboard.variableButtons.first()).toContainText('42')
+        })
+    })
+})
+
+// Requires the 'dashboard-tile-redesign' feature flag — mock it in beforeEach
+test.describe('Dashboard compact cards and inline editing', () => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ use_current_time: true, skip_onboarding: true })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await mockFeatureFlags(page, { 'dashboard-tile-redesign': true })
+        await playwrightSetup.login(page, workspace!)
+    })
+
+    test('Edit mode button enters and exits edit mode', async ({ page }) => {
+        const dashboard = new CompactDashboardPage(page)
+
+        await test.step('create a dashboard with an insight', async () => {
+            await dashboard.createNew()
+            await dashboard.addInsightToNewDashboard()
+            await expect(dashboard.insightCards).toBeVisible()
+        })
+
+        await test.step('enter edit mode via the edit button', async () => {
+            await dashboard.enterEditMode()
+        })
+
+        await test.step('save and exit edit mode', async () => {
+            await dashboard.saveEditMode()
+        })
+    })
+
+    test('Inline editing insight title via compact card popover', async ({ page }) => {
+        const dashboard = new CompactDashboardPage(page)
+        const updatedTitle = randomString('inline-title')
+
+        await test.step('create a dashboard with an insight', async () => {
+            await dashboard.createNew()
+            await dashboard.addInsightToNewDashboard()
+            await expect(dashboard.insightCards).toBeVisible()
+        })
+
+        await test.step('hover over the card to open the popover', async () => {
+            await dashboard.hoverFirstCard()
+            await expect(dashboard.popoverTitleField).toBeVisible()
+        })
+
+        await test.step('edit the title inline', async () => {
+            await dashboard.editPopoverTitle(updatedTitle)
+        })
+
+        await test.step('verify toast and updated title', async () => {
+            await expect(page.getByText('Insight updated')).toBeVisible()
+            await expect(dashboard.insightCards.first().getByTestId('insight-card-title')).toContainText(updatedTitle)
+        })
+
+        await test.step('reload and verify title persisted', async () => {
+            await page.reload({ waitUntil: 'domcontentloaded' })
+            await expect(dashboard.insightCards.first().getByTestId('insight-card-title')).toContainText(updatedTitle)
+        })
+    })
+
+    test('Inline editing insight description via compact card popover', async ({ page }) => {
+        const dashboard = new CompactDashboardPage(page)
+        const description = randomString('inline-desc')
+
+        await test.step('create a dashboard with an insight', async () => {
+            await dashboard.createNew()
+            await dashboard.addInsightToNewDashboard()
+            await expect(dashboard.insightCards).toBeVisible()
+        })
+
+        await test.step('hover over the card to open the popover', async () => {
+            await dashboard.hoverFirstCard()
+            await expect(dashboard.popoverDescriptionField).toBeVisible()
+        })
+
+        await test.step('edit the description inline', async () => {
+            await dashboard.editPopoverDescription(description)
+        })
+
+        await test.step('verify toast', async () => {
+            await expect(page.getByText('Insight updated')).toBeVisible()
+        })
+
+        await test.step('reload and verify description persisted', async () => {
+            await page.reload({ waitUntil: 'domcontentloaded' })
+            await dashboard.hoverFirstCard()
+            await expect(dashboard.tilePopover.getByText(description)).toBeVisible()
         })
     })
 })

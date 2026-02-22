@@ -642,13 +642,14 @@ describe('insightLogic', () => {
                         result: ['result 42'],
                         filters: API_FILTERS,
                         name: 'new name',
+                        description: 'new description',
                     })
                 )
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    insight: truth(({ name }) => {
-                        return name === 'new name'
+                    insight: truth(({ name, description }) => {
+                        return name === 'new name' && description === 'new description'
                     }),
                 })
         })

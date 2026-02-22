@@ -644,6 +644,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         insight: {
                             ...(tiles[tileIndex].insight as QueryBasedInsightModel),
                             name: item.name,
+                            description: item.description,
                             last_modified_at: item.last_modified_at,
                         },
                     }

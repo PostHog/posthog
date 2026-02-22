@@ -722,14 +722,14 @@ describe('dashboardLogic', () => {
                 ...copiedInsight,
                 name: 'renamed',
                 last_modified_at: '2021-04-01 12:00:00',
-                description: 'should be ignored',
+                description: 'updated description',
             })
 
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.dashboard?.tiles).toHaveLength(2)
             expect(logic.values.insightTiles[0].insight!.name).toEqual('renamed')
             expect(logic.values.insightTiles[0].insight!.last_modified_at).toEqual('2021-04-01 12:00:00')
-            expect(logic.values.insightTiles[0].insight!.description).toEqual(null)
+            expect(logic.values.insightTiles[0].insight!.description).toEqual('updated description')
             expect(logic.values.textTiles[0].text!.body).toEqual('I AM A TEXT')
         })
 

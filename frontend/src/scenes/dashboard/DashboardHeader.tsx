@@ -9,6 +9,7 @@ import {
     IconGridMasonry,
     IconNotebook,
     IconPalette,
+    IconPencil,
     IconPlusSmall,
     IconScreen,
     IconShare,
@@ -542,6 +543,22 @@ export function DashboardHeader(): JSX.Element | null {
                                             tooltip="Share"
                                             tooltipPlacement="top"
                                         />
+                                        {canEditDashboard && (
+                                            <LemonButton
+                                                type="secondary"
+                                                data-attr="dashboard-edit-mode-button"
+                                                onClick={() =>
+                                                    setDashboardMode(
+                                                        DashboardMode.Edit,
+                                                        DashboardEventSource.SceneCommonButtons
+                                                    )
+                                                }
+                                                size="small"
+                                                icon={<IconPencil fontSize="16" />}
+                                                tooltip="Edit layout"
+                                                tooltipPlacement="top"
+                                            />
+                                        )}
                                     </>
                                 )}
                                 {dashboard ? (
