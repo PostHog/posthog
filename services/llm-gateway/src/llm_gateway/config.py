@@ -10,11 +10,54 @@ class ProductCostLimit(BaseModel):
     window_seconds: int
 
 
+class UserCostLimit(BaseModel):
+    burst_limit_usd: float
+    burst_window_seconds: int
+    sustained_limit_usd: float
+    sustained_window_seconds: int
+
+
 DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "llm_gateway": ProductCostLimit(limit_usd=1000.0, window_seconds=86400),
     "wizard": ProductCostLimit(limit_usd=2000.0, window_seconds=86400),
     "twig": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
 }
+
+DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
+    "twig": UserCostLimit(
+        burst_limit_usd=100.0,
+        burst_window_seconds=86400,
+        sustained_limit_usd=1000.0,
+        sustained_window_seconds=2592000,
+    ),
+}
+
+
+def _parse_model_dict(
+    v: str | dict | None,
+    model_cls: type[BaseModel],
+    default: dict,
+    field_name: str,
+) -> dict:
+    if v is None or v == "":
+        return default
+    if isinstance(v, dict):
+        result = {}
+        for key, config in v.items():
+            if isinstance(config, model_cls):
+                result[key] = config
+            elif isinstance(config, dict):
+                result[key] = model_cls(**config)
+            else:
+                raise ValueError(f"Invalid config for {key}")
+        return result
+    try:
+        parsed = json.loads(v)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON in {field_name}: {e}") from e
+    if not isinstance(parsed, dict):
+        raise ValueError(f"{field_name} must be a JSON object")
+    return {key: model_cls(**config) for key, config in parsed.items()}
 
 
 class Settings(BaseSettings):
@@ -57,8 +100,7 @@ class Settings(BaseSettings):
 
     product_cost_limits: dict[str, ProductCostLimit] = DEFAULT_PRODUCT_COST_LIMITS
 
-    default_user_cost_limit_usd: float = 500.0
-    default_user_cost_window_seconds: int = 3600
+    user_cost_limits: dict[str, UserCostLimit] = DEFAULT_USER_COST_LIMITS
     user_cost_limits_disabled: bool = False
 
     default_fallback_cost_usd: float = 0.01
@@ -66,25 +108,12 @@ class Settings(BaseSettings):
     @field_validator("product_cost_limits", mode="before")
     @classmethod
     def parse_product_cost_limits(cls, v: str | dict | None) -> dict[str, ProductCostLimit]:
-        if v is None or v == "":
-            return DEFAULT_PRODUCT_COST_LIMITS
-        if isinstance(v, dict):
-            result = {}
-            for product, config in v.items():
-                if isinstance(config, ProductCostLimit):
-                    result[product] = config
-                elif isinstance(config, dict):
-                    result[product] = ProductCostLimit(**config)
-                else:
-                    raise ValueError(f"Invalid config for product {product}")
-            return result
-        try:
-            parsed = json.loads(v)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON in product_cost_limits: {e}") from e
-        if not isinstance(parsed, dict):
-            raise ValueError("product_cost_limits must be a JSON object")
-        return {product: ProductCostLimit(**config) for product, config in parsed.items()}
+        return _parse_model_dict(v, ProductCostLimit, DEFAULT_PRODUCT_COST_LIMITS, "product_cost_limits")
+
+    @field_validator("user_cost_limits", mode="before")
+    @classmethod
+    def parse_user_cost_limits(cls, v: str | dict | None) -> dict[str, UserCostLimit]:
+        return _parse_model_dict(v, UserCostLimit, DEFAULT_USER_COST_LIMITS, "user_cost_limits")
 
     @field_validator("team_rate_limit_multipliers", mode="before")
     @classmethod

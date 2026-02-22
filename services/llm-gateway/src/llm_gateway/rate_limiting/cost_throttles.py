@@ -124,38 +124,29 @@ class ProductCostThrottle(CostThrottle):
         return base_limit * team_mult, window
 
 
-class UserCostThrottle(CostThrottle):
-    """Rate limit by end_user_id.
+class _UserCostThrottleBase(CostThrottle):
+    """Base for per-product user cost throttles (burst/sustained pattern).
 
     - OAuth: end_user_id is the token holder (set at context creation)
     - Personal API key: end_user_id is the 'user' param from the request (set in callback)
 
-    If no end_user_id is set, user rate limiting is skipped.
+    Skipped when: no end_user_id, product not in user_cost_limits config, or limits disabled.
     """
-
-    scope = "user_cost"
-
-    def _get_limit_exceeded_detail(self) -> str:
-        return "User rate limit exceeded"
 
     def _get_cache_key(self, context: ThrottleContext) -> str:
         if not context.end_user_id:
             return ""
         team_mult = self._get_team_multiplier(context)
-        base = f"cost:user:{context.end_user_id}"
+        base = f"cost:user:{self.scope}:{context.product}:{context.end_user_id}"
         if team_mult == 1:
             return base
         return f"{base}:tm{team_mult}"
 
-    def _get_limit_and_window(self, context: ThrottleContext) -> tuple[float, int]:
-        settings = get_settings()
-        base_limit = settings.default_user_cost_limit_usd
-        window = settings.default_user_cost_window_seconds
-        team_mult = self._get_team_multiplier(context)
-        return base_limit * team_mult, window
+    def _has_config(self, context: ThrottleContext) -> bool:
+        return context.product in get_settings().user_cost_limits
 
     async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
-        if not context.end_user_id:
+        if not context.end_user_id or not self._has_config(context):
             return ThrottleResult.allow()
         settings = get_settings()
         if settings.user_cost_limits_disabled:
@@ -164,6 +155,36 @@ class UserCostThrottle(CostThrottle):
         return await super().allow_request(context)
 
     async def record_cost(self, context: ThrottleContext, cost: float) -> None:
-        if not context.end_user_id:
+        if not context.end_user_id or not self._has_config(context):
             return
         await super().record_cost(context, cost)
+
+
+class UserCostBurstThrottle(_UserCostThrottleBase):
+    scope = "user_cost_burst"
+
+    def _get_limit_exceeded_detail(self) -> str:
+        return "User daily rate limit exceeded"
+
+    def _get_limit_and_window(self, context: ThrottleContext) -> tuple[float, int]:
+        settings = get_settings()
+        config = settings.user_cost_limits.get(context.product)
+        if not config:
+            return 0.0, 1
+        team_mult = self._get_team_multiplier(context)
+        return config.burst_limit_usd * team_mult, config.burst_window_seconds
+
+
+class UserCostSustainedThrottle(_UserCostThrottleBase):
+    scope = "user_cost_sustained"
+
+    def _get_limit_exceeded_detail(self) -> str:
+        return "User monthly rate limit exceeded"
+
+    def _get_limit_and_window(self, context: ThrottleContext) -> tuple[float, int]:
+        settings = get_settings()
+        config = settings.user_cost_limits.get(context.product)
+        if not config:
+            return 0.0, 1
+        team_mult = self._get_team_multiplier(context)
+        return config.sustained_limit_usd * team_mult, config.sustained_window_seconds
