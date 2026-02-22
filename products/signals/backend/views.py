@@ -3,6 +3,7 @@ import logging
 from typing import cast
 
 from django.conf import settings
+from django.db import IntegrityError
 from django.db.models import Count
 
 from asgiref.sync import async_to_sync
@@ -20,8 +21,12 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.permissions import APIScopePermission
 
 from products.signals.backend.api import emit_signal
-from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.serializers import SignalReportArtefactSerializer, SignalReportSerializer
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalSourceConfig
+from products.signals.backend.serializers import (
+    SignalReportArtefactSerializer,
+    SignalReportSerializer,
+    SignalSourceConfigSerializer,
+)
 from products.tasks.backend.temporal.client import execute_video_segment_clustering_workflow
 
 logger = logging.getLogger(__name__)
@@ -63,6 +68,25 @@ class SignalViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response({"status": "ok"}, status=status.HTTP_202_ACCEPTED)
 
 
+class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    serializer_class = SignalSourceConfigSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "INTERNAL"
+    queryset = SignalSourceConfig.objects.all().order_by("-updated_at")
+
+    def perform_create(self, serializer):
+        try:
+            serializer.save(team_id=self.team_id, created_by=self.request.user)
+        except IntegrityError:
+            raise serializers.ValidationError(
+                {"source_type": "A configuration for this source type already exists for this team."}
+            )
+
+    def perform_update(self, serializer):
+        serializer.save()
+
+
 @extend_schema_view(
     list=extend_schema(exclude=True),
     retrieve=extend_schema(exclude=True),
@@ -71,7 +95,7 @@ class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
     serializer_class = SignalReportSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "task"  # Using task scope as signal_report doesn't have its own scope yet
+    scope_object = "INTERNAL"
     queryset = SignalReport.objects.all()
 
     def safely_get_queryset(self, queryset):
