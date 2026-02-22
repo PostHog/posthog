@@ -18,7 +18,6 @@ class TestFlushKafkaBatch:
             kafka_producer=kafka_producer,
             pending_messages=[],
             team_id=1,
-            cohort_id=123,
             current_offset=0,
             heartbeater=heartbeater,
             logger=logger,
@@ -50,7 +49,6 @@ class TestFlushKafkaBatch:
                 kafka_producer=kafka_producer,
                 pending_messages=mock_results,
                 team_id=1,
-                cohort_id=123,
                 current_offset=1000,
                 heartbeater=heartbeater,
                 logger=logger,
@@ -75,7 +73,6 @@ class TestFlushKafkaBatch:
                 kafka_producer=kafka_producer,
                 pending_messages=[mock_result],
                 team_id=1,
-                cohort_id=123,
                 current_offset=5000,
                 heartbeater=heartbeater,
                 logger=logger,
@@ -104,7 +101,6 @@ class TestFlushKafkaBatch:
                 kafka_producer=kafka_producer,
                 pending_messages=[mock_result],
                 team_id=1,
-                cohort_id=123,
                 current_offset=2000,
                 heartbeater=heartbeater,
                 logger=logger,
@@ -142,7 +138,6 @@ class TestFlushKafkaBatch:
                     kafka_producer=kafka_producer,
                     pending_messages=mock_results,
                     team_id=1,
-                    cohort_id=123,
                     current_offset=3000,
                     heartbeater=heartbeater,
                     logger=logger,
@@ -174,7 +169,6 @@ class TestFlushKafkaBatch:
                     kafka_producer=kafka_producer,
                     pending_messages=mock_results,
                     team_id=1,
-                    cohort_id=123,
                     current_offset=4000,
                     heartbeater=heartbeater,
                     logger=logger,
@@ -185,7 +179,7 @@ class TestFlushKafkaBatch:
 
     @pytest.mark.asyncio
     async def test_heartbeat_details_format(self):
-        """Should format heartbeat details with offset and cohort information."""
+        """Should format heartbeat details with offset information."""
         kafka_producer = Mock()
         mock_result = Mock()
         mock_result.get = Mock(return_value=None)
@@ -198,7 +192,6 @@ class TestFlushKafkaBatch:
                 kafka_producer=kafka_producer,
                 pending_messages=[mock_result] * 10000,
                 team_id=1,
-                cohort_id=456,
                 current_offset=50000,
                 heartbeater=heartbeater,
                 logger=logger,
@@ -206,12 +199,11 @@ class TestFlushKafkaBatch:
 
         heartbeat_msg = heartbeater.details[0]
         assert "10000 messages" in heartbeat_msg
-        assert "cohort 456" in heartbeat_msg
         assert "offset 50000" in heartbeat_msg
 
     @pytest.mark.asyncio
     async def test_logger_includes_metadata(self):
-        """Should include team_id, cohort_id, offset, and batch_size in logger metadata."""
+        """Should include team_id, offset, and batch_size in logger metadata."""
         kafka_producer = Mock()
         mock_result = Mock()
         mock_result.get = Mock(return_value=None)
@@ -224,7 +216,6 @@ class TestFlushKafkaBatch:
                 kafka_producer=kafka_producer,
                 pending_messages=[mock_result] * 5000,
                 team_id=42,
-                cohort_id=789,
                 current_offset=25000,
                 heartbeater=heartbeater,
                 logger=logger,
@@ -234,7 +225,6 @@ class TestFlushKafkaBatch:
         logger.info.assert_called_once()
         call_kwargs = logger.info.call_args[1]
         assert call_kwargs["team_id"] == 42
-        assert call_kwargs["cohort_id"] == 789
         assert call_kwargs["offset"] == 25000
         assert call_kwargs["batch_size"] == 5000
 
@@ -260,12 +250,12 @@ class TestBatchFlushingBehavior:
 
         with patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.asyncio.to_thread"):
             # Batch 1
-            result1 = await flush_kafka_batch(kafka_producer, mock_results_batch1, 1, 123, 0, heartbeater, logger)
+            result1 = await flush_kafka_batch(kafka_producer, mock_results_batch1, 1, 0, heartbeater, logger)
             # Batch 2
-            result2 = await flush_kafka_batch(kafka_producer, mock_results_batch2, 1, 123, 10000, heartbeater, logger)
+            result2 = await flush_kafka_batch(kafka_producer, mock_results_batch2, 1, 10000, heartbeater, logger)
             # Batch 3 (final)
             result3 = await flush_kafka_batch(
-                kafka_producer, mock_results_batch3, 1, 123, 20000, heartbeater, logger, is_final=True
+                kafka_producer, mock_results_batch3, 1, 20000, heartbeater, logger, is_final=True
             )
 
         assert result1 == 10000

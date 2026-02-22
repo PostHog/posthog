@@ -16,7 +16,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
     BackfillPrecalculatedPersonPropertiesWorkflow,
-    PersonPropertyFilter,
+    CohortFilters,
 )
 
 LOGGER = get_logger(__name__)
@@ -37,8 +37,7 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorInputs:
     """Inputs for the coordinator workflow that spawns child workflows."""
 
     team_id: int
-    cohort_id: int
-    filters: list[PersonPropertyFilter]  # Person property filters from cohort
+    cohort_filters: list[CohortFilters]  # All cohorts and their filters
     parallelism: int = 10  # Number of child workflows to spawn
     batch_size: int = 1000  # Persons per batch within each worker
     workflows_per_batch: int = 5  # Number of workflows to start per batch
@@ -46,10 +45,12 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorInputs:
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
+        total_filters = sum(len(cf.filters) for cf in self.cohort_filters)
         return {
             "team_id": self.team_id,
-            "cohort_id": self.cohort_id,
-            "filter_count": len(self.filters),
+            "cohort_count": len(self.cohort_filters),
+            "cohort_ids": [cf.cohort_id for cf in self.cohort_filters],
+            "filter_count": total_filters,
             "parallelism": self.parallelism,
             "batch_size": self.batch_size,
             "workflows_per_batch": self.workflows_per_batch,
@@ -101,7 +102,14 @@ async def get_person_count_activity(
 
 @temporalio.workflow.defn(name="backfill-precalculated-person-properties-coordinator")
 class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
-    """Coordinator workflow that spawns multiple child workflows for parallel person processing."""
+    """Coordinator workflow that spawns multiple child workflows for parallel person processing.
+
+    Key behavioral change: Child workflow IDs are now based on the coordinator workflow ID
+    rather than individual cohort IDs. This allows a single set of child workflows to process
+    multiple cohorts together, improving efficiency and reducing Temporal overhead.
+
+    Child workflow ID format: {coordinator_workflow_id}-child-{worker_index}
+    """
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> BackfillPrecalculatedPersonPropertiesCoordinatorInputs:
@@ -112,9 +120,12 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
     async def run(self, inputs: BackfillPrecalculatedPersonPropertiesCoordinatorInputs) -> None:
         """Run the coordinator workflow that spawns child workflows."""
         workflow_logger = temporalio.workflow.logger
+        cohort_ids = [cf.cohort_id for cf in inputs.cohort_filters]
+        total_filters = sum(len(cf.filters) for cf in inputs.cohort_filters)
         workflow_logger.info(
-            f"Starting person properties precalculation coordinator for cohort {inputs.cohort_id} "
-            f"(team {inputs.team_id}) with parallelism={inputs.parallelism}"
+            f"Starting person properties precalculation coordinator for {len(cohort_ids)} cohorts "
+            f"(team {inputs.team_id}, cohorts {cohort_ids}) with parallelism={inputs.parallelism}, "
+            f"processing {total_filters} total filters"
         )
 
         # Step 1: Get total count of persons for this team
@@ -152,8 +163,7 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
                     id=f"{temporalio.workflow.info().workflow_id}-child-{i}",
                     inputs=BackfillPrecalculatedPersonPropertiesInputs(
                         team_id=inputs.team_id,
-                        cohort_id=inputs.cohort_id,
-                        filters=inputs.filters,
+                        cohort_filters=inputs.cohort_filters,  # Pass all cohort filters
                         batch_size=inputs.batch_size,
                         offset=offset,
                         limit=limit,
@@ -230,7 +240,8 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
 
         # Explicitly log completion before returning
         workflow_logger.info(
-            f"Coordinator workflow completed successfully for cohort {inputs.cohort_id}. "
+            f"Coordinator workflow completed successfully for team {inputs.team_id} "
+            f"with {len(cohort_ids)} cohorts {cohort_ids}. "
             f"Total workflows scheduled: {workflows_scheduled}"
         )
 
