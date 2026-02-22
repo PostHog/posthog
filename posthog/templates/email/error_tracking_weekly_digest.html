@@ -17,11 +17,11 @@
     <h3 style="margin: 0 0 4px 0; text-align: left;">Total</h3>
     <p style="margin: 0 0 16px 0; font-size: 0.85em; color: #6b7280; text-align: left;">All exceptions captured across <strong>{{ team.name }}</strong> in the last 7 days.</p>
     <div style="text-align: center;">
-        <p style="margin: 0; font-size: 2.5em; font-weight: bold;">
+        <p style="margin: 0; font-size: 2.5em; font-weight: bold; line-height: 1.1;">
             {{ exception_count|compact_number }}
         </p>
         {% if exception_change %}
-        <p style="margin: 2px 0 12px 0; font-size: 0.85em; color: {{ exception_change.color }};">{{ exception_change.long_text }}</p>
+        <p style="margin: 0 0 12px 0; font-size: 0.85em; color: {{ exception_change.color }};">{{ exception_change.long_text }}</p>
         {% else %}
         <div style="margin-bottom: 12px;"></div>
         {% endif %}
