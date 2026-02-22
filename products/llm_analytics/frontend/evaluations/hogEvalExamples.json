@@ -1,0 +1,54 @@
+[
+    {
+        "label": "Quickstart",
+        "source": "// Globals: input, output, properties, event\n// input and output are strings — use jsonParse() when they contain JSON\n\n// Loop over input messages\nif (startsWith(trim(input), '[')) {\n    let messages := jsonParse(input)\n    for (let i, msg in messages) {\n        print(concat('[', msg.role, '] ', msg.content))\n    }\n} else {\n    print(concat('Input: ', input))\n}\n\n// Loop over output choices\nif (startsWith(trim(output), '[')) {\n    let choices := jsonParse(output)\n    for (let i, choice in choices) {\n        print(concat('Choice ', toString(i), ': ', choice.message.content))\n    }\n} else {\n    print(concat('Output: ', output))\n}\n\nprint(concat('Model: ', properties.$ai_model))\n\n// Return true (pass) or false (fail)\nreturn true"
+    },
+    {
+        "label": "Output not empty",
+        "source": "// Check that the output is not empty\nlet result := length(output) > 0\nif (not result) {\n    print('Output is empty')\n}\nreturn result"
+    },
+    {
+        "label": "Min output length",
+        "source": "// Check that the output is at least 100 characters\nlet result := length(output) >= 100\nif (not result) {\n    print('Output too short:', length(output), 'chars')\n}\nreturn result"
+    },
+    {
+        "label": "Contains keywords",
+        "source": "// Check that the output contains all expected keywords\nlet keywords := ['hello', 'world']\nlet missing := []\nfor (let i, kw in keywords) {\n    if (not (output ilike concat('%', kw, '%'))) {\n        missing := arrayPushBack(missing, kw)\n    }\n}\nif (length(missing) > 0) {\n    print('Missing keywords:', missing)\n    return false\n}\nreturn true"
+    },
+    {
+        "label": "Print messages",
+        "source": "// Print each message and always pass\nlet messages := input\nif (typeof(messages) == 'string' and startsWith(trim(messages), '[')) {\n    messages := jsonParse(messages)\n}\nif (typeof(messages) == 'array') {\n    for (let i, msg in messages) {\n        print(concat('Message ', toString(i), ': [', msg.role, '] ', msg.content))\n    }\n} else {\n    print('Input:', input)\n}\nreturn true"
+    },
+    {
+        "label": "Conversation length",
+        "source": "// Check that the conversation isn't too long\nlet max_turns := 10\nlet messages := input\nif (typeof(messages) == 'string' and startsWith(trim(messages), '[')) {\n    messages := jsonParse(messages)\n}\nif (typeof(messages) != 'array') {\n    print('Input is not a message array, skipping')\n    return true\n}\nlet turns := length(messages)\nprint(concat(toString(turns), ' turns in conversation'))\nif (turns > max_turns) {\n    print(concat('Exceeds limit of ', toString(max_turns), ' turns'))\n    return false\n}\nreturn true"
+    },
+    {
+        "label": "Error detection",
+        "source": "// Detect error patterns in the output and show the matching line\nlet patterns := [\n    'error', 'exception', 'traceback',\n    'failed', 'fatal', 'panic'\n]\nlet lines := splitByString('\\n', output)\nlet found := []\nfor (let i, line in lines) {\n    for (let j, pattern in patterns) {\n        if (line ilike concat('%', pattern, '%') and not has(found, pattern)) {\n            found := arrayPushBack(found, pattern)\n            let trimmed := trim(line)\n            if (length(trimmed) > 120) {\n                trimmed := concat(substring(trimmed, 1, 120), '...')\n            }\n            print(concat('Found \"', pattern, '\": ', trimmed))\n        }\n    }\n}\nif (length(found) > 0) {\n    return false\n}\nreturn true"
+    },
+    {
+        "label": "Output quality",
+        "source": "// Rate output quality based on length\nlet len := length(output)\n\nif (len == 0) {\n    print('Empty response')\n    return false\n} else if (len < 50) {\n    print('Response too short:', len, 'chars')\n    return false\n} else if (len > 10000) {\n    print('Response suspiciously long:', len, 'chars')\n    return false\n} else {\n    print('Response length OK:', len, 'chars')\n    return true\n}"
+    },
+    {
+        "label": "Tools called",
+        "source": "// Check that specific tools were called in the output\nlet expected := ['get_weather', 'get_news']\nlet found := []\nlet missing := []\nfor (let i, tool in expected) {\n    if (output ilike concat('%', tool, '%')) {\n        found := arrayPushBack(found, tool)\n    } else {\n        missing := arrayPushBack(missing, tool)\n    }\n}\nprint('Found:', found)\nif (length(missing) > 0) {\n    print('Missing:', missing)\n    return false\n}\nreturn true"
+    },
+    {
+        "label": "Regex safety checks",
+        "source": "// Run multiple regex safety checks and show matches\nlet checks := [\n    ['No emails', '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+[.][a-zA-Z]{2,}'],\n    ['No URLs', 'https?://[a-zA-Z0-9.-]+[.][a-zA-Z]{2,}'],\n    ['No phone numbers', '[0-9]{3}[-. ][0-9]{3}[-. ][0-9]{4}'],\n    ['No credit cards', '[0-9]{4}[- ]?[0-9]{4}[- ]?[0-9]{4}[- ]?[0-9]{4}']\n]\nlet failed := []\nfor (let i, check in checks) {\n    if (output =~ check.2) {\n        failed := arrayPushBack(failed, check.1)\n        let words := splitByString(' ', output)\n        for (let j, word in words) {\n            if (match(word, check.2)) {\n                print(concat('  ', check.1, ': found \"', word, '\"'))\n            }\n        }\n    }\n}\nif (length(failed) > 0) {\n    print(concat('Failed ', toString(length(failed)), ' of ', toString(length(checks)), ' checks'))\n    return false\n}\nprint('All', length(checks), 'checks passed')\nreturn true"
+    },
+    {
+        "label": "Cost & latency guard",
+        "source": "// Check that cost and latency are within budget\nlet max_cost := 0.05\nlet max_latency := 10\n\nlet cost := properties.$ai_total_cost_usd\nlet latency := properties.$ai_latency\n\nif (cost > max_cost) {\n    print(concat('Cost $', toString(cost), ' exceeds budget $', toString(max_cost)))\n    return false\n}\nif (latency > max_latency) {\n    print(concat('Latency ', toString(latency), 's exceeds limit ', toString(max_latency), 's'))\n    return false\n}\nprint(concat('OK — cost: $', toString(cost), ', latency: ', toString(latency), 's'))\nreturn true"
+    },
+    {
+        "label": "Refusal detection",
+        "source": "// Detect when the model refuses to answer\nlet phrases := [\n    'I cannot', 'I can\\'t', 'I\\'m unable',\n    'I am unable', 'I\\'m sorry, but I',\n    'I must decline', 'I\\'m not able'\n]\nfor (let i, phrase in phrases) {\n    if (output ilike concat('%', phrase, '%')) {\n        print(concat('Refusal detected: \"', phrase, '\"'))\n        return false\n    }\n}\nreturn true"
+    },
+    {
+        "label": "Input relevance",
+        "source": "// Check that key terms from the input appear in the output\nlet words := splitByString(' ', input)\nlet key_terms := []\nfor (let i, word in words) {\n    if (length(word) >= 5) {\n        key_terms := arrayPushBack(key_terms, word)\n    }\n}\nif (length(key_terms) == 0) {\n    print('No key terms found in input (words >= 5 chars)')\n    return true\n}\nlet found := 0\nlet missing := []\nfor (let i, term in key_terms) {\n    if (output ilike concat('%', term, '%')) {\n        found := found + 1\n    } else {\n        missing := arrayPushBack(missing, term)\n    }\n}\nlet ratio := found / length(key_terms)\nprint(concat(toString(found), '/', toString(length(key_terms)), ' key terms found'))\nif (length(missing) > 0) {\n    print('Missing:', missing)\n}\nif (ratio < 0.3) {\n    print('Output may not be relevant to the input')\n    return false\n}\nreturn true"
+    }
+]

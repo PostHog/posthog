@@ -206,7 +206,10 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                     (e: EvaluationConfig) =>
                         e.name.toLowerCase().includes(filter.toLowerCase()) ||
                         e.description?.toLowerCase().includes(filter.toLowerCase()) ||
-                        e.evaluation_config.prompt.toLowerCase().includes(filter.toLowerCase())
+                        ('prompt' in e.evaluation_config &&
+                            e.evaluation_config.prompt.toLowerCase().includes(filter.toLowerCase())) ||
+                        ('source' in e.evaluation_config &&
+                            e.evaluation_config.source.toLowerCase().includes(filter.toLowerCase()))
                 )
             },
         ],

@@ -21,6 +21,7 @@ from .run_evaluation import (
     RunEvaluationWorkflow,
     disable_evaluation_activity,
     emit_evaluation_event_activity,
+    execute_hog_eval_activity,
     execute_llm_judge_activity,
     fetch_evaluation_activity,
 )
@@ -425,6 +426,177 @@ class TestRunEvaluationWorkflow:
 
             assert exc_info.value.non_retryable is True
             assert exc_info.value.details[0] == {"error_type": "parse_error"}
+
+
+class TestExecuteHogEvalActivity:
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_hog_eval_returns_true(self, setup_data):
+        team = setup_data["team"]
+
+        # Compile source to bytecode for the test
+        from posthog.cdp.validation import compile_hog
+
+        bytecode = compile_hog("return true", "destination")
+
+        evaluation = {
+            "id": str(setup_data["evaluation"].id),
+            "name": "Hog Eval",
+            "evaluation_type": "hog",
+            "evaluation_config": {"source": "return true", "bytecode": bytecode},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(team.id)
+
+        result = await execute_hog_eval_activity(evaluation, event_data)
+
+        assert result["verdict"] is True
+        assert result["reasoning"] == ""
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_hog_eval_returns_false(self, setup_data):
+        team = setup_data["team"]
+
+        from posthog.cdp.validation import compile_hog
+
+        bytecode = compile_hog("return false", "destination")
+
+        evaluation = {
+            "id": str(setup_data["evaluation"].id),
+            "name": "Hog Eval",
+            "evaluation_type": "hog",
+            "evaluation_config": {"source": "return false", "bytecode": bytecode},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(team.id)
+
+        result = await execute_hog_eval_activity(evaluation, event_data)
+
+        assert result["verdict"] is False
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_hog_eval_non_bool_raises_error(self, setup_data):
+        team = setup_data["team"]
+
+        from posthog.cdp.validation import compile_hog
+
+        bytecode = compile_hog("return 42", "destination")
+
+        evaluation = {
+            "id": str(setup_data["evaluation"].id),
+            "name": "Hog Eval",
+            "evaluation_type": "hog",
+            "evaluation_config": {"source": "return 42", "bytecode": bytecode},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(team.id)
+
+        with pytest.raises(ApplicationError, match="must return a boolean"):
+            await execute_hog_eval_activity(evaluation, event_data)
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_hog_eval_captures_print_as_reasoning(self, setup_data):
+        team = setup_data["team"]
+
+        from posthog.cdp.validation import compile_hog
+
+        source = "print('checking output'); return true"
+        bytecode = compile_hog(source, "destination")
+
+        evaluation = {
+            "id": str(setup_data["evaluation"].id),
+            "name": "Hog Eval",
+            "evaluation_type": "hog",
+            "evaluation_config": {"source": source, "bytecode": bytecode},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(team.id)
+
+        result = await execute_hog_eval_activity(evaluation, event_data)
+
+        assert result["verdict"] is True
+        assert "checking output" in result["reasoning"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_hog_eval_missing_bytecode_raises_error(self, setup_data):
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(setup_data["evaluation"].id),
+            "name": "Hog Eval",
+            "evaluation_type": "hog",
+            "evaluation_config": {"source": "return true"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(team.id)
+
+        with pytest.raises(ApplicationError, match="Missing bytecode"):
+            await execute_hog_eval_activity(evaluation, event_data)
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_hog_eval_wrong_type_raises_error(self, setup_data):
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(setup_data["evaluation"].id),
+            "name": "LLM Eval",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "test"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(team.id)
+
+        with pytest.raises(ApplicationError, match="Unsupported evaluation type"):
+            await execute_hog_eval_activity(evaluation, event_data)
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_hog_eval_accesses_globals(self, setup_data):
+        team = setup_data["team"]
+
+        from posthog.cdp.validation import compile_hog
+
+        source = "let out := output; if (out == 'test output') { return true } return false"
+        bytecode = compile_hog(source, "destination")
+
+        evaluation = {
+            "id": str(setup_data["evaluation"].id),
+            "name": "Hog Eval",
+            "evaluation_type": "hog",
+            "evaluation_config": {"source": source, "bytecode": bytecode},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(team.id)
+
+        result = await execute_hog_eval_activity(evaluation, event_data)
+
+        assert result["verdict"] is True
 
 
 class TestEvalResultModels:

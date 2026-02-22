@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.exceptions import ValidationError
+
 from products.llm_analytics.backend.models.evaluations import Evaluation
 
 
@@ -174,6 +176,76 @@ class TestEvaluationModel(BaseTest):
         evaluation.save()
 
         mock_reload.assert_called_once_with(team_id=self.team.id, evaluation_ids=[str(evaluation.id)])
+
+    def test_hog_evaluation_compiles_source_to_bytecode(self):
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Hog Eval",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            output_config={},
+            enabled=True,
+            created_by=self.user,
+            conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
+        )
+
+        evaluation.refresh_from_db()
+
+        self.assertIn("bytecode", evaluation.evaluation_config)
+        self.assertIsInstance(evaluation.evaluation_config["bytecode"], list)
+        self.assertTrue(len(evaluation.evaluation_config["bytecode"]) > 0)
+
+    def test_hog_evaluation_invalid_source_raises_validation_error(self):
+        with self.assertRaises(ValidationError):
+            Evaluation.objects.create(
+                team=self.team,
+                name="Bad Hog Eval",
+                evaluation_type="hog",
+                evaluation_config={"source": "this is not valid hog {{{{"},
+                output_type="boolean",
+                output_config={},
+                enabled=True,
+                created_by=self.user,
+                conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
+            )
+
+    def test_hog_evaluation_empty_source_rejected(self):
+        with self.assertRaises(ValidationError):
+            Evaluation.objects.create(
+                team=self.team,
+                name="Empty Hog Eval",
+                evaluation_type="hog",
+                evaluation_config={"source": ""},
+                output_type="boolean",
+                output_config={},
+                enabled=True,
+                created_by=self.user,
+                conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
+            )
+
+    def test_hog_evaluation_recompiles_bytecode_on_update(self):
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Hog Eval",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            output_config={},
+            enabled=True,
+            created_by=self.user,
+            conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
+        )
+
+        evaluation.refresh_from_db()
+        original_bytecode = evaluation.evaluation_config["bytecode"]
+
+        evaluation.evaluation_config = {"source": "return false"}
+        evaluation.save()
+        evaluation.refresh_from_db()
+
+        self.assertIn("bytecode", evaluation.evaluation_config)
+        self.assertNotEqual(evaluation.evaluation_config["bytecode"], original_bytecode)
 
     def test_preserves_other_condition_fields(self):
         """

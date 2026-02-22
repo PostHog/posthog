@@ -5,7 +5,7 @@ import { initKeaTests } from '~/test/init'
 
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
-import { llmEvaluationLogic } from './llmEvaluationLogic'
+import { DEFAULT_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
 import { EvaluationConfig, EvaluationRun } from './types'
 
 const mockProviderKeys: LLMProviderKey[] = [
@@ -658,6 +658,110 @@ describe('llmEvaluationLogic', () => {
                     },
                 })
             })
+        })
+    })
+
+    describe('hog evaluation type', () => {
+        beforeEach(() => {
+            logic = llmEvaluationLogic({ evaluationId: 'new' })
+            logic.mount()
+        })
+
+        it('setEvaluationType switches to hog config shape', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('hog')
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    evaluation_type: 'hog',
+                    evaluation_config: { source: DEFAULT_HOG_SOURCE },
+                    model_configuration: null,
+                }),
+            })
+        })
+
+        it('setEvaluationType switches back to llm_judge config shape', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('hog')
+            logic.actions.setEvaluationType('llm_judge')
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    evaluation_type: 'llm_judge',
+                    evaluation_config: { prompt: '' },
+                }),
+            })
+        })
+
+        it('setHogSource updates source in hog config', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('hog')
+            logic.actions.setHogSource('return true')
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    evaluation_config: { source: 'return true' },
+                }),
+            })
+        })
+
+        it('formValid checks source for hog type', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('hog')
+            logic.actions.setEvaluationName('Valid Name')
+            logic.actions.setTriggerConditions([{ id: 'c1', rollout_percentage: 50, properties: [] }])
+
+            // Default source is non-empty -> valid
+            await expectLogic(logic).toMatchValues({ formValid: true })
+
+            logic.actions.setHogSource('')
+
+            // Empty source -> invalid
+            await expectLogic(logic).toMatchValues({ formValid: false })
+
+            logic.actions.setHogSource('return true')
+
+            // Non-empty source -> valid again
+            await expectLogic(logic).toMatchValues({ formValid: true })
+        })
+
+        it('formValid rejects whitespace-only source', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('hog')
+            logic.actions.setEvaluationName('Valid Name')
+            logic.actions.setTriggerConditions([{ id: 'c1', rollout_percentage: 50, properties: [] }])
+            logic.actions.setHogSource('   ')
+
+            await expectLogic(logic).toMatchValues({ formValid: false })
+        })
+
+        it('setEvaluationType marks unsaved changes', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('hog')
+
+            await expectLogic(logic).toMatchValues({ hasUnsavedChanges: true })
+        })
+
+        it('setHogSource marks unsaved changes', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('hog')
+            // Clear the flag
+            logic.actions.saveEvaluationSuccess({
+                ...mockEvaluation,
+                evaluation_type: 'hog',
+                evaluation_config: { source: DEFAULT_HOG_SOURCE },
+            } as any)
+
+            logic.actions.setHogSource('return true')
+
+            await expectLogic(logic).toMatchValues({ hasUnsavedChanges: true })
         })
     })
 

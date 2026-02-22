@@ -315,6 +315,10 @@ async function processEventEvaluationMatch(
 
     evaluationMatchesCounter.labels({ outcome: 'matched' }).inc()
 
-    await temporalService.startEvaluationRunWorkflow(evaluationDefinition.id, event)
+    await temporalService.startEvaluationRunWorkflow(
+        evaluationDefinition.id,
+        event,
+        evaluationDefinition.evaluation_type
+    )
     evaluationSchedulerEventsProcessed.labels({ status: 'success' }).inc()
 }
