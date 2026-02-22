@@ -333,6 +333,56 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
     )
 
 
+class TaskRunCommandRequestSerializer(serializers.Serializer):
+    """JSON-RPC request to send a command to the agent server in the sandbox."""
+
+    ALLOWED_METHODS = [
+        "user_message",
+        "_posthog/user_message",
+        "cancel",
+        "_posthog/cancel",
+        "close",
+        "_posthog/close",
+    ]
+
+    jsonrpc = serializers.ChoiceField(
+        choices=["2.0"],
+        help_text="JSON-RPC version, must be '2.0'",
+    )
+    method = serializers.ChoiceField(
+        choices=ALLOWED_METHODS,
+        help_text="Command method to execute on the agent server",
+    )
+    params = serializers.DictField(
+        required=False,
+        default=dict,
+        help_text="Parameters for the command",
+    )
+    id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Optional JSON-RPC request ID",
+    )
+
+    def validate(self, attrs):
+        method = attrs["method"]
+        params = attrs.get("params", {})
+        if method in ("user_message", "_posthog/user_message"):
+            content = params.get("content")
+            if not content or not isinstance(content, str) or not content.strip():
+                raise serializers.ValidationError({"params": "content is required and must be a non-empty string"})
+        return attrs
+
+
+class TaskRunCommandResponseSerializer(serializers.Serializer):
+    """Response from the agent server command endpoint."""
+
+    jsonrpc = serializers.CharField(help_text="JSON-RPC version")
+    id = serializers.CharField(required=False, allow_null=True, help_text="Request ID echoed back")
+    result = serializers.DictField(required=False, help_text="Command result on success")
+    error = serializers.DictField(required=False, help_text="Error details on failure")
+
+
 class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
     """Query parameters for filtering task run log events"""
 
