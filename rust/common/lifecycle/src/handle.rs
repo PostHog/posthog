@@ -7,6 +7,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+/// Sentinel: component registered but hasn't called report_healthy() yet.
+pub(crate) const HEALTH_STARTING: i64 = 0;
+/// Sentinel: component explicitly marked unhealthy via report_unhealthy().
+pub(crate) const HEALTH_UNHEALTHY: i64 = -1;
+
 #[derive(Debug)]
 pub(crate) enum ComponentEvent {
     Failure { tag: String, reason: String },
@@ -39,7 +44,7 @@ pub struct Handle {
     pub(crate) inner: Arc<HandleInner>,
 }
 
-pub struct HandleInner {
+pub(crate) struct HandleInner {
     pub(crate) tag: String,
     pub(crate) shutdown_token: CancellationToken,
     pub(crate) event_tx: mpsc::Sender<ComponentEvent>,
@@ -67,10 +72,12 @@ impl Handle {
     /// during shutdown is harmlessly ignored.
     /// (see tests `direct_signal_failure_then_drop`, `component_b_do_work_signals_failure`)
     pub fn signal_failure(&self, reason: impl Into<String>) {
-        drop(self.inner.event_tx.try_send(ComponentEvent::Failure {
+        if let Err(e) = self.inner.event_tx.try_send(ComponentEvent::Failure {
             tag: self.inner.tag.clone(),
             reason: reason.into(),
-        }));
+        }) {
+            tracing::debug!(error = %e, "lifecycle event channel full, event dropped");
+        }
     }
 
     /// Request a clean global shutdown (non-fatal). All components see it via
@@ -78,13 +85,15 @@ impl Handle {
     /// stops routing traffic; liveness is unaffected.
     /// (see test `component_a_and_b_multi_component_shutdown`)
     pub fn request_shutdown(&self) {
-        drop(
-            self.inner
-                .event_tx
-                .try_send(ComponentEvent::ShutdownRequested {
-                    tag: self.inner.tag.clone(),
-                }),
-        );
+        if let Err(e) = self
+            .inner
+            .event_tx
+            .try_send(ComponentEvent::ShutdownRequested {
+                tag: self.inner.tag.clone(),
+            })
+        {
+            tracing::debug!(error = %e, "lifecycle event channel full, event dropped");
+        }
     }
 
     /// Mark this component as finished during normal operation. Use for one-shot/finite
@@ -94,9 +103,11 @@ impl Handle {
     /// (see test `direct_work_completed_prevents_died_on_drop`)
     pub fn work_completed(&self) {
         self.inner.completed.store(true, Ordering::SeqCst);
-        drop(self.inner.event_tx.try_send(ComponentEvent::WorkCompleted {
+        if let Err(e) = self.inner.event_tx.try_send(ComponentEvent::WorkCompleted {
             tag: self.inner.tag.clone(),
-        }));
+        }) {
+            tracing::debug!(error = %e, "lifecycle event channel full, event dropped");
+        }
     }
 
     /// Liveness heartbeat. Must be called more often than the configured `liveness_deadline`.
@@ -121,12 +132,9 @@ impl Handle {
     /// [`signal_failure`](Handle::signal_failure) instead.
     /// (see test `report_unhealthy_triggers_stall`)
     pub fn report_unhealthy(&self) {
-        self.inner.healthy_until_ms.store(-1, Ordering::Relaxed);
-    }
-
-    /// Same as [`report_healthy`](Handle::report_healthy); safe to call from sync/blocking contexts (e.g. rdkafka callbacks).
-    pub fn report_healthy_blocking(&self) {
-        self.report_healthy();
+        self.inner
+            .healthy_until_ms
+            .store(HEALTH_UNHEALTHY, Ordering::Relaxed);
     }
 
     /// Create a drop guard tied to your `process()` method's scope. When the guard is
@@ -167,6 +175,8 @@ impl Drop for ProcessScopeGuard {
                 tag: self.inner.tag.clone(),
             }
         };
+        // Intentionally ignore send errors in Drop — tracing may already be torn down
+        // during process exit, and logging here could panic.
         drop(self.inner.event_tx.try_send(event));
     }
 }
@@ -188,6 +198,8 @@ impl Drop for HandleInner {
                 tag: self.tag.clone(),
             }
         };
+        // Intentionally ignore send errors in Drop — tracing may already be torn down
+        // during process exit, and logging here could panic.
         drop(self.event_tx.try_send(event));
     }
 }

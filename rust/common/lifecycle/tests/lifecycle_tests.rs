@@ -494,13 +494,8 @@ async fn liveness_always_200() {
     let _handle = manager.register("worker", liveness_opts());
     let liveness = manager.liveness_handler();
 
-    let status = liveness.check();
-    assert!(matches!(
-        axum::response::IntoResponse::into_response(status)
-            .status()
-            .as_u16(),
-        200
-    ));
+    let resp = axum::response::IntoResponse::into_response(liveness.check());
+    assert_eq!(resp.status(), axum::http::StatusCode::OK);
 }
 
 /// Readiness returns 200 while running, 503 after shutdown begins.
@@ -711,6 +706,88 @@ async fn global_timeout_does_not_fire_when_components_finish() {
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(20)).await;
         handle.request_shutdown();
+    });
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(result.is_ok());
+}
+
+// ---------------------------------------------------------------------------
+// Section 6: Edge cases during shutdown
+//
+// These test interactions that happen while shutdown is already in progress:
+// second failures, mixed per-component timeout outcomes, etc.
+// ---------------------------------------------------------------------------
+
+/// A second component calling signal_failure() after shutdown is already in
+/// progress does not cause problems. The shutdown wait loop's event handler
+/// drops Failure events (the `_ => {}` arm). The manager finishes based on
+/// the first trigger — the second failure is harmlessly ignored.
+#[tokio::test]
+async fn signal_failure_during_shutdown_is_ignored() {
+    let mut manager = test_manager();
+    let h1 = manager.register("first", ComponentOptions::new());
+    let h2 = manager.register("second", ComponentOptions::new());
+    let guard = manager.monitor_background();
+
+    let h2_clone = h2.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        h1.signal_failure("primary failure");
+        // h1 dropped during shutdown → WorkCompleted (ignored since already Died)
+    });
+
+    tokio::spawn(async move {
+        // Wait for shutdown to be in progress, then fire a second failure
+        h2_clone.shutdown_recv().await;
+        h2_clone.signal_failure("secondary failure");
+    });
+
+    // Drop h2 so the manager can finish
+    drop(h2);
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(matches!(
+        result,
+        Err(LifecycleError::ComponentFailure { tag, reason })
+            if tag == "first" && reason == "primary failure"
+    ));
+}
+
+/// Two components with different graceful_shutdown budgets. One completes
+/// within its budget, the other hangs past it. The manager marks the slow
+/// one as TimedOut but still returns Ok (per-component timeouts don't fail
+/// the monitor — only global timeout returns an error).
+#[tokio::test]
+async fn mixed_component_timeout_outcomes() {
+    let mut manager = test_manager();
+    let fast = manager.register(
+        "fast",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_millis(200)),
+    );
+    let slow = manager.register(
+        "slow",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_millis(50)),
+    );
+    let guard = manager.monitor_background();
+
+    let fast_clone = fast.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        fast_clone.request_shutdown();
+        // Complete quickly
+        fast_clone.shutdown_recv().await;
+    });
+    drop(fast);
+
+    tokio::spawn(async move {
+        // Hold past the 50ms graceful_shutdown budget
+        slow.shutdown_recv().await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
     });
 
     let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())

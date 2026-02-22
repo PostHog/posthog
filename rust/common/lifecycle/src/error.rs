@@ -23,10 +23,6 @@ pub enum LifecycleError {
         remaining: Vec<String>,
     },
 
-    /// OS signal (SIGINT/SIGTERM) was received.
-    #[error("signal received: {0}")]
-    Signal(String),
-
     /// The dedicated lifecycle monitor thread panicked.
     #[error("lifecycle monitor thread panicked")]
     MonitorPanicked,

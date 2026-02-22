@@ -202,7 +202,6 @@ After `signal_failure()`, just return — the manager records the failure immedi
 | `process_scope()` | Returns a `ProcessScopeGuard`. Ties lifecycle signaling to a method scope instead of handle drop. Use when your struct owns the handle. |
 | `report_healthy()` | Liveness heartbeat. Must be called more often than `liveness_deadline`. Missed deadlines increment a stall counter; after `stall_threshold` consecutive stalled checks, global shutdown is triggered. |
 | `report_unhealthy()` | Mark this component unhealthy. Treated the same as a stalled heartbeat by the health monitor. For immediate shutdown, use `signal_failure()` instead. |
-| `report_healthy_blocking()` | Same as `report_healthy()`; safe from sync/blocking contexts (e.g. rdkafka callbacks). |
 
 ### Common pitfalls
 

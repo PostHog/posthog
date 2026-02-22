@@ -13,7 +13,7 @@ pub struct ReadinessHandler {
 }
 
 impl ReadinessHandler {
-    pub fn new(shutdown_token: CancellationToken) -> Self {
+    pub(crate) fn new(shutdown_token: CancellationToken) -> Self {
         Self { shutdown_token }
     }
 

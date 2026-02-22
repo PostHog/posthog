@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use crate::error::LifecycleError;
-use crate::handle::{ComponentEvent, Handle, HandleInner};
+use crate::handle::{ComponentEvent, Handle, HandleInner, HEALTH_STARTING, HEALTH_UNHEALTHY};
 use crate::liveness::{LivenessComponentRef, LivenessHandler};
 use crate::metrics;
 use crate::readiness::ReadinessHandler;
@@ -62,7 +62,7 @@ impl ManagerBuilder {
     pub fn build(self) -> Manager {
         let (event_tx, event_rx) = mpsc::channel(64);
         Manager {
-            name: self.name.clone(),
+            name: self.name,
             global_shutdown_timeout: self.global_shutdown_timeout,
             trap_signals: self.trap_signals,
             enable_prestop_check: self.enable_prestop_check,
@@ -180,16 +180,29 @@ impl Manager {
     /// the component exits. Register all components before calling [`monitor`](Manager::monitor)
     /// or [`monitor_background`](Manager::monitor_background).
     pub fn register(&mut self, tag: &str, options: ComponentOptions) -> Handle {
-        let healthy_until_ms = Arc::new(AtomicI64::new(0));
+        let healthy_until_ms = Arc::new(AtomicI64::new(HEALTH_STARTING));
         let tag_owned = tag.to_string();
-        let deadline = options.liveness_deadline;
 
-        if options.liveness_deadline.is_some() {
+        if let Some(deadline) = options.liveness_deadline {
             self.liveness_components.push(LivenessComponentRef {
                 tag: tag_owned.clone(),
                 healthy_until_ms: healthy_until_ms.clone(),
                 stall_threshold: options.stall_threshold,
             });
+
+            debug!(
+                component = %tag_owned,
+                graceful_shutdown_secs = options.graceful_shutdown.map(|d| d.as_secs_f64()),
+                liveness_deadline_secs = deadline.as_secs_f64(),
+                stall_threshold = options.stall_threshold,
+                "Lifecycle: component registered"
+            );
+        } else {
+            debug!(
+                component = %tag_owned,
+                graceful_shutdown_secs = options.graceful_shutdown.map(|d| d.as_secs_f64()),
+                "Lifecycle: component registered"
+            );
         }
 
         self.components.insert(
@@ -198,14 +211,6 @@ impl Manager {
                 graceful_shutdown: options.graceful_shutdown,
                 phase: ShutdownPhase::Running,
             },
-        );
-
-        debug!(
-            component = %tag_owned,
-            graceful_shutdown_secs = options.graceful_shutdown.map(|d| d.as_secs_f64()),
-            liveness_deadline_secs = deadline.map(|d| d.as_secs_f64()),
-            stall_threshold = options.stall_threshold,
-            "Lifecycle: component registered"
         );
 
         let inner = Arc::new(HandleInner {
@@ -341,10 +346,9 @@ impl Manager {
                                 .as_millis() as i64;
                             for (i, comp) in liveness_for_health.iter().enumerate() {
                                 let until = comp.healthy_until_ms.load(Ordering::Relaxed);
-                                let (healthy, status) = if until == -1 {
+                                let (healthy, status) = if until == HEALTH_UNHEALTHY {
                                     (false, "unhealthy")
-                                } else if until == 0 {
-                                    metrics::emit_component_healthy(&name_for_health, &comp.tag, false);
+                                } else if until == HEALTH_STARTING {
                                     continue;
                                 } else if until > now_ms {
                                     (true, "healthy")
@@ -422,8 +426,7 @@ impl Manager {
                             if let Some(s) = self.components.get_mut(&tag) {
                                 s.phase = ShutdownPhase::Completed;
                             }
-                            let done = self.components.values().all(|s| s.phase != ShutdownPhase::Running && s.phase != ShutdownPhase::ShuttingDown);
-                            if done {
+                            if self.all_components_finished() {
                                 return self.finalize(Instant::now(), first_failure);
                             }
                         }
@@ -443,12 +446,7 @@ impl Manager {
             }
         }
 
-        let all_done = self.components.values().all(|s| {
-            s.phase == ShutdownPhase::Completed
-                || s.phase == ShutdownPhase::Died
-                || s.phase == ShutdownPhase::TimedOut
-        });
-        if all_done {
+        if self.all_components_finished() {
             return self.finalize(Instant::now(), first_failure);
         }
 
@@ -546,10 +544,7 @@ impl Manager {
                         }
                         _ => {}
                     }
-                    let all_done = self.components.values().all(|s| {
-                        s.phase == ShutdownPhase::Completed || s.phase == ShutdownPhase::Died || s.phase == ShutdownPhase::TimedOut
-                    });
-                    if all_done {
+                    if self.all_components_finished() {
                         return self.finalize(shutdown_clock, first_failure);
                     }
                 }
@@ -572,15 +567,21 @@ impl Manager {
                             }
                         }
                     }
-                    let all_done = self.components.values().all(|s| {
-                        s.phase == ShutdownPhase::Completed || s.phase == ShutdownPhase::Died || s.phase == ShutdownPhase::TimedOut
-                    });
-                    if all_done {
+                    if self.all_components_finished() {
                         return self.finalize(shutdown_clock, first_failure);
                     }
                 }
             }
         }
+    }
+
+    fn all_components_finished(&self) -> bool {
+        self.components.values().all(|s| {
+            matches!(
+                s.phase,
+                ShutdownPhase::Completed | ShutdownPhase::Died | ShutdownPhase::TimedOut
+            )
+        })
     }
 
     fn finalize(
