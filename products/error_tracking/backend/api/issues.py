@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from django.db import transaction
 from django.db.models.query import QuerySet
 from django.http import JsonResponse
@@ -10,6 +12,9 @@ from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
 from posthog.schema import ProductKey
+
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -36,6 +41,15 @@ DEFAULT_EMBEDDING_VERSION = 1
 DEFAULT_MIN_DISTANCE_THRESHOLD = 0.10
 
 logger = structlog.get_logger(__name__)
+
+
+class ErrorTrackingExternalUrlSerializer(serializers.Serializer):
+    url = serializers.URLField()
+    kind = serializers.CharField()
+
+
+class ErrorTrackingLookupByEventResponseSerializer(serializers.Serializer):
+    external_urls = ErrorTrackingExternalUrlSerializer(many=True)
 
 
 class ErrorTrackingIssuePreviewSerializer(serializers.ModelSerializer):
@@ -209,6 +223,90 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 issue_values = queryset.filter(description__icontains=value).values_list("description", flat=True)
 
         return Response([{"name": value} for value in issue_values])
+
+    @action(methods=["GET"], detail=False, url_path="lookup_by_event")
+    def lookup_by_event(self, request: request.Request, **kwargs):
+        event_uuid = request.GET.get("event_uuid")
+        if not event_uuid:
+            raise ValidationError("event_uuid is required")
+
+        timestamp = request.GET.get("timestamp")
+        if not timestamp:
+            raise ValidationError("timestamp is required")
+
+        try:
+            parsed_timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            if parsed_timestamp.tzinfo is None or parsed_timestamp.utcoffset() != timedelta(0):
+                raise ValidationError("timestamp must be in UTC (e.g. 2024-01-01T00:00:00Z)")
+        except ValueError:
+            raise ValidationError("timestamp must be a valid ISO 8601 UTC datetime (e.g. 2024-01-01T00:00:00Z)")
+
+        kind = request.GET.get("kind")
+
+        timestamp_from = parsed_timestamp - timedelta(days=1)
+        timestamp_to = parsed_timestamp + timedelta(days=1)
+
+        query = ast.SelectQuery(
+            select=[ast.Field(chain=["issue_id"])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["uuid"]),
+                        right=ast.Constant(value=event_uuid),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value="$exception"),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["timestamp"]),
+                        right=ast.Constant(value=timestamp_from),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.LtEq,
+                        left=ast.Field(chain=["timestamp"]),
+                        right=ast.Constant(value=timestamp_to),
+                    ),
+                ]
+            ),
+            limit=ast.Constant(value=1),
+        )
+
+        result = execute_hogql_query(
+            query=query,
+            team=self.team,
+            query_type="ErrorTrackingIssueLookupByEvent",
+        )
+
+        if not result.results or not result.results[0] or not result.results[0][0]:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        issue_id = str(result.results[0][0])
+
+        try:
+            issue = ErrorTrackingIssue.objects.prefetch_related("external_issues__integration").get(
+                id=issue_id, team_id=self.team.id
+            )
+        except ErrorTrackingIssue.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        refs = issue.external_issues.all()
+        if kind:
+            refs = refs.filter(integration__kind=kind)
+
+        ext_ref_serializer = ErrorTrackingExternalReferenceSerializer()
+        data = {
+            "external_urls": [
+                {"url": ext_ref_serializer.get_external_url(ref), "kind": ref.integration.kind} for ref in refs
+            ]
+        }
+
+        response_serializer = ErrorTrackingLookupByEventResponseSerializer(data)
+        return Response(response_serializer.data)
 
     @action(methods=["POST"], detail=False)
     def bulk(self, request, **kwargs):

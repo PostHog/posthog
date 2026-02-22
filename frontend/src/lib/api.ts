@@ -18,6 +18,7 @@ import { SessionSummaryContent } from 'scenes/session-recordings/player/player-m
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { ErrorTrackingLookupByEventResponse } from '~/layout/ErrorBoundary/errorBoundaryLinkedIssueLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     AnyResponseType,
@@ -1190,6 +1191,10 @@ export class ApiRequest {
 
     public errorTrackingIssue(id: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
         return this.errorTrackingIssues(teamId).addPathComponent(id)
+    }
+
+    public errorTrackingIssueLookupByEvent(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTrackingIssues(teamId).addPathComponent('lookup_by_event')
     }
 
     public errorTrackingIssueMerge(into: ErrorTrackingIssue['id']): ApiRequest {
@@ -3489,6 +3494,16 @@ const api = {
     errorTracking: {
         async getIssue(id: ErrorTrackingIssue['id'], fingerprint?: string): Promise<ErrorTrackingRelationalIssue> {
             return await new ApiRequest().errorTrackingIssue(id).withQueryString(toParams({ fingerprint })).get()
+        },
+
+        async getGitHubIssueUrlsForEventUuid(
+            eventUuid: string,
+            timestamp: string
+        ): Promise<ErrorTrackingLookupByEventResponse> {
+            return await new ApiRequest()
+                .errorTrackingIssueLookupByEvent()
+                .withQueryString(toParams({ event_uuid: eventUuid, timestamp, kind: 'github' }))
+                .get()
         },
 
         async updateIssue(

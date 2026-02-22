@@ -903,6 +903,20 @@ export const errorTrackingIssuesBulkCreate = async (
     })
 }
 
+export const getErrorTrackingIssuesLookupByEventRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/error_tracking/issues/lookup_by_event/`
+}
+
+export const errorTrackingIssuesLookupByEventRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingIssuesLookupByEventRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getErrorTrackingIssuesValuesRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/error_tracking/issues/values/`
 }
