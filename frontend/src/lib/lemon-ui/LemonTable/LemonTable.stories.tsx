@@ -455,6 +455,34 @@ export const WithCellActions = (): JSX.Element => {
     )
 }
 
+export const Virtualized = (): JSX.Element => {
+    const manyPeople: MockPerson[] = Array.from({ length: 1000 }, (_, i) => ({
+        name: `Person ${i + 1}`,
+        occupation: ['Engineer', 'Designer', 'Manager', 'Teacher', 'Painter'][i % 5],
+    }))
+
+    return (
+        <div style={{ height: 400 }}>
+            <LemonTable
+                virtualized={{ rowHeight: 36 }}
+                columns={[
+                    {
+                        title: 'Name',
+                        dataIndex: 'name',
+                        sorter: (a, b) => a.name.localeCompare(b.name),
+                    },
+                    {
+                        title: 'Occupation',
+                        dataIndex: 'occupation',
+                        sorter: (a, b) => a.occupation.localeCompare(b.occupation),
+                    },
+                ]}
+                dataSource={manyPeople}
+            />
+        </div>
+    )
+}
+
 export const WithRowActions = (): JSX.Element => {
     return (
         <LemonTable
