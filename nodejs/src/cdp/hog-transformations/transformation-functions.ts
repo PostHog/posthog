@@ -1,6 +1,13 @@
+import ipaddr from 'ipaddr.js'
+
 import { GeoIp } from '~/utils/geoip'
 
-import { KNOWN_BOT_IP_LIST, KNOWN_BOT_UA_LIST } from './bots/bots'
+import {
+    KNOWN_BOT_CIDR_IPV4_RANGES,
+    KNOWN_BOT_CIDR_IPV6_RANGES,
+    KNOWN_BOT_IP_SET,
+    KNOWN_BOT_UA_LIST,
+} from './bots/bots'
 
 const MAX_DEPTH = 3
 
@@ -51,8 +58,27 @@ export const isKnownBotIp = (ip: unknown): boolean => {
         return false
     }
 
-    const ipString = ip as string
-    return KNOWN_BOT_IP_LIST.includes(ipString)
+    if (KNOWN_BOT_IP_SET.has(ip)) {
+        return true
+    }
+
+    try {
+        const parsed = ipaddr.parse(ip)
+        // Check normalized form for exact matches
+        const normalized = parsed.toNormalizedString()
+        if (KNOWN_BOT_IP_SET.has(normalized)) {
+            return true
+        }
+
+        // Check CIDR ranges based on IP family to avoid cross-family exceptions
+        if (parsed.kind() === 'ipv4') {
+            return KNOWN_BOT_CIDR_IPV4_RANGES.some((cidr) => parsed.match(cidr))
+        } else {
+            return KNOWN_BOT_CIDR_IPV6_RANGES.some((cidr) => parsed.match(cidr))
+        }
+    } catch {
+        return false
+    }
 }
 
 export const getTransformationFunctions = (geoipLookup: GeoIp) => {
