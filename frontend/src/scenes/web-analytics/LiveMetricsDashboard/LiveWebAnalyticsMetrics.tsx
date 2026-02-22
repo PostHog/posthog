@@ -9,6 +9,7 @@ import { LiveChartCard } from './LiveChartCard'
 import { LiveStatCard, LiveStatDivider } from './LiveStatCard'
 import { LiveTopPathsTable } from './LiveTopPathsTable'
 import { BrowserBreakdownItem, DeviceBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
+import { LiveWorldMap } from './LiveWorldMap'
 import { getBrowserLogo } from './browserLogos'
 import { UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
 import { liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
@@ -20,6 +21,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         chartData,
         deviceBreakdown,
         browserBreakdown,
+        countryBreakdown,
         topPaths,
         totalPageviews,
         totalUniqueVisitors,
@@ -94,6 +96,13 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                     isLoading={isLoading}
                 />
             </div>
+
+            <LiveChartCard title="Countries" isLoading={isLoading} contentClassName="">
+                <LiveWorldMap
+                    data={countryBreakdown}
+                    totalEvents={countryBreakdown.reduce((sum, c) => sum + c.count, 0)}
+                />
+            </LiveChartCard>
         </div>
     )
 }
