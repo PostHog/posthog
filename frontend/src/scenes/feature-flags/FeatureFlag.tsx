@@ -1134,31 +1134,43 @@ function FeatureFlagRollout({
                                         Deleted
                                     </LemonTag>
                                 ) : (
-                                    <div className="flex gap-2">
-                                        <AccessControlAction
-                                            resourceType={AccessControlResourceType.FeatureFlag}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                            userAccessLevel={featureFlag.user_access_level}
-                                        >
-                                            <LemonSwitch
-                                                onChange={(newValue) => {
-                                                    toggleFeatureFlagActive(newValue)
-                                                }}
-                                                label={featureFlag.active ? 'Enabled' : 'Disabled'}
-                                                loading={featureFlagActiveUpdateLoading}
-                                                disabledReason={
-                                                    !featureFlag.can_edit
-                                                        ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
-                                                        : null
-                                                }
-                                                checked={featureFlag.active}
-                                            />
-                                        </AccessControlAction>
+                                    <>
+                                        <div className="flex gap-2">
+                                            <AccessControlAction
+                                                resourceType={AccessControlResourceType.FeatureFlag}
+                                                minAccessLevel={AccessControlLevel.Editor}
+                                                userAccessLevel={featureFlag.user_access_level}
+                                            >
+                                                <LemonSwitch
+                                                    aria-label={
+                                                        featureFlag.active
+                                                            ? 'Feature flag ON — users may receive this feature'
+                                                            : 'Feature flag OFF — feature will not be served'
+                                                    }
+                                                    onChange={(newValue) => {
+                                                        toggleFeatureFlagActive(newValue)
+                                                    }}
+                                                    label={featureFlag.active ? 'Enabled' : 'Disabled'}
+                                                    loading={featureFlagActiveUpdateLoading}
+                                                    disabledReason={
+                                                        !featureFlag.can_edit
+                                                            ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
+                                                            : null
+                                                    }
+                                                    checked={featureFlag.active}
+                                                />
+                                            </AccessControlAction>
 
-                                        {!featureFlag.is_remote_configuration && (
-                                            <FeatureFlagStatusIndicator flagStatus={flagStatus} />
-                                        )}
-                                    </div>
+                                            {!featureFlag.is_remote_configuration && (
+                                                <FeatureFlagStatusIndicator flagStatus={flagStatus} />
+                                            )}
+                                        </div>
+                                        <div className="text-secondary text-sm mt-1">
+                                            {featureFlag.active
+                                                ? 'Feature flag is ON — users may receive this feature'
+                                                : 'Feature flag is OFF — feature will not be served'}
+                                        </div>
+                                    </>
                                 )}
                             </div>
                             <div>
