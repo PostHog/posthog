@@ -3,6 +3,7 @@
  */
 import { expect } from '@playwright/test'
 
+import { disableAnimations } from '../utils/pagePerformance'
 import { PlaywrightWorkspaceSetupResult, test } from '../utils/workspace-test-base'
 
 test.describe('Workflows', () => {
@@ -18,6 +19,7 @@ test.describe('Workflows', () => {
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
+        await disableAnimations(page)
         if (!workspace) {
             throw new Error('Workspace was not initialized before tests')
         }

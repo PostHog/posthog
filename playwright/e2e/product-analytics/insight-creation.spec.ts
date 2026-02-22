@@ -2,6 +2,7 @@ import { InsightType } from '~/types'
 
 import { DashboardPage } from '../../page-models/dashboardPage'
 import { InsightPage } from '../../page-models/insightPage'
+import { disableAnimations } from '../../utils/pagePerformance'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
 test.describe('Insight creation', () => {
@@ -12,6 +13,7 @@ test.describe('Insight creation', () => {
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
+        await disableAnimations(page)
         await playwrightSetup.login(page, workspace!)
     })
 

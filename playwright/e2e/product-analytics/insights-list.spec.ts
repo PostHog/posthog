@@ -1,5 +1,6 @@
 import { InsightPage } from '../../page-models/insightPage'
 import { randomString } from '../../utils'
+import { disableAnimations } from '../../utils/pagePerformance'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
 test.describe('Insights list', () => {
@@ -12,6 +13,7 @@ test.describe('Insights list', () => {
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
+        await disableAnimations(page)
         await playwrightSetup.login(page, workspace!)
     })
 

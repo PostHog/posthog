@@ -1,6 +1,7 @@
 import { Page } from '@playwright/test'
 
 import { randomString } from '../../utils'
+import { disableAnimations } from '../../utils/pagePerformance'
 import { expect, test } from '../../utils/playwright-test-base'
 
 async function deleteSurvey(page: Page, name: string): Promise<void> {
@@ -44,6 +45,10 @@ test.describe.configure({ mode: 'serial' })
 
 test.describe('CRUD Survey', () => {
     let name: string
+
+    test.beforeEach(async ({ page }) => {
+        await disableAnimations(page)
+    })
 
     test.beforeEach(async ({ page }) => {
         name = randomString('survey-')

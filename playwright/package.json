@@ -2,7 +2,11 @@
     "name": "@posthog/playwright",
     "scripts": {
         "build:products": "pnpm --filter=@posthog/frontend build:products",
-        "test": "pnpm build:products && playwright test"
+        "pretest": "pnpm build:products && pnpm --filter=@posthog/playwright exec playwright install",
+        "test": "playwright test",
+        "test:local": "BASE_URL='http://localhost:8000' pnpm run test",
+        "test:ui": "pnpm run test --ui",
+        "test:ui:local": "BASE_URL='http://localhost:8000' pnpm run test:ui"
     },
     "dependencies": {
         "@playwright/test": "1.45.0",

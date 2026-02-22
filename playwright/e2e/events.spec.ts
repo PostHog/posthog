@@ -1,9 +1,11 @@
 import path from 'path'
 
+import { disableAnimations } from '../utils/pagePerformance'
 import { expect, test } from '../utils/playwright-test-base'
 
 test.describe('Events', () => {
     test.beforeEach(async ({ page }) => {
+        await disableAnimations(page)
         await page.route('/api/event/values?key=%24browser', (route) =>
             route.fulfill({
                 status: 200,

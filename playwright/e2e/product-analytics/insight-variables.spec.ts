@@ -1,7 +1,12 @@
 import { DashboardPage } from '../../page-models/dashboardPage'
+import { disableAnimations } from '../../utils/pagePerformance'
 import { expect, test } from '../../utils/playwright-test-base'
 
 test.describe('insight variables', () => {
+    test.beforeEach(async ({ page }) => {
+        await disableAnimations(page)
+    })
+
     test('show correctly on dashboards', async ({ page }) => {
         const dashboard = new DashboardPage(page)
 

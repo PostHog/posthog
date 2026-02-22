@@ -41,7 +41,7 @@ export function App(): JSX.Element | null {
     if (showApp) {
         return (
             <>
-                <AppScene />
+                <AppScene isDoneLoading={true} />
                 {showingDevTools ? <KeaDevtools /> : null}
             </>
         )
@@ -50,7 +50,7 @@ export function App(): JSX.Element | null {
     return <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
 }
 
-function AppScene(): JSX.Element | null {
+function AppScene({ isDoneLoading = false }: { isDoneLoading?: boolean }): JSX.Element | null {
     useMountedLogic(breadcrumbsLogic)
     const { user } = useValues(userLogic)
     const {
@@ -85,6 +85,7 @@ function AppScene(): JSX.Element | null {
             <>
                 <div
                     className="fixed inset-0 bg-surface-secondary flex flex-col overflow-auto"
+                    data-attr-pageloaded={isDoneLoading ? 'true' : 'false'}
                     ref={() => {
                         // HACK: Normally DebugNotice removes the HTML-level debug bar, but in this case we don't have the nav rendering DebugNotice
                         document.getElementById('bottom-notice')?.remove()
@@ -140,7 +141,7 @@ function AppScene(): JSX.Element | null {
     }
 
     return (
-        <div className="contents isolate">
+        <div className="contents isolate" data-attr-pageloaded={isDoneLoading ? 'true' : 'false'}>
             <Navigation sceneConfig={sceneConfig}>{wrappedSceneElement}</Navigation>
             {toastContainer}
             <GlobalModals />

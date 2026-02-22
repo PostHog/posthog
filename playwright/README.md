@@ -1,23 +1,42 @@
 # End-to-End Testing
 
-## Running tests
+## Running playwright
+
+All animations and transitions are disabled for E2E tests for speed reasons.
+If you absolutely need them, turn them back on by setting the env variable `DISABLE_ANIMATIONS="false"`
+
+If you do not have playwright installed and/or configured, the first time you run this it will download a few browsers so it can use them in later tests
+
+### Local: no pre-existing instance
 
 Spin up a full local E2E environment (backend, frontend, docker services, Playwright UI):
 
-```bash
-./bin/e2e-test-runner
-```
-
-This uses `bin/mprocs-e2e.yaml` under the hood. If you need to reset the E2E database,
-trigger the `reset-db` process in the mprocs UI.
-
-To run tests against an already-running PostHog instance:
+Via hogcli, if you configured your env with flox:
 
 ```bash
-LOGIN_USERNAME='my@email.address' LOGIN_PASSWORD="the-password" BASE_URL='http://localhost:8010' pnpm --filter=@posthog/playwright exec playwright test --ui
+hogli test:e2e
 ```
 
-You might need to install Playwright first: `pnpm --filter=@posthog/playwright exec playwright install`
+### Local: with pre-existing instance
+
+THis will hardcode BASE_URL to `http://localhost:8000`
+
+**Pre-requisites**
+
+1. Ensure you have a dev environment running `hogli start`
+1. Ensure you have exported LOGIN_USERNAME and LOGIN_PASSWORD if you want to re-use an existing account, otherwise a default will be used
+
+**Run the tests with UI**
+
+```bash
+pnpm run test:ui:local
+```
+
+**Run the tests headless**
+
+```bash
+pnpm run test:local
+```
 
 ## Writing tests
 

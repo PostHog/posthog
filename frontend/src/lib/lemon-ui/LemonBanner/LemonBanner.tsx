@@ -66,6 +66,7 @@ export function LemonBanner({
                 className,
                 square && 'LemonBanner--square'
             )}
+            data-attr="lemon-banner"
         >
             <div className="flex items-center gap-2 grow @md:!px-1">
                 {!hideIcon &&
@@ -82,7 +83,15 @@ export function LemonBanner({
                     ))}
                 <div className="grow overflow-hidden">{children}</div>
                 {action && <LemonButton className="!hidden @md:!flex" type="secondary" {...action} />}
-                {showCloseButton && <LemonButton size="small" icon={<IconX />} onClick={_onClose} aria-label="close" />}
+                {showCloseButton && (
+                    <LemonButton
+                        data-attr="lemon-banner-close"
+                        size="small"
+                        icon={<IconX />}
+                        onClick={_onClose}
+                        aria-label="close"
+                    />
+                )}
             </div>
             {action && <LemonButton className="@md:!hidden" type="secondary" fullWidth {...action} />}
         </div>

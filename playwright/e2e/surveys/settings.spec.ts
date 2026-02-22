@@ -1,9 +1,11 @@
 import { Page } from '@playwright/test'
 
+import { disableAnimations } from '../../utils/pagePerformance'
 import { expect, test } from '../../utils/playwright-test-base'
 
 test.describe('Survey Settings', () => {
     test.beforeEach(async ({ page }) => {
+        await disableAnimations(page)
         await page.goToMenuItem('surveys')
     })
 

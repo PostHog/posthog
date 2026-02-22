@@ -1,5 +1,7 @@
 import { Page } from '@playwright/test'
 
+export { hideBillingAlerts, showBillingAlerts } from './pagePerformance'
+
 export function randomString(prefix = ''): string {
     const id = Math.floor(Math.random() * 1e6)
     return `${prefix}-${id}`

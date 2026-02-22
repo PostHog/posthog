@@ -3,6 +3,7 @@ import { Page } from '@playwright/test'
 import { urls } from 'scenes/urls'
 
 import { randomString } from '../../utils'
+import { disableAnimations } from '../../utils/pagePerformance'
 import { expect, test } from '../../utils/playwright-test-base'
 
 const saveFeatureFlag = async (page: Page): Promise<void> => {
@@ -78,6 +79,10 @@ test.describe.configure({ mode: 'serial' })
 
 test.describe('Quick create survey from feature flag', () => {
     let name: string
+
+    test.beforeEach(async ({ page }) => {
+        await disableAnimations(page)
+    })
 
     test.beforeEach(async ({ page }) => {
         name = randomString('ff-')

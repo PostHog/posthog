@@ -1,6 +1,7 @@
 import { DashboardPage } from '../../page-models/dashboardPage'
 import { InsightPage } from '../../page-models/insightPage'
 import { randomString } from '../../utils'
+import { disableAnimations } from '../../utils/pagePerformance'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
 test.describe('Dashboards', () => {
@@ -11,6 +12,7 @@ test.describe('Dashboards', () => {
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
+        await disableAnimations(page)
         await playwrightSetup.login(page, workspace!)
     })
 

@@ -6,9 +6,11 @@
  */
 import { expect } from '@playwright/test'
 
+import { disableAnimations } from '../utils/pagePerformance'
 import { test, testWithWorkspace } from '../utils/workspace-test-base'
 
 test('create custom workspace', async ({ page, playwrightSetup }) => {
+    await disableAnimations(page)
     // Create a workspace with custom names
     const workspace = await playwrightSetup.createWorkspace('Acme Corp')
 
@@ -23,6 +25,7 @@ test('create custom workspace', async ({ page, playwrightSetup }) => {
 })
 
 testWithWorkspace('test with pre-created workspace', async ({ page, workspace, playwrightSetup }) => {
+    await disableAnimations(page)
     // Workspace already exists with default names
 
     // Login and navigate automatically
@@ -33,6 +36,7 @@ testWithWorkspace('test with pre-created workspace', async ({ page, workspace, p
 })
 
 test('test with API calls', async ({ page, playwrightSetup }) => {
+    await disableAnimations(page)
     const workspace = await playwrightSetup.createWorkspace('API Integration Tests')
 
     await expect(workspace.personal_api_key).toMatch(/^phx_/)

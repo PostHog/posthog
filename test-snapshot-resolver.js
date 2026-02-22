@@ -1,3 +1,4 @@
+/* eslint-disable */
 // ./snapshot-resolver.js
 const path = require('path')
 
