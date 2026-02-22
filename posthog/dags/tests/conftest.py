@@ -11,6 +11,10 @@ from unittest.mock import patch
 
 from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 
+# Register the shared Dagster PostgreSQL fixtures as a plugin so they apply
+# to all Dagster tests (both posthog/dags and products/**/dags).
+pytest_plugins = ["posthog.dags.tests.dagster_pg_fixtures"]
+
 
 def _patched_get_cluster_hosts(self, client, cluster, retry_policy=None):
     """
