@@ -3,8 +3,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
 
-import { RetryError } from '@posthog/plugin-scaffold'
-
+import { RetryError } from '~/plugin-scaffold'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 

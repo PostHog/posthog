@@ -2,7 +2,7 @@ import { Bucket, Storage } from '@google-cloud/storage'
 import { randomBytes } from 'crypto'
 import { PassThrough } from 'stream'
 
-import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
+import { ProcessedPluginEvent, RetryError } from '~/plugin-scaffold'
 
 import { parseJSON } from '../../../../utils/json-parse'
 import { LegacyDestinationPluginMeta } from '../../types'

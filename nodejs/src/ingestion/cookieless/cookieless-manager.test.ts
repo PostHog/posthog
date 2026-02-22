@@ -2,8 +2,7 @@ import fs from 'fs'
 import { Message } from 'node-rdkafka'
 import path from 'path'
 
-import type { PluginEvent } from '@posthog/plugin-scaffold'
-
+import type { PluginEvent } from '~/plugin-scaffold'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createOrganization, createTeam, getTeam } from '~/tests/helpers/sql'
 

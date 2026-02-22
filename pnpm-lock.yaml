@@ -528,9 +528,6 @@ importers:
       '@posthog/icons':
         specifier: ^0.36.6
         version: 0.36.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@posthog/plugin-scaffold':
-        specifier: ^1.4.4
-        version: 1.4.4
       '@posthog/products-actions':
         specifier: workspace:*
         version: link:../products/actions
@@ -1418,9 +1415,6 @@ importers:
       '@posthog/hogvm':
         specifier: workspace:*
         version: link:../common/hogvm/typescript
-      '@posthog/plugin-scaffold':
-        specifier: 1.4.4
-        version: 1.4.4
       '@posthog/siphash':
         specifier: 1.1.1
         version: 1.1.1
@@ -7507,9 +7501,6 @@ packages:
       kea-router: '*'
       react: 18.3.1
       react-dom: 18.3.1
-
-  '@posthog/plugin-scaffold@1.4.4':
-    resolution: {integrity: sha512-3z1ENm1Ys5lEQil0H7TVOqHvD24+ydiZFk5hggpbHRx1iOxAK+Eu5qFyAROwPUcCo7NOYjmH2xL1C4B1vaHilg==}
 
   '@posthog/rrdom@0.0.4':
     resolution: {integrity: sha512-hUZOgnIxzB6ZWgKBbuf79oHko+7x1+sQMVtovY0k6fO67e5SwhKkLq3Y/Tn2ayIyUqEKqL8971wP1cmIeIVO+A==}
@@ -27995,10 +27986,6 @@ snapshots:
       kea-router: 3.4.1(kea@4.0.0-pre.3(react@18.3.1))
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
-
-  '@posthog/plugin-scaffold@1.4.4':
-    dependencies:
-      '@maxmind/geoip2-node': 3.5.0
 
   '@posthog/rrdom@0.0.4':
     dependencies:

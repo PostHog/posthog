@@ -1,7 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
-
+import { PluginEvent } from '~/plugin-scaffold'
 import { processPersonlessDistinctIdsBatchStep } from '~/worker/ingestion/event-pipeline/processPersonlessDistinctIdsBatchStep'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'

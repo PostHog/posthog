@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { createTestMessage } from '../../../tests/helpers/kafka-message'
 import { createTestPluginEvent } from '../../../tests/helpers/plugin-event'

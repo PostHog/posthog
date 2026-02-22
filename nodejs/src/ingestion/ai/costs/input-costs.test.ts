@@ -1,4 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { calculateInputCost } from './input-costs'
 import { ResolvedModelCost } from './providers/types'

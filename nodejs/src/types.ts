@@ -3,9 +3,8 @@ import { Redis } from 'ioredis'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { Element, PluginEvent, Properties } from '@posthog/plugin-scaffold'
-
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './cdp/types'
@@ -22,7 +21,7 @@ import { ClickhouseGroupRepository } from './worker/ingestion/groups/repositorie
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
 
-export { Element } from '@posthog/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
+export { Element } from '~/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
 type Brand<K, T> = K & { __brand: T }
 

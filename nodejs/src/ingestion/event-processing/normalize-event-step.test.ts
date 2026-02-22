@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createTestTeam } from '../../../tests/helpers/team'

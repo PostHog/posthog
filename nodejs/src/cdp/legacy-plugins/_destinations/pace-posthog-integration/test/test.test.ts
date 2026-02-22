@@ -1,4 +1,4 @@
-import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { ProcessedPluginEvent } from '~/plugin-scaffold'
 
 import { PaceMetaInput, onEvent } from '../index'
 

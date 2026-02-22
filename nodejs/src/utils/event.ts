@@ -1,25 +1,10 @@
-import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { ClickHouseEvent, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
 import { personInitialAndUTMProperties, sanitizeString } from './db/utils'
 import { chainToElements } from './elements-chain'
 import { parseJSON } from './json-parse'
 import { clickHouseTimestampToDateTime } from './utils'
-
-export function convertToOnEventPayload(event: PostIngestionEvent): ProcessedPluginEvent {
-    return {
-        distinct_id: event.distinctId,
-        ip: null, // deprecated : within properties[$ip] now
-        team_id: event.teamId,
-        event: event.event,
-        properties: event.properties,
-        timestamp: event.timestamp,
-        $set: event.properties.$set,
-        $set_once: event.properties.$set_once,
-        uuid: event.eventUuid,
-        elements: event.elementsList ?? [],
-    }
-}
 
 /** Parse an event row SELECTed from ClickHouse into a more malleable form. */
 export function parseRawClickHouseEvent(rawEvent: RawClickHouseEvent): ClickHouseEvent {
