@@ -5,6 +5,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { colonDelimitedDuration } from 'lib/utils'
 
 import { InspectorListItemAppState, InspectorListItemConsole } from '../playerInspectorLogic'
 
@@ -17,19 +18,24 @@ export interface ItemAppStateProps {
 }
 
 export function ItemConsoleLog({ item }: ItemConsoleLogProps): JSX.Element {
+    const groupCount = item.groupedConsoleLogs?.length
+    const showBadge = groupCount && groupCount > 1
+
     return (
-        <div className="w-full font-light" data-attr="item-console-log">
+        <div className="w-full font-light flex items-center" data-attr="item-console-log">
             <div className="px-2 py-1 text-xs cursor-pointer truncate font-mono flex-1">{item.data.content}</div>
-            {(item.data.count || 1) > 1 ? (
+            {showBadge ? (
                 <span
                     className={clsx(
-                        'rounded-lg px-1 mx-2 text-white text-xs font-semibold',
-                        item.highlightColor === 'danger' && `bg-fill-error-highlight`,
-                        item.highlightColor === 'warning' && `bg-fill-warning-highlight`,
-                        item.highlightColor === 'primary' && `bg-fill-success-highlight`
+                        'inline-flex items-center justify-center rounded-full min-w-4 h-4 px-0.5 mx-2 shrink-0 text-white text-xxs font-bold',
+                        item.highlightColor === 'danger'
+                            ? 'bg-fill-error-highlight'
+                            : item.highlightColor === 'warning'
+                              ? 'bg-fill-warning-highlight'
+                              : 'bg-secondary-3000-hover'
                     )}
                 >
-                    {item.data.count}
+                    {groupCount}
                 </span>
             ) : null}
         </div>
@@ -37,15 +43,32 @@ export function ItemConsoleLog({ item }: ItemConsoleLogProps): JSX.Element {
 }
 
 export function ItemConsoleLogDetail({ item }: ItemConsoleLogProps): JSX.Element {
+    const grouped = item.groupedConsoleLogs
+
     return (
         <div className="w-full font-light" data-attr="item-console-log">
             <div className="px-2 py-1 text-xs border-t">
-                {(item.data.count || 1) > 1 ? (
+                {grouped && grouped.length > 1 ? (
                     <>
-                        <div className="italic">
-                            This log occurred <b>{item.data.count}</b> times in a row.
+                        <div className="italic mb-1">
+                            This log occurred <b>{grouped.length}</b> times:
                         </div>
-                        <LemonDivider dashed />
+                        <div className="flex flex-col border rounded bg-surface-primary mb-2 max-h-40 overflow-y-auto">
+                            {grouped.map((entry, i) => (
+                                <div
+                                    key={entry.key}
+                                    className={clsx(
+                                        'flex items-center gap-2 px-2 py-0.5 font-mono',
+                                        i > 0 && 'border-t'
+                                    )}
+                                >
+                                    <span className="text-secondary shrink-0">
+                                        {colonDelimitedDuration(entry.timeInRecording / 1000, 2)}
+                                    </span>
+                                    <span className="truncate">{entry.data.content}</span>
+                                </div>
+                            ))}
+                        </div>
                     </>
                 ) : null}
                 {item.data.lines?.length && (

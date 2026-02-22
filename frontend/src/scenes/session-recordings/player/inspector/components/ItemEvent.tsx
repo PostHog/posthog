@@ -1,6 +1,9 @@
 import './ImagePreview.scss'
 
-import { IconShare } from '@posthog/icons'
+import { useValues } from 'kea'
+import { useState } from 'react'
+
+import { IconCollapse, IconExpand, IconShare } from '@posthog/icons'
 import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
 
 import { ErrorDisplay, idFrom } from 'lib/components/Errors/ErrorDisplay'
@@ -13,11 +16,12 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { autoCaptureEventToDescription, capitalizeFirstLetter, isString } from 'lib/utils'
+import { autoCaptureEventToDescription, capitalizeFirstLetter, colonDelimitedDuration, isString } from 'lib/utils'
 import { AutocapturePreviewImage } from 'lib/utils/autocapture-previews'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
+import { miniFiltersLogic } from '../miniFiltersLogic'
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { AIEventExpanded, AIEventSummary } from './AIEventItems'
 
@@ -90,6 +94,9 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
             <ExceptionTitlePill event={item.data} />
         ) : null
 
+    const { groupRepeatedItems } = useValues(miniFiltersLogic)
+    const groupCount = groupRepeatedItems ? item.groupedEvents?.length : undefined
+
     return (
         <div data-attr="item-event" className="font-light w-full @container">
             <div className="flex flex-row w-full justify-between gap-2 items-center px-2 py-1 text-xs cursor-pointer">
@@ -104,11 +111,18 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
                     />
                     {item.data.event === '$autocapture' ? <span className="text-secondary">(Autocapture)</span> : null}
                 </div>
-                {subValue ? (
-                    <div className="text-secondary truncate" title={isString(subValue) ? subValue : undefined}>
-                        {subValue}
-                    </div>
-                ) : null}
+                <div className="flex items-center gap-1 shrink-0">
+                    {subValue ? (
+                        <div className="text-secondary truncate" title={isString(subValue) ? subValue : undefined}>
+                            {subValue}
+                        </div>
+                    ) : null}
+                    {groupCount && groupCount > 1 ? (
+                        <span className="inline-flex items-center justify-center rounded-full min-w-4 h-4 px-0.5 text-white text-xxs font-bold bg-secondary-3000-hover">
+                            {groupCount}
+                        </span>
+                    ) : null}
+                </div>
             </div>
         </div>
     )
@@ -165,76 +179,128 @@ export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
     )
 }
 
+function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
+    return item.data.fullyLoaded ? (
+        <EventPropertyTabs
+            size="small"
+            data-attr="replay-event-property-tabs"
+            event={item.data}
+            tabContentComponentFn={({ event, properties, promotedKeys, tabKey }) => {
+                switch (tabKey) {
+                    case 'raw':
+                        return (
+                            <pre className="text-xs text-secondary whitespace-pre-wrap">
+                                {JSON.stringify(properties, null, 2)}
+                            </pre>
+                        )
+                    case 'conversation':
+                        return <AIEventExpanded event={event} />
+                    case '$set_properties':
+                        return (
+                            <>
+                                <p>
+                                    Person properties sent with this event. Will replace any property value that may
+                                    have been set on this person profile before now.{' '}
+                                    <Link to="https://posthog.com/docs/getting-started/person-properties">
+                                        Learn more
+                                    </Link>
+                                </p>
+                                <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
+                            </>
+                        )
+                    case '$set_once_properties':
+                        return (
+                            <>
+                                <p>
+                                    "Set once" person properties sent with this event. Will replace any property value
+                                    that have never been set on this person profile before now.{' '}
+                                    <Link to="https://posthog.com/docs/getting-started/person-properties">
+                                        Learn more
+                                    </Link>
+                                </p>
+                                <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
+                            </>
+                        )
+                    case 'debug_properties':
+                        return (
+                            <>
+                                <p>PostHog uses some properties to help debug issues with the SDKs.</p>
+                                <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
+                            </>
+                        )
+                    case 'error_display':
+                        return <ErrorDisplay eventProperties={properties} eventId={idFrom(event as ErrorEventType)} />
+                    default:
+                        return <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
+                }
+            }}
+        />
+    ) : (
+        <div className="text-secondary flex gap-1 items-center">
+            <Spinner textColored />
+            Loading...
+        </div>
+    )
+}
+
+function GroupedEventRow({ event, index }: { event: InspectorListItemEvent; index: number }): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+
+    return (
+        <div className={index > 0 ? 'border-t' : ''}>
+            <div
+                className="flex items-center gap-1 px-2 py-1 cursor-pointer hover:bg-surface-primary"
+                onClick={() => setExpanded(!expanded)}
+            >
+                <span
+                    className="shrink-0 cursor-pointer text-secondary"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        setExpanded(!expanded)
+                    }}
+                >
+                    {expanded ? <IconCollapse className="text-sm" /> : <IconExpand className="text-sm" />}
+                </span>
+                <span className="text-secondary shrink-0 font-mono">
+                    {colonDelimitedDuration(event.timeInRecording / 1000, 2)}
+                </span>
+                <PropertyKeyInfo
+                    className="truncate"
+                    disablePopover
+                    disableIcon
+                    ellipsis
+                    value={capitalizeFirstLetter(autoCaptureEventToDescription(event.data))}
+                    type={TaxonomicFilterGroupType.Events}
+                />
+            </div>
+            {expanded ? (
+                <div className="pl-6 pb-1">
+                    <SingleEventDetail item={event} />
+                </div>
+            ) : null}
+        </div>
+    )
+}
+
 export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
+    const groupedEvents = item.groupedEvents
+
     return (
         <div data-attr="item-event" className="font-light w-full">
             <div className="px-2 py-1 text-xs border-t">
-                {item.data.fullyLoaded ? (
-                    <EventPropertyTabs
-                        size="small"
-                        data-attr="replay-event-property-tabs"
-                        event={item.data}
-                        tabContentComponentFn={({ event, properties, promotedKeys, tabKey }) => {
-                            switch (tabKey) {
-                                case 'raw':
-                                    return (
-                                        <pre className="text-xs text-secondary whitespace-pre-wrap">
-                                            {JSON.stringify(properties, null, 2)}
-                                        </pre>
-                                    )
-                                case 'conversation':
-                                    return <AIEventExpanded event={event} />
-                                case '$set_properties':
-                                    return (
-                                        <>
-                                            <p>
-                                                Person properties sent with this event. Will replace any property value
-                                                that may have been set on this person profile before now.{' '}
-                                                <Link to="https://posthog.com/docs/getting-started/person-properties">
-                                                    Learn more
-                                                </Link>
-                                            </p>
-                                            <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
-                                        </>
-                                    )
-                                case '$set_once_properties':
-                                    return (
-                                        <>
-                                            <p>
-                                                "Set once" person properties sent with this event. Will replace any
-                                                property value that have never been set on this person profile before
-                                                now.{' '}
-                                                <Link to="https://posthog.com/docs/getting-started/person-properties">
-                                                    Learn more
-                                                </Link>
-                                            </p>
-                                            <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
-                                        </>
-                                    )
-                                case 'debug_properties':
-                                    return (
-                                        <>
-                                            <p>PostHog uses some properties to help debug issues with the SDKs.</p>
-                                            <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
-                                        </>
-                                    )
-                                case 'error_display':
-                                    return (
-                                        <ErrorDisplay
-                                            eventProperties={properties}
-                                            eventId={idFrom(event as ErrorEventType)}
-                                        />
-                                    )
-                                default:
-                                    return <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
-                            }
-                        }}
-                    />
+                {groupedEvents && groupedEvents.length > 1 ? (
+                    <>
+                        <div className="italic mb-1">
+                            This event occurred <b>{groupedEvents.length}</b> times:
+                        </div>
+                        <div className="flex flex-col border rounded bg-surface-primary mb-2 max-h-80 overflow-y-auto">
+                            {groupedEvents.map((groupedEvent, i) => (
+                                <GroupedEventRow key={groupedEvent.key} event={groupedEvent} index={i} />
+                            ))}
+                        </div>
+                    </>
                 ) : (
-                    <div className="text-secondary flex gap-1 items-center">
-                        <Spinner textColored />
-                        Loading...
-                    </div>
+                    <SingleEventDetail item={item} />
                 )}
             </div>
         </div>

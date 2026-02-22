@@ -106,6 +106,7 @@ export type InspectorListItemBase = {
 export type InspectorListItemEvent = InspectorListItemBase & {
     type: 'events'
     data: RecordingEventType
+    groupedEvents?: InspectorListItemEvent[]
 }
 
 export type InspectorListItemInactivity = InspectorListItemBase & {
@@ -128,6 +129,7 @@ export type InspectorListItemComment = InspectorListItemBase & {
 export type InspectorListItemConsole = InspectorListItemBase & {
     type: 'console'
     data: RecordingConsoleLogV2
+    groupedConsoleLogs?: InspectorListItemConsole[]
 }
 
 export type InspectorListOfflineStatusChange = InspectorListItemBase & {
@@ -187,6 +189,61 @@ export type InspectorListItem =
 
 export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicProps {
     matchingEventsMatchType?: MatchingEventsMatchType
+}
+
+/** Merges runs of identical adjacent items into grouped items.
+ *  Inactivity is always collapsed. Event and console log grouping is controlled by `groupSimilar`. */
+export function collapseAdjacentItems(items: InspectorListItem[], groupSimilar = true): InspectorListItem[] {
+    const collapsed = items.reduce((acc, item) => {
+        const previousItem = acc[acc.length - 1]
+
+        if (item.type === 'inactivity' && previousItem?.type === 'inactivity') {
+            // Replace the previous item with a merged copy (no mutation)
+            acc[acc.length - 1] = { ...previousItem, durationMs: previousItem.durationMs + item.durationMs }
+            return acc
+        }
+
+        if (
+            groupSimilar &&
+            item.type === 'events' &&
+            previousItem?.type === 'events' &&
+            item.data.event === previousItem.data.event &&
+            item.search === previousItem.search &&
+            !item.highlightColor &&
+            !previousItem.highlightColor
+        ) {
+            const existingGroup = previousItem.groupedEvents ?? [{ ...previousItem }]
+            // Replace with a new object carrying the updated group (no mutation)
+            acc[acc.length - 1] = { ...previousItem, groupedEvents: [...existingGroup, item] }
+            return acc
+        }
+
+        if (
+            groupSimilar &&
+            item.type === 'console' &&
+            previousItem?.type === 'console' &&
+            item.data.content === previousItem.data.content &&
+            item.highlightColor === previousItem.highlightColor
+        ) {
+            const existingGroup = previousItem.groupedConsoleLogs ?? [{ ...previousItem }]
+            acc[acc.length - 1] = { ...previousItem, groupedConsoleLogs: [...existingGroup, item] }
+            return acc
+        }
+
+        acc.push(item)
+        return acc
+    }, [] as InspectorListItem[])
+
+    // Only keep groups with 2+ items; un-group singletons
+    return collapsed.flatMap((item) => {
+        if (item.type === 'events' && item.groupedEvents && item.groupedEvents.length <= 1) {
+            return item.groupedEvents.map((e) => ({ ...e, groupedEvents: undefined }))
+        }
+        if (item.type === 'console' && item.groupedConsoleLogs && item.groupedConsoleLogs.length <= 1) {
+            return item.groupedConsoleLogs.map((e) => ({ ...e, groupedConsoleLogs: undefined }))
+        }
+        return item
+    })
 }
 
 function _isCustomSnapshot(x: unknown): x is customEvent {
@@ -292,7 +349,14 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
         values: [
             miniFiltersLogic,
-            ['showOnlyMatching', 'miniFiltersByKey', 'searchQuery', 'miniFiltersForTypeByKey', 'miniFilters'],
+            [
+                'showOnlyMatching',
+                'groupRepeatedItems',
+                'miniFiltersByKey',
+                'searchQuery',
+                'miniFiltersForTypeByKey',
+                'miniFilters',
+            ],
             sessionRecordingDataCoordinatorLogic(props),
             [
                 'sessionPlayerData',
@@ -593,44 +657,34 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             if (!consoleLogSeenCache.has(cacheKey)) {
                                 consoleLogSeenCache.add(cacheKey)
 
-                                const lastLogLine = consoleLogs[consoleLogs.length - 1]
-                                if (lastLogLine?.content === content) {
-                                    if (lastLogLine.count === undefined) {
-                                        lastLogLine.count = 1
-                                    } else {
-                                        lastLogLine.count += 1
-                                    }
-                                } else {
-                                    const consoleLog = {
-                                        timestamp: snapshot.timestamp,
-                                        windowId: windowId,
-                                        windowNumber: windowNumberForID(windowId),
-                                        content,
-                                        lines,
-                                        level,
-                                        trace,
-                                        count: 1,
-                                    }
-                                    consoleLogs.push(consoleLog)
-
-                                    // Also create the inspector list item
-                                    const { timestamp: itemTimestamp, timeInRecording } = timeRelativeToStart(
-                                        consoleLog,
-                                        start || dayjs()
-                                    )
-                                    consoleItems.push({
-                                        type: 'console',
-                                        timestamp: itemTimestamp,
-                                        timeInRecording,
-                                        search: content,
-                                        data: consoleLog,
-                                        highlightColor:
-                                            level === 'error' ? 'danger' : level === 'warn' ? 'warning' : undefined,
-                                        windowId: windowId,
-                                        windowNumber: windowNumberForID(windowId),
-                                        key: `${itemTimestamp.valueOf()}-console-${level}-${consoleLogs.length - 1}`,
-                                    })
+                                const consoleLog = {
+                                    timestamp: snapshot.timestamp,
+                                    windowId: windowId,
+                                    windowNumber: windowNumberForID(windowId),
+                                    content,
+                                    lines,
+                                    level,
+                                    trace,
                                 }
+                                consoleLogs.push(consoleLog)
+
+                                // Also create the inspector list item
+                                const { timestamp: itemTimestamp, timeInRecording } = timeRelativeToStart(
+                                    consoleLog,
+                                    start || dayjs()
+                                )
+                                consoleItems.push({
+                                    type: 'console',
+                                    timestamp: itemTimestamp,
+                                    timeInRecording,
+                                    search: content,
+                                    data: consoleLog,
+                                    highlightColor:
+                                        level === 'error' ? 'danger' : level === 'warn' ? 'warning' : undefined,
+                                    windowId: windowId,
+                                    windowNumber: windowNumberForID(windowId),
+                                    key: `${itemTimestamp.valueOf()}-console-${level}-${consoleLogs.length - 1}`,
+                                })
                             }
                         }
                     })
@@ -1008,6 +1062,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.allowMatchingEventsFilter,
                 s.trackedWindow,
                 s.hasEventsToDisplay,
+                s.groupRepeatedItems,
             ],
             (
                 allItemsData,
@@ -1015,7 +1070,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 showOnlyMatching,
                 allowMatchingEventsFilter,
                 trackedWindow,
-                hasEventsToDisplay
+                hasEventsToDisplay,
+                groupRepeatedItems
             ): InspectorListItem[] => {
                 const filteredItems = filterInspectorListItems({
                     allItems: allItemsData.items,
@@ -1026,19 +1082,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     hasEventsToDisplay,
                 })
 
-                // need to collapse adjacent inactivity items
-                // they look wrong next to each other
-                return filteredItems.reduce((acc, item, index) => {
-                    if (item.type === 'inactivity') {
-                        const previousItem = filteredItems[index - 1]
-                        if (previousItem?.type === 'inactivity') {
-                            previousItem.durationMs += item.durationMs
-                            return acc
-                        }
-                    }
-                    acc.push(item)
-                    return acc
-                }, [] as InspectorListItem[])
+                return collapseAdjacentItems(filteredItems, groupRepeatedItems)
             },
             { resultEqualityCheck: equal },
         ],
@@ -1277,7 +1321,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 actions.reportRecordingInspectorItemExpanded(item.type, index)
 
                 if (item.type === 'events') {
-                    actions.loadFullEventData(item.data)
+                    const eventsToLoad = item.groupedEvents ? item.groupedEvents.map((e) => e.data) : [item.data]
+                    actions.loadFullEventData(eventsToLoad)
                 }
             }
         },

@@ -41,21 +41,31 @@ const BasicTemplate: StoryFn<typeof ItemConsoleLog> = (props: Partial<ItemConsol
 }
 
 export const ConsoleLogItem: Story = BasicTemplate.bind({})
+const baseData = {
+    timestamp: dayjs('2019-01-30').valueOf(),
+    windowId: 1,
+    windowNumber: 1,
+    level: 'log' as const,
+    content:
+        'This log message is very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very long',
+}
+
+const baseItem = {
+    data: baseData,
+    timestamp: dayjs('2019-01-30'),
+    timeInRecording: 123,
+    search: 'some text',
+    type: 'console' as const,
+    key: 'some-key',
+}
+
 ConsoleLogItem.args = {
     item: {
-        data: {
-            timestamp: dayjs('2019-01-30').valueOf(),
-            windowId: 1,
-            windowNumber: 1,
-            level: 'log',
-            content:
-                'This log message is very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very, very long',
-            count: 12,
-        },
-        timestamp: dayjs('2019-01-30'),
-        timeInRecording: 123,
-        search: 'some text',
-        type: 'console',
-        key: 'some-key',
+        ...baseItem,
+        groupedConsoleLogs: Array.from({ length: 12 }, (_, i) => ({
+            ...baseItem,
+            key: `console-${i}`,
+            timeInRecording: 123 + i * 500,
+        })),
     },
 }
