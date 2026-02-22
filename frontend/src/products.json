@@ -182,6 +182,13 @@
             "intents": ["user_interviews"]
         },
         {
+            "path": "Visual review",
+            "category": "Unreleased",
+            "iconType": null,
+            "type": null,
+            "intents": ["visual_review"]
+        },
+        {
             "path": "Web analytics",
             "category": "Analytics",
             "iconType": "web_analytics",

@@ -78,6 +78,7 @@ depends_on = [
     "products.surveys",
     "products.tasks",
     "products.user_interviews",
+    "products.visual_review",
     "products.web_analytics",
     "products.workflows",
 ]
@@ -307,3 +308,13 @@ depends_on = [
     "posthog",
 ]
 layer = "non_isolated"
+
+
+[[modules]]
+path = "products.visual_review"
+depends_on = ["posthog"]
+layer = "products"
+interfaces = [
+    "products.visual_review.backend.facade",
+    "products.visual_review.backend.presentation.views",
+]

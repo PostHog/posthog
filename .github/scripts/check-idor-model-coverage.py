@@ -121,10 +121,13 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "AlertSubscription",
         "Approval",
         "ApprovalRequest",
+        "Artifact",
         "BatchExportLogEntry",
         "BatchExportRun",
         "EndpointVersion",
         "ErrorTrackingIssueAssignment",
+        "Run",
+        "RunSnapshot",
         "TicketAssignment",
         # --- Internal config / OneToOne settings ---
         "DuckLakeCatalog",

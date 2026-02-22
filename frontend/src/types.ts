@@ -5026,6 +5026,7 @@ export type APIScopeObject =
     | 'task'
     | 'ticket'
     | 'user'
+    | 'visual_review'
     | 'warehouse_table'
     | 'warehouse_view'
     | 'web_analytics'
