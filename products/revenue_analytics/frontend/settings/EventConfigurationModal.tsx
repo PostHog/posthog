@@ -41,6 +41,7 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
         updateEventCouponProperty,
         updateEventSubscriptionProperty,
         updateEventSubscriptionDropoffDays,
+        updateEventSubscriptionDropoffDaysProperty,
         updateEventSubscriptionDropoffMode,
         save,
     } = useActions(revenueAnalyticsSettingsLogic)
@@ -90,6 +91,10 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
             updateEventCouponProperty(originalEvent.eventName, originalEvent.couponProperty || '')
             updateEventSubscriptionProperty(originalEvent.eventName, originalEvent.subscriptionProperty || '')
             updateEventSubscriptionDropoffDays(originalEvent.eventName, originalEvent.subscriptionDropoffDays)
+            updateEventSubscriptionDropoffDaysProperty(
+                originalEvent.eventName,
+                originalEvent.subscriptionDropoffDaysProperty || ''
+            )
             updateEventSubscriptionDropoffMode(originalEvent.eventName, originalEvent.subscriptionDropoffMode)
         } else if (eventName) {
             deleteEvent(eventName)
@@ -307,10 +312,13 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
                 {/* Subscription Configuration */}
                 <div className="space-y-3">
                     <h4 className="text-md font-semibold">Subscription Tracking</h4>
+                    <p className="text-xs text-muted-alt">
+                        Define how to identify a subscription and when it should be considered ended.
+                    </p>
 
                     <div className="space-y-3">
                         <div className="space-y-1">
-                            <label className="text-sm font-medium">Subscription Property</label>
+                            <label className="text-sm font-medium">Subscription identifier property</label>
                             <TaxonomicPopover
                                 groupType={TaxonomicFilterGroupType.EventProperties}
                                 onChange={(propertyName) => {
@@ -323,14 +331,13 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
                                 disabledReason={!currentEvent?.eventName ? 'Select an event name first' : undefined}
                             />
                             <p className="text-xs text-muted-alt">
-                                Track subscription information for ARPU and LTV calculations. Recommended for better
-                                revenue insights.
+                                Used to group recurring revenue events into subscriptions.
                             </p>
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="space-y-1">
-                                <label className="text-sm font-medium">Dropoff Days</label>
+                                <label className="text-sm font-medium">Default dropoff days</label>
                                 <LemonInput
                                     type="number"
                                     min={1}
@@ -346,13 +353,32 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
                                     }}
                                     disabledReason={!currentEvent?.eventName ? 'Select an event name first' : undefined}
                                 />
+                                <p className="text-xs text-muted-alt">Used when no override property is set.</p>
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className="text-sm font-medium">Dropoff days override property</label>
+                                <TaxonomicPopover
+                                    groupType={TaxonomicFilterGroupType.EventProperties}
+                                    onChange={(propertyName) => {
+                                        if (currentEvent?.eventName) {
+                                            updateEventSubscriptionDropoffDaysProperty(
+                                                currentEvent.eventName,
+                                                propertyName || ''
+                                            )
+                                        }
+                                    }}
+                                    value={currentEvent?.subscriptionDropoffDaysProperty || undefined}
+                                    placeholder="Select dropoff days property (optional)"
+                                    disabledReason={!currentEvent?.eventName ? 'Select an event name first' : undefined}
+                                />
                                 <p className="text-xs text-muted-alt">
-                                    Days to consider subscription active after last event
+                                    If set, this value is used instead of the default.
                                 </p>
                             </div>
 
                             <div className="space-y-1">
-                                <label className="text-sm font-medium">Dropoff Mode</label>
+                                <label className="text-sm font-medium">Subscription end date</label>
                                 <LemonSelect<SubscriptionDropoffMode>
                                     value={currentEvent?.subscriptionDropoffMode || 'last_event'}
                                     onChange={(value) => {
