@@ -42,6 +42,7 @@ ANTHROPIC_CONFIG = ProviderConfig(name="anthropic", endpoint_name="anthropic_mes
 OPENAI_CONFIG = ProviderConfig(name="openai", endpoint_name="chat_completions")
 OPENAI_RESPONSES_CONFIG = ProviderConfig(name="openai", endpoint_name="responses")
 OPENAI_TRANSCRIPTION_CONFIG = ProviderConfig(name="openai", endpoint_name="audio_transcriptions")
+HOSTED_VLLM_CONFIG = ProviderConfig(name="hosted_vllm", endpoint_name="chat_completions")
 
 
 async def handle_llm_request(

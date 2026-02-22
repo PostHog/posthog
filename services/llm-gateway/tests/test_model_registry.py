@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
+from llm_gateway.services.hosted_models import HostedModelRegistry
 from llm_gateway.services.model_registry import (
     ModelInfo,
     ModelRegistryService,
@@ -131,9 +132,11 @@ def create_mock_settings(
 def reset_services():
     ModelRegistryService.reset_instance()
     ModelCostService.reset_instance()
+    HostedModelRegistry.reset_instance()
     yield
     ModelRegistryService.reset_instance()
     ModelCostService.reset_instance()
+    HostedModelRegistry.reset_instance()
 
 
 @pytest.fixture(autouse=True)
@@ -145,11 +148,24 @@ def mock_cost_service():
         yield
 
 
+def _mock_hosted_settings() -> MagicMock:
+    s = MagicMock()
+    s.glm5_api_base_url_us = None
+    s.glm5_api_base_url_eu = None
+    return s
+
+
 @pytest.fixture(autouse=True)
 def mock_settings():
-    with patch(
-        "llm_gateway.services.model_registry.get_settings",
-        return_value=create_mock_settings(),
+    with (
+        patch(
+            "llm_gateway.services.model_registry.get_settings",
+            return_value=create_mock_settings(),
+        ),
+        patch(
+            "llm_gateway.services.hosted_models.get_settings",
+            return_value=_mock_hosted_settings(),
+        ),
     ):
         yield
 

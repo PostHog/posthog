@@ -7,6 +7,7 @@ from typing import ClassVar, Final
 from llm_gateway.config import get_settings
 from llm_gateway.products.config import get_product_config
 from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
+from llm_gateway.services.hosted_models import HOSTED_VLLM_PROVIDER, HostedModelRegistry
 
 
 @dataclass(frozen=True)
@@ -85,7 +86,6 @@ class ModelRegistryService:
         configured_providers = _get_configured_providers()
         allowed_models = config.allowed_models if config else None
 
-        # Fetch all chat models from LiteLLM, filtered by configured providers
         all_litellm_models = ModelCostService.get_instance().get_all_models()
         models = []
         for model_id, cost_data in all_litellm_models.items():
@@ -99,16 +99,34 @@ class ModelRegistryService:
             model = self.get_model(model_id)
             if model is not None:
                 models.append(model)
+
+        hosted_registry = HostedModelRegistry.get_instance()
+        for hosted in hosted_registry.get_all():
+            if allowed_models is not None and not _model_matches_allowlist(hosted.user_facing_id, allowed_models):
+                continue
+            models.append(
+                ModelInfo(
+                    id=hosted.user_facing_id,
+                    provider=HOSTED_VLLM_PROVIDER,
+                    context_window=hosted.context_window,
+                    supports_streaming=True,
+                    supports_vision=hosted.supports_vision,
+                )
+            )
+
         return models
 
     def is_model_available(self, model_id: str, product: str) -> bool:
         """Check if a model is available for a product."""
         config = get_product_config(product)
 
-        # If product has explicit allowed_models, check against those
         if config is not None and config.allowed_models is not None:
             if not _model_matches_allowlist(model_id, config.allowed_models):
                 return False
+
+        hosted_registry = HostedModelRegistry.get_instance()
+        if hosted_registry.is_hosted(model_id):
+            return True
 
         model = self.get_model(model_id)
         if model is None:

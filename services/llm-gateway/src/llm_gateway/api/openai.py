@@ -5,6 +5,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from llm_gateway.api.handler import (
+    HOSTED_VLLM_CONFIG,
     OPENAI_CONFIG,
     OPENAI_RESPONSES_CONFIG,
     OPENAI_TRANSCRIPTION_CONFIG,
@@ -13,6 +14,7 @@ from llm_gateway.api.handler import (
 from llm_gateway.dependencies import RateLimitedUser
 from llm_gateway.models.openai import ChatCompletionRequest, ResponsesRequest, TranscriptionRequest
 from llm_gateway.products.config import validate_product
+from llm_gateway.services.hosted_models import resolve_hosted_model
 
 openai_router = APIRouter()
 
@@ -30,6 +32,21 @@ async def _handle_chat_completions(
     product: str = "llm_gateway",
 ) -> dict[str, Any] | StreamingResponse:
     data = body.model_dump(exclude_none=True)
+
+    hosted = resolve_hosted_model(body.model)
+    if hosted:
+        litellm_model, api_base = hosted
+        data["model"] = litellm_model
+        data["api_base"] = api_base
+        return await handle_llm_request(
+            request_data=data,
+            user=user,
+            model=body.model,
+            is_streaming=body.stream or False,
+            provider_config=HOSTED_VLLM_CONFIG,
+            llm_call=litellm.acompletion,
+            product=product,
+        )
 
     return await handle_llm_request(
         request_data=data,

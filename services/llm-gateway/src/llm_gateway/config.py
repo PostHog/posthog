@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     openai_api_base_url: str | None = None  # Used for regional endpoints
     gemini_api_key: str | None = None
 
+    glm5_api_base_url_us: str | None = None
+    glm5_api_base_url_eu: str | None = None
+
     # Project token for LLM analytics events
     posthog_project_token: str | None = None
     posthog_host: str = "https://us.i.posthog.com"
