@@ -86,6 +86,7 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
                 render: TraceNameColumn,
             },
             person: llmAnalyticsColumnRenderers.person,
+            sentiment: llmAnalyticsColumnRenderers.sentiment,
             errors: {
                 renderTitle: () => <Tooltip title="Number of errors in this trace">Errors</Tooltip>,
                 render: ErrorsColumn,

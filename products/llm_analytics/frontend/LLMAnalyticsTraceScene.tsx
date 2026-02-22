@@ -62,6 +62,7 @@ import { EvalsTabContent } from './components/EvalsTabContent'
 import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
+import { SentimentBar, flattenGenerationMessages } from './components/SentimentTag'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
 import { useAIData } from './hooks/useAIData'
@@ -69,6 +70,7 @@ import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
 import { DisplayOption, TraceViewMode, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
+import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
 import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
 import { TextViewDisplay } from './text-view/TextViewDisplay'
 import { exportTraceToClipboard } from './traceExportUtils'
@@ -319,6 +321,15 @@ function TraceMetadata({
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { personsCache } = useValues(llmPersonsLazyLoaderLogic)
+    const { getTraceSentiment, isTraceLoading } = useValues(llmSentimentLazyLoaderLogic)
+    const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
+
+    const showSentiment = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+    const sentimentResult = showSentiment ? getTraceSentiment(trace.id) : undefined
+    const sentimentLoading = showSentiment ? isTraceLoading(trace.id) : false
+    if (showSentiment && sentimentResult === undefined && !sentimentLoading) {
+        ensureSentimentLoaded(trace.id)
+    }
 
     const cached = personsCache[trace.distinctId]
 
@@ -403,6 +414,15 @@ function TraceMetadata({
             {feedbackEvents.map((feedback) => (
                 <FeedbackTag key={feedback.id} properties={feedback.properties} />
             ))}
+            {sentimentResult && !sentimentLoading && (
+                <Chip title="Sentiment">
+                    <SentimentBar
+                        label={sentimentResult.label ?? 'neutral'}
+                        score={sentimentResult.score ?? 0}
+                        messages={flattenGenerationMessages(sentimentResult.generations)}
+                    />
+                </Chip>
+            )}
         </header>
     )
 }
@@ -559,6 +579,8 @@ const TreeNode = React.memo(function TraceNode({
 
     const { eventTypeExpanded } = useValues(llmAnalyticsTraceLogic)
     const { searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { getGenerationSentiment } = useValues(llmSentimentLazyLoaderLogic)
     const eventType = getEventType(item)
     const isCollapsedDueToFilter = !eventTypeExpanded(eventType)
     const isBillable =
@@ -566,6 +588,10 @@ const TreeNode = React.memo(function TraceNode({
         isLLMEvent(item) &&
         (item as LLMTraceEvent).event === '$ai_generation' &&
         !!(item as LLMTraceEvent).properties?.$ai_billable
+
+    const showSentiment = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+    const isGeneration = isLLMEvent(item) && (item as LLMTraceEvent).event === '$ai_generation'
+    const genSentiment = showSentiment && isGeneration ? getGenerationSentiment(topLevelTrace.id, item.id) : undefined
 
     const children = [
         isLLMEvent(item) && item.properties.$ai_is_error && (
@@ -612,6 +638,13 @@ const TreeNode = React.memo(function TraceNode({
                         <span title="Billable" aria-label="Billable" className="text-base">
                             💰
                         </span>
+                    )}
+                    {genSentiment && (
+                        <SentimentBar
+                            label={genSentiment.label}
+                            score={genSentiment.score}
+                            messages={genSentiment.messages}
+                        />
                     )}
                     {!isCollapsedDueToFilter && (
                         <Tooltip title={formatLLMEventTitle(item)}>

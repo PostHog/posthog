@@ -2,7 +2,9 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -19,6 +21,7 @@ import { InsightLogicProps } from '~/types'
 import type { llmAnalyticsTraceDataLogicType } from './llmAnalyticsTraceDataLogicType'
 import { llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
+import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
 import {
     SearchOccurrence,
     eventMatchesSearch,
@@ -158,6 +161,8 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             ['eventId', 'searchQuery', 'initialTab'],
             dataNodeLogic(getDataNodeLogicProps(props)),
             ['elapsedTime', 'response', 'responseLoading', 'responseError'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
     actions({
@@ -403,7 +408,7 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             })
         },
     })),
-    subscriptions(({ actions, props }) => ({
+    subscriptions(({ actions, props, values }) => ({
         trace: (trace: LLMTrace | undefined) => {
             if (trace?.createdAt && props.traceId) {
                 llmAnalyticsTraceLogic.actions.loadNeighbors(props.traceId, trace.createdAt)
@@ -411,6 +416,12 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
 
             if (trace?.distinctId) {
                 llmPersonsLazyLoaderLogic.actions.ensurePersonLoaded(trace.distinctId)
+            }
+
+            if (trace?.id && values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]) {
+                llmSentimentLazyLoaderLogic.actions.ensureSentimentLoaded(trace.id, {
+                    dateFrom: trace.createdAt,
+                })
             }
 
             actions.reportSingleTraceLoadIfReady()
