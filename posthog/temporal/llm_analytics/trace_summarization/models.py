@@ -51,6 +51,10 @@ class BatchSummarizationInputs:
     # Uses PostHog's standard property filter format (same as clustering event_filters).
     event_filters: list[dict[str, Any]] = field(default_factory=list)
 
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id}
+
 
 @dataclass
 class SampledItem:
@@ -111,6 +115,10 @@ class FetchAndFormatInput:
     max_length: int | None = None
     generation_id: str | None = None  # None = trace-level, set = generation-level
 
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id}
+
 
 @dataclass
 class FetchAndFormatResult:
@@ -146,6 +154,10 @@ class SummarizeAndSaveInput:
     generation_id: str | None = None
     event_count: int = 0
     text_repr_length: int = 0
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id}
 
 
 class TextReprExpiredError(Exception):
