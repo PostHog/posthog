@@ -1733,13 +1733,12 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_command_with_null_state(self):
+    def test_command_with_empty_state(self):
         task = self.create_task()
         run = TaskRun.objects.create(
             task=task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
-            state=None,
         )
 
         response = self.client.post(
