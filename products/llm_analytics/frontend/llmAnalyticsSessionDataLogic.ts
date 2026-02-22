@@ -61,12 +61,13 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
             llmAnalyticsSessionLogic({ tabId: props.tabId }),
             ['sessionId'],
             dataNodeLogic(getDataNodeLogicProps(props)),
-            ['response', 'responseLoading', 'responseError'],
+            ['response', 'responseLoading', 'responseError', 'canLoadNextData', 'hasMoreData', 'nextDataLoading'],
             maxGlobalLogic,
             ['dataProcessingAccepted'],
             teamLogic,
             ['currentTeamId'],
         ],
+        actions: [dataNodeLogic(getDataNodeLogicProps(props)), ['loadNextData']],
     })),
 
     actions({

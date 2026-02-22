@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconInfo } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -94,9 +94,14 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
                     },
                     traces: {
                         renderTitle: () => (
-                            <Tooltip title="Number of traces in this session">
-                                {renderSortableColumnTitle('traces', 'Traces')}
-                            </Tooltip>
+                            <span className="inline-flex items-center gap-1">
+                                <Tooltip title="Number of traces in this session">
+                                    {renderSortableColumnTitle('traces', 'Traces')}
+                                </Tooltip>
+                                <Tooltip title="Counts reflect events within the selected date range. They may change on reload as events age out of relative time windows.">
+                                    <IconInfo className="text-muted text-xs" />
+                                </Tooltip>
+                            </span>
                         ),
                     },
                     spans: {

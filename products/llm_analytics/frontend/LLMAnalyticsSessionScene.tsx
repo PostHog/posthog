@@ -66,9 +66,11 @@ function SessionSceneWrapper(): JSX.Element {
         loadingFullTraces,
         traceSummaries,
         summariesLoading,
+        hasMoreData,
+        nextDataLoading,
     } = useValues(llmAnalyticsSessionDataLogic)
     const { sessionId } = useValues(llmAnalyticsSessionLogic)
-    const { toggleTraceExpanded, toggleGenerationExpanded, summarizeAllTraces } =
+    const { toggleTraceExpanded, toggleGenerationExpanded, summarizeAllTraces, loadNextData } =
         useActions(llmAnalyticsSessionDataLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
@@ -105,7 +107,8 @@ function SessionSceneWrapper(): JSX.Element {
                                 <span className="font-mono">{sessionId}</span>
                             </LemonTag>
                             <LemonTag size="medium" className="bg-surface-primary">
-                                {sessionStats.traceCount} {sessionStats.traceCount === 1 ? 'trace' : 'traces'}
+                                {sessionStats.traceCount}
+                                {hasMoreData ? '+' : ''} {sessionStats.traceCount === 1 ? 'trace' : 'traces'}
                             </LemonTag>
                             {sessionStats.totalCost > 0 && (
                                 <LemonTag size="medium" className="bg-surface-primary">
@@ -278,6 +281,18 @@ function SessionSceneWrapper(): JSX.Element {
                                     </div>
                                 )
                             })}
+                            {hasMoreData && (
+                                <div className="flex justify-center pt-2">
+                                    <LemonButton
+                                        type="secondary"
+                                        loading={nextDataLoading}
+                                        onClick={loadNextData}
+                                        data-attr="llm-session-load-more-traces"
+                                    >
+                                        Load more traces
+                                    </LemonButton>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

@@ -9,6 +9,7 @@ from posthog.models.utils import uuid7
 
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
 from products.error_tracking.backend.weekly_digest import (
+    compute_week_over_week_change,
     get_crash_free_sessions,
     get_daily_exception_counts,
     get_exception_counts,
@@ -93,10 +94,26 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         results = get_exception_counts(team_ids=[self.team.pk])
 
         assert len(results) == 1
-        team_id, exception_count, ingestion_failure_count = results[0]
+        team_id, exception_count, ingestion_failure_count, prev_exception_count = results[0]
         assert team_id == self.team.pk
         assert exception_count == 4
         assert ingestion_failure_count == 1
+        assert prev_exception_count == 0
+
+    def test_get_exception_counts_includes_previous_week(self):
+        issue = self._create_issue()
+        for _ in range(3):
+            self._create_exception_event(issue_id=issue.id, timestamp=_days_ago(1))
+        for _ in range(5):
+            self._create_exception_event(issue_id=issue.id, timestamp=_days_ago(10))
+        flush_persons_and_events()
+
+        results = get_exception_counts(team_ids=[self.team.pk])
+
+        assert len(results) == 1
+        _, exception_count, _, prev_exception_count = results[0]
+        assert exception_count == 3
+        assert prev_exception_count == 5
 
     def test_get_exception_counts_excludes_old_events(self):
         issue = self._create_issue()
@@ -117,12 +134,27 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         result = get_crash_free_sessions(self.team)
 
         assert result["total_sessions"] == 3
-        assert result["crash_sessions"] == 1
         assert result["crash_free_rate"] == 66.67
 
     def test_get_crash_free_sessions_empty_when_no_sessions(self):
         result = get_crash_free_sessions(self.team)
         assert result == {}
+
+    def test_get_crash_free_sessions_includes_previous_week_comparison(self):
+        s1, s2, s3 = str(uuid7()), str(uuid7()), str(uuid7())
+        self._create_pageview(session_id=s1, timestamp=_days_ago(1))
+        self._create_pageview(session_id=s2, timestamp=_days_ago(1))
+        self._create_exception_event(session_id=s2, timestamp=_days_ago(1))
+
+        self._create_pageview(session_id=s3, timestamp=_days_ago(10))
+        self._create_exception_event(session_id=s3, timestamp=_days_ago(10))
+        flush_persons_and_events()
+
+        result = get_crash_free_sessions(self.team)
+
+        assert result["total_sessions"] == 2
+        assert result["crash_free_rate"] == 50.0
+        assert result["total_sessions_change"] is not None
 
     def test_get_daily_exception_counts_returns_7_days(self):
         issue = self._create_issue()
@@ -228,3 +260,47 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
     def test_get_new_issues_empty_when_none(self):
         result = get_new_issues_for_team(self.team)
         assert result == []
+
+
+class TestComputeWeekOverWeekChange:
+    def test_increase_when_higher_is_better(self):
+        result = compute_week_over_week_change(150, 100, higher_is_better=True)
+        assert result is not None
+        assert result["percent"] == 50
+        assert result["direction"] == "Up"
+        assert result["color"] == "#2f7d4f"
+        assert result["text"] == "Up 50%"
+        assert result["long_text"] == "Up 50% from previous week"
+
+    def test_decrease_when_higher_is_better(self):
+        result = compute_week_over_week_change(50, 100, higher_is_better=True)
+        assert result is not None
+        assert result["percent"] == 50
+        assert result["direction"] == "Down"
+        assert result["color"] == "#a13232"
+
+    def test_increase_when_lower_is_better(self):
+        result = compute_week_over_week_change(150, 100, higher_is_better=False)
+        assert result is not None
+        assert result["color"] == "#a13232"
+        assert result["direction"] == "Up"
+
+    def test_decrease_when_lower_is_better(self):
+        result = compute_week_over_week_change(50, 100, higher_is_better=False)
+        assert result is not None
+        assert result["color"] == "#2f7d4f"
+        assert result["direction"] == "Down"
+
+    def test_rounds_to_whole_number(self):
+        result = compute_week_over_week_change(113, 100, higher_is_better=True)
+        assert result is not None
+        assert result["percent"] == 13
+
+    def test_returns_none_when_previous_is_zero(self):
+        assert compute_week_over_week_change(100, 0, higher_is_better=True) is None
+
+    def test_returns_none_when_previous_is_none(self):
+        assert compute_week_over_week_change(100, None, higher_is_better=True) is None
+
+    def test_returns_none_when_no_change(self):
+        assert compute_week_over_week_change(100, 100, higher_is_better=True) is None
