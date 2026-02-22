@@ -507,6 +507,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitWithExprColumnNameList(HogQLParser::WithExprColumnNameListContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitColumnIdentifier(HogQLParser::ColumnIdentifierContext *ctx) override {
     return visitChildren(ctx);
   }
