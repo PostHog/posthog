@@ -76,8 +76,7 @@ class TestUserCostLimitConfig:
         assert twig.sustained_limit_usd == 500.0
         get_settings.cache_clear()
 
-    def test_empty_string_returns_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("LLM_GATEWAY_USER_COST_LIMITS", "")
+    def test_unset_env_returns_defaults(self) -> None:
         get_settings.cache_clear()
         settings = get_settings()
         assert "twig" in settings.user_cost_limits
