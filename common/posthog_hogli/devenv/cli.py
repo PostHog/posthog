@@ -6,7 +6,7 @@ Provides hogli dev:* commands for managing the development environment.
 from __future__ import annotations
 
 import click
-from hogli.core.cli import cli
+from hogli.cli import cli
 
 from .generator import (
     DevenvConfig,

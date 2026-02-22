@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from hogli.core.manifest import Manifest
+from hogli.manifest import Manifest
 
 
 class TestExtendsResolution:
@@ -155,3 +155,43 @@ class TestGetChildrenForCommand:
 
         assert children == sorted(children)
         assert children == ["test:parent:alpha", "test:parent:zebra"]
+
+
+class TestManifestCommandEnumeration:
+    """Test command enumeration excludes non-command sections."""
+
+    def test_get_all_commands_excludes_config_section(self) -> None:
+        """Config keys should not be returned as commands."""
+        test_data = {
+            "config": {"commands_dir": "common/posthog_hogli"},
+            "core": {
+                "dev:setup": None,
+                "dev:reset": {"cmd": "echo reset"},
+            },
+        }
+
+        with patch.object(Manifest, "_load", return_value={}):
+            manifest = Manifest()
+            manifest._data = test_data
+
+        commands = manifest.get_all_commands()
+
+        assert "dev:setup" in commands
+        assert "dev:reset" in commands
+        assert "commands_dir" not in commands
+
+    def test_get_command_config_returns_none_for_non_dict_command(self) -> None:
+        """Commands with null config should return None."""
+        test_data = {
+            "core": {
+                "dev:setup": None,
+                "dev:reset": {"cmd": "echo reset"},
+            },
+        }
+
+        with patch.object(Manifest, "_load", return_value={}):
+            manifest = Manifest()
+            manifest._data = test_data
+
+        assert manifest.get_command_config("dev:setup") is None
+        assert manifest.get_command_config("dev:reset") == {"cmd": "echo reset"}

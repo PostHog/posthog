@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 import click
-from hogli.core.cli import cli
+from hogli.cli import cli
 
 STRUCTURE_FILE = Path(__file__).parent / "product_structure.yaml"
 PRODUCTS_DIR = Path(__file__).parent.parent.parent / "products"

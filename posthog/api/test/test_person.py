@@ -313,8 +313,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         with snapshot_postgres_queries_context(
             self,
-            custom_query_matcher=lambda query: f"DELETE FROM posthog_person WHERE team_id = {self.team.pk} AND id = {person.pk}"
-            in query,
+            custom_query_matcher=lambda query: (
+                f"DELETE FROM posthog_person WHERE team_id = {self.team.pk} AND id = {person.pk}" in query
+            ),
         ):
             response = self.client.delete(f"/api/person/{person.uuid}/")
 

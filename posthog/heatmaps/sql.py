@@ -101,8 +101,7 @@ KAFKA_HEATMAPS_TABLE_SQL = lambda: KAFKA_HEATMAPS_TABLE_BASE_SQL.format(
     engine=kafka_engine(topic=KAFKA_CLICKHOUSE_HEATMAP_EVENTS, group=CONSUMER_GROUP_HEATMAPS),
 )
 
-HEATMAPS_TABLE_MV_SQL = (
-    lambda: """
+HEATMAPS_TABLE_MV_SQL = lambda: """
 CREATE MATERIALIZED VIEW IF NOT EXISTS heatmaps_mv
 TO {database}.{target_table}
 AS SELECT
@@ -127,9 +126,8 @@ AS SELECT
     _partition
 FROM {database}.kafka_heatmaps
 """.format(
-        target_table="writable_heatmaps",
-        database=settings.CLICKHOUSE_DATABASE,
-    )
+    target_table="writable_heatmaps",
+    database=settings.CLICKHOUSE_DATABASE,
 )
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
@@ -152,15 +150,15 @@ DISTRIBUTED_HEATMAPS_TABLE_SQL = lambda: HEATMAPS_TABLE_BASE_SQL.format(
     ),
 )
 
-DROP_HEATMAPS_TABLE_SQL = lambda: (f"DROP TABLE IF EXISTS {HEATMAPS_DATA_TABLE()}")
+DROP_HEATMAPS_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS {HEATMAPS_DATA_TABLE()}"
 
-DROP_WRITABLE_HEATMAPS_TABLE_SQL = lambda: (f"DROP TABLE IF EXISTS writable_heatmaps")
+DROP_WRITABLE_HEATMAPS_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS writable_heatmaps"
 
-DROP_HEATMAPS_TABLE_MV_SQL = lambda: (f"DROP TABLE IF EXISTS heatmaps_mv")
+DROP_HEATMAPS_TABLE_MV_SQL = lambda: f"DROP TABLE IF EXISTS heatmaps_mv"
 
-DROP_KAFKA_HEATMAPS_TABLE_SQL = lambda: (f"DROP TABLE IF EXISTS kafka_heatmaps")
+DROP_KAFKA_HEATMAPS_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS kafka_heatmaps"
 
-TRUNCATE_HEATMAPS_TABLE_SQL = lambda: (f"TRUNCATE TABLE IF EXISTS {HEATMAPS_DATA_TABLE()}")
+TRUNCATE_HEATMAPS_TABLE_SQL = lambda: f"TRUNCATE TABLE IF EXISTS {HEATMAPS_DATA_TABLE()}"
 
 ALTER_TABLE_ADD_TTL_PERIOD = lambda: (
     f"ALTER TABLE {HEATMAPS_DATA_TABLE()} MODIFY {ttl_period('timestamp', 90, unit='DAY')}"

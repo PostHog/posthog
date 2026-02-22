@@ -650,8 +650,8 @@ def DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3():
 # This is the view that can be queried directly, that handles aggregation of potentially multiple rows per session.
 # Most queries won't use this directly as they will want to pre-filter rows before aggregation, but it's useful for
 # debugging
-RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3 = (
-    lambda: f"""
+RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3 = lambda: (
+    f"""
 CREATE OR REPLACE VIEW {TABLE_BASE_NAME_V3}_v AS
 SELECT
     session_id_v7,

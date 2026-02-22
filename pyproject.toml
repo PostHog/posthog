@@ -268,6 +268,8 @@ dev = [
     "types-tzlocal~=5.1.0.1",
     "pywatchman>=2.0.0",
     "watchdog==5.0.3",
+    # Developer CLI
+    "hogli",
 ]
 sentiment = [
     "optimum[onnxruntime]~=1.25.0",
@@ -278,6 +280,7 @@ sentiment = [
 required-version = "~=0.10.2"
 
 [tool.uv.sources]
+hogli = { path = "tools/hogli", editable = true }
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "9578c79f29635ee2c1d01b7979e89adab8383de2" }
 
 

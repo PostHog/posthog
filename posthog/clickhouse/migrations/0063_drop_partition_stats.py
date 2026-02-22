@@ -6,12 +6,12 @@ from posthog.kafka_client.topics import (
 )
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
-DROP_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS_TABLE = (
-    lambda: f"DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.events_plugin_ingestion_partition_statistics ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"
+DROP_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS_TABLE = lambda: (
+    f"DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.events_plugin_ingestion_partition_statistics ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"
 )
 
-DROP_PARTITION_STATISTICS_MV = (
-    lambda monitored_topic: f"DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.{monitored_topic}_partition_statistics_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"
+DROP_PARTITION_STATISTICS_MV = lambda monitored_topic: (
+    f"DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.{monitored_topic}_partition_statistics_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"
 )
 
 operations = map(

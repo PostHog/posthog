@@ -33,8 +33,8 @@ from pathlib import Path
 from urllib.parse import quote
 
 import click
-from hogli.core.cli import cli
-from hogli.core.manifest import REPO_ROOT
+from hogli.cli import cli
+from hogli.manifest import REPO_ROOT
 from migration_utils import (
     MIGRATION_CACHE_DIR,
     get_cache_path as _get_cache_path,

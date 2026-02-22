@@ -2,13 +2,45 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-MANIFEST_FILE = Path(__file__).parent.parent / "manifest.yaml"
+
+def _find_repo_root() -> Path:
+    """Find repo root by walking up from cwd looking for hogli.yaml."""
+    # Check env var first
+    if env_manifest := os.environ.get("HOGLI_MANIFEST"):
+        return Path(env_manifest).parent
+
+    # Walk up from cwd looking for hogli.yaml
+    current = Path.cwd().resolve()
+    for parent in [current, *current.parents]:
+        if (parent / "hogli.yaml").exists():
+            return parent
+
+    # Fallback to cwd if no manifest found
+    return current
+
+
+def _find_manifest_file(repo_root: Path) -> Path:
+    """Find manifest file location."""
+    # Env var takes precedence
+    if env_manifest := os.environ.get("HOGLI_MANIFEST"):
+        return Path(env_manifest)
+
+    # Standard location
+    if (repo_root / "hogli.yaml").exists():
+        return repo_root / "hogli.yaml"
+
+    # Fallback for backwards compatibility (PostHog-specific)
+    return repo_root / "common" / "hogli" / "manifest.yaml"
+
+
+REPO_ROOT = _find_repo_root()
+MANIFEST_FILE = _find_manifest_file(REPO_ROOT)
 
 
 class Manifest:
@@ -94,6 +126,47 @@ class Manifest:
         """Get service metadata."""
         return self._data.get("metadata", {}).get("services", {})
 
+    @property
+    def config(self) -> dict[str, Any]:
+        """Get hogli config section."""
+        return self._data.get("config", {})
+
+    @property
+    def commands_dir(self) -> Path | None:
+        """Get custom commands directory path.
+
+        Resolution order:
+        1. config.commands_dir in hogli.yaml (relative to repo root)
+        2. Default: hogli/ next to hogli.yaml
+
+        Returns None if no commands directory exists.
+        """
+        configured = self.config.get("commands_dir")
+        if configured:
+            path = REPO_ROOT / configured
+            if path.exists():
+                return path
+        # Default: hogli/ next to manifest
+        default_path = MANIFEST_FILE.parent / "hogli"
+        if default_path.exists():
+            return default_path
+        return None
+
+    @property
+    def scripts_dir(self) -> Path:
+        """Get scripts directory path for bin_script commands.
+
+        Resolution order:
+        1. config.scripts_dir in hogli.yaml (relative to repo root)
+        2. Default: bin/ in repo root
+
+        Always returns a path (may not exist).
+        """
+        configured = self.config.get("scripts_dir")
+        if configured:
+            return REPO_ROOT / configured
+        return REPO_ROOT / "bin"
+
     def get_category_for_command(self, command_name: str) -> str:
         """Get category for a command based on which section it's placed in.
 
@@ -108,7 +181,7 @@ class Manifest:
         """
         # First, check if command is directly in a manifest section (explicit placement)
         for category_key, commands in self._data.items():
-            if category_key == "metadata" or not isinstance(commands, dict):
+            if category_key in {"metadata", "config"} or not isinstance(commands, dict):
                 continue
 
             if command_name in commands:
@@ -119,7 +192,7 @@ class Manifest:
         prefix = command_name.split(":")[0] if ":" in command_name else command_name
 
         for category_key, commands in self._data.items():
-            if category_key == "metadata" or not isinstance(commands, dict):
+            if category_key in {"metadata", "config"} or not isinstance(commands, dict):
                 continue
 
             # Check if any manifest command shares this prefix
@@ -156,17 +229,20 @@ class Manifest:
     def get_all_commands(self) -> list[str]:
         """Get all available commands from the manifest."""
         commands: list[str] = []
-        for category in self._data.values():
-            if isinstance(category, dict) and category is not self._data.get("metadata"):
+        for category_key, category in self._data.items():
+            if category_key in {"metadata", "config"} or not isinstance(category, dict):
+                continue
+            if isinstance(category, dict):
                 commands.extend(category.keys())
         return commands
 
     def get_command_config(self, command_name: str) -> dict | None:
         """Get configuration for a specific command."""
-        for category in self._data.values():
-            if isinstance(category, dict) and category is not self._data.get("metadata"):
-                if command_name in category:
-                    return category[command_name]
+        for category_key, category in self._data.items():
+            if category_key in {"metadata", "config"} or not isinstance(category, dict):
+                continue
+            if command_name in category and isinstance(category[command_name], dict):
+                return category[command_name]
         return None
 
     def get_children_for_command(self, command_name: str) -> list[str]:
