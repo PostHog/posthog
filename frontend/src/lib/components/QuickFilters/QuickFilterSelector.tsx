@@ -11,12 +11,22 @@ interface QuickFilterSelectorProps {
     onChange: (option: QuickFilterOption | null) => void
 }
 
+function truncateLabel(label: string, maxLength: number): string {
+    if (label.length <= maxLength) {
+        return label
+    }
+
+    const charsToShow = Math.floor((maxLength - 3) / 2)
+    return `${label.slice(0, charsToShow)}...${label.slice(-charsToShow)}`
+}
+
 export function QuickFilterSelector({
     label,
     options,
     selectedOptionId,
     onChange,
 }: QuickFilterSelectorProps): JSX.Element {
+    const maxLength = 30
     const allOptions = useMemo(
         () => [
             { value: null, label: `Any ${label.toLowerCase()}` },
@@ -35,6 +45,13 @@ export function QuickFilterSelector({
         return options.some((opt) => opt.id === selectedOptionId) ? selectedOptionId : null
     }, [selectedOptionId, options])
 
+    const selectedOption = useMemo(() => {
+        if (selectedOptionId === null) {
+            return null
+        }
+        return options.find((opt) => opt.id === selectedOptionId)
+    }, [selectedOptionId, options])
+
     return (
         <LemonSelect
             value={displayValue}
@@ -50,6 +67,16 @@ export function QuickFilterSelector({
             size="small"
             placeholder={label}
             dropdownMatchSelectWidth={false}
+            renderButtonContent={(leaf) => {
+                if (!leaf || !leaf.value || !selectedOption) {
+                    return label
+                }
+                return (
+                    <span title={selectedOption.label.length > maxLength ? selectedOption.label : undefined}>
+                        {truncateLabel(selectedOption.label, maxLength)}
+                    </span>
+                )
+            }}
         />
     )
 }

@@ -1,5 +1,7 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { LogicWrapper, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
+
+import { LemonDialog } from '@posthog/lemon-ui'
 
 import { QuickFilter } from '~/types'
 
@@ -7,15 +9,28 @@ import { QuickFiltersEvents } from './consts'
 import { QuickFiltersLogicProps, quickFiltersLogic } from './quickFiltersLogic'
 import type { quickFiltersModalLogicType } from './quickFiltersModalLogicType'
 
-export type ModalView = 'list' | 'form'
+export const ModalView = {
+    List: 'list',
+    Form: 'form',
+} as const
 
-export const quickFiltersModalLogic = kea<quickFiltersModalLogicType>([
+export type ModalView = (typeof ModalView)[keyof typeof ModalView]
+
+export interface QuickFiltersModalLogicProps extends QuickFiltersLogicProps {
+    /** Optional key to scope modal instances per consumer (e.g. per dashboard) */
+    modalKey?: string | number
+    /** Optional callback fired when a new quick filter is created while the modal is open */
+    onNewFilterCreated?: (filter: QuickFilter) => void
+}
+
+export const quickFiltersModalLogic: LogicWrapper<quickFiltersModalLogicType> = kea<quickFiltersModalLogicType>([
     path(['lib', 'components', 'QuickFilters', 'quickFiltersModalLogic']),
-    props({} as QuickFiltersLogicProps),
-    key((props) => props.context),
+    props({} as QuickFiltersModalLogicProps),
+    key((props) => `${props.context}-${props.modalKey ?? 'default'}`),
 
-    connect((props: QuickFiltersLogicProps) => ({
+    connect((props: QuickFiltersModalLogicProps) => ({
         actions: [quickFiltersLogic(props), ['deleteFilter']],
+        values: [quickFiltersLogic(props), ['quickFilters']],
     })),
 
     actions({
@@ -27,6 +42,7 @@ export const quickFiltersModalLogic = kea<quickFiltersModalLogicType>([
         startEdit: (filter: QuickFilter) => ({ filter }),
         confirmDelete: (id: string) => ({ id }),
         handleFormBack: true,
+        setSearchQuery: (query: string) => ({ query }),
     }),
 
     reducers({
@@ -38,11 +54,11 @@ export const quickFiltersModalLogic = kea<quickFiltersModalLogicType>([
             },
         ],
         view: [
-            'list' as ModalView,
+            ModalView.List as ModalView,
             {
                 setView: (_, { view }) => view,
-                closeModal: () => 'list',
-                openModal: () => 'list',
+                closeModal: () => ModalView.List,
+                openModal: () => ModalView.List,
             },
         ],
         editedFilter: [
@@ -53,41 +69,88 @@ export const quickFiltersModalLogic = kea<quickFiltersModalLogicType>([
                 handleFormBack: () => null,
             },
         ],
+        searchQuery: [
+            '',
+            {
+                setSearchQuery: (_, { query }) => query,
+                closeModal: () => '',
+                openModal: () => '',
+            },
+        ],
     }),
 
     selectors({
         modalTitle: [
             (s) => [s.view, s.editedFilter],
             (view: ModalView, editedFilter: QuickFilter | null): string => {
-                if (view === 'list') {
+                if (view === ModalView.List) {
                     return 'Manage quick filters'
                 }
                 return editedFilter ? 'Edit quick filter' : 'Add quick filter'
             },
         ],
+        filteredQuickFilters: [
+            (s) => [s.quickFilters, s.searchQuery],
+            (quickFilters: QuickFilter[], searchQuery: string): QuickFilter[] => {
+                if (!searchQuery.trim()) {
+                    return quickFilters
+                }
+                const query = searchQuery.toLowerCase()
+                return quickFilters.filter(
+                    (filter) =>
+                        filter.name.toLowerCase().includes(query) ||
+                        filter.property_name.toLowerCase().includes(query) ||
+                        filter.options.some((opt) => opt.label?.toLowerCase().includes(query))
+                )
+            },
+        ],
     }),
 
-    listeners(({ actions, props }) => ({
+    listeners(({ actions, props, values, cache }) => ({
         startAddNew: () => {
             actions.setEditingFilter(null)
-            actions.setView('form')
+            actions.setView(ModalView.Form)
         },
         startEdit: ({ filter }) => {
             actions.setEditingFilter(filter)
-            actions.setView('form')
+            actions.setView(ModalView.Form)
         },
         confirmDelete: ({ id }) => {
-            if (confirm('Are you sure you want to delete this quick filter?')) {
-                actions.deleteFilter(id)
-            }
+            LemonDialog.open({
+                title: 'Delete quick filter?',
+                description: 'This action cannot be undone.',
+                primaryButton: {
+                    children: 'Delete',
+                    status: 'danger',
+                    onClick: () => actions.deleteFilter(id),
+                },
+                secondaryButton: {
+                    children: 'Cancel',
+                },
+            })
         },
         handleFormBack: () => {
-            actions.setView('list')
+            actions.setView(ModalView.List)
         },
         openModal: () => {
+            cache.filterIdsOnOpen = new Set(values.quickFilters.map((f) => f.id))
             posthog.capture(QuickFiltersEvents.QuickFiltersModalOpened, {
                 context: props.context,
             })
+        },
+        setView: ({ view }) => {
+            // When returning to list view, check if a new filter was added
+            if (view === ModalView.List) {
+                const previousIds: Set<string> = cache.filterIdsOnOpen ?? new Set()
+                const newFilters = values.quickFilters.filter((f) => !previousIds.has(f.id))
+
+                if (newFilters.length > 0 && props.onNewFilterCreated) {
+                    const newFilter = newFilters[0]
+                    props.onNewFilterCreated(newFilter)
+                }
+
+                cache.filterIdsOnOpen = new Set(values.quickFilters.map((f) => f.id))
+            }
         },
     })),
 ])

@@ -4,16 +4,20 @@ import { LemonModal } from '@posthog/lemon-ui'
 
 import { QuickFilterForm } from './QuickFilterForm'
 import { QuickFiltersModalContent } from './QuickFiltersModalContent'
-import { QuickFiltersLogicProps } from './quickFiltersLogic'
-import { quickFiltersModalLogic } from './quickFiltersModalLogic'
+import { ModalView, QuickFiltersModalLogicProps, quickFiltersModalLogic } from './quickFiltersModalLogic'
 
-export function QuickFiltersModal({ context }: QuickFiltersLogicProps): JSX.Element {
-    const { isModalOpen, view, modalTitle } = useValues(quickFiltersModalLogic({ context }))
-    const { closeModal } = useActions(quickFiltersModalLogic({ context }))
+export function QuickFiltersModal({ context, modalKey, onNewFilterCreated }: QuickFiltersModalLogicProps): JSX.Element {
+    const logicProps = { context, modalKey, onNewFilterCreated }
+    const { isModalOpen, view, modalTitle } = useValues(quickFiltersModalLogic(logicProps))
+    const { closeModal } = useActions(quickFiltersModalLogic(logicProps))
 
     return (
         <LemonModal title={modalTitle} isOpen={isModalOpen} onClose={closeModal} width={800}>
-            {view === 'list' ? <QuickFiltersModalContent context={context} /> : <QuickFilterForm context={context} />}
+            {view === ModalView.List ? (
+                <QuickFiltersModalContent context={context} modalKey={modalKey} />
+            ) : (
+                <QuickFilterForm context={context} modalKey={modalKey} />
+            )}
         </LemonModal>
     )
 }
