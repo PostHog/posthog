@@ -392,21 +392,15 @@ export const JsonrpcEnumApi = {
 
 /**
  * * `user_message` - user_message
- * `_posthog/user_message` - _posthog/user_message
  * `cancel` - cancel
- * `_posthog/cancel` - _posthog/cancel
  * `close` - close
- * `_posthog/close` - _posthog/close
  */
 export type MethodEnumApi = (typeof MethodEnumApi)[keyof typeof MethodEnumApi]
 
 export const MethodEnumApi = {
     UserMessage: 'user_message',
-    _PosthogUserMessage: '_posthog/user_message',
     Cancel: 'cancel',
-    _PosthogCancel: '_posthog/cancel',
     Close: 'close',
-    _PosthogClose: '_posthog/close',
 } as const
 
 /**
@@ -420,11 +414,8 @@ export interface TaskRunCommandRequestApi {
     /** Command method to execute on the agent server
 
 * `user_message` - user_message
-* `_posthog/user_message` - _posthog/user_message
 * `cancel` - cancel
-* `_posthog/cancel` - _posthog/cancel
-* `close` - close
-* `_posthog/close` - _posthog/close */
+* `close` - close */
     method: MethodEnumApi
     /** Parameters for the command */
     params?: TaskRunCommandRequestApiParams
