@@ -193,6 +193,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 'collectionNodeLoadDataSuccess',
                 'collectionNodeLoadDataFailure',
             ],
+            teamLogic,
+            ['loadCurrentTeamSuccess'],
         ],
     })),
     props({ query: {}, variablesOverride: undefined, autoLoad: true } as DataNodeLogicProps),
@@ -1146,6 +1148,18 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.collectionNodeLoadDataSuccess(props.key)
             if ('query' in props.query) {
                 cache.localResults[JSON.stringify(props.query.query)] = response
+            }
+            // If the team hasn't ingested events yet and we got results, patch ingested_event in memory
+            // This ensures the "no events" banner updates when events are first received
+            if (
+                values.currentTeam &&
+                'ingested_event' in values.currentTeam &&
+                !values.currentTeam.ingested_event &&
+                response &&
+                (('results' in response && Array.isArray(response.results) && response.results.length > 0) ||
+                    ('result' in response && response.result))
+            ) {
+                actions.loadCurrentTeamSuccess({ ...values.currentTeam, ingested_event: true })
             }
         },
         loadDataFailure: () => {
