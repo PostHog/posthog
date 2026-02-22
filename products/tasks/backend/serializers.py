@@ -338,11 +338,8 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
 
     ALLOWED_METHODS = [
         "user_message",
-        "_posthog/user_message",
         "cancel",
-        "_posthog/cancel",
         "close",
-        "_posthog/close",
     ]
 
     jsonrpc = serializers.ChoiceField(
@@ -372,7 +369,7 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
     def validate(self, attrs):
         method = attrs["method"]
         params = attrs.get("params", {})
-        if method in ("user_message", "_posthog/user_message"):
+        if method == "user_message":
             content = params.get("content")
             if not content or not isinstance(content, str) or not content.strip():
                 raise serializers.ValidationError({"params": "content is required and must be a non-empty string"})
