@@ -26,7 +26,7 @@ from posthog.temporal.cleanup_property_definitions import (
 from posthog.temporal.common.health_server import HealthCheckServer
 from posthog.temporal.common.liveness_tracker import get_liveness_tracker
 from posthog.temporal.common.logger import configure_logger, get_logger
-from posthog.temporal.common.worker import ManagedWorker, create_worker
+from posthog.temporal.common.worker import create_worker
 from posthog.temporal.data_imports.settings import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
     EMIT_SIGNALS_ACTIVITIES as DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
@@ -421,43 +421,11 @@ class Command(BaseCommand):
 
         metrics_port = int(options["metrics_port"])
 
-        shutdown_task = None
         health_server: HealthCheckServer | None = None
+        shutdown_event = asyncio.Event()
+        received_signal: signal.Signals | None = None
 
         tag_queries(kind="temporal")
-
-        async def shutdown_all(
-            worker: ManagedWorker, health_srv: HealthCheckServer | None, sig: signal.Signals
-        ) -> None:
-            """Shutdown worker and health server."""
-            nonlocal shutdown_task
-
-            logger.info("Signal %s received", sig)
-
-            if worker.is_shutdown():
-                logger.info("Temporal worker already shut down")
-                return
-
-            logger.info("Initiating shutdown")
-
-            # Shutdown health server first so k8s stops sending traffic
-            if health_srv:
-                await health_srv.stop()
-
-            # Then shutdown the worker
-            await worker.shutdown()
-
-        def shutdown_on_signal(
-            worker: ManagedWorker,
-            health_srv: HealthCheckServer | None,
-            sig: signal.Signals,
-            loop: asyncio.AbstractEventLoop,
-        ):
-            """Signal handler that initiates shutdown."""
-            nonlocal shutdown_task
-
-            if shutdown_task is None:
-                shutdown_task = loop.create_task(shutdown_all(worker, health_srv, sig))
 
         with asyncio.Runner() as runner:
             loop = runner.get_loop()
@@ -519,35 +487,72 @@ class Command(BaseCommand):
                     f"No healthcheck server due to health_port={health_port} and health_max_idle_seconds={health_max_idle_seconds}"
                 )
 
+            def on_shutdown_signal(sig: signal.Signals):
+                """Signal handler that sets the shutdown event.
+
+                This is a sync function that only sets an event, ensuring it executes
+                immediately without depending on the event loop yielding from worker.run().
+                """
+                nonlocal received_signal
+                received_signal = sig
+                shutdown_event.set()
+
             for sig in (signal.SIGTERM, signal.SIGINT):
-                loop.add_signal_handler(
-                    sig,
-                    functools.partial(shutdown_on_signal, worker=worker, health_srv=health_server, sig=sig, loop=loop),
+                loop.add_signal_handler(sig, functools.partial(on_shutdown_signal, sig))
+
+            async def run_worker_with_shutdown():
+                """Run worker until completion or shutdown signal."""
+                worker_task = asyncio.create_task(worker.run())
+                shutdown_waiter = asyncio.create_task(shutdown_event.wait())
+
+                done, pending = await asyncio.wait(
+                    [worker_task, shutdown_waiter],
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
 
-            runner.run(worker.run())
+                if shutdown_waiter in done:
+                    logger.info("Signal %s received", received_signal)
 
-            if shutdown_task:
-                logger.info("Waiting on shutdown_task")
-                _ = runner.run(asyncio.wait([shutdown_task]))
-                logger.info("Finished Temporal worker shutdown")
+                    if not worker.is_shutdown():
+                        logger.info("Initiating shutdown")
+                        await worker.shutdown()
 
-                logger.info("Listing active threads at shutdown:")
-                for t in threading.enumerate():
-                    logger.info(
-                        "Thread still alive at shutdown",
-                        thread_name=t.name,
-                        daemon=t.daemon,
-                        ident=t.ident,
-                    )
+                    if worker_task in pending:
+                        try:
+                            await worker_task
+                        except asyncio.CancelledError:
+                            pass
+                else:
+                    # Worker exited on its own
+                    shutdown_waiter.cancel()
+                    try:
+                        await shutdown_waiter
+                    except asyncio.CancelledError:
+                        pass
 
-                # _something_ is preventing clean exit after worker shutdown
-                logger.info("Temporal Worker has shut down, starting hard exit timer of 5 mins")
+                if health_server:
+                    await health_server.stop()
 
-                def hard_exit():
-                    logger.info("Hard exiting")
-                    os._exit(0)
+            runner.run(run_worker_with_shutdown())
 
-                timer = threading.Timer(60 * 5, hard_exit)
-                timer.daemon = True
-                timer.start()
+            logger.info("Finished Temporal worker shutdown")
+
+            logger.info("Listing active threads at shutdown:")
+            for t in threading.enumerate():
+                logger.info(
+                    "Thread still alive at shutdown",
+                    thread_name=t.name,
+                    daemon=t.daemon,
+                    ident=t.ident,
+                )
+
+            # _something_ is preventing clean exit after worker shutdown
+            logger.info("Temporal Worker has shut down, starting hard exit timer of 5 mins")
+
+            def hard_exit():
+                logger.info("Hard exiting")
+                os._exit(0)
+
+            timer = threading.Timer(60 * 5, hard_exit)
+            timer.daemon = True
+            timer.start()
