@@ -38,7 +38,7 @@
     flex-direction: column;
     align-items: center;
     width: var(--side-panel-bar-width);
-    height: 100vh;
+    height: 100dvh;
     overflow: hidden;
     user-select: none;
     background: var(--color-bg-surface-tertiary);
@@ -116,7 +116,7 @@
     display: flex;
     flex: 1;
     flex-direction: column;
-    height: 100vh;
+    height: 100dvh;
     overflow-y: auto;
     border-left-width: 1px;
 }
