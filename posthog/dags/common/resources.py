@@ -14,6 +14,7 @@ import psycopg2.extras
 import posthoganalytics
 from clickhouse_driver.errors import Error, ErrorCodes
 
+from posthog import settings
 from posthog.clickhouse.cluster import ClickhouseCluster, ExponentialBackoff, RetryPolicy, get_cluster
 from posthog.kafka_client.client import _KafkaProducer
 from posthog.redis import get_client, redis
@@ -61,9 +62,12 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
         "receive_timeout": f"{15 * 60}",  # some synchronous queries like dictionary checksumming can be very slow to return
     }
 
+    host: str = settings.CLICKHOUSE_HOST
+
     def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
         return get_cluster(
             context.log,
+            host=self.host,
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
                 max_attempts=8,
