@@ -127,6 +127,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         // Session context actions
         loadPerson: true,
         loadPreviousTickets: true,
+
+        initiateImpersonation: true,
     }),
     loaders(({ values, props }) => ({
         person: [
@@ -484,6 +486,28 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             } catch {
                 lemonToast.error('Failed to send message')
                 actions.setMessageSending(false)
+            }
+        },
+        initiateImpersonation: async () => {
+            const ticket = values.ticket
+            if (!ticket) {
+                return
+            }
+
+            try {
+                const response = await api.create('admin/impersonation/from-ticket/', {
+                    ticket_id: ticket.id,
+                })
+                if (response.redirect_url) {
+                    lemonToast.info(`This ticket is from ${response.redirect_region}. Opening in a new tab...`)
+                    window.open(response.redirect_url, '_blank')
+                    return
+                }
+                // Full page navigation to refresh user data with impersonation flags
+                window.location.replace('/')
+            } catch (error: any) {
+                const detail = error?.data?.error || 'Failed to impersonate user'
+                lemonToast.error(detail)
             }
         },
     })),
