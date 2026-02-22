@@ -1795,6 +1795,10 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     json["name"] = visitAsString(ctx->identifier());
     json["expr"] = visitAsJSON(ctx->selectSetStmt());
     json["cte_type"] = "subquery";
+    json["materialized"] = Json::Null();
+    if (ctx->MATERIALIZED()) {
+      json["materialized"] = ctx->NOT() ? false : true;
+    }
     return json;
   }
 
