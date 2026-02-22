@@ -287,7 +287,6 @@ class TestModalSandboxCommandEscaping:
         sandbox.config = SandboxConfig(name="test")
         sandbox._sandbox = MagicMock()
         sandbox._sandbox_url = None
-        sandbox._host_port = 8080
 
         with patch.object(sandbox, "is_running", return_value=True):
             with patch.object(sandbox, "execute") as mock_execute:
