@@ -975,8 +975,7 @@ jobs:
                       while [ $attempt -le $max_attempts ]; do
                           echo "Attempt $attempt of $max_attempts to start stack..."
 
-                          # Docker profiles control which services start — consult #team-devex before changing
-                          if docker compose -f docker-compose.dev.yml --profile '*' down && \
+                          if docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml down && \
                             docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile temporal --profile azure up -d; then
                               echo "Stack started successfully"
                               exit 0
@@ -996,6 +995,22 @@ jobs:
                       echo "Failed to start stack after $max_attempts attempts"
                       exit 1
                   ) &
+
+            - name: Start resource monitoring
+              run: |
+                  mkdir -p /tmp/resource-logs
+                  (
+                    while true; do
+                      echo "=== $(date -Iseconds) ===" >> /tmp/resource-logs/vmstat.log
+                      vmstat 1 1 >> /tmp/resource-logs/vmstat.log 2>&1
+                      echo "=== $(date -Iseconds) ===" >> /tmp/resource-logs/memory.log
+                      free -h >> /tmp/resource-logs/memory.log 2>&1
+                      echo "=== $(date -Iseconds) ===" >> /tmp/resource-logs/top-processes.log
+                      ps aux --sort=-%mem | head -15 >> /tmp/resource-logs/top-processes.log 2>&1
+                      sleep 2
+                    done
+                  ) &
+                  echo $! > /tmp/resource-monitor.pid
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               shell: bash
@@ -1230,6 +1245,29 @@ jobs:
                   fi
 
             # Post tests
+            - name: Stop resource monitoring
+              if: always()
+              run: |
+                  if [ -f /tmp/resource-monitor.pid ]; then
+                    kill $(cat /tmp/resource-monitor.pid) 2>/dev/null || true
+                  fi
+                  echo "=== Final Resource State $(date -Iseconds) ===" >> /tmp/resource-logs/final-state.log
+                  echo "Memory:" >> /tmp/resource-logs/final-state.log
+                  free -h >> /tmp/resource-logs/final-state.log 2>&1
+                  echo "CPU cores:" >> /tmp/resource-logs/final-state.log
+                  nproc >> /tmp/resource-logs/final-state.log 2>&1
+                  echo "Load average:" >> /tmp/resource-logs/final-state.log
+                  cat /proc/loadavg >> /tmp/resource-logs/final-state.log 2>&1
+
+            - name: Archive resource logs
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: resource-logs-${{ matrix.segment }}-${{ matrix.person-on-events && 'poe' || 'std' }}-${{ matrix.group }}
+                  path: /tmp/resource-logs/
+                  retention-days: 7
+                  if-no-files-found: ignore
+
             - name: Show docker compose logs on failure
               if: failure() && (needs.changes.outputs.backend == 'true' && steps.run-core-tests.outcome != 'failure' && steps.run-decide-read-replica-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')
               shell: bash
