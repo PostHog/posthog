@@ -30,7 +30,7 @@ class TestHostedModelRegistry:
             b = HostedModelRegistry.get_instance()
             assert a is b
 
-    def test_registers_glm5_when_us_url_configured(self):
+    def test_registers_glm5_when_url_configured(self):
         with patch(
             "llm_gateway.services.hosted_models.get_settings",
             return_value=_mock_settings(us_url="https://us.modal.run/glm5"),
@@ -55,13 +55,14 @@ class TestHostedModelRegistry:
             (None, "https://eu.modal.run", "us", "https://eu.modal.run"),
         ],
     )
-    def test_get_api_base_region_routing(self, us_url: str | None, eu_url: str | None, region: str, expected_url: str):
+    def test_region_routing(self, us_url: str | None, eu_url: str | None, region: str, expected_url: str):
         with patch(
             "llm_gateway.services.hosted_models.get_settings",
             return_value=_mock_settings(us_url=us_url, eu_url=eu_url),
         ):
             registry = HostedModelRegistry.get_instance()
-            assert registry.get_api_base("glm-5", region) == expected_url
+            model = registry._models["glm-5"]
+            assert model.api_base_for_region(region) == expected_url
 
 
 class TestResolveHostedModel:
@@ -76,32 +77,22 @@ class TestResolveHostedModel:
             result = resolve_hosted_model("glm-5")
             assert result is not None
             model_id, api_base = result
-            assert model_id == "hosted_vllm/zai-org/GLM-5-FP8"
+            assert model_id == "hosted_vllm/glm-5"
             assert api_base == "https://us.modal.run/glm5"
 
-    def test_returns_none_for_non_hosted_model(self):
+    def test_returns_none_for_non_hosted(self):
         with patch("llm_gateway.services.hosted_models.get_settings", return_value=_mock_settings()):
-            result = resolve_hosted_model("gpt-4o")
-            assert result is None
+            assert resolve_hosted_model("gpt-4o") is None
 
-    def test_returns_none_when_no_endpoint_for_region(self):
-        with (
-            patch(
-                "llm_gateway.services.hosted_models.get_settings",
-                return_value=_mock_settings(),
-            ),
-        ):
-            result = resolve_hosted_model("glm-5")
-            assert result is None
+    def test_returns_none_when_unconfigured(self):
+        with patch("llm_gateway.services.hosted_models.get_settings", return_value=_mock_settings()):
+            assert resolve_hosted_model("glm-5") is None
 
     def test_eu_region_routing(self):
         with (
             patch(
                 "llm_gateway.services.hosted_models.get_settings",
-                return_value=_mock_settings(
-                    us_url="https://us.modal.run/glm5",
-                    eu_url="https://eu.modal.run/glm5",
-                ),
+                return_value=_mock_settings(us_url="https://us.modal.run/glm5", eu_url="https://eu.modal.run/glm5"),
             ),
             patch.dict(os.environ, {"POSTHOG_REGION": "eu"}),
         ):

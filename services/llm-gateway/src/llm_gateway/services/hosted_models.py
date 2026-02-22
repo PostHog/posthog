@@ -1,10 +1,8 @@
 """
-Routing and configuration for self-hosted models deployed on Modal via vLLM.
+Routing for self-hosted models deployed on Modal via vLLM.
 
-Self-hosted models are exposed through vLLM's OpenAI-compatible API and routed
-via litellm's hosted_vllm/ prefix. The gateway maps user-facing model names
-(e.g. "glm-5") to their internal litellm identifiers and injects the correct
-api_base URL depending on deployment region.
+Maps user-facing model names (e.g. "glm-5") to litellm's hosted_vllm/ prefix
+and the correct regional api_base URL.
 """
 
 from __future__ import annotations
@@ -19,24 +17,29 @@ from llm_gateway.config import get_settings
 
 logger = structlog.get_logger(__name__)
 
+HOSTED_VLLM_PROVIDER: Final[str] = "hosted_vllm"
+
 
 @dataclass(frozen=True)
-class HostedModelConfig:
+class HostedModel:
     user_facing_id: str
     litellm_model_id: str
     api_base_url_us: str | None = None
     api_base_url_eu: str | None = None
     context_window: int = 200_000
-    max_output_tokens: int = 128_000
-    input_cost_per_token: float = 0.0
-    output_cost_per_token: float = 0.0
     supports_vision: bool = False
+
+    def api_base_for_region(self, region: str) -> str | None:
+        if region == "eu" and self.api_base_url_eu:
+            return self.api_base_url_eu
+        if self.api_base_url_us:
+            return self.api_base_url_us
+        return self.api_base_url_eu
 
 
 @dataclass
 class HostedModelRegistry:
-    _models: dict[str, HostedModelConfig] = field(default_factory=dict)
-
+    _models: dict[str, HostedModel] = field(default_factory=dict)
     _instance: ClassVar[HostedModelRegistry | None] = None
 
     @classmethod
@@ -52,70 +55,35 @@ class HostedModelRegistry:
 
     def _load_from_settings(self) -> None:
         settings = get_settings()
-
-        glm5_us = settings.glm5_api_base_url_us
-        glm5_eu = settings.glm5_api_base_url_eu
-
-        if glm5_us or glm5_eu:
-            self.register(
-                HostedModelConfig(
-                    user_facing_id="glm-5",
-                    litellm_model_id="hosted_vllm/zai-org/GLM-5-FP8",
-                    api_base_url_us=glm5_us,
-                    api_base_url_eu=glm5_eu,
-                    context_window=200_000,
-                    max_output_tokens=128_000,
-                    input_cost_per_token=1.0 / 1_000_000,
-                    output_cost_per_token=3.2 / 1_000_000,
-                )
+        us = settings.glm5_api_base_url_us
+        eu = settings.glm5_api_base_url_eu
+        if us or eu:
+            self._models["glm-5"] = HostedModel(
+                user_facing_id="glm-5",
+                litellm_model_id="hosted_vllm/glm-5",
+                api_base_url_us=us,
+                api_base_url_eu=eu,
             )
-            logger.info("hosted_model_registered", model="glm-5", us=bool(glm5_us), eu=bool(glm5_eu))
-
-    def register(self, config: HostedModelConfig) -> None:
-        self._models[config.user_facing_id] = config
-
-    def resolve(self, model_id: str) -> HostedModelConfig | None:
-        return self._models.get(model_id)
+            logger.info("hosted_model_registered", model="glm-5", us=bool(us), eu=bool(eu))
 
     def is_hosted(self, model_id: str) -> bool:
         return model_id in self._models
 
-    def get_all(self) -> list[HostedModelConfig]:
+    def get_all(self) -> list[HostedModel]:
         return list(self._models.values())
-
-    def get_api_base(self, model_id: str, region: str | None = None) -> str | None:
-        config = self._models.get(model_id)
-        if config is None:
-            return None
-
-        if region == "eu" and config.api_base_url_eu:
-            return config.api_base_url_eu
-        if config.api_base_url_us:
-            return config.api_base_url_us
-        return config.api_base_url_eu
-
-
-HOSTED_VLLM_PROVIDER: Final[str] = "hosted_vllm"
 
 
 def resolve_hosted_model(model_id: str) -> tuple[str, str] | None:
-    """
-    If model_id is a hosted model, return (litellm_model_id, api_base_url).
-    Returns None if not a hosted model or not configured.
-    """
+    """Return (litellm_model_id, api_base_url) if model_id is hosted, else None."""
     registry = HostedModelRegistry.get_instance()
-    config = registry.resolve(model_id)
-    if config is None:
+    model = registry._models.get(model_id)
+    if model is None:
         return None
 
-    region = _detect_region()
-    api_base = registry.get_api_base(model_id, region)
+    region = os.environ.get("POSTHOG_REGION", os.environ.get("LLM_GATEWAY_REGION", "us")).lower()
+    api_base = model.api_base_for_region(region)
     if api_base is None:
         logger.warning("hosted_model_no_endpoint", model=model_id, region=region)
         return None
 
-    return config.litellm_model_id, api_base
-
-
-def _detect_region() -> str:
-    return os.environ.get("POSTHOG_REGION", os.environ.get("LLM_GATEWAY_REGION", "us")).lower()
+    return model.litellm_model_id, api_base

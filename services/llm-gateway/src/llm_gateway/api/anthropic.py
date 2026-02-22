@@ -13,34 +13,6 @@ from llm_gateway.services.hosted_models import resolve_hosted_model
 anthropic_router = APIRouter()
 
 
-def _anthropic_messages_to_openai(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Convert Anthropic message format to OpenAI chat format.
-
-    Anthropic uses content blocks (list of dicts with type/text) while OpenAI
-    uses plain strings or content arrays. This handles the common cases.
-    """
-    converted = []
-    for msg in messages:
-        role = msg.get("role", "user")
-        content = msg.get("content")
-
-        if isinstance(content, list):
-            parts = []
-            for block in content:
-                if isinstance(block, dict):
-                    if block.get("type") == "text":
-                        parts.append(block.get("text", ""))
-                    elif block.get("type") == "image":
-                        parts.append({"type": "image_url", "image_url": block.get("source", {})})
-                elif isinstance(block, str):
-                    parts.append(block)
-            content = "\n".join(parts) if all(isinstance(p, str) for p in parts) else parts
-
-        converted.append({"role": role, "content": content})
-
-    return converted
-
-
 async def _handle_anthropic_messages(
     body: AnthropicMessagesRequest,
     user: RateLimitedUser,
@@ -49,29 +21,9 @@ async def _handle_anthropic_messages(
     hosted = resolve_hosted_model(body.model)
     if hosted:
         litellm_model, api_base = hosted
-        openai_messages = _anthropic_messages_to_openai(body.messages)
-        data = {
-            "model": litellm_model,
-            "messages": openai_messages,
-            "max_tokens": body.max_tokens,
-            "stream": body.stream or False,
-            "api_base": api_base,
-        }
-        extra = body.model_dump(exclude_none=True, exclude={"model", "messages", "max_tokens", "stream"})
-        data.update(extra)
-
-        return await handle_llm_request(
-            request_data=data,
-            user=user,
-            model=body.model,
-            is_streaming=body.stream or False,
-            provider_config=HOSTED_VLLM_CONFIG,
-            llm_call=litellm.acompletion,
-            product=product,
-        )
+        return await _handle_hosted_via_openai(body, litellm_model, api_base, user, product)
 
     data = body.model_dump(exclude_none=True)
-
     return await handle_llm_request(
         request_data=data,
         user=user,
@@ -79,6 +31,48 @@ async def _handle_anthropic_messages(
         is_streaming=body.stream or False,
         provider_config=ANTHROPIC_CONFIG,
         llm_call=litellm.anthropic_messages,
+        product=product,
+    )
+
+
+async def _handle_hosted_via_openai(
+    body: AnthropicMessagesRequest,
+    litellm_model: str,
+    api_base: str,
+    user: RateLimitedUser,
+    product: str,
+) -> dict[str, Any] | StreamingResponse:
+    """Route an Anthropic-format request to a hosted vLLM endpoint via acompletion.
+
+    Anthropic and OpenAI share the same messages array shape (role + content),
+    so messages pass through directly. The only structural difference is
+    Anthropic's top-level `system` field, which we prepend as a system message.
+    """
+    extras = body.model_dump(exclude_none=True, exclude={"model", "messages", "max_tokens", "stream"})
+    system_text = extras.pop("system", None)
+
+    messages: list[dict[str, Any]] = list(body.messages)
+    if system_text:
+        messages.insert(0, {"role": "system", "content": system_text})
+
+    data: dict[str, Any] = {
+        "model": litellm_model,
+        "messages": messages,
+        "max_tokens": body.max_tokens,
+        "stream": body.stream or False,
+        "api_base": api_base,
+    }
+    for key in ("temperature", "top_p", "stop"):
+        if key in extras:
+            data[key] = extras[key]
+
+    return await handle_llm_request(
+        request_data=data,
+        user=user,
+        model=body.model,
+        is_streaming=body.stream or False,
+        provider_config=HOSTED_VLLM_CONFIG,
+        llm_call=litellm.acompletion,
         product=product,
     )
 

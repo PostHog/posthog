@@ -1,15 +1,22 @@
 """
-Modal deployment for GLM-5-FP8 inference via vLLM.
+GLM-5-FP8 inference on Modal via vLLM.
 
-Serves an OpenAI-compatible API endpoint for GLM-5 on Modal GPUs.
+Adapted from Modal's official vLLM example:
+https://github.com/modal-labs/modal-examples/blob/main/06_gpu_and_ml/llm-serving/vllm_inference.py
 
-Deployment:
-    modal deploy glm5_serving.py            # US (default)
-    REGION=eu modal deploy glm5_serving.py   # EU
+Deployment (run manually or from CI — Modal handles the infra):
+    modal deploy modal/glm5_serving.py                # US (default)
+    MODAL_REGION=eu modal deploy modal/glm5_serving.py  # EU
 
-The deployed endpoint URL is used by the LLM Gateway via the
-LLM_GATEWAY_GLM5_API_BASE_URL_US / LLM_GATEWAY_GLM5_API_BASE_URL_EU
-environment variables.
+After deploy, Modal prints the endpoint URL. Set it on the LLM Gateway:
+    LLM_GATEWAY_GLM5_API_BASE_URL_US=https://<workspace>--posthog-glm5-us-serve.modal.run
+    LLM_GATEWAY_GLM5_API_BASE_URL_EU=https://<workspace>--posthog-glm5-eu-serve.modal.run
+
+Prerequisites:
+    pip install modal
+    modal token set  (or MODAL_TOKEN_ID / MODAL_TOKEN_SECRET env vars)
+    Create a Modal secret named "posthog-hf-token" with HF_TOKEN if the model
+    requires authentication (GLM-5-FP8 is MIT-licensed, so optional).
 """
 
 import os
@@ -17,12 +24,21 @@ import os
 import modal
 
 MODEL_ID = "zai-org/GLM-5-FP8"
-REVISION = "main"
-GPU_CONFIG = modal.gpu.B200(count=8)
-REGION = os.environ.get("REGION", "us")
+MODEL_REVISION = "main"
+SERVED_MODEL_NAME = "glm-5"
+N_GPU = 8
+VLLM_PORT = 8000
 
-app_name = f"posthog-glm5-inference-{REGION}"
-app = modal.App(app_name)
+REGION = os.environ.get("MODAL_REGION", "us")
+
+MODAL_REGIONS = {
+    "us": "us-east",
+    "eu": "eu-west-1",
+}
+
+MINUTES = 60
+
+app = modal.App(f"posthog-glm5-{REGION}")
 
 vllm_image = (
     modal.Image.from_registry("nvidia/cuda:12.8.0-devel-ubuntu22.04", add_python="3.12")
@@ -32,67 +48,54 @@ vllm_image = (
         "vllm==0.13.0",
         "huggingface-hub[hf_transfer]==0.36.0",
         "hf-xet",
-        "flashinfer-python",
-    )
-    .run_commands(
-        f"huggingface-cli download {MODEL_ID} --revision {REVISION}",
     )
 )
 
 hf_cache_vol = modal.Volume.from_name(f"glm5-hf-cache-{REGION}", create_if_missing=True)
 vllm_cache_vol = modal.Volume.from_name(f"glm5-vllm-cache-{REGION}", create_if_missing=True)
 
-MINUTES = 60
-HOURS = 60 * MINUTES
-
-region_map = {
-    "us": "us-east",
-    "eu": "eu-west-1",
-}
-
 
 @app.function(
     image=vllm_image,
-    gpu=GPU_CONFIG,
+    gpu=f"B200:{N_GPU}",
+    scaledown_window=5 * MINUTES,
+    timeout=10 * MINUTES,
     volumes={
         "/root/.cache/huggingface": hf_cache_vol,
         "/root/.cache/vllm": vllm_cache_vol,
     },
-    scaledown_window=5 * MINUTES,
-    timeout=24 * HOURS,
-    allow_concurrent_inputs=128,
-    region=region_map.get(REGION, "us-east"),
+    region=MODAL_REGIONS.get(REGION, "us-east"),
     secrets=[modal.Secret.from_name("posthog-hf-token", required=False)],
 )
-@modal.asgi_app()
+@modal.concurrent(max_inputs=64)
+@modal.web_server(port=VLLM_PORT, startup_timeout=10 * MINUTES)
 def serve():
-    import vllm.entrypoints.openai.api_server as api_server
-    from vllm.engine.arg_utils import AsyncEngineArgs
-    from vllm.entrypoints.openai.cli_args import make_arg_parser
-    from vllm.utils import FlexibleArgumentParser
+    import subprocess
 
-    parser = make_arg_parser(FlexibleArgumentParser())
-    args = parser.parse_args(
-        [
-            "--model",
-            MODEL_ID,
-            "--revision",
-            REVISION,
-            "--dtype",
-            "auto",
-            "--max-model-len",
-            "65536",
-            "--tensor-parallel-size",
-            "8",
-            "--trust-remote-code",
-            "--enable-chunked-prefill",
-            "--max-num-seqs",
-            "64",
-        ]
-    )
+    cmd = [
+        "vllm",
+        "serve",
+        MODEL_ID,
+        "--revision",
+        MODEL_REVISION,
+        "--served-model-name",
+        SERVED_MODEL_NAME,
+        "--host",
+        "0.0.0.0",
+        "--port",
+        str(VLLM_PORT),
+        "--dtype",
+        "auto",
+        "--tensor-parallel-size",
+        str(N_GPU),
+        "--max-model-len",
+        "65536",
+        "--enable-chunked-prefill",
+        "--max-num-seqs",
+        "64",
+        "--trust-remote-code",
+        "--no-enforce-eager",
+        "--uvicorn-log-level=info",
+    ]
 
-    engine_args = AsyncEngineArgs.from_cli_args(args)
-    engine_args.enable_prefix_caching = True
-
-    server = api_server.build_async_engine_client_and_server(args)
-    return server.app
+    subprocess.Popen(" ".join(cmd), shell=True)
