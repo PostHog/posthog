@@ -168,7 +168,6 @@ html = template.render(
         ],
         "crash_free": {
             "total_sessions": 284532,
-            "crash_sessions": 3421,
             "crash_free_rate": 98.80,
             "crash_free_rate_change": {
                 "percent": 1,
@@ -183,13 +182,6 @@ html = template.render(
                 "color": "#2f7d4f",
                 "text": "Up 12%",
                 "long_text": "Up 12% from previous week",
-            },
-            "crash_sessions_change": {
-                "percent": 8,
-                "direction": "Up",
-                "color": "#a13232",
-                "text": "Up 8%",
-                "long_text": "Up 8% from previous week",
             },
         },
         "error_tracking_url": "https://us.posthog.com/project/2/error_tracking?utm_source=error_tracking_weekly_digest",

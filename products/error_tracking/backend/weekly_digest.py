@@ -84,7 +84,6 @@ def get_crash_free_sessions(team: Team) -> dict:
 
     result: dict = {
         "total_sessions": total_sessions,
-        "crash_sessions": crash_sessions,
         "crash_free_rate": crash_free_rate,
     }
 
@@ -95,9 +94,6 @@ def get_crash_free_sessions(team: Team) -> dict:
     )
     result["total_sessions_change"] = compute_week_over_week_change(
         total_sessions, prev_total_sessions, higher_is_better=True
-    )
-    result["crash_sessions_change"] = compute_week_over_week_change(
-        crash_sessions, prev_crash_sessions, higher_is_better=False
     )
 
     return result
