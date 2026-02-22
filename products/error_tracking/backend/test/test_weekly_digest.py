@@ -270,7 +270,7 @@ class TestComputeWeekOverWeekChange:
         result = compute_week_over_week_change(150, 100, higher_is_better=True)
         assert result is not None
         assert result["percent"] == 50
-        assert result["direction"] == "more"
+        assert result["direction"] == "Up"
         assert result["color"] == "#2f7d4f"
         assert result["text"] == "Up 50%"
         assert result["long_text"] == "Up 50% from previous week"
@@ -292,7 +292,7 @@ class TestComputeWeekOverWeekChange:
         result = compute_week_over_week_change(50, 100, higher_is_better=False)
         assert result is not None
         assert result["color"] == "#2f7d4f"
-        assert result["direction"] == "less"
+        assert result["direction"] == "Down"
 
     def test_rounds_to_whole_number(self):
         result = compute_week_over_week_change(113, 100, higher_is_better=True)
