@@ -46,7 +46,7 @@
         "@types/react": "^17.0.39",
         "@types/react-dom": "^18.2.8",
         "@vitejs/plugin-react": "^4.3.4",
-        "ajv": "^8.17.1",
+        "ajv": "^8.18.0",
         "ajv-formats": "^3.0.1",
         "chokidar": "^3.6.0",
         "dotenv": "^16.4.7",
