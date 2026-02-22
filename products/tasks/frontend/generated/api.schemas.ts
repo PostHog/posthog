@@ -377,6 +377,77 @@ export interface TaskRunArtifactPresignResponseApi {
 }
 
 /**
+ * Parameters for the command
+ */
+export type TaskRunCommandRequestApiParams = { [key: string]: unknown }
+
+/**
+ * * `2.0` - 2.0
+ */
+export type JsonrpcEnumApi = (typeof JsonrpcEnumApi)[keyof typeof JsonrpcEnumApi]
+
+export const JsonrpcEnumApi = {
+    '20': '2.0',
+} as const
+
+/**
+ * * `user_message` - user_message
+ * `cancel` - cancel
+ * `close` - close
+ */
+export type MethodEnumApi = (typeof MethodEnumApi)[keyof typeof MethodEnumApi]
+
+export const MethodEnumApi = {
+    UserMessage: 'user_message',
+    Cancel: 'cancel',
+    Close: 'close',
+} as const
+
+/**
+ * JSON-RPC request to send a command to the agent server in the sandbox.
+ */
+export interface TaskRunCommandRequestApi {
+    /** JSON-RPC version, must be '2.0'
+
+* `2.0` - 2.0 */
+    jsonrpc: JsonrpcEnumApi
+    /** Command method to execute on the agent server
+
+* `user_message` - user_message
+* `cancel` - cancel
+* `close` - close */
+    method: MethodEnumApi
+    /** Parameters for the command */
+    params?: TaskRunCommandRequestApiParams
+    /** Optional JSON-RPC request ID (string or number) */
+    id?: unknown
+}
+
+/**
+ * Command result on success
+ */
+export type TaskRunCommandResponseApiResult = { [key: string]: unknown }
+
+/**
+ * Error details on failure
+ */
+export type TaskRunCommandResponseApiError = { [key: string]: unknown }
+
+/**
+ * Response from the agent server command endpoint.
+ */
+export interface TaskRunCommandResponseApi {
+    /** JSON-RPC version */
+    jsonrpc: string
+    /** Request ID echoed back (string or number) */
+    id?: unknown
+    /** Command result on success */
+    result?: TaskRunCommandResponseApiResult
+    /** Error details on failure */
+    error?: TaskRunCommandResponseApiError
+}
+
+/**
  * Response containing a JWT token for direct sandbox connection
  */
 export interface ConnectionTokenResponseApi {

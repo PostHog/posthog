@@ -21,6 +21,8 @@ import type {
     TaskRunArtifactPresignResponseApi,
     TaskRunArtifactsUploadRequestApi,
     TaskRunArtifactsUploadResponseApi,
+    TaskRunCommandRequestApi,
+    TaskRunCommandResponseApi,
     TaskRunCreateRequestApi,
     TaskRunDetailApi,
     TasksListParams,
@@ -344,6 +346,29 @@ export const tasksRunsArtifactsPresignCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taskRunArtifactPresignRequestApi),
+    })
+}
+
+/**
+ * Forward a JSON-RPC command to the agent server running in the sandbox. Supports user_message, cancel, and close commands.
+ * @summary Send command to agent server
+ */
+export const getTasksRunsCommandCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/command/`
+}
+
+export const tasksRunsCommandCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunCommandRequestApi: TaskRunCommandRequestApi,
+    options?: RequestInit
+): Promise<TaskRunCommandResponseApi> => {
+    return apiMutator<TaskRunCommandResponseApi>(getTasksRunsCommandCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunCommandRequestApi),
     })
 }
 
