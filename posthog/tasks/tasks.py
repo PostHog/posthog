@@ -936,7 +936,7 @@ def _queue_delete_team_recordings(team_ids: list[int]) -> None:
                 temporal.start_workflow(
                     "delete-recordings-with-team",
                     RecordingsWithTeamInput(team_id=team_id),
-                    id=f"delete-recordings-team-{team_id}-{uuid4()}",
+                    id=f"delete-recordings-{team_id}-team-{uuid4()}",
                     task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                     retry_policy=common.RetryPolicy(
                         maximum_attempts=2,
