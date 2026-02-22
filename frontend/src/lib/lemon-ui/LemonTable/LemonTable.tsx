@@ -86,6 +86,10 @@ export interface LemonTableProps<T extends Record<string, any>> {
     pinnedColumns?: string[]
     // Max width for the column headers
     maxHeaderWidth?: string
+    /** Whether the header row should stick to the top when scrolling vertically. */
+    stickyHeader?: boolean
+    /** Constrain the table to a max height, enabling vertical scroll with sticky headers. */
+    maxHeight?: string | number
     /** Whether to hide the scrollbar. */
     hideScrollbar?: boolean
     /** Row actions to display in a "More" menu at the end of each row. Return null to hide actions for specific rows. */
@@ -128,6 +132,8 @@ export function LemonTable<T extends Record<string, any>>({
     firstColumnSticky,
     pinnedColumns,
     maxHeaderWidth,
+    stickyHeader = true,
+    maxHeight,
     hideScrollbar,
     rowActions,
     hideSortingIndicatorWhenInactive = false,
@@ -258,6 +264,7 @@ export function LemonTable<T extends Record<string, any>>({
                 rowRibbonColor !== undefined && `LemonTable--with-ribbon`,
                 stealth && 'LemonTable--stealth',
                 !uppercaseHeader && 'LemonTable--lowercase-header',
+                stickyHeader && 'LemonTable--sticky-header',
                 className
             )}
             // eslint-disable-next-line react/forbid-dom-props
@@ -269,7 +276,8 @@ export function LemonTable<T extends Record<string, any>>({
                 direction="horizontal"
                 scrollRef={scrollRef}
             >
-                <div className="LemonTable__content">
+                {/* eslint-disable-next-line react/forbid-dom-props */}
+                <div className="LemonTable__content" style={maxHeight ? { maxHeight, overflowY: 'auto' } : undefined}>
                     <table ref={tableRef}>
                         <colgroup>
                             {isRowExpansionToggleShown && <col className="w-0" /> /* Expand/collapse column */}

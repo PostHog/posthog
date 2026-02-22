@@ -99,6 +99,14 @@
         --row-horizontal-padding: 0.5rem;
     }
 
+    &.LemonTable--sticky-header {
+        .LemonTable__content > table > thead {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+        }
+    }
+
     .PaginationControl {
         height: var(--row-base-height);
         padding: 0.5rem;

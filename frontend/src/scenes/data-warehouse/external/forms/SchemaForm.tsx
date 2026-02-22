@@ -36,6 +36,7 @@ export default function SchemaForm(): JSX.Element {
                     <LemonTable
                         emptyState="No schemas found"
                         dataSource={databaseSchema}
+                        maxHeight="calc(100vh - 19rem)"
                         columns={[
                             {
                                 title: (

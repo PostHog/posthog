@@ -62,6 +62,7 @@ export const Table = (props: TableProps): JSX.Element => {
         pinnedColumns,
         isColumnPinned,
         isPinningEnabled,
+        isInsightPage,
     } = useValues(dataVisualizationLogic)
     const { toggleColumnPin } = useActions(dataVisualizationLogic)
 
@@ -178,6 +179,8 @@ export const Table = (props: TableProps): JSX.Element => {
             loading={responseLoading}
             pagination={{ pageSize: DEFAULT_PAGE_SIZE }}
             maxHeaderWidth="15rem"
+            stickyHeader={isInsightPage}
+            maxHeight={isInsightPage ? 'calc(100vh - 12rem)' : undefined}
             emptyState={
                 responseError ? (
                     <InsightErrorState
