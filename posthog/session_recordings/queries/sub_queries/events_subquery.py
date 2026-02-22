@@ -85,7 +85,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 continue
 
             # this is always _positive_ operations
-            entity_exprs = [_entity_to_expr(entity=entity)]
+            entity_exprs = [_entity_to_expr(entity=entity, team=team)]
 
             if entity.properties:
                 entity_exprs.append(property_to_expr(entity.properties, team=team, scope="replay_entity"))
