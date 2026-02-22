@@ -198,7 +198,6 @@ export type SettingId =
     | 'approval-policies'
     | 'change-requests'
     | 'banner'
-    | 'sql-editor-tab-preference'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

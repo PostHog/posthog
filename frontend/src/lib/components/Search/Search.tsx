@@ -233,6 +233,8 @@ export interface SearchRootProps {
     className?: string
     /** Initial search value (useful for stories/tests) */
     defaultSearchValue?: string
+    /** Optional suggested items shown above recents/apps */
+    suggestedItems?: SearchItem[]
 }
 
 function SearchRoot({
@@ -244,6 +246,7 @@ function SearchRoot({
     onAskAiClick,
     className = '',
     defaultSearchValue = '',
+    suggestedItems = [],
 }: SearchRootProps): JSX.Element {
     const { allCategories, isSearching } = useValues(searchLogic({ logicKey }))
     const { setSearch } = useActions(searchLogic({ logicKey }))
@@ -263,9 +266,16 @@ function SearchRoot({
 
     // Compute filteredItems synchronously to avoid render gap between loading and content
     const filteredItems = useMemo(() => {
+        const normalizedSuggestedItems = suggestedItems.map((item) => ({ ...item, category: 'suggested' }))
+
         if (searchValue.trim()) {
             const searchLower = searchValue.toLowerCase()
-            return allItems.filter((item) => {
+            const matchingSuggestedItems = normalizedSuggestedItems.filter((item) => {
+                const name = (item.displayName || item.name || '').toLowerCase()
+                return name.includes(searchLower)
+            })
+
+            const matchingSearchItems = allItems.filter((item) => {
                 // Filter recents and apps by name (client-side filtering)
                 if (item.category === 'recents' || item.category === 'apps') {
                     const name = (item.displayName || item.name || '').toLowerCase()
@@ -274,10 +284,15 @@ function SearchRoot({
                 // Other categories come from server search, keep all
                 return true
             })
+
+            return [...matchingSuggestedItems, ...matchingSearchItems]
         }
-        // When not searching, show recents and apps
-        return allItems.filter((item) => item.category === 'recents' || item.category === 'apps')
-    }, [allItems, searchValue])
+        // When not searching, show suggested items, recents, and apps
+        return [
+            ...normalizedSuggestedItems,
+            ...allItems.filter((item) => item.category === 'recents' || item.category === 'apps'),
+        ]
+    }, [allItems, searchValue, suggestedItems])
 
     useEffect(() => {
         if (!isActive) {
@@ -331,8 +346,8 @@ function SearchRoot({
             loadingByCategory.set(cat.key, cat.isLoading ?? false)
         }
 
-        // Fixed order: recents first, then apps, then create, then everything else
-        const orderedCategories = ['recents', 'apps', 'create']
+        // Fixed order: suggested first, then recents, apps, create, then everything else
+        const orderedCategories = ['suggested', 'recents', 'apps', 'create']
         const hasSearchValue = searchValue.trim().length > 0
 
         for (const category of orderedCategories) {
@@ -344,7 +359,7 @@ function SearchRoot({
             // "create" is only shown when searching
             const shouldShow = hasSearchValue
                 ? items.length > 0 || isLoading
-                : category === 'recents' || category === 'apps'
+                : (category === 'suggested' && items.length > 0) || category === 'recents' || category === 'apps'
 
             if (shouldShow) {
                 groups.push({ category, items, isLoading })

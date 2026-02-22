@@ -4,7 +4,6 @@ import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from '
 import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import React, { Fragment, useEffect, useRef, useState } from 'react'
 
 import { IconPlus, IconX } from '@posthog/icons'
@@ -15,7 +14,6 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconMenu } from 'lib/lemon-ui/icons'
-import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { SceneTab } from 'scenes/sceneTypes'
@@ -25,6 +23,7 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTabContextMenu } from '~/layout/scenes/SceneTabContextMenu'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
+import { Scene } from '~/scenes/sceneTypes'
 
 import { sidePanelOfframpLogic } from '../navigation-3000/sidepanel/sidePanelOfframpLogic'
 import { navigationLogic } from '../navigation/navigationLogic'
@@ -32,12 +31,11 @@ import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
 import { ConfigurePinnedTabsModal } from './ConfigurePinnedTabsModal'
 
 export function SceneTabs(): JSX.Element {
-    const { tabs } = useValues(sceneLogic)
+    const { tabs, sceneId } = useValues(sceneLogic)
     const { newTab, reorderTabs, clearFrozenWidths } = useActions(sceneLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
-    const { sqlEditorNewTabPreference } = useValues(userPreferencesLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
@@ -130,11 +128,10 @@ export function SceneTabs(): JSX.Element {
                                 data-attr="scene-tab-new-button"
                                 onClick={(e) => {
                                     e.preventDefault()
-                                    const currentPath = router.values.location.pathname
-                                    const isSqlRoute = currentPath.endsWith('/sql')
-                                    const openSqlTab = isSqlRoute && sqlEditorNewTabPreference === 'editor'
                                     const source = e.detail === 0 ? 'keyboard_shortcut' : 'new_tab_button'
-                                    newTab(openSqlTab ? '/sql' : null, { source })
+                                    const newTabHref =
+                                        sceneId === Scene.SQLEditor ? `${urls.newTab()}?source=sql_editor` : null
+                                    newTab(newTabHref, { source })
                                 }}
                                 tooltip="New tab"
                                 tooltipCloseDelayMs={0}
