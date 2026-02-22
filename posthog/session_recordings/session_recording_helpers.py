@@ -120,7 +120,7 @@ def snapshot_library_fallback_from(user_agent: str | None) -> str | None:
                 fallback = user_agent.split("/")[0]
 
         return fallback
-    except:
+    except Exception:
         return None
 
 

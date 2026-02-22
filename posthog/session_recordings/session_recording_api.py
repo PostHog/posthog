@@ -1195,7 +1195,7 @@ class SessionRecordingViewSet(
                 return "shared" if request.GET.get("sharing_access_token", None) else "anonymous"
             else:
                 return "anonymous"
-        except:
+        except Exception:
             return "unknown"
 
     def _determine_video_based_summarization_enabled(self, user: User) -> bool:

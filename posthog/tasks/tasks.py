@@ -5,6 +5,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import connection
+from psycopg2 import sql
 from django.utils import timezone
 
 import requests
@@ -158,7 +159,7 @@ def pg_table_cache_hit_rate() -> None:
                 for row in tables:
                     hit_rate_gauge.labels(table_name=row[0]).set(float(row[1]))
                     statsd.gauge("pg_table_cache_hit_rate", float(row[1]), tags={"table": row[0]})
-        except:
+        except Exception:
             # if this doesn't work keep going
             pass
 
@@ -198,7 +199,7 @@ def pg_plugin_server_query_timing() -> None:
                         value,
                         tags={"query_type": row_dictionary["query_type"]},
                     )
-        except:
+        except Exception:
             # if this doesn't work keep going
             pass
 
@@ -217,14 +218,12 @@ def pg_row_count() -> None:
         )
         with connection.cursor() as cursor:
             for table in POSTGRES_TABLES:
-                QUERY = "SELECT count(*) FROM {table};"
-                query = QUERY.format(table=table)
-
                 try:
-                    cursor.execute(query)
+                    cursor.execute(sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(table)))
                     row = cursor.fetchone()
-                    row_count_gauge.labels(table_name=table).set(row[0])
-                except:
+                    if row:
+                        row_count_gauge.labels(table_name=table).set(row[0])
+                except Exception:
                     pass
 
 
@@ -277,19 +276,23 @@ def ingestion_lag() -> None:
                 metric = HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC[event]
                 statsd.gauge(f"posthog_celery_{metric}_lag_seconds_rough_minute_precision", lag)
                 lag_gauge.labels(scenario=metric).set(lag)
-    except:
+    except Exception:
         pass
 
     for team in Team.objects.filter(pk__in=team_ids):
-        requests.post(
-            settings.SITE_URL + "/e",
-            json={
-                "event": "$heartbeat",
-                "distinct_id": "posthog-celery-heartbeat",
-                "token": team.api_token,
-                "properties": {"$timestamp": timezone.now().isoformat()},
-            },
-        )
+        try:
+            requests.post(
+                settings.SITE_URL + "/e",
+                json={
+                    "event": "$heartbeat",
+                    "distinct_id": "posthog-celery-heartbeat",
+                    "token": team.api_token,
+                    "properties": {"$timestamp": timezone.now().isoformat()},
+                },
+                timeout=10,
+            )
+        except Exception:
+            pass
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.SESSION_REPLAY_GENERAL.value)
@@ -372,16 +375,15 @@ def clickhouse_row_count() -> None:
         for table in CLICKHOUSE_TABLES:
             try:
                 QUERY = """SELECT sum(rows) rows from system.parts
-                       WHERE table = '{table}' and active;"""
-                query = QUERY.format(table=table)
-                rows = sync_execute(query)[0][0]
+                       WHERE table = %(table)s and active;"""
+                rows = sync_execute(QUERY, {"table": table})[0][0]
                 row_count_gauge.labels(table_name=table).set(rows)
                 statsd.gauge(
                     f"posthog_celery_clickhouse_table_row_count",
                     rows,
                     tags={"table": table},
                 )
-            except:
+            except Exception:
                 pass
 
 
@@ -478,13 +480,13 @@ def clickhouse_mutation_count() -> None:
             labelnames=["table"],
             registry=registry,
         )
-    for table, muts in rows:
-        mutations_count_gauge.labels(table=table).set(muts)
-        statsd.gauge(
-            f"posthog_celery_clickhouse_table_mutations_count",
-            muts,
-            tags={"table": table},
-        )
+        for table, muts in rows:
+            mutations_count_gauge.labels(table=table).set(muts)
+            statsd.gauge(
+                f"posthog_celery_clickhouse_table_mutations_count",
+                muts,
+                tags={"table": table},
+            )
 
 
 @shared_task(ignore_result=True)
@@ -528,7 +530,7 @@ def redis_celery_queue_depth() -> None:
                 llen = get_client().llen(queue.value)
                 celery_task_queue_depth_gauge.labels(queue_name=queue.value).set(llen)
 
-    except:
+    except Exception:
         # if we can't generate the metric don't complain about it.
         return
 
