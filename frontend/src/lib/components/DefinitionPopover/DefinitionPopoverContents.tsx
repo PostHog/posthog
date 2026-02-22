@@ -13,6 +13,7 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import {
     DataWarehousePopoverField,
+    DefinitionPopoverRenderer,
     SimpleOption,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
@@ -691,6 +692,7 @@ interface ControlledDefinitionPopoverContentsProps {
     item: TaxonomicDefinitionTypes
     group: TaxonomicFilterGroup
     highlightedItemElement: HTMLDivElement | null
+    definitionPopoverRenderer?: DefinitionPopoverRenderer
 }
 
 export function ControlledDefinitionPopover({
@@ -698,6 +700,7 @@ export function ControlledDefinitionPopover({
     item,
     group,
     highlightedItemElement,
+    definitionPopoverRenderer,
 }: ControlledDefinitionPopoverContentsProps): JSX.Element | null {
     const { state, singularType, definition } = useValues(definitionPopoverLogic)
     const { setDefinition } = useActions(definitionPopoverLogic)
@@ -717,6 +720,9 @@ export function ControlledDefinitionPopover({
     if (!value || !item) {
         return null
     }
+
+    const defaultView = <DefinitionView group={group} />
+    const customView = definitionPopoverRenderer?.({ item, group, defaultView }) ?? defaultView
 
     return (
         <Popover
@@ -739,7 +745,7 @@ export function ControlledDefinitionPopover({
                         editHeaderTitle={`Edit ${singularType}`}
                         icon={icon}
                     />
-                    {state === DefinitionPopoverState.Edit ? <DefinitionEdit /> : <DefinitionView group={group} />}
+                    {state === DefinitionPopoverState.Edit ? <DefinitionEdit /> : customView}
                 </DefinitionPopover.Wrapper>
             }
             placement="right"
