@@ -11,6 +11,7 @@ import {
     reducers,
     selectors,
     sharedListeners,
+    events,
 } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import mergeObject from 'lodash.merge'
@@ -306,6 +307,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             actions._setQuery(props.query)
         }
     }),
+    events(({ actions, props }) => ({
+        afterMount() {
+            if (props.query) {
+                actions._setQuery(props.query)
+            }
+        },
+    })),
     props({ query: { source: {} } } as DataVisualizationLogicProps),
     actions(({ values }) => ({
         setVisualizationType: (visualizationType: ChartDisplayType) => ({ visualizationType }),
