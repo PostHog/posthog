@@ -134,7 +134,6 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         result = get_crash_free_sessions(self.team)
 
         assert result["total_sessions"] == 3
-        assert result["crash_sessions"] == 1
         assert result["crash_free_rate"] == 66.67
 
     def test_get_crash_free_sessions_empty_when_no_sessions(self):
@@ -154,10 +153,8 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         result = get_crash_free_sessions(self.team)
 
         assert result["total_sessions"] == 2
-        assert result["crash_sessions"] == 1
         assert result["crash_free_rate"] == 50.0
         assert result["total_sessions_change"] is not None
-        assert result["crash_sessions_change"] is None  # 1 -> 1, no change
 
     def test_get_daily_exception_counts_returns_7_days(self):
         issue = self._create_issue()

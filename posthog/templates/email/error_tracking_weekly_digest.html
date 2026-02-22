@@ -47,13 +47,6 @@
     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top: 16px; border-top: 1px solid #f3f4f6; padding-top: 16px;">
         <tr>
             <td align="center" style="text-align: center; padding: 8px;">
-                <div style="font-size: 0.8em; color: #6b7280;">Crash free sessions</div>
-                <div style="font-size: 1.5em; font-weight: bold;">{{ crash_free.crash_free_rate }}%</div>
-                {% if crash_free.crash_free_rate_change %}
-                <div style="font-size: 0.75em; color: {{ crash_free.crash_free_rate_change.color }};">{{ crash_free.crash_free_rate_change.text }}</div>
-                {% endif %}
-            </td>
-            <td align="center" style="text-align: center; padding: 8px;">
                 <div style="font-size: 0.8em; color: #6b7280;">Total sessions</div>
                 <div style="font-size: 1.5em; font-weight: bold;">{{ crash_free.total_sessions|compact_number }}</div>
                 {% if crash_free.total_sessions_change %}
@@ -61,10 +54,10 @@
                 {% endif %}
             </td>
             <td align="center" style="text-align: center; padding: 8px;">
-                <div style="font-size: 0.8em; color: #6b7280;">Crashed sessions</div>
-                <div style="font-size: 1.5em; font-weight: bold;">{{ crash_free.crash_sessions|compact_number }}</div>
-                {% if crash_free.crash_sessions_change %}
-                <div style="font-size: 0.75em; color: {{ crash_free.crash_sessions_change.color }};">{{ crash_free.crash_sessions_change.text }}</div>
+                <div style="font-size: 0.8em; color: #6b7280;">Crash free sessions</div>
+                <div style="font-size: 1.5em; font-weight: bold;">{{ crash_free.crash_free_rate }}%</div>
+                {% if crash_free.crash_free_rate_change %}
+                <div style="font-size: 0.75em; color: {{ crash_free.crash_free_rate_change.color }};">{{ crash_free.crash_free_rate_change.text }}</div>
                 {% endif %}
             </td>
         </tr>
