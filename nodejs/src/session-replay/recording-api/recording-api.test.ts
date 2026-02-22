@@ -41,6 +41,15 @@ jest.mock('../../utils/db/redis', () => ({
     }),
 }))
 
+jest.mock('../../kafka/producer', () => ({
+    KafkaProducerWrapper: {
+        create: jest.fn().mockResolvedValue({
+            produce: jest.fn().mockResolvedValue(undefined),
+            disconnect: jest.fn().mockResolvedValue(undefined),
+        }),
+    },
+}))
+
 jest.mock('./recording-service')
 
 describe('RecordingApi', () => {
