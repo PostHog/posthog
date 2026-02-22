@@ -162,7 +162,7 @@ pub enum ProguardError {
     InvalidClass,
 }
 
-#[derive(Debug, Error, Clone, Serialize)]
+#[derive(Debug, Error, Clone, Serialize, PartialEq)]
 pub enum EventError {
     #[error("Wrong event type: {0} for event {1}")]
     WrongEventType(String, Uuid),

@@ -186,3 +186,14 @@ impl TryFrom<ClickHouseEvent> for ExceptionProperties {
         ExceptionProperties::try_from(any_evt)
     }
 }
+
+impl TryFrom<Result<ClickHouseEvent, EventError>> for ExceptionProperties {
+    type Error = EventError;
+
+    fn try_from(event: Result<ClickHouseEvent, EventError>) -> Result<Self, Self::Error> {
+        match event {
+            Ok(evt) => ExceptionProperties::try_from(evt),
+            Err(e) => Err(e),
+        }
+    }
+}

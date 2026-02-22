@@ -1,7 +1,7 @@
 use crate::{
     error::UnhandledError,
     metric_consts::PROPERTIES_RESOLVER_OPERATOR,
-    stages::{pipeline::ExceptionEventHandledError, resolution::ResolutionStage},
+    stages::{pipeline::HandledError, resolution::ResolutionStage},
     types::{
         exception_properties::ExceptionProperties,
         operator::{OperatorResult, ValueOperator},
@@ -14,7 +14,7 @@ pub struct PropertiesResolver;
 impl ValueOperator for PropertiesResolver {
     type Item = ExceptionProperties;
     type Context = ResolutionStage;
-    type HandledError = ExceptionEventHandledError;
+    type HandledError = HandledError;
     type UnhandledError = UnhandledError;
 
     fn name(&self) -> &'static str {
