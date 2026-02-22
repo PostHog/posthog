@@ -28,12 +28,16 @@ import {
 } from 'lib/Chart'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hexToRGBA, uuid } from 'lib/utils'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { resolveVariableColor } from 'scenes/insights/views/LineGraph/LineGraph'
+import { createXAxisTickCallback } from 'scenes/insights/views/LineGraph/formatXAxisTick'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType, GraphType } from '~/types'
@@ -132,6 +136,8 @@ export const LineGraph = ({
     const logicKey = useMemo(() => uuid(), [])
     const { hoveredDatasetIndex } = useValues(lineGraphLogic({ key: logicKey }))
     const { setHoveredDatasetIndex } = useActions(lineGraphLogic({ key: logicKey }))
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { timezone } = useValues(teamLogic)
     const isShiftPressed = useKeyHeld('Shift')
 
     useEffect(() => {
@@ -329,6 +335,15 @@ export const LineGraph = ({
                 tickColor: colors.axisLine as Color,
                 tickBorderDash: [4, 2],
             }
+
+            const isDateAxis = xSeriesData.column.type.name === 'DATE' || xSeriesData.column.type.name === 'DATETIME'
+            const xAxisTickCallback =
+                featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_REDESIGN] && isDateAxis
+                    ? createXAxisTickCallback({
+                          allDays: xSeriesData.data,
+                          timezone,
+                      })
+                    : undefined
 
             const options: ChartOptions = {
                 responsive: true,
@@ -583,6 +598,9 @@ export const LineGraph = ({
                         ticks: {
                             ...tickOptions,
                             display: chartSettings.showXAxisTicks ?? true,
+                            ...(xAxisTickCallback
+                                ? { callback: xAxisTickCallback, maxRotation: 0, autoSkipPadding: 20 }
+                                : {}),
                         },
                         grid: {
                             ...gridOptions,
@@ -638,6 +656,7 @@ export const LineGraph = ({
             getTooltip,
             isHighlightBarMode,
             hoveredDatasetIndex,
+            timezone,
         ],
     })
 
