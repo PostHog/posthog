@@ -19,13 +19,11 @@ export function TopHeading({
     query,
     lastRefresh,
     hasTileOverrides,
-    hideDateRange,
     resolvedDateRange,
 }: {
     query: Node | null
     lastRefresh?: string | null
     hasTileOverrides?: boolean | null
-    hideDateRange?: boolean
     resolvedDateRange?: ResolvedDateRangeResponse | null
 }): JSX.Element {
     let insightType: InsightTypeMetadata
@@ -62,7 +60,7 @@ export function TopHeading({
     return (
         <div className="flex items-center gap-1">
             <span title={insightType?.description}>{insightType?.name}</span>
-            {dateText && !hideDateRange ? (
+            {dateText ? (
                 <>
                     {' '}
                     •{' '}

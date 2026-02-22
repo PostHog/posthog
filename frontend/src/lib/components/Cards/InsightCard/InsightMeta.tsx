@@ -54,6 +54,7 @@ interface InsightMetaProps
         InsightCardProps,
         | 'ribbonColor'
         | 'updateColor'
+        | 'toggleShowDescription'
         | 'removeFromDashboard'
         | 'deleteWithUndo'
         | 'refresh'
@@ -85,6 +86,7 @@ export function InsightMeta({
     ribbonColor,
     dashboardId,
     updateColor,
+    toggleShowDescription,
     filtersOverride,
     variablesOverride,
     removeFromDashboard,
@@ -119,7 +121,6 @@ export function InsightMeta({
             placement === DashboardPlacement.ProjectHomepage ||
             placement === DashboardPlacement.Public)
 
-    // Hide the heading on compact cards when the dashboard already overrides dates
     const hideCompactHeading = compact && !!filtersOverride?.date_from
 
     const otherDashboards = nameSortedDashboards.filter((d) => !dashboards?.includes(d.id))
@@ -251,11 +252,12 @@ export function InsightMeta({
                     loadingQueued={loadingQueued}
                     tags={insight.tags}
                     compact={compact}
+                    showDescription={!!tile?.show_description}
                 />
             }
             metaTitle={name}
             metaDescription={
-                insight.description ? (
+                insight.description && !tile?.show_description ? (
                     <LemonMarkdown className="text-xs" lowKeyHeadings>
                         {insight.description}
                     </LemonMarkdown>
@@ -319,6 +321,11 @@ export function InsightMeta({
                     {canEditDashboard && (
                         <>
                             <LemonDivider />
+                            {toggleShowDescription && !!insight.description && (
+                                <LemonButton onClick={toggleShowDescription} fullWidth>
+                                    {tile?.show_description ? 'Hide description' : 'Show description'}
+                                </LemonButton>
+                            )}
                             {updateColor && (
                                 <LemonButtonWithDropdown
                                     dropdown={{
@@ -481,6 +488,7 @@ export function InsightMetaContent({
     loadingQueued,
     tags,
     compact,
+    showDescription,
 }: {
     title: string
     fallbackTitle?: string
@@ -490,6 +498,7 @@ export function InsightMetaContent({
     loadingQueued?: boolean
     tags?: string[]
     compact?: boolean
+    showDescription?: boolean
 }): JSX.Element {
     let titleEl: JSX.Element = (
         <h4 title={title} data-attr="insight-card-title">
@@ -518,7 +527,7 @@ export function InsightMetaContent({
     return (
         <>
             {titleEl}
-            {!compact && !!description && (
+            {(!compact || showDescription) && !!description && (
                 <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
                     {description}
                 </LemonMarkdown>

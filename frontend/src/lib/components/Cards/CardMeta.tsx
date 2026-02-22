@@ -23,7 +23,6 @@ export interface Resizeable {
 }
 
 export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className'> {
-    /** Whether to use compact styling (reduced padding, tighter line heights). */
     compact?: boolean
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
