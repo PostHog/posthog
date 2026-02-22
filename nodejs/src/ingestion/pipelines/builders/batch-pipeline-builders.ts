@@ -1,7 +1,6 @@
 import { Message } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '../../../kafka/producer'
-import { Team } from '../../../types'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
 import { BaseBatchPipeline, BatchProcessingStep } from '../base-batch-pipeline'
 import { BatchPipeline } from '../batch-pipeline.interface'
@@ -16,6 +15,14 @@ import { PipelineConfig, ResultHandlingPipeline } from '../result-handling-pipel
 import { SequentialBatchPipeline } from '../sequential-batch-pipeline'
 import { SideEffectHandlingPipeline } from '../side-effect-handling-pipeline'
 import { PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
+
+/**
+ * Minimal team context required for team-aware pipeline operations.
+ * Only the team ID is needed to route warnings to the correct team.
+ */
+export interface TeamIdContext {
+    team: { id: number }
+}
 
 /**
  * Builder for configuring how items within a group are processed.
@@ -148,11 +155,11 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput> {
     }
 
     teamAware<TOut, COut = COutput>(
-        this: BatchPipelineBuilder<TInput, TOutput, CInput & { team: Team }, COutput & { team: Team }>,
+        this: BatchPipelineBuilder<TInput, TOutput, CInput & TeamIdContext, COutput & TeamIdContext>,
         callback: (
-            builder: BatchPipelineBuilder<TInput, TOutput, CInput & { team: Team }, COutput & { team: Team }>
-        ) => BatchPipelineBuilder<TInput, TOut, CInput & { team: Team }, COut & { team: Team }>
-    ): TeamAwareBatchPipelineBuilder<TInput, TOut, CInput & { team: Team }, COut & { team: Team }> {
+            builder: BatchPipelineBuilder<TInput, TOutput, CInput & TeamIdContext, COutput & TeamIdContext>
+        ) => BatchPipelineBuilder<TInput, TOut, CInput & TeamIdContext, COut & TeamIdContext>
+    ): TeamAwareBatchPipelineBuilder<TInput, TOut, CInput & TeamIdContext, COut & TeamIdContext> {
         const builtPipeline = callback(this)
         return new TeamAwareBatchPipelineBuilder(builtPipeline.build())
     }
@@ -198,8 +205,8 @@ export class ResultHandledBatchPipelineBuilder<
 export class TeamAwareBatchPipelineBuilder<
     TInput,
     TOutput,
-    CInput extends { team: Team },
-    COutput extends { team: Team },
+    CInput extends TeamIdContext,
+    COutput extends TeamIdContext,
 > extends BatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
     constructor(pipeline: BatchPipeline<TInput, TOutput, CInput, COutput>) {
         super(pipeline)

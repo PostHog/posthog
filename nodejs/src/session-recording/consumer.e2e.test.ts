@@ -841,15 +841,13 @@ describe('Session Recording Consumer Integration', () => {
     async function createIngester(): Promise<IngesterWithProducers> {
         const kafkaMetadataProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
         const kafkaMessageProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
-        const kafkaDLQProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
 
         const ingester = new SessionRecordingIngester(
             hub as any,
             false,
             hub.postgres,
             kafkaMetadataProducer,
-            kafkaMessageProducer,
-            kafkaDLQProducer
+            kafkaMessageProducer
         )
 
         return { ingester, kafkaMetadataProducer }
