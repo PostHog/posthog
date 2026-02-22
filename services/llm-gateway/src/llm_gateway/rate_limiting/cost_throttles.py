@@ -174,7 +174,7 @@ class UserCostBurstThrottle(_UserCostThrottleBase):
     scope = "user_cost_burst"
 
     def _get_limit_exceeded_detail(self) -> str:
-        return "User daily rate limit exceeded"
+        return "User burst rate limit exceeded"
 
     def _get_limit_and_window(self, context: ThrottleContext) -> tuple[float, int]:
         config = self._require_config(context)
@@ -186,7 +186,7 @@ class UserCostSustainedThrottle(_UserCostThrottleBase):
     scope = "user_cost_sustained"
 
     def _get_limit_exceeded_detail(self) -> str:
-        return "User monthly rate limit exceeded"
+        return "User sustained rate limit exceeded"
 
     def _get_limit_and_window(self, context: ThrottleContext) -> tuple[float, int]:
         config = self._require_config(context)
