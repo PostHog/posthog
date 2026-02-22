@@ -78,6 +78,10 @@ pub struct Config {
     // Force disable person processing for specific token:distinct_id pairs
     #[envconfig(from = "FORCE_DISABLE_PERSON_PROCESSING", default = "")]
     pub force_disable_person_processing: String,
+
+    // Internal capture service URL for the CaptureEmitter
+    #[envconfig(from = "CAPTURE_URL", default = "http://localhost:3307")]
+    pub capture_url: String,
 }
 
 impl Config {

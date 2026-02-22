@@ -10,7 +10,10 @@ use serde_json::Value;
 
 use crate::{
     context::AppContext,
-    emit::{kafka::KafkaEmitter, Emitter, FileEmitter, NoOpEmitter, StdoutEmitter},
+    emit::{
+        capture::CaptureEmitter, kafka::KafkaEmitter, Emitter, FileEmitter, NoOpEmitter,
+        StdoutEmitter,
+    },
     extractor::ExtractorType,
     parse::format::FormatConfig,
     source::{
@@ -132,6 +135,7 @@ pub enum SinkConfig {
         cleanup: bool,
     },
     Kafka(KafkaEmitterConfig),
+    Capture(CaptureEmitterConfig),
     NoOp,
 }
 
@@ -140,6 +144,11 @@ pub struct KafkaEmitterConfig {
     pub topic: String,
     pub send_rate: u64,
     pub transaction_timeout_seconds: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaptureEmitterConfig {
+    pub send_rate: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -231,6 +240,16 @@ impl SinkConfig {
                     // emit to kafka at the same time.
                     KafkaEmitter::new(resolved_config, &model.id.to_string(), context).await?,
                 ))
+            }
+            SinkConfig::Capture(capture_config) => {
+                let token = context.get_token_for_team_id(model.team_id).await?;
+                let token_str: &str = &token;
+                let url_str: &str = &context.config.capture_url;
+                let client = posthog_rs::client((token_str, url_str)).await;
+                Ok(Box::new(CaptureEmitter::new(
+                    client,
+                    capture_config.send_rate,
+                )))
             }
         }
     }
