@@ -1351,7 +1351,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            {"jsonrpc": "2.0", "method": "_posthog/close", "id": "req-3"},
+            {"jsonrpc": "2.0", "method": "close", "id": "req-3"},
             format="json",
         )
 
@@ -1594,12 +1594,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    @patch("products.tasks.backend.api.http_requests.post")
-    def test_command_posthog_prefixed_methods(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
-        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {"stopReason": "end_turn"}})
-
+    def test_command_rejects_posthog_prefixed_methods(self):
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
 
@@ -1613,9 +1608,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        call_kwargs = mock_post.call_args[1]
-        self.assertEqual(call_kwargs["json"]["method"], "_posthog/user_message")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
