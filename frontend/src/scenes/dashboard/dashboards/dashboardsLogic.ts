@@ -154,6 +154,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 return new Fuse<DashboardBasicType>(dashboards, {
                     keys: ['key', 'name', 'description', 'tags'],
                     threshold: 0.3,
+                    ignoreLocation: true,
                 })
             },
         ],

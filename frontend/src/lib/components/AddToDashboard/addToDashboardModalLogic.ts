@@ -66,6 +66,7 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
                 return new FuseClass(nameSortedDashboards || [], {
                     keys: ['name', 'description', 'tags'],
                     threshold: 0.3,
+                    ignoreLocation: true,
                 })
             },
         ],
