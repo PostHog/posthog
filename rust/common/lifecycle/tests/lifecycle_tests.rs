@@ -2,31 +2,30 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use lifecycle::{ComponentOptions, LifecycleError, Manager, ManagerOptions};
+use lifecycle::{ComponentOptions, LifecycleError, Manager};
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Default test manager: no global shutdown timeout (exercises the unbounded
-/// wait path — K8s SIGKILL is the backstop). Per-test tokio::time::timeout
-/// guards prevent hangs.
+/// Default test manager: short global shutdown timeout (5s) so tests don't
+/// hang. Per-test tokio::time::timeout guards are a second safety net.
 fn test_manager() -> Manager {
-    Manager::new(
-        ManagerOptions::new("test")
-            .with_trap_signals(false)
-            .with_prestop_check(false),
-    )
+    Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_global_shutdown_timeout(Duration::from_secs(5))
+        .build()
 }
 
 /// Manager with fast health polling for stall detection tests.
 fn fast_poll_manager(poll_ms: u64) -> Manager {
-    Manager::new(
-        ManagerOptions::new("test")
-            .with_trap_signals(false)
-            .with_prestop_check(false)
-            .with_health_poll_interval(Duration::from_millis(poll_ms)),
-    )
+    Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_global_shutdown_timeout(Duration::from_secs(5))
+        .with_health_poll_interval(Duration::from_millis(poll_ms))
+        .build()
 }
 
 fn liveness_opts() -> ComponentOptions {
@@ -661,46 +660,22 @@ async fn component_timeout_then_late_drop_preserves_timeout() {
 // ---------------------------------------------------------------------------
 // Section 5: Global shutdown timeout
 //
-// By default (test_manager) there is no global shutdown timeout — the monitor
-// waits indefinitely for components to finish. With_global_shutdown_timeout
-// adds a hard ceiling on the entire shutdown phase.
+// Global shutdown timeout (default 60s) is always active. It caps the total
+// shutdown duration — if components haven't finished in time the monitor
+// returns ShutdownTimeout. This prevents indefinite hangs if a component
+// doesn't check for cancellation properly. The timeout is configurable via
+// Manager::builder("name").with_global_shutdown_timeout(duration).
 // ---------------------------------------------------------------------------
 
-/// With no global timeout, the monitor waits indefinitely for components.
-/// Here the component completes normally — verifying the unbounded-wait path
-/// produces a clean result just like the timeout path.
-#[tokio::test]
-async fn no_global_timeout_waits_for_component() {
-    let mut manager = test_manager();
-    assert!(manager.options.global_shutdown_timeout.is_none());
-
-    let handle = manager.register("worker", ComponentOptions::new());
-    let guard = manager.monitor_background();
-
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(20)).await;
-        handle.request_shutdown();
-        // Simulate slow cleanup
-        tokio::time::sleep(Duration::from_millis(200)).await;
-    });
-
-    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
-        .await
-        .expect("timed out");
-    assert!(result.is_ok());
-}
-
-/// With global_shutdown_timeout set, components that haven't finished when the
-/// ceiling is reached cause ShutdownTimeout. The stuck component never signals
-/// completion, so the global timeout fires.
+/// Component that hangs during shutdown: the global timeout fires and the
+/// monitor returns ShutdownTimeout listing the stuck component.
 #[tokio::test]
 async fn global_timeout_fires_when_component_hangs() {
-    let mut manager = Manager::new(
-        ManagerOptions::new("test")
-            .with_trap_signals(false)
-            .with_prestop_check(false)
-            .with_global_shutdown_timeout(Duration::from_millis(100)),
-    );
+    let mut manager = Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_global_shutdown_timeout(Duration::from_millis(100))
+        .build();
 
     let handle = manager.register("slow", ComponentOptions::new());
     let guard = manager.monitor_background();
@@ -708,7 +683,6 @@ async fn global_timeout_fires_when_component_hangs() {
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(10)).await;
         handle.request_shutdown();
-        // Never completes — holds handle forever (until test ends)
         std::future::pending::<()>().await;
     });
 
@@ -722,16 +696,14 @@ async fn global_timeout_fires_when_component_hangs() {
     ));
 }
 
-/// With global_shutdown_timeout set, components that finish before the ceiling
-/// produce a clean result — the timeout never fires.
+/// Component that finishes before the global timeout produces a clean result.
 #[tokio::test]
 async fn global_timeout_does_not_fire_when_components_finish() {
-    let mut manager = Manager::new(
-        ManagerOptions::new("test")
-            .with_trap_signals(false)
-            .with_prestop_check(false)
-            .with_global_shutdown_timeout(Duration::from_secs(5)),
-    );
+    let mut manager = Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_global_shutdown_timeout(Duration::from_secs(5))
+        .build();
 
     let handle = manager.register("fast", ComponentOptions::new());
     let guard = manager.monitor_background();

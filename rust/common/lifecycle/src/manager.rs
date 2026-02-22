@@ -17,42 +17,23 @@ use crate::metrics;
 use crate::readiness::ReadinessHandler;
 use crate::signals;
 
-/// Options for creating a lifecycle manager.
+/// Builder for [`Manager`]. Start with [`Manager::builder("name")`](Manager::builder),
+/// chain `.with_*()` calls, then call [`.build()`](ManagerBuilder::build).
 #[derive(Clone, Debug)]
-pub struct ManagerOptions {
-    /// Service name, emitted as the `service_name` label on all lifecycle metrics.
-    /// Use your K8s service name or logical app name for dashboard filtering.
-    pub name: String,
-    /// Optional hard ceiling on total shutdown duration. When set, the monitor
-    /// returns [`LifecycleError::ShutdownTimeout`] if components haven't finished
-    /// in time. When `None` (default), the monitor waits indefinitely — K8s
-    /// SIGKILL is the external backstop.
-    pub global_shutdown_timeout: Option<Duration>,
-    /// Install SIGINT/SIGTERM handlers (default: true). Set false in tests.
-    pub trap_signals: bool,
-    /// Poll for `/tmp/shutdown` file (K8s pre-stop hook pattern). Default: true.
-    pub enable_prestop_check: bool,
-    /// How often the health monitor polls component heartbeats. Only active
-    /// when at least one component is registered with
-    /// [`with_liveness_deadline`](ComponentOptions::with_liveness_deadline).
-    /// Default: 5s.
-    pub health_poll_interval: Duration,
+pub struct ManagerBuilder {
+    name: String,
+    global_shutdown_timeout: Duration,
+    trap_signals: bool,
+    enable_prestop_check: bool,
+    health_poll_interval: Duration,
 }
 
-impl ManagerOptions {
-    /// Create options with the given service name and all other fields set to defaults.
-    pub fn new(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            ..Default::default()
-        }
-    }
-
-    /// Hard ceiling on total shutdown duration. If all components haven't finished
-    /// within this window, monitor returns [`LifecycleError::ShutdownTimeout`].
-    /// Default: `None` (no ceiling — waits indefinitely; K8s SIGKILL is the backstop).
+impl ManagerBuilder {
+    /// Override the hard ceiling on total shutdown duration. If all components
+    /// haven't finished within this window, monitor returns
+    /// [`LifecycleError::ShutdownTimeout`]. Default: 60s.
     pub fn with_global_shutdown_timeout(mut self, d: Duration) -> Self {
-        self.global_shutdown_timeout = Some(d);
+        self.global_shutdown_timeout = d;
         self
     }
 
@@ -76,16 +57,21 @@ impl ManagerOptions {
         self.health_poll_interval = d;
         self
     }
-}
 
-impl Default for ManagerOptions {
-    fn default() -> Self {
-        Self {
-            name: "app".to_string(),
-            global_shutdown_timeout: None,
-            trap_signals: true,
-            enable_prestop_check: true,
-            health_poll_interval: Duration::from_secs(5),
+    /// Consume the builder and produce a [`Manager`].
+    pub fn build(self) -> Manager {
+        let (event_tx, event_rx) = mpsc::channel(64);
+        Manager {
+            name: self.name.clone(),
+            global_shutdown_timeout: self.global_shutdown_timeout,
+            trap_signals: self.trap_signals,
+            enable_prestop_check: self.enable_prestop_check,
+            health_poll_interval: self.health_poll_interval,
+            shutdown_token: CancellationToken::new(),
+            event_tx,
+            event_rx: Some(event_rx),
+            components: HashMap::new(),
+            liveness_components: Vec::new(),
         }
     }
 }
@@ -93,9 +79,9 @@ impl Default for ManagerOptions {
 /// Per-component options set at registration time.
 #[derive(Clone, Debug)]
 pub struct ComponentOptions {
-    pub graceful_shutdown: Option<Duration>,
-    pub liveness_deadline: Option<Duration>,
-    pub stall_threshold: u32,
+    graceful_shutdown: Option<Duration>,
+    liveness_deadline: Option<Duration>,
+    stall_threshold: u32,
 }
 
 impl ComponentOptions {
@@ -164,7 +150,10 @@ struct ComponentState {
 /// Lifecycle manager: registers components, runs monitor on a dedicated OS thread, provides readiness/liveness handlers and shutdown signal.
 pub struct Manager {
     name: String,
-    pub options: ManagerOptions,
+    global_shutdown_timeout: Duration,
+    trap_signals: bool,
+    enable_prestop_check: bool,
+    health_poll_interval: Duration,
     shutdown_token: CancellationToken,
     event_tx: mpsc::Sender<ComponentEvent>,
     event_rx: Option<mpsc::Receiver<ComponentEvent>>,
@@ -173,17 +162,16 @@ pub struct Manager {
 }
 
 impl Manager {
-    /// Create a new manager with the given options.
-    pub fn new(options: ManagerOptions) -> Self {
-        let (event_tx, event_rx) = mpsc::channel(64);
-        Self {
-            name: options.name.clone(),
-            options,
-            shutdown_token: CancellationToken::new(),
-            event_tx,
-            event_rx: Some(event_rx),
-            components: HashMap::new(),
-            liveness_components: Vec::new(),
+    /// Start building a manager with the given service name. The name is emitted
+    /// as the `service_name` label on all lifecycle metrics — use your K8s service
+    /// name or logical app name for dashboard filtering.
+    pub fn builder(name: impl Into<String>) -> ManagerBuilder {
+        ManagerBuilder {
+            name: name.into(),
+            global_shutdown_timeout: Duration::from_secs(60),
+            trap_signals: true,
+            enable_prestop_check: true,
+            health_poll_interval: Duration::from_secs(5),
         }
     }
 
@@ -298,21 +286,17 @@ impl Manager {
     ) -> Result<(), LifecycleError> {
         let _span = tracing::info_span!("lifecycle", app = %self.name).entered();
         let name = self.name.clone();
-        let trap_signals = self.options.trap_signals;
-        let enable_prestop = self.options.enable_prestop_check;
-        let health_poll_interval = self.options.health_poll_interval;
-        let global_timeout = self.options.global_shutdown_timeout;
+        let trap_signals = self.trap_signals;
+        let enable_prestop = self.enable_prestop_check;
+        let health_poll_interval = self.health_poll_interval;
+        let global_timeout = self.global_shutdown_timeout;
         let shutdown_token = self.shutdown_token.clone();
         let has_liveness_components = !self.liveness_components.is_empty();
 
-        if let Some(t) = global_timeout {
-            debug!(
-                global_shutdown_timeout_secs = t.as_secs_f64(),
-                "Lifecycle: global shutdown timeout configured"
-            );
-        } else {
-            debug!("Lifecycle: no global shutdown timeout — K8s SIGKILL is the backstop");
-        }
+        debug!(
+            global_shutdown_timeout_secs = global_timeout.as_secs_f64(),
+            "Lifecycle: global shutdown timeout configured"
+        );
 
         if trap_signals {
             let token = shutdown_token.clone();
@@ -469,7 +453,7 @@ impl Manager {
         }
 
         let shutdown_clock = Instant::now();
-        let global_deadline = global_timeout.map(|t| shutdown_clock + t);
+        let global_deadline = shutdown_clock + global_timeout;
         let mut component_deadlines: Vec<(String, Instant)> = self
             .components
             .iter()
@@ -482,29 +466,29 @@ impl Manager {
 
         loop {
             let now = Instant::now();
-            if let Some(deadline) = global_deadline {
-                if now >= deadline {
-                    let elapsed = global_timeout.unwrap();
-                    let remaining: Vec<String> = self
-                        .components
-                        .iter()
-                        .filter(|(_, s)| {
-                            s.phase != ShutdownPhase::Completed
-                                && s.phase != ShutdownPhase::TimedOut
-                                && s.phase != ShutdownPhase::Died
-                        })
-                        .map(|(t, _)| t.clone())
-                        .collect();
-                    for tag in &remaining {
-                        metrics::emit_component_shutdown_result(&name, tag, "timeout");
-                    }
-                    warn!(
-                        total_duration_secs = elapsed.as_secs_f64(),
-                        remaining = ?remaining,
-                        "Lifecycle: global shutdown timeout reached"
-                    );
-                    return Err(LifecycleError::ShutdownTimeout { elapsed, remaining });
+            if now >= global_deadline {
+                let remaining: Vec<String> = self
+                    .components
+                    .iter()
+                    .filter(|(_, s)| {
+                        s.phase != ShutdownPhase::Completed
+                            && s.phase != ShutdownPhase::TimedOut
+                            && s.phase != ShutdownPhase::Died
+                    })
+                    .map(|(t, _)| t.clone())
+                    .collect();
+                for tag in &remaining {
+                    metrics::emit_component_shutdown_result(&name, tag, "timeout");
                 }
+                warn!(
+                    total_duration_secs = global_timeout.as_secs_f64(),
+                    remaining = ?remaining,
+                    "Lifecycle: global shutdown timeout reached"
+                );
+                return Err(LifecycleError::ShutdownTimeout {
+                    elapsed: global_timeout,
+                    remaining,
+                });
             }
 
             let next_component_timeout = component_deadlines
@@ -517,15 +501,14 @@ impl Manager {
                 })
                 .map(|(_, t)| *t);
 
-            // When no global deadline is set, only per-component deadlines drive
-            // the sleep branch. If neither exists, the loop blocks purely on events.
             let wait_duration = [
                 next_component_timeout.map(|t| t.saturating_duration_since(now)),
-                global_deadline.map(|t| t.saturating_duration_since(now)),
+                Some(global_deadline.saturating_duration_since(now)),
             ]
             .into_iter()
             .flatten()
-            .min();
+            .min()
+            .unwrap_or(Duration::from_secs(1));
 
             tokio::select! {
                 biased;
@@ -570,12 +553,7 @@ impl Manager {
                         return self.finalize(shutdown_clock, first_failure);
                     }
                 }
-                _ = async {
-                    match wait_duration {
-                        Some(d) => tokio::time::sleep(d).await,
-                        None => std::future::pending().await,
-                    }
-                } => {
+                _ = tokio::time::sleep(wait_duration) => {
                     let now = Instant::now();
                     for (tag, deadline) in &component_deadlines {
                         if now >= *deadline {
