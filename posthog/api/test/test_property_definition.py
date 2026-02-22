@@ -1,17 +1,21 @@
 import json
 from typing import Optional, Union
 
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest, BaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest.mock import ANY, patch
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import ActivityLog, EventDefinition, EventProperty, Organization, PropertyDefinition, Team
-from posthog.taxonomy.property_definition_api import PropertyDefinitionQuerySerializer, PropertyDefinitionViewSet
+from posthog.taxonomy.property_definition_api import (
+    NotCountingLimitOffsetPaginator,
+    PropertyDefinitionQuerySerializer,
+    PropertyDefinitionViewSet,
+)
 
 
-class TestPropertyDefinitionAPI(APIBaseTest):
+class TestPropertyDefinitionAPI(APIBaseTest, QueryMatchingTest):
     EXPECTED_PROPERTY_DEFINITIONS: list[dict[str, Union[str, Optional[int], bool]]] = [
         {"name": "$browser", "is_numerical": False},
         {"name": "$current_url", "is_numerical": False},
@@ -58,6 +62,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["property_type"] == "DateTime"
 
+    @snapshot_postgres_queries
     def test_list_property_definitions(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/")
         assert response.status_code == status.HTTP_200_OK
@@ -94,6 +99,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         assert sorted([_i["name"] for _i in response.json()["results"]]) == ["app_rating", "purchase", "purchase_value"]
 
+    @snapshot_postgres_queries
     def test_pagination_of_property_definitions(self):
         PropertyDefinition.objects.bulk_create(
             [PropertyDefinition(team=self.team, name="z_property_{}".format(i)) for i in range(1, 301)]
@@ -195,6 +201,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             ("$lib", False),
         ]
 
+    @snapshot_postgres_queries
     def test_is_event_property_filter(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=firs")
         assert response.status_code == status.HTTP_200_OK
@@ -765,3 +772,47 @@ class TestPropertyDefinitionQuerySerializer(BaseTest):
         assert not PropertyDefinitionQuerySerializer(data={"type": "group", "group_type_index": 77}).is_valid()
         assert not PropertyDefinitionQuerySerializer(data={"type": "group", "group_type_index": -1}).is_valid()
         assert not PropertyDefinitionQuerySerializer(data={"type": "event", "group_type_index": 3}).is_valid()
+
+
+class TestNotCountingLimitOffsetPaginator(BaseTest):
+    def _make_result(self, full_count, name="test"):
+        obj = PropertyDefinition(name=name)
+        obj.full_count = full_count  # type: ignore[attr-defined]
+        return obj
+
+    def _make_request(self, params=None):
+        from rest_framework.request import Request
+        from rest_framework.test import APIRequestFactory
+
+        factory = APIRequestFactory()
+        return Request(factory.get("/", params or {"limit": 100}))
+
+    def test_extracts_count_from_first_result(self):
+        paginator = NotCountingLimitOffsetPaginator()
+        results = [self._make_result(42, f"prop_{i}") for i in range(3)]
+
+        page = paginator.paginate_queryset(results, self._make_request())
+        assert paginator.count == 42
+        assert page is not None
+        assert len(page) == 3
+
+    def test_returns_zero_count_for_empty_results(self):
+        paginator = NotCountingLimitOffsetPaginator()
+
+        page = paginator.paginate_queryset([], self._make_request())
+        assert paginator.count == 0
+        assert page == []
+
+    @parameterized.expand(
+        [
+            ("single result", 1, 1),
+            ("full page", 100, 250),
+            ("partial page", 3, 3),
+        ]
+    )
+    def test_count_matches_full_count_not_page_size(self, _name, page_size, total_count):
+        paginator = NotCountingLimitOffsetPaginator()
+        results = [self._make_result(total_count, f"prop_{i}") for i in range(page_size)]
+
+        paginator.paginate_queryset(results, self._make_request())
+        assert paginator.count == total_count

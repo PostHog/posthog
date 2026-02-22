@@ -3,7 +3,7 @@ from typing import Optional, cast
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 from django.db.utils import IntegrityError
 from django.utils import timezone
@@ -17,7 +17,7 @@ from ee.models.license import License, LicenseManager
 from ee.models.property_definition import EnterprisePropertyDefinition
 
 
-class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
+class TestPropertyDefinitionEnterpriseAPI(APIBaseTest, QueryMatchingTest):
     def test_can_set_and_query_property_type_and_format(self):
         property = EnterprisePropertyDefinition.objects.create(
             team=self.team, name="a timestamp", property_type="DateTime"
@@ -67,6 +67,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(enterprise_property.name, property.name)  # type: ignore
         self.assertEqual(enterprise_property.team.id, property.team.id)  # type: ignore
 
+    @snapshot_postgres_queries
     def test_search_property_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
@@ -470,6 +471,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_by"] is None
         assert response.json()["verified_at"] is None
 
+    @snapshot_postgres_queries
     def test_list_property_definitions_verified_ordering(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
