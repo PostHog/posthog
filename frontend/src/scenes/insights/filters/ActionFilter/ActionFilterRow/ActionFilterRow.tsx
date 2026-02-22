@@ -285,6 +285,9 @@ export function ActionFilterRow({
         math_group_type_index: mathGroupTypeIndex,
     } = filter
 
+    // count_unique works on any property type, not just numerical
+    const allowAllPropertyTypes = math === PropertyMathType.CountUnique
+
     const onClose = (): void => {
         removeLocalFilter({ ...filter, index })
     }
@@ -678,11 +681,16 @@ export function ActionFilterRow({
                                             <div className="flex-auto overflow-hidden">
                                                 <TaxonomicStringPopover
                                                     groupType={
-                                                        mathPropertyType ||
-                                                        TaxonomicFilterGroupType.NumericalEventProperties
+                                                        allowAllPropertyTypes
+                                                            ? TaxonomicFilterGroupType.EventProperties
+                                                            : mathPropertyType ||
+                                                              TaxonomicFilterGroupType.NumericalEventProperties
                                                     }
                                                     groupTypes={[
                                                         TaxonomicFilterGroupType.DataWarehouseProperties,
+                                                        ...(allowAllPropertyTypes
+                                                            ? [TaxonomicFilterGroupType.EventProperties]
+                                                            : []),
                                                         TaxonomicFilterGroupType.NumericalEventProperties,
                                                         TaxonomicFilterGroupType.SessionProperties,
                                                         TaxonomicFilterGroupType.PersonProperties,
@@ -702,7 +710,9 @@ export function ActionFilterRow({
                                                     }
                                                     eventNames={name ? [name] : []}
                                                     data-attr="math-property-select"
-                                                    showNumericalPropsOnly={showNumericalPropsOnly}
+                                                    showNumericalPropsOnly={
+                                                        allowAllPropertyTypes ? false : showNumericalPropsOnly
+                                                    }
                                                     renderValue={(currentValue) => (
                                                         <Tooltip
                                                             title={
