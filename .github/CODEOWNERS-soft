@@ -210,5 +210,8 @@ CODEOWNERS @PostHog/team-devex
 CLAUDE.md @PostHog/team-devex
 AGENTS.md @PostHog/team-devex
 .claude/ @PostHog/team-devex
+.claude/agents/ingestion/ @PostHog/team-ingestion
+.agents/skills/ingestion-*/ @PostHog/team-ingestion
+.claude/skills/ingestion-*/ @PostHog/team-ingestion
 greptile.json @PostHog/team-devex
 docs/published/developing-locally.md @PostHog/team-devex
