@@ -16,6 +16,7 @@ load_from:
     - python_module: posthog.dags.locations.analytics_platform
     - python_module: posthog.dags.locations.experiments
     - python_module: posthog.dags.locations.growth
+    - python_module: posthog.dags.locations.health
     - python_module: posthog.dags.locations.ingestion
     - python_module: posthog.dags.locations.llm_analytics
     - python_module: posthog.dags.locations.posthog_ai
