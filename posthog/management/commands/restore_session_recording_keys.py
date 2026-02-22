@@ -6,6 +6,10 @@ from django.core.management.base import BaseCommand, CommandError
 import boto3
 from botocore.exceptions import ClientError
 
+from posthog.clickhouse.client import sync_execute
+from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+
 LIVE_TABLE_NAME = "session-recording-keys"
 BACKUP_VAULT_NAME = "session-recording-keys-vault"
 TEAM_ID_INDEX = "team_id-index"
@@ -240,10 +244,11 @@ class Command(BaseCommand):
 
         restored = 0
         skipped = 0
+        restored_session_ids: list[tuple[str, int]] = []
 
         for item in items:
             session_id = item["session_id"]["S"]
-            team_id = item["team_id"]["N"]
+            team_id = int(item["team_id"]["N"])
             state = item.get("session_state", {}).get("S", "cleartext")
 
             if dry_run:
@@ -264,6 +269,7 @@ class Command(BaseCommand):
                     self.style.SUCCESS(f"  Restored session_id={session_id} team_id={team_id} state={state}")
                 )
                 restored += 1
+                restored_session_ids.append((session_id, team_id))
             except ClientError as e:
                 if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
                     self.stdout.write(
@@ -273,8 +279,36 @@ class Command(BaseCommand):
                 else:
                     raise
 
+        if restored_session_ids and not dry_run:
+            self._undelete_metadata(restored_session_ids)
+
         suffix = " (DRY RUN)" if dry_run else ""
         self.stdout.write(self.style.SUCCESS(f"\nDone: {restored} restored, {skipped} skipped{suffix}"))
+
+    def _undelete_metadata(self, session_ids: list[tuple[str, int]]) -> None:
+        self.stdout.write("\nUndeleting metadata in ClickHouse and Postgres...")
+
+        session_id_list = [sid for sid, _ in session_ids]
+        team_ids = {tid for _, tid in session_ids}
+
+        # UPDATE not DELETE: after a merge, deletion marker and data are one row.
+        # DELETE would remove all session metadata. UPDATE rewrites all parts safely.
+        sync_execute(
+            f"""
+            ALTER TABLE sharded_session_replay_events
+            ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+            UPDATE is_deleted = 0
+            WHERE session_id IN %(session_ids)s AND team_id IN %(team_ids)s
+            """,
+            {"session_ids": session_id_list, "team_ids": list(team_ids)},
+        )
+        self.stdout.write(f"  ClickHouse: undeleted {len(session_id_list)} sessions")
+
+        # Postgres: bulk update
+        updated = SessionRecording.objects.filter(
+            session_id__in=session_id_list, team_id__in=team_ids, deleted=True
+        ).update(deleted=None)
+        self.stdout.write(f"  Postgres: undeleted {updated} recordings")
 
     def _cleanup(self, dynamodb_client, restored_table_name: str) -> None:
         self.stdout.write(f"Deleting restored table: {restored_table_name}")
