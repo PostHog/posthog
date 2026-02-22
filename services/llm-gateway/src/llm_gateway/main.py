@@ -148,6 +148,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     ensure_costs_fresh()
     logger.info("Model costs initialized")
 
+    from llm_gateway.services.hosted_models import HostedModelRegistry
+
+    hosted_registry = HostedModelRegistry.get_instance()
+    hosted_models = hosted_registry.get_all()
+    if hosted_models:
+        logger.info("hosted_models_initialized", models=[m.user_facing_id for m in hosted_models])
+    else:
+        logger.info("hosted_models_none_configured")
+
     yield
 
     if app.state.redis:
