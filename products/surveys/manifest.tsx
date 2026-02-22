@@ -13,6 +13,7 @@ export const manifest: ProductManifest = {
         survey: (id: string): string => `/surveys/${id}`,
         surveyTemplates: (): string => '/survey_templates',
         surveyWizard: (id: string = 'new'): string => `/surveys/guided/${id}`,
+        surveyFormBuilder: (id: string = 'new'): string => `/surveys/form/${id}`,
     },
     fileSystemTypes: {
         survey: {
