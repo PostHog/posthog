@@ -18,14 +18,15 @@ import { Breadcrumb } from '~/types'
 import type { personsSceneLogicType } from './personsSceneLogicType'
 
 export const PEOPLE_LIST_CONTEXT_KEY = 'people-list'
-
+const DEFAULT_COLUMNS = [...defaultDataTableColumns(NodeKind.ActorsQuery), 'person.$delete']
 export const PEOPLE_LIST_DEFAULT_QUERY = {
     kind: NodeKind.DataTableNode,
     source: {
         kind: NodeKind.ActorsQuery,
         tags: { productKey: ProductKey.CUSTOMER_ANALYTICS },
-        select: [...defaultDataTableColumns(NodeKind.ActorsQuery), 'person.$delete'],
+        select: DEFAULT_COLUMNS,
     },
+    defaultColumns: DEFAULT_COLUMNS,
     full: true,
     propertiesViaUrl: true,
     contextKey: PEOPLE_LIST_CONTEXT_KEY,
@@ -43,7 +44,16 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
     }),
 
     reducers({
-        query: [PEOPLE_LIST_DEFAULT_QUERY, { setQuery: (_, { query }) => query }],
+        query: [
+            PEOPLE_LIST_DEFAULT_QUERY,
+            {
+                setQuery: (_, { query }) => ({
+                    ...query,
+                    // Need this so that clicking "reset to defaults" in column configurator also bring back the delete button
+                    defaultColumns: DEFAULT_COLUMNS,
+                }),
+            },
+        ],
         showDisplayNameNudge: [
             false,
             {

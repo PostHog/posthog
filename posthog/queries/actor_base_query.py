@@ -41,6 +41,7 @@ class CommonActor(TypedDict):
 
 class SerializedPerson(CommonActor):
     type: Literal["person"]
+    last_seen_at: Optional[str]
     uuid: Union[uuid.UUID, str]
     is_identified: Optional[bool]
     name: str
@@ -303,6 +304,7 @@ def get_serialized_people(
             id=uuid,
             uuid=uuid,
             created_at=person_dict["created_at"],
+            last_seen_at=person_dict["last_seen_at"],
             properties=person_dict["properties"],
             is_identified=person_dict["is_identified"],
             name=get_person_name_helper(
@@ -331,6 +333,7 @@ def serialize_people(
             id=person.uuid,
             uuid=person.uuid,
             created_at=person.created_at,
+            last_seen_at=person.last_seen_at,
             properties=person.properties,
             is_identified=person.is_identified,
             name=get_person_name(team, person),

@@ -24,7 +24,6 @@ export interface PersonLogicProps {
 export interface Info {
     sessionCount: number
     eventCount: number
-    lastSeen: string | null
 }
 
 export const personLogic = kea<personLogicType>([
@@ -89,6 +88,7 @@ export const personLogic = kea<personLogicType>([
                         properties: JSON.parse(row[2] || '{}'),
                         is_identified: !!row[3],
                         created_at: row[4],
+                        last_seen_at: row[5],
                     }
                     return queryPerson
                 },
@@ -105,11 +105,11 @@ export const personLogic = kea<personLogicType>([
                     const infoQuery = hogql`
                     SELECT
                         count(DISTINCT $session_id) as session_count,
-                        count(*) as event_count,
-                        max(timestamp) as last_seen
+                        count(*) as event_count
                     FROM events
-                    WHERE person_id = ${props.id}
-                    AND timestamp >= now() - interval 30 day
+                    WHERE
+                      person_id = ${props.id}
+                      AND timestamp >= now() - interval 30 day
                     `
                     try {
                         const response = await api.queryHogQL(infoQuery, CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS)
@@ -118,18 +118,16 @@ export const personLogic = kea<personLogicType>([
                             return {
                                 sessionCount: 0,
                                 eventCount: 0,
-                                lastSeen: null,
                             }
                         }
 
-                        const [sessionCount, eventCount, lastSeen] = row
-                        return { sessionCount, eventCount, lastSeen }
+                        const [sessionCount, eventCount] = row
+                        return { sessionCount, eventCount }
                     } catch (error: any) {
                         posthog.captureException(error)
                         return {
                             sessionCount: 0,
                             eventCount: 0,
-                            lastSeen: null,
                         }
                     }
                 },
