@@ -1053,6 +1053,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", "PATCH"),
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/", "PATCH"),
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/", "POST"),
+            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/command/", "POST"),
         ]
 
         for url, method in endpoints:
