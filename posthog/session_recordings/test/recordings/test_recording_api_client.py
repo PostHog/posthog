@@ -293,7 +293,12 @@ class TestBulkDeleteRecordings:
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.raise_for_status = MagicMock()
-        mock_response.json = AsyncMock(return_value={"deleted": ["s1", "s2"], "failed": []})
+        mock_response.json = AsyncMock(
+            return_value=[
+                {"sessionId": "s1", "ok": True, "status": "deleted", "deletedAt": 1700000000},
+                {"sessionId": "s2", "ok": True, "status": "deleted", "deletedAt": 1700000000},
+            ]
+        )
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 
@@ -313,10 +318,10 @@ class TestBulkDeleteRecordings:
         mock_response.status = 200
         mock_response.raise_for_status = MagicMock()
         mock_response.json = AsyncMock(
-            return_value={
-                "deleted": ["s1"],
-                "failed": [{"session_id": "s2", "error": "not_found"}],
-            }
+            return_value=[
+                {"sessionId": "s1", "ok": True, "status": "deleted", "deletedAt": 1700000000},
+                {"sessionId": "s2", "ok": False, "error": "shred_failed"},
+            ]
         )
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)

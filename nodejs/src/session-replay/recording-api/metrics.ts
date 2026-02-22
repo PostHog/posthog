@@ -15,11 +15,22 @@ export class RecordingApiMetrics {
         buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
     })
 
+    private static readonly bulkDeleteRecordingsDuration = new Histogram({
+        name: 'recording_api_bulk_delete_recordings_duration_seconds',
+        help: 'Time taken to bulk delete recordings',
+        labelNames: ['result'],
+        buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30],
+    })
+
     public static observeGetBlock(result: string, seconds: number): void {
         this.getBlockDuration.labels({ result }).observe(seconds)
     }
 
     public static observeDeleteRecording(result: string, seconds: number): void {
         this.deleteRecordingDuration.labels({ result }).observe(seconds)
+    }
+
+    public static observeBulkDeleteRecordings(result: string, seconds: number): void {
+        this.bulkDeleteRecordingsDuration.labels({ result }).observe(seconds)
     }
 }

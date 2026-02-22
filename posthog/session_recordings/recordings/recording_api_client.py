@@ -153,7 +153,7 @@ class RecordingApiClient:
             async with self.session.post(url, json={"session_ids": session_ids}) as response:
                 response.raise_for_status()
                 data = await response.json()
-                return [f["session_id"] for f in data.get("failed", [])]
+                return [r["sessionId"] for r in data if not r.get("ok")]
         except aiohttp.ClientError as e:
             logger.exception(
                 "recording_api_client.bulk_delete_failed",

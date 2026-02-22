@@ -876,7 +876,7 @@ describe('Recording API encryption integration', () => {
                 expect(res.body).toEqual({
                     team_id: teamId,
                     session_id: sessionId,
-                    status: 'deleted',
+                    status: 'already_deleted',
                     deleted_at: expect.any(Number),
                 })
             })

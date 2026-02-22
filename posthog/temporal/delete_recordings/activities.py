@@ -213,8 +213,8 @@ async def bulk_delete_recordings(input: BulkDeleteInput) -> BulkDeleteResult:
         response.raise_for_status()
         data = response.json()
 
-    deleted: list[str] = data.get("deleted", [])
-    failed_count = len(data.get("failed", []))
+    deleted = [r["sessionId"] for r in data if r.get("ok")]
+    failed_count = len(data) - len(deleted)
 
     logger.info(
         "Delete batch completed",

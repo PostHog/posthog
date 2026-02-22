@@ -18,22 +18,25 @@ from posthog.temporal.delete_recordings.types import BulkDeleteInput, LoadRecord
     "response_json, expected_deleted, expected_failed_count",
     [
         pytest.param(
-            {"deleted": ["s1", "s2"], "failed": []},
+            [
+                {"sessionId": "s1", "ok": True, "status": "deleted", "deletedAt": 1700000000},
+                {"sessionId": "s2", "ok": True, "status": "deleted", "deletedAt": 1700000000},
+            ],
             ["s1", "s2"],
             0,
             id="all_deleted",
         ),
         pytest.param(
-            {
-                "deleted": ["s1"],
-                "failed": [{"session_id": "s2", "error": "Key not found"}],
-            },
+            [
+                {"sessionId": "s1", "ok": True, "status": "deleted", "deletedAt": 1700000000},
+                {"sessionId": "s2", "ok": False, "error": "shred_failed"},
+            ],
             ["s1"],
             1,
             id="mixed_results",
         ),
         pytest.param(
-            {"deleted": [], "failed": []},
+            [],
             [],
             0,
             id="empty_results",
@@ -66,7 +69,7 @@ async def test_bulk_delete_recordings_parses_response(response_json, expected_de
 async def test_bulk_delete_recordings_url_construction():
     mock_response = httpx.Response(
         200,
-        json={"deleted": ["s1"], "failed": []},
+        json=[{"sessionId": "s1", "ok": True, "status": "deleted", "deletedAt": 1700000000}],
         request=httpx.Request("POST", "http://test"),
     )
 
@@ -95,7 +98,7 @@ async def test_bulk_delete_recordings_url_construction():
 async def test_bulk_delete_recordings_sends_auth_header():
     mock_response = httpx.Response(
         200,
-        json={"deleted": [], "failed": []},
+        json=[],
         request=httpx.Request("POST", "http://test"),
     )
 
@@ -124,7 +127,7 @@ async def test_bulk_delete_recordings_sends_auth_header():
 async def test_bulk_delete_recordings_no_auth_header_when_secret_empty():
     mock_response = httpx.Response(
         200,
-        json={"deleted": [], "failed": []},
+        json=[],
         request=httpx.Request("POST", "http://test"),
     )
 

@@ -22,13 +22,12 @@ export type GetBlockResult =
     | { ok: false; error: 'deleted'; deletedAt?: number }
 
 export type DeleteRecordingResult =
-    | { ok: true; deletedAt: number }
-    | { ok: false; error: 'cleanup_failed'; metadataError?: unknown; postgresError?: unknown }
+    | { sessionId: string; ok: true; status: 'deleted'; deletedAt: number }
+    | { sessionId: string; ok: true; status: 'already_deleted'; deletedAt: number }
+    | { sessionId: string; ok: false; error: 'shred_failed' }
+    | { sessionId: string; ok: false; error: 'cleanup_failed'; deletedAt: number }
 
-export type BulkDeleteRecordingsResult = {
-    deleted: string[]
-    failed: { session_id: string; error: string }[]
-}
+export type BulkDeleteRecordingsResult = DeleteRecordingResult[]
 
 export class RecordingService {
     constructor(
@@ -126,86 +125,84 @@ export class RecordingService {
         }
     }
 
-    async deleteRecording(sessionId: string, teamId: number): Promise<DeleteRecordingResult> {
+    async deleteSingleRecording(sessionId: string, teamId: number): Promise<DeleteRecordingResult> {
         const startTime = performance.now()
-        logger.debug('[RecordingService] deleteRecording request', { teamId, sessionId })
+        logger.debug('[RecordingService] deleteSingleRecording request', { teamId, sessionId })
 
-        const result = await this.shredKey(sessionId, teamId)
+        const result = await this.deleteRecording(sessionId, teamId, (sid, tid) => this.deletePostgresRecords(sid, tid))
 
-        if (result.deleted) {
-            const deletedAt = result.deletedAt
-            const [metadataResult, postgresResult] = await Promise.allSettled([
-                this.emitDeletionEvent(sessionId, teamId),
-                this.deletePostgresRecords(sessionId, teamId),
-            ])
-            const metadataError = metadataResult.status === 'rejected' ? metadataResult.reason : undefined
-            const postgresError = postgresResult.status === 'rejected' ? postgresResult.reason : undefined
-            if (metadataError || postgresError) {
-                logger.error('[RecordingService] Post-deletion cleanup failed', {
-                    sessionId,
-                    teamId,
-                    metadataError: serializeError(metadataError) ?? null,
-                    postgresError: serializeError(postgresError) ?? null,
-                })
-                RecordingApiMetrics.observeDeleteRecording('cleanup_failed', (performance.now() - startTime) / 1000)
-                return { ok: false, error: 'cleanup_failed', metadataError, postgresError }
-            }
-            RecordingApiMetrics.observeDeleteRecording('success', (performance.now() - startTime) / 1000)
-            return { ok: true, deletedAt }
-        }
-
-        // already_deleted
-        logger.info('[RecordingService] Recording already deleted', {
-            teamId,
-            sessionId,
-            deleted_at: result.deletedAt,
-        })
-        RecordingApiMetrics.observeDeleteRecording('success', (performance.now() - startTime) / 1000)
-        return { ok: true, deletedAt: result.deletedAt }
+        const metric = result.ok ? 'success' : result.error
+        RecordingApiMetrics.observeDeleteRecording(metric, (performance.now() - startTime) / 1000)
+        return result
     }
 
     async bulkDeleteRecordings(sessionIds: string[], teamId: number): Promise<BulkDeleteRecordingsResult> {
+        const startTime = performance.now()
         logger.debug('[RecordingService] bulkDeleteRecordings request', { teamId, count: sessionIds.length })
 
-        // Shred keys and emit Kafka events in parallel
-        const results = await Promise.allSettled(
-            sessionIds.map(async (sid) => {
-                const result = await this.shredKey(sid, teamId)
-                if (result.deleted) {
-                    await this.emitDeletionEvent(sid, teamId)
-                }
-            })
+        const pendingPostgres: string[] = []
+        const results = await Promise.all(
+            sessionIds.map((sid) =>
+                this.deleteRecording(sid, teamId, (sessionId) => {
+                    pendingPostgres.push(sessionId)
+                    return Promise.resolve()
+                })
+            )
         )
 
-        const deleted: string[] = []
-        const failed: { session_id: string; error: string }[] = []
-
-        for (let i = 0; i < results.length; i++) {
-            const result = results[i]
-            const sessionId = sessionIds[i]
-            if (result.status === 'fulfilled') {
-                deleted.push(sessionId)
-            } else {
-                failed.push({ session_id: sessionId, error: 'unexpected_error' })
+        try {
+            await this.bulkDeletePostgresRecords(pendingPostgres, teamId)
+        } catch (error) {
+            logger.error('[RecordingService] Bulk postgres deletion failed', { teamId, error })
+            for (let i = 0; i < results.length; i++) {
+                const r = results[i]
+                if (r.ok && r.status === 'deleted') {
+                    results[i] = { sessionId: r.sessionId, ok: false, error: 'cleanup_failed', deletedAt: r.deletedAt }
+                }
             }
         }
 
-        // Bulk delete Postgres records for all successfully deleted sessions
-        if (deleted.length > 0) {
-            try {
-                await this.bulkDeletePostgresRecords(deleted, teamId)
-            } catch (error) {
-                logger.error('[RecordingService] Bulk Postgres deletion failed', { teamId, error })
-            }
-        }
-
+        const deletedCount = results.filter((r) => r.ok).length
+        const failedCount = sessionIds.length - deletedCount
+        RecordingApiMetrics.observeBulkDeleteRecordings(
+            failedCount > 0 ? 'partial' : 'success',
+            (performance.now() - startTime) / 1000
+        )
         logger.info('[RecordingService] bulkDeleteRecordings complete', {
             teamId,
-            deletedCount: deleted.length,
-            failedCount: failed.length,
+            deletedCount,
+            failedCount,
         })
 
-        return { deleted, failed }
+        return results
+    }
+
+    private async deleteRecording(
+        sessionId: string,
+        teamId: number,
+        deleteFromPostgres: (sessionId: string, teamId: number) => Promise<void>
+    ): Promise<DeleteRecordingResult> {
+        let shredResult: DeleteKeyResult
+        try {
+            shredResult = await this.shredKey(sessionId, teamId)
+        } catch {
+            return { sessionId, ok: false, error: 'shred_failed' }
+        }
+
+        if (!shredResult.deleted) {
+            return { sessionId, ok: true, status: 'already_deleted', deletedAt: shredResult.deletedAt }
+        }
+
+        const [kafkaResult, postgresResult] = await Promise.allSettled([
+            this.emitDeletionEvent(sessionId, teamId),
+            deleteFromPostgres(sessionId, teamId),
+        ])
+
+        if (kafkaResult.status === 'rejected' || postgresResult.status === 'rejected') {
+            return { sessionId, ok: false, error: 'cleanup_failed', deletedAt: shredResult.deletedAt }
+        }
+
+        return { sessionId, ok: true, status: 'deleted', deletedAt: shredResult.deletedAt }
     }
 
     private async shredKey(sessionId: string, teamId: number): Promise<DeleteKeyResult> {
@@ -280,8 +277,7 @@ export class RecordingService {
     }
 
     private async bulkDeletePostgresRecords(sessionIds: string[], teamId: number): Promise<void> {
-        if (!this.postgres) {
-            logger.warn('[RecordingService] No postgres configured, skipping bulk record deletion', { teamId })
+        if (sessionIds.length === 0 || !this.postgres) {
             return
         }
 
@@ -307,15 +303,15 @@ export class RecordingService {
             ),
         ])
 
+        const failures: string[] = []
         for (const [i, result] of results.entries()) {
             if (result.status === 'rejected') {
-                logger.error('[RecordingService] Bulk Postgres deletion failed for table', {
-                    teamId,
-                    table: tables[i],
-                    sessionCount: sessionIds.length,
-                    error: result.reason,
-                })
+                failures.push(tables[i])
             }
+        }
+
+        if (failures.length > 0) {
+            throw new Error(`Failed to delete from: ${failures.join(', ')}`)
         }
 
         logger.info('[RecordingService] Bulk PostgreSQL records deleted', { teamId, sessionCount: sessionIds.length })

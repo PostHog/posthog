@@ -298,15 +298,18 @@ export class RecordingApi {
 
         // Call service
         try {
-            const result = await this.recordingService.deleteRecording(sessionId, teamId)
+            const result = await this.recordingService.deleteSingleRecording(sessionId, teamId)
 
-            // Serialize response
             if (!result.ok) {
-                res.status(500).json({ error: 'Recording key deleted but post-deletion cleanup failed' })
+                if (result.error === 'shred_failed') {
+                    res.status(500).json({ error: 'Failed to delete recording key' })
+                } else {
+                    res.status(500).json({ error: 'Recording key deleted but post-deletion cleanup failed' })
+                }
                 return
             }
 
-            res.json({ team_id: teamId, session_id: sessionId, status: 'deleted', deleted_at: result.deletedAt })
+            res.json({ team_id: teamId, session_id: sessionId, status: result.status, deleted_at: result.deletedAt })
         } catch (error) {
             logger.error('[RecordingApi] Error deleting recording key', {
                 error: serializeError(error),
