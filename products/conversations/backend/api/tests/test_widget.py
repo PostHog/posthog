@@ -8,6 +8,7 @@ from rest_framework.test import APIClient
 
 from posthog.models.comment import Comment
 
+from products.conversations.backend.api.widget import POSTHOG_TEAM_ID
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Status
 
@@ -181,6 +182,71 @@ class TestWidgetAPI(BaseTest):
         ticket = Ticket.objects.get(id=response.json()["ticket_id"])
         self.assertEqual(ticket.anonymous_traits["name"], "John")
         self.assertEqual(ticket.anonymous_traits["email"], "john@example.com")
+
+    def test_create_message_infers_region_from_url_for_posthog_team(self):
+        with patch("products.conversations.backend.api.widget.POSTHOG_TEAM_ID", self.team.id):
+            response = self.client.post(
+                "/api/conversations/v1/widget/message",
+                {
+                    "message": "Hello from EU",
+                    "widget_session_id": self.widget_session_id,
+                    "distinct_id": self.distinct_id,
+                    "session_context": {"current_url": "https://eu.posthog.com/dashboard"},
+                },
+                **self._get_headers(),
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            ticket = Ticket.objects.get(id=response.json()["ticket_id"])
+            self.assertEqual(ticket.anonymous_traits["region"], "EU")
+
+    def test_create_message_infers_us_region_from_url_for_posthog_team(self):
+        with patch("products.conversations.backend.api.widget.POSTHOG_TEAM_ID", self.team.id):
+            response = self.client.post(
+                "/api/conversations/v1/widget/message",
+                {
+                    "message": "Hello from US",
+                    "widget_session_id": self.widget_session_id,
+                    "distinct_id": self.distinct_id,
+                    "session_context": {"current_url": "https://us.posthog.com/project/1"},
+                },
+                **self._get_headers(),
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            ticket = Ticket.objects.get(id=response.json()["ticket_id"])
+            self.assertEqual(ticket.anonymous_traits["region"], "US")
+
+    def test_create_message_no_region_for_unknown_subdomain(self):
+        with patch("products.conversations.backend.api.widget.POSTHOG_TEAM_ID", self.team.id):
+            response = self.client.post(
+                "/api/conversations/v1/widget/message",
+                {
+                    "message": "Hello from somewhere",
+                    "widget_session_id": self.widget_session_id,
+                    "distinct_id": self.distinct_id,
+                    "session_context": {"current_url": "https://app.posthog.com/dashboard"},
+                },
+                **self._get_headers(),
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            ticket = Ticket.objects.get(id=response.json()["ticket_id"])
+            self.assertNotIn("region", ticket.anonymous_traits)
+
+    def test_create_message_does_not_infer_region_for_other_teams(self):
+        self.assertNotEqual(self.team.id, POSTHOG_TEAM_ID)
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "message": "Hello",
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": self.distinct_id,
+                "session_context": {"current_url": "https://eu.posthog.com/dashboard"},
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket = Ticket.objects.get(id=response.json()["ticket_id"])
+        self.assertNotIn("region", ticket.anonymous_traits)
 
     def test_get_messages(self):
         ticket = Ticket.objects.create_with_number(
