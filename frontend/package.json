@@ -68,7 +68,7 @@
         "@posthog/docs-onboarding": "workspace:*",
         "@posthog/esbuilder": "workspace:*",
         "@posthog/hedgehog-mode": "^0.0.48",
-        "@posthog/hogql-parser": "workspace:*",
+        "@posthog/hogql-parser": "0.0.3",
         "@posthog/hogvm": "workspace:*",
         "@posthog/icons": "^0.36.6",
         "@posthog/plugin-scaffold": "^1.4.4",
