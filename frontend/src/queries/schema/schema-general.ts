@@ -1078,10 +1078,16 @@ export interface ConditionalFormattingRule {
     colorMode?: 'light' | 'dark'
 }
 
+export interface TableSettingsOrderBy {
+    column: string
+    direction: 'ASC' | 'DESC'
+}
+
 export interface TableSettings {
     columns?: ChartAxis[]
     conditionalFormatting?: ConditionalFormattingRule[]
     pinnedColumns?: string[]
+    orderBy?: TableSettingsOrderBy
 }
 
 export interface SharingConfigurationSettings {

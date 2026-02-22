@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 import React from 'react'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumn, Sorting, Tooltip } from '@posthog/lemon-ui'
 
 import { execHog } from 'lib/hog'
 import { lightenDarkenColor } from 'lib/utils'
@@ -62,8 +62,22 @@ export const Table = (props: TableProps): JSX.Element => {
         pinnedColumns,
         isColumnPinned,
         isPinningEnabled,
+        columnSort,
     } = useValues(dataVisualizationLogic)
-    const { toggleColumnPin } = useActions(dataVisualizationLogic)
+    const { toggleColumnPin, setColumnSort } = useActions(dataVisualizationLogic)
+
+    // Convert columnSort to LemonTable's Sorting format
+    const sorting: Sorting | null = columnSort
+        ? { columnKey: columnSort.column, order: columnSort.direction === 'ASC' ? 1 : -1 }
+        : null
+
+    const handleSort = (newSorting: Sorting | null): void => {
+        if (newSorting === null) {
+            setColumnSort(null)
+        } else {
+            setColumnSort(newSorting.columnKey, newSorting.order === 1 ? 'ASC' : 'DESC')
+        }
+    }
 
     const tableColumns: LemonTableColumn<TableDataCell<any>[], any>[] = tabularColumns.map(
         ({ column, settings }, index) => {
@@ -98,6 +112,7 @@ export const Table = (props: TableProps): JSX.Element => {
                         )}
                     </div>
                 ),
+                sorter: true, // Use server-side sorting via ORDER BY
                 render: (_, data, recordIndex: number, rowCount: number) => {
                     return (
                         <div className="truncate">
@@ -178,6 +193,10 @@ export const Table = (props: TableProps): JSX.Element => {
             loading={responseLoading}
             pagination={{ pageSize: DEFAULT_PAGE_SIZE }}
             maxHeaderWidth="15rem"
+            noSortingCancellation={false}
+            useURLForSorting={false}
+            sorting={sorting}
+            onSort={handleSort}
             emptyState={
                 responseError ? (
                     <InsightErrorState
