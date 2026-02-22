@@ -162,7 +162,7 @@ class TestUserCostBurstThrottle:
         result = await throttle.allow_request(context)
         assert result.allowed is False
         assert result.scope == "user_cost_burst"
-        assert result.detail == "User daily rate limit exceeded"
+        assert result.detail == "User burst rate limit exceeded"
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
@@ -247,7 +247,7 @@ class TestUserCostSustainedThrottle:
         result = await throttle.allow_request(context)
         assert result.allowed is False
         assert result.scope == "user_cost_sustained"
-        assert result.detail == "User monthly rate limit exceeded"
+        assert result.detail == "User sustained rate limit exceeded"
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
