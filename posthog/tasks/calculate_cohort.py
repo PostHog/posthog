@@ -15,6 +15,8 @@ from prometheus_client import Counter, Gauge, Histogram
 from posthog.api.monitoring import Feature
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, update_tags
+from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorS3Error, CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Cohort
 from posthog.models.cohort import CohortOrEmpty
@@ -294,7 +296,20 @@ def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional
     calculate_cohort_ch.delay(cohort.id, cohort.pending_version, initiating_user.id if initiating_user else None)
 
 
-@shared_task(ignore_result=True, max_retries=2, queue=CeleryQueue.LONG_RUNNING.value)
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    # Auto-retry for transient ClickHouse errors with exponential backoff
+    autoretry_for=(
+        CHQueryErrorTooManySimultaneousQueries,
+        CHQueryErrorCannotScheduleTask,
+        ClickHouseAtCapacity,
+        CHQueryErrorS3Error,
+    ),
+    retry_backoff=60,
+    retry_backoff_max=1800,
+    max_retries=6,
+)
 def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None) -> None:
     with posthoganalytics.new_context():
         posthoganalytics.tag("feature", Feature.COHORT.value)
