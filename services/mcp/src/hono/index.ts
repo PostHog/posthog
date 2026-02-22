@@ -16,29 +16,29 @@ const redis = new Redis(REDIS_URL, {
 })
 
 redis.on('error', (err) => {
-    console.error('[MCP-Hono] Redis connection error:', err.message)
+    console.error('[MCP] Redis connection error:', err.message)
 })
 
 redis.on('connect', () => {
-    console.info('[MCP-Hono] Redis connected')
+    console.info('[MCP] Redis connected')
 })
 
 async function main(): Promise<void> {
     try {
         await redis.connect()
     } catch (err) {
-        console.error('[MCP-Hono] Failed to connect to Redis:', err)
+        console.error('[MCP] Failed to connect to Redis:', err)
         process.exit(1)
     }
 
     const app = createApp(redis)
 
     const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
-        console.info(`[MCP-Hono] Server started on port ${info.port}`)
+        console.info(`[MCP] Server started on port ${info.port}`)
     })
 
     const shutdown = async (): Promise<void> => {
-        console.info('[MCP-Hono] Shutting down...')
+        console.info('[MCP] Shutting down...')
         server.close()
         await redis.quit()
         process.exit(0)
@@ -49,6 +49,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-    console.error('[MCP-Hono] Fatal error:', err)
+    console.error('[MCP] Fatal error:', err)
     process.exit(1)
 })

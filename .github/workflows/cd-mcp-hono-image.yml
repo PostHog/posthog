@@ -1,10 +1,10 @@
 #
-# Build and push MCP Hono server container image to AWS ECR.
+# Build and push MCP server container image to AWS ECR.
 #
-# This is the Hono-based MCP server that runs on k8s (EU + US clusters)
+# This is the MCP server that runs on k8s (EU + US clusters)
 # using Redis for session state instead of Cloudflare Durable Objects.
 #
-name: MCP Hono Container Image CD
+name: MCP Container Image CD
 
 on:
     push:
@@ -19,13 +19,13 @@ on:
     workflow_dispatch:
 
 jobs:
-    mcp_hono_build:
+    mcp_build:
         name: Build and push container image
         if: |
             github.repository == 'PostHog/posthog' && (
                 github.event_name == 'push' ||
                 github.event_name == 'workflow_dispatch' ||
-                contains(github.event.pull_request.labels.*.name, 'build-mcp-hono-image')
+                contains(github.event.pull_request.labels.*.name, 'build-mcp-image')
             )
         runs-on: depot-ubuntu-latest
         permissions:
@@ -65,7 +65,7 @@ jobs:
                   file: ./services/mcp/Dockerfile.hono
                   buildx-fallback: false
                   push: true
-                  tags: ${{ github.ref == 'refs/heads/master' && format('{0}/posthog-mcp-hono:master,{0}/posthog-mcp-hono:{1}', steps.aws-ecr.outputs.registry, github.sha) || format('{0}/posthog-mcp-hono:{1}', steps.aws-ecr.outputs.registry, github.sha) }}
+                  tags: ${{ github.ref == 'refs/heads/master' && format('{0}/posthog-mcp:master,{0}/posthog-mcp:{1}', steps.aws-ecr.outputs.registry, github.sha) || format('{0}/posthog-mcp:{1}', steps.aws-ecr.outputs.registry, github.sha) }}
                   platforms: linux/arm64,linux/amd64
                   build-args: COMMIT_HASH=${{ github.sha }}
 
@@ -84,7 +84,7 @@ jobs:
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Trigger MCP Hono deployment
+            - name: Trigger MCP deployment
               if: github.ref == 'refs/heads/master'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
@@ -98,7 +98,7 @@ jobs:
                             "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
                           }
                         },
-                        "release": "mcp-hono",
+                        "release": "mcp",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},

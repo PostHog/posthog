@@ -98,16 +98,76 @@ describe('Hono App Routes', () => {
             const body = (await res.json()) as Record<string, any>
             expect(body.authorization_servers[0]).toContain('us.posthog.com')
         })
+
+        it('should return metadata for /sse path', async () => {
+            const app = createApp(mockRedis as any)
+            const res = await app.request('/.well-known/oauth-protected-resource/sse')
+            expect(res.status).toBe(200)
+            const body = (await res.json()) as Record<string, any>
+            expect(body.resource).toContain('/sse')
+        })
+    })
+
+    describe('hostname-based region detection', () => {
+        it('should detect EU region from mcp.eu.posthog.com', async () => {
+            const app = createApp(mockRedis as any)
+            const res = await app.request(
+                new Request('http://mcp.eu.posthog.com/.well-known/oauth-protected-resource/mcp')
+            )
+            expect(res.status).toBe(200)
+            const body = (await res.json()) as Record<string, any>
+            expect(body.authorization_servers[0]).toContain('eu.posthog.com')
+        })
+
+        it('should detect US region from mcp.us.posthog.com', async () => {
+            const app = createApp(mockRedis as any)
+            const res = await app.request(
+                new Request('http://mcp.us.posthog.com/.well-known/oauth-protected-resource/mcp')
+            )
+            expect(res.status).toBe(200)
+            const body = (await res.json()) as Record<string, any>
+            expect(body.authorization_servers[0]).toContain('us.posthog.com')
+        })
+
+        it('should detect EU region from legacy mcp-eu.posthog.com', async () => {
+            const app = createApp(mockRedis as any)
+            const res = await app.request(
+                new Request('http://mcp-eu.posthog.com/.well-known/oauth-protected-resource/mcp')
+            )
+            expect(res.status).toBe(200)
+            const body = (await res.json()) as Record<string, any>
+            expect(body.authorization_servers[0]).toContain('eu.posthog.com')
+        })
+
+        it('should prioritize hostname over query param', async () => {
+            const app = createApp(mockRedis as any)
+            const res = await app.request(
+                new Request('http://mcp.eu.posthog.com/.well-known/oauth-protected-resource/mcp?region=us')
+            )
+            expect(res.status).toBe(200)
+            const body = (await res.json()) as Record<string, any>
+            expect(body.authorization_servers[0]).toContain('eu.posthog.com')
+        })
     })
 
     describe('MCP endpoint authentication', () => {
-        it('should return 401 when no token is provided', async () => {
+        it('should return 401 when no token is provided on /mcp', async () => {
             const app = createApp(mockRedis as any)
             const res = await app.request('/mcp', { method: 'POST' })
             expect(res.status).toBe(401)
             const text = await res.text()
             expect(text).toContain('No token provided')
             expect(res.headers.get('WWW-Authenticate')).toContain('Bearer')
+            expect(res.headers.get('WWW-Authenticate')).toContain('oauth-protected-resource/mcp')
+        })
+
+        it('should return 401 when no token is provided on /sse', async () => {
+            const app = createApp(mockRedis as any)
+            const res = await app.request('/sse', { method: 'GET' })
+            expect(res.status).toBe(401)
+            const text = await res.text()
+            expect(text).toContain('No token provided')
+            expect(res.headers.get('WWW-Authenticate')).toContain('oauth-protected-resource/sse')
         })
 
         it('should return 401 for invalid token format', async () => {
@@ -179,29 +239,90 @@ describe('Hono App Routes', () => {
             expect([301, 302]).toContain(res.status)
         })
 
-        it('should redirect /register', async () => {
+        it('should redirect /register with 307 (preserves POST)', async () => {
             const app = createApp(mockRedis as any)
             const res = await app.request('/register', { method: 'POST', redirect: 'manual' })
             expect(res.status).toBe(307)
         })
 
-        it('should redirect /token', async () => {
+        it('should redirect /token with 307 (preserves POST)', async () => {
             const app = createApp(mockRedis as any)
             const res = await app.request('/token', { method: 'POST', redirect: 'manual' })
             expect(res.status).toBe(307)
         })
-    })
 
-    describe('404 handling', () => {
-        it('should return 404 for unknown routes', async () => {
+        it('should redirect /authorize with 302', async () => {
             const app = createApp(mockRedis as any)
-            const res = await app.request('/unknown-path')
-            expect(res.status).toBe(404)
+            const res = await app.request('/authorize', { redirect: 'manual' })
+            expect(res.status).toBe(302)
+        })
+
+        it('should include region in redirect for EU hostname', async () => {
+            const app = createApp(mockRedis as any)
+            const res = await app.request(
+                new Request('http://mcp.eu.posthog.com/.well-known/oauth-authorization-server'),
+                { redirect: 'manual' }
+            )
+            expect([301, 302]).toContain(res.status)
+            const location = res.headers.get('Location') || ''
+            expect(location).toContain('eu.posthog.com')
         })
     })
 
-    describe('DELETE /mcp (session not found)', () => {
-        it('should return 404 for non-existent session with valid token', async () => {
+    describe('SSE endpoint', () => {
+        it('should return 401 when no token is provided', async () => {
+            const app = createApp(mockRedis as any)
+            const res = await app.request('/sse', { method: 'GET' })
+            expect(res.status).toBe(401)
+        })
+
+        it('should return 400 for POST without sessionId', async () => {
+            const app = createApp(mockRedis as any)
+            const res = await app.request('/sse', {
+                method: 'POST',
+                headers: {
+                    Authorization: 'Bearer phx_test_token',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ jsonrpc: '2.0', method: 'ping', id: 1 }),
+            })
+            expect(res.status).toBe(400)
+        })
+
+        it('should return 404 for POST with non-existent session', async () => {
+            const app = createApp(mockRedis as any)
+            const res = await app.request('/sse?sessionId=non-existent', {
+                method: 'POST',
+                headers: {
+                    Authorization: 'Bearer phx_test_token',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ jsonrpc: '2.0', method: 'ping', id: 1 }),
+            })
+            expect(res.status).toBe(404)
+        })
+
+        it('should return 405 for unsupported methods', async () => {
+            const app = createApp(mockRedis as any)
+            const res = await app.request('/sse', {
+                method: 'DELETE',
+                headers: { Authorization: 'Bearer phx_test_token' },
+            })
+            expect(res.status).toBe(405)
+        })
+    })
+
+    describe('Streamable HTTP endpoint', () => {
+        it('should return 405 for unsupported methods', async () => {
+            const app = createApp(mockRedis as any)
+            const res = await app.request('/mcp', {
+                method: 'PUT',
+                headers: { Authorization: 'Bearer phx_test_token' },
+            })
+            expect(res.status).toBe(405)
+        })
+
+        it('should return 404 for DELETE with non-existent session', async () => {
             const app = createApp(mockRedis as any)
             const res = await app.request('/mcp', {
                 method: 'DELETE',
@@ -210,6 +331,14 @@ describe('Hono App Routes', () => {
                     'mcp-session-id': 'non-existent-session',
                 },
             })
+            expect(res.status).toBe(404)
+        })
+    })
+
+    describe('404 handling', () => {
+        it('should return 404 for unknown routes', async () => {
+            const app = createApp(mockRedis as any)
+            const res = await app.request('/unknown-path')
             expect(res.status).toBe(404)
         })
     })
