@@ -31,7 +31,7 @@ type HonoEnv = {
 const SESSION_TTL_MS = 30 * 60 * 1000
 const MAX_SESSIONS_PER_INSTANCE = 10_000
 
-type SessionEntry<T> = { transport: T; createdAt: number }
+type SessionEntry<T> = { transport: T; createdAt: number; tokenHash: string }
 
 function getRegionFromHostname(hostname: string): CloudRegion | undefined {
     const h = hostname.toLowerCase()
@@ -133,13 +133,16 @@ export function createApp(redis: RedisLike & { ping(): Promise<string> }): Hono<
     const streamableSessions = new Map<string, SessionEntry<WebStandardStreamableHTTPServerTransport>>()
     const sseSessions = new Map<string, SessionEntry<SSEServerTransport> & { server: HonoMcpServer }>()
 
-    function getStreamableTransport(sessionId: string): WebStandardStreamableHTTPServerTransport | undefined {
+    function getStreamableTransport(sessionId: string, tokenHash: string): WebStandardStreamableHTTPServerTransport | undefined {
         const entry = streamableSessions.get(sessionId)
         if (!entry) {
             return undefined
         }
         if (Date.now() - entry.createdAt > SESSION_TTL_MS) {
             streamableSessions.delete(sessionId)
+            return undefined
+        }
+        if (entry.tokenHash !== tokenHash) {
             return undefined
         }
         return entry.transport
@@ -261,7 +264,7 @@ export function createApp(redis: RedisLike & { ping(): Promise<string> }): Hono<
         if (method === 'GET' || method === 'DELETE') {
             const existingSessionId = c.req.header('mcp-session-id')
             if (existingSessionId) {
-                const transport = getStreamableTransport(existingSessionId)
+                const transport = getStreamableTransport(existingSessionId, props.userHash)
                 if (transport) {
                     if (method === 'DELETE') {
                         await transport.handleRequest(c.req.raw)
@@ -280,7 +283,7 @@ export function createApp(redis: RedisLike & { ping(): Promise<string> }): Hono<
         if (method === 'POST') {
             const existingSessionId = c.req.header('mcp-session-id')
             if (existingSessionId) {
-                const transport = getStreamableTransport(existingSessionId)
+                const transport = getStreamableTransport(existingSessionId, props.userHash)
                 if (transport) {
                     const response = await transport.handleRequest(c.req.raw)
                     return errorHandler(response)
@@ -297,7 +300,7 @@ export function createApp(redis: RedisLike & { ping(): Promise<string> }): Hono<
             const transport = new WebStandardStreamableHTTPServerTransport({
                 sessionIdGenerator: () => uuidv4(),
                 onsessioninitialized: (sid) => {
-                    streamableSessions.set(sid, { transport, createdAt: Date.now() })
+                    streamableSessions.set(sid, { transport, createdAt: Date.now(), tokenHash: props.userHash })
                 },
             })
 
@@ -344,7 +347,7 @@ export function createApp(redis: RedisLike & { ping(): Promise<string> }): Hono<
                     const { transport, start } = createSSEResponseAdapter(controller, () => {
                         sseSessions.delete(sessionId)
                     })
-                    sseSessions.set(sessionId, { transport, server: mcpServer, createdAt: Date.now() })
+                    sseSessions.set(sessionId, { transport, server: mcpServer, createdAt: Date.now(), tokenHash: props.userHash })
                     mcpServer.server.connect(transport).then(start)
                 },
             })
@@ -364,7 +367,7 @@ export function createApp(redis: RedisLike & { ping(): Promise<string> }): Hono<
                 return new Response('Missing sessionId', { status: 400 })
             }
             const session = sseSessions.get(sessionId)
-            if (!session) {
+            if (!session || session.tokenHash !== props.userHash) {
                 return new Response('Session not found', { status: 404 })
             }
             const body = await c.req.json()
