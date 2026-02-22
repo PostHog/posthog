@@ -505,6 +505,28 @@ class HogFunctionViewSet(
 
         return Response(res.json())
 
+    @action(detail=True, methods=["POST"])
+    def batch_retry(self, request: Request, *args, **kwargs):
+        hog_function = self.get_object()
+        date_from = str(request.data.get("date_from") or "")
+        date_to = str(request.data.get("date_to") or "")
+        status = str(request.data.get("status") or "error")
+
+        if not date_from or not date_to:
+            raise serializers.ValidationError("date_from and date_to are required")
+
+        from posthog.tasks.hog_functions import batch_retry_hog_function
+
+        batch_retry_hog_function.delay(
+            team_id=self.team_id,
+            hog_function_id=str(hog_function.id),
+            date_from=date_from,
+            date_to=date_to,
+            status=status,
+        )
+
+        return Response({"status": "queued"})
+
     def perform_create(self, serializer):
         serializer.save()
         log_activity_from_viewset(

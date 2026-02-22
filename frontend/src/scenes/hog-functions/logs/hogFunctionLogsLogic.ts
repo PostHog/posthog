@@ -97,7 +97,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
     props({} as LogsViewerLogicProps), // TODO: Remove `stage` from props, it isn't needed here for anything
     key(({ sourceType, sourceId }) => `${sourceType}:${sourceId}`),
     connect((props: LogsViewerLogicProps) => ({
-        values: [logsViewerLogic(props), ['groupedLogs']],
+        values: [logsViewerLogic(props), ['groupedLogs', 'logEntryParams']],
         actions: [logsViewerLogic(props), ['addLogGroups', 'setRowExpanded']],
     })),
     actions({
@@ -110,8 +110,19 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
         retryInvocationSuccess: (groupedLogEntry: GroupedLogEntry) => ({ groupedLogEntry }),
         retryInvocationFailure: (groupedLogEntry: GroupedLogEntry) => ({ groupedLogEntry }),
         retrySelectedInvocations: true,
+        retryBatch: true,
+        openRetryModal: true,
+        closeRetryModal: true,
     }),
     reducers({
+        isRetryModalOpen: [
+            false,
+            {
+                openRetryModal: () => true,
+                closeRetryModal: () => false,
+                retryBatch: () => false,
+            },
+        ],
         selectingMany: [
             false,
             {
@@ -300,6 +311,69 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
             const groupsToRetry = values.groupedLogs.filter((x) => values.selectedForRetry[x.instanceId])
 
             actions.retryInvocations(groupsToRetry)
+        },
+
+        retryBatch: async () => {
+            const { logEntryParams } = values
+            const { dateFrom: rawDateFrom, dateTo: rawDateTo } = logEntryParams
+
+            // Helper to resolve dates (relative or absolute) to ISO string
+            const resolveDate = (date: string | undefined): string | null => {
+                if (!date) {
+                    return null
+                }
+                if (date === 'all') {
+                    return '2020-01-01T00:00:00Z'
+                }
+
+                // Check if it is a relative string like "-7d", "-24h"
+                const match = date.match(/^-(\d+)([a-z]+)$/)
+                if (match) {
+                    const val = parseInt(match[1])
+                    const unit = match[2]
+                    // Simple mapping
+                    const unitMap: Record<string, 'day' | 'hour' | 'minute' | 'week' | 'month' | 'year'> = {
+                        d: 'day',
+                        h: 'hour',
+                        m: 'minute',
+                        w: 'week',
+                        M: 'month',
+                        y: 'year',
+                    }
+                    const opUnit = unitMap[unit]
+                    if (opUnit) {
+                        return dayjs().subtract(val, opUnit).toISOString()
+                    }
+                }
+
+                // Attempt to parse as absolute
+                const d = dayjs(date)
+                if (d.isValid()) {
+                    return d.toISOString()
+                }
+
+                return null
+            }
+
+            const dateFrom = resolveDate(rawDateFrom)
+            const dateTo = resolveDate(rawDateTo) || dayjs().toISOString()
+
+            if (!dateFrom) {
+                lemonToast.error('Invalid or missing start date for retry')
+                return
+            }
+
+            try {
+                lemonToast.info('Queueing batch retry...')
+                await api.hogFunctions.batchRetry(props.sourceId, {
+                    date_from: dateFrom,
+                    date_to: dateTo,
+                    status: 'error',
+                })
+                lemonToast.success('Batch retry queued!')
+            } catch {
+                lemonToast.error('Failed to queue batch retry')
+            }
         },
 
         selectAllForRetry: async () => {

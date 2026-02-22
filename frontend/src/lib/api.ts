@@ -3429,6 +3429,16 @@ const api = {
         async enableBackfills(id: HogFunctionType['id']): Promise<{ batch_export_id: string }> {
             return await new ApiRequest().hogFunction(id).withAction('enable_backfills').create()
         },
+        async batchRetry(
+            id: HogFunctionType['id'],
+            data: {
+                date_from: string
+                date_to: string
+                status?: string
+            }
+        ): Promise<{ status: string }> {
+            return await new ApiRequest().hogFunction(id).withAction('batch_retry').create({ data })
+        },
     },
 
     links: {
