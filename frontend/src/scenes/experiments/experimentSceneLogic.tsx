@@ -109,21 +109,21 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             ],
             (experimentMissing): boolean => experimentMissing ?? false,
         ],
-        isExperimentRunningSelector: [
+        isExperimentLaunchedSelector: [
             (s) => [s.experimentLogicRef],
-            (experimentLogicRef) => experimentLogicRef?.logic.selectors.isExperimentRunning,
+            (experimentLogicRef) => experimentLogicRef?.logic.selectors.isExperimentLaunched,
         ],
-        isExperimentRunning: [
+        isExperimentLaunched: [
             (s) => [
                 (state, props) => {
                     try {
-                        return s.isExperimentRunningSelector?.(state, props)?.(state, props)
+                        return s.isExperimentLaunchedSelector?.(state, props)?.(state, props)
                     } catch {
                         return false
                     }
                 },
             ],
-            (isExperimentRunning): boolean => isExperimentRunning ?? false,
+            (isExperimentLaunched): boolean => isExperimentLaunched ?? false,
         ],
         breadcrumbs: [
             (s) => [s.experiment, s.experimentId],

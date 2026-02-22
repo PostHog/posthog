@@ -28,7 +28,7 @@ import {
 
 export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boolean }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { experiment, isExperimentRunning, editingPrimaryMetricUuid, editingSecondaryMetricUuid } =
+    const { experiment, isExperimentLaunched, editingPrimaryMetricUuid, editingSecondaryMetricUuid } =
         useValues(experimentLogic)
     const { setFunnelsMetric } = useActions(experimentLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
@@ -188,7 +188,7 @@ export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boole
                     fullWidth
                 />
             </div>
-            {isExperimentRunning && (
+            {isExperimentLaunched && (
                 <LemonBanner type="info" className="mt-3 mb-3">
                     Preview insights are generated based on {EXPERIMENT_DEFAULT_DURATION} days of data. This can cause a
                     mismatch between the preview and the actual results.

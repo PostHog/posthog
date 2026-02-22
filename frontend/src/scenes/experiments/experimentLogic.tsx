@@ -13,6 +13,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import {
+    hasMultipleVariantsActive,
+    hasZeroRollout,
     indexToVariantKeyFeatureFlagPayloads,
     featureFlagLogic as sceneFeatureFlagLogic,
     validateFeatureFlagKey,
@@ -79,7 +81,13 @@ import {
 } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentSceneLogic } from './experimentSceneLogic'
-import { experimentsLogic, getShippedVariantKey, isSingleVariantShipped } from './experimentsLogic'
+import {
+    experimentsLogic,
+    getShippedVariantKey,
+    hasEnded,
+    isLaunched,
+    isSingleVariantShipped,
+} from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
 import {
     conversionRateForVariant,
@@ -142,6 +150,18 @@ export const FORM_MODES = {
  * this could be just an union type
  */
 export type FormModes = (typeof FORM_MODES)[keyof typeof FORM_MODES]
+
+export type ExperimentWarningKey =
+    | 'running_but_flag_disabled'
+    | 'running_but_single_variant_shipped'
+    | 'running_but_no_rollout'
+    | 'ended_but_multiple_variants_rolled_out'
+    | 'not_started_but_multiple_variants_rolled_out'
+
+export interface ExperimentWarning {
+    key: ExperimentWarningKey
+    variantKey?: string | null
+}
 
 export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
@@ -2033,20 +2053,28 @@ export const experimentLogic = kea<experimentLogicType>([
                 return !experiment?.start_date && !experiment?.end_date && !experiment?.archived
             },
         ],
-        isExperimentRunning: [
+        isExperimentLaunched: [
             (s) => [s.experiment],
             (experiment): boolean => {
                 return !!experiment?.start_date
             },
         ],
+        isExperimentRunning: [
+            (s) => [s.experiment],
+            (experiment): boolean => {
+                return isLaunched(experiment) && !hasEnded(experiment)
+            },
+        ],
+        isFlagActive: [
+            (s) => [s.experiment],
+            (experiment): boolean => {
+                return !!experiment?.feature_flag?.active
+            },
+        ],
         isExperimentStopped: [
             (s) => [s.experiment],
             (experiment): boolean => {
-                return (
-                    !!experiment?.end_date &&
-                    dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
-                    !experiment.archived
-                )
+                return hasEnded(experiment) && !experiment.archived
             },
         ],
         variants: [
@@ -2382,6 +2410,47 @@ export const experimentLogic = kea<experimentLogicType>([
         shippedVariantKey: [
             (s) => [s.experiment],
             (experiment: Experiment): string | null => getShippedVariantKey(experiment),
+        ],
+        experimentWarning: [
+            (s) => [
+                s.experiment,
+                s.isExperimentRunning,
+                s.isExperimentDraft,
+                s.isFlagActive,
+                s.isSingleVariantShipped,
+                s.shippedVariantKey,
+            ],
+            (
+                experiment: Experiment,
+                isExperimentRunning: boolean,
+                isExperimentDraft: boolean,
+                isFlagActive: boolean,
+                singleVariantShipped: boolean,
+                shippedVariantKey: string | null
+            ): ExperimentWarning | null => {
+                const filters = experiment.feature_flag?.filters
+
+                if (isExperimentRunning) {
+                    if (!isFlagActive) {
+                        return { key: 'running_but_flag_disabled' }
+                    } else if (singleVariantShipped) {
+                        return { key: 'running_but_single_variant_shipped', variantKey: shippedVariantKey }
+                    } else if (hasZeroRollout(filters)) {
+                        return { key: 'running_but_no_rollout' }
+                    }
+                } else if (hasEnded(experiment)) {
+                    if (isFlagActive && hasMultipleVariantsActive(filters) && !singleVariantShipped) {
+                        return { key: 'ended_but_multiple_variants_rolled_out' }
+                    }
+                } else if (isExperimentDraft) {
+                    // The draft state is also reached again when resetting experiment measurements
+                    if (isFlagActive && hasMultipleVariantsActive(filters)) {
+                        return { key: 'not_started_but_multiple_variants_rolled_out' }
+                    }
+                }
+
+                return null
+            },
         ],
         hasPrimaryMetricSet: [
             (s) => [s.primaryMetricsLengthWithSharedMetrics],

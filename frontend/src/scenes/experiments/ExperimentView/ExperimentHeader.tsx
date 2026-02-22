@@ -5,11 +5,11 @@ import { WebExperimentImplementationDetails } from '../WebExperimentImplementati
 import { experimentLogic } from '../experimentLogic'
 
 export function ExperimentHeader(): JSX.Element {
-    const { experiment, isExperimentRunning } = useValues(experimentLogic)
+    const { experiment, isExperimentLaunched } = useValues(experimentLogic)
 
     return (
         <>
-            {!isExperimentRunning && (
+            {!isExperimentLaunched && (
                 <>
                     {experiment.type === 'web' ? (
                         <WebExperimentImplementationDetails experiment={experiment} />
