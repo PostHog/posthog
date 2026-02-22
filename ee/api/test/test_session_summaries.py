@@ -359,3 +359,145 @@ class TestSessionSummariesAPI(APIBaseTest):
         self.assertIn("key_actions", data["session_1"])
         self.assertIn("segment_outcomes", data["session_1"])
         self.assertIn("session_outcome", data["session_1"])
+
+
+class TestSessionGroupSummaryViewSet(APIBaseTest):
+    """Tests for SessionGroupSummaryViewSet CRUD operations."""
+
+    def test_create_session_group_summary(self):
+        """Test creating a session group summary via POST."""
+        from ee.models.session_summaries import SessionGroupSummary
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_group_summaries/",
+            {
+                "title": "Test Summary",
+                "session_ids": ["session-1", "session-2"],
+                "summary": {"content": "test summary content"},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["title"], "Test Summary")
+        self.assertEqual(response.json()["session_ids"], ["session-1", "session-2"])
+        self.assertEqual(response.json()["summary"], {"content": "test summary content"})
+        self.assertEqual(response.json()["team"], self.team.id)
+
+        # Verify the object was created in the database
+        self.assertTrue(SessionGroupSummary.objects.filter(title="Test Summary").exists())
+
+    def test_create_session_group_summary_sets_created_by(self):
+        """Test that created_by is automatically set to the current user."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_group_summaries/",
+            {
+                "title": "Test Summary",
+                "session_ids": ["session-1"],
+                "summary": {"content": "test"},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertIsNotNone(response.json()["created_by"])
+        self.assertEqual(response.json()["created_by"]["id"], self.user.id)
+
+    def test_create_session_group_summary_with_optional_fields(self):
+        """Test creating a session group summary with optional fields."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_group_summaries/",
+            {
+                "title": "Test Summary",
+                "session_ids": ["session-1"],
+                "summary": {"content": "test"},
+                "extra_summary_context": {"extra": "context"},
+                "run_metadata": {"run": "metadata"},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["extra_summary_context"], {"extra": "context"})
+        self.assertEqual(response.json()["run_metadata"], {"run": "metadata"})
+
+    def test_create_session_group_summary_missing_required_fields(self):
+        """Test that missing required fields returns 400."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_group_summaries/",
+            {"title": "Test"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_list_session_group_summaries(self):
+        """Test listing session group summaries."""
+        from ee.models.session_summaries import SessionGroupSummary
+
+        SessionGroupSummary.objects.create(
+            team=self.team,
+            title="Summary 1",
+            session_ids=["session-1"],
+            summary={"content": "test1"},
+            created_by=self.user,
+        )
+        SessionGroupSummary.objects.create(
+            team=self.team,
+            title="Summary 2",
+            session_ids=["session-2", "session-3"],
+            summary={"content": "test2"},
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_group_summaries/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()["results"]), 2)
+
+    def test_retrieve_session_group_summary(self):
+        """Test retrieving a single session group summary."""
+        from ee.models.session_summaries import SessionGroupSummary
+
+        summary = SessionGroupSummary.objects.create(
+            team=self.team,
+            title="Test Summary",
+            session_ids=["session-1"],
+            summary={"content": "test"},
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_group_summaries/{summary.id}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["title"], "Test Summary")
+
+    def test_delete_session_group_summary(self):
+        """Test deleting a session group summary."""
+        from ee.models.session_summaries import SessionGroupSummary
+
+        summary = SessionGroupSummary.objects.create(
+            team=self.team,
+            title="Test Summary",
+            session_ids=["session-1"],
+            summary={"content": "test"},
+            created_by=self.user,
+        )
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/session_group_summaries/{summary.id}/")
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(SessionGroupSummary.objects.filter(id=summary.id).exists())
+
+    def test_update_session_group_summary(self):
+        """Test updating a session group summary."""
+        from ee.models.session_summaries import SessionGroupSummary
+
+        summary = SessionGroupSummary.objects.create(
+            team=self.team,
+            title="Original Title",
+            session_ids=["session-1"],
+            summary={"content": "test"},
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_group_summaries/{summary.id}/",
+            {"title": "Updated Title"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["title"], "Updated Title")

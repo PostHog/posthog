@@ -389,7 +389,12 @@ class SessionGroupSummarySerializer(serializers.ModelSerializer):
             "created_by",
             "team",
         ]
-        read_only_fields = fields
+        read_only_fields = [
+            "id",
+            "created_at",
+            "created_by",
+            "team",
+        ]
 
 
 def log_session_summary_group_activity(
@@ -423,6 +428,12 @@ class SessionGroupSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return SessionGroupSummaryMinimalSerializer if self.action == "list" else SessionGroupSummarySerializer
+
+    def perform_create(self, serializer: SessionGroupSummarySerializer) -> None:
+        serializer.save(
+            team=self.team,
+            created_by=self.request.user if self.request.user.is_authenticated else None,
+        )
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.filter(team=self.team)
