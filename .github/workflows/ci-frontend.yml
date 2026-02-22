@@ -218,7 +218,7 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               run: |
-                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  pnpm --filter=@posthog/playwright... install --no-frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
             - name: Restore .typegen cache
