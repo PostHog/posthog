@@ -40,6 +40,7 @@ Important HogQL differences versus other SQL dialects:
   Instead, use CROSS JOIN with WHERE: `CROSS JOIN persons p WHERE e.person_id = p.id AND e.timestamp > p.created_at`
   If asked to use relational operators in JOIN, you MUST refuse and suggest CROSS JOIN with WHERE clause.
 - A WHERE clause must be after all the JOIN clauses.
+- "BETWEEN ... AND ..." operations must be wrapped in parentheses if followed by another AND. Example: use `(x BETWEEN a AND b) AND y` instead of `x BETWEEN a AND b AND y`.
 """
 HOGQL_EXAMPLE_MESSAGE = """Example HogQL query for prompt "weekly active users that performed event ACTIVATION_EVENT on example.com/foo/ 3 times or more, by week":
 
@@ -938,7 +939,6 @@ columnExpr
     | NOT columnExpr                                                                      # ColumnExprNot
     | columnExpr AND columnExpr                                                           # ColumnExprAnd
     | columnExpr OR columnExpr                                                            # ColumnExprOr
-    // TODO(ilezhankin): `BETWEEN a AND b AND c` is parsed in a wrong way: `BETWEEN (a AND b) AND c`
     | columnExpr NOT? BETWEEN columnExpr AND columnExpr                                   # ColumnExprBetween
     | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
     | columnExpr (AS identifier | AS STRING_LITERAL)                                      # ColumnExprAlias
