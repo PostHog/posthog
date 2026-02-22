@@ -75,11 +75,11 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
 
     return (
         <>
-            <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1400px]:grid-cols-[2fr_3fr]">
+            <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1100px]:grid-cols-[1fr_1fr]">
                 {/* Column 1 */}
                 <div className="flex flex-col gap-0 overflow-hidden min-w-0">
                     {/* Row 1: Status, Feature flag, Stats engine */}
-                    <div className="flex flex-wrap gap-x-8 gap-y-2">
+                    <div className="flex flex-wrap gap-x-4 gap-y-2">
                         <div className="flex flex-col" data-attr="experiment-status">
                             <Label intent="menu">Status</Label>
                             <div className="flex gap-1">
@@ -169,7 +169,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                         </div>
                     </div>
 
-                    <div className="w-[500px]">
+                    <div className="max-w-[500px]">
                         <div className="flex items-center gap-2 mt-2">
                             <Label intent="menu">Hypothesis</Label>
                             <LemonButton
@@ -219,12 +219,12 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                 </div>
 
                 {/* Column 2 */}
-                <div className="flex flex-col gap-4 overflow-hidden items-start min-[1400px]:items-end min-w-0">
+                <div className="flex flex-col gap-4 overflow-hidden items-start min-[1100px]:items-end min-w-0">
                     {/* Row 1: Duration (date pickers) - only for launched experiments */}
                     {!isExperimentDraft && <ExperimentDuration />}
 
                     {/* Row 2: Running time, Last refreshed, Created by */}
-                    <div className="flex flex-col overflow-hidden items-start min-[1400px]:items-end">
+                    <div className="flex flex-col overflow-hidden items-start min-[1100px]:items-end">
                         <div className="flex flex-wrap gap-x-8 gap-y-2 justify-end">
                             {tabId && (
                                 <RunningTimeNew
@@ -259,7 +259,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
             </div>
             <div className="flex gap-6">
                 {experiment.conclusion && experiment.end_date && (
-                    <div className="w-[500px]">
+                    <div className="max-w-[500px]">
                         <div className="flex items-center gap-2">
                             <Label intent="menu">Conclusion</Label>
                             <LemonButton
