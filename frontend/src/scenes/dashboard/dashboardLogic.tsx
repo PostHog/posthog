@@ -64,7 +64,6 @@ import {
     DashboardTemplateEditorType,
     DashboardTile,
     DashboardType,
-    InsightColor,
     InsightModel,
     InsightShortId,
     ProjectTreeRef,
@@ -252,6 +251,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
         updateLayouts: (layouts: Layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: string | null) => ({ tileId, color }),
+        toggleTileDescription: (tileId: number) => ({ tileId }),
+        setTileProperty: (tileId: number, properties: Partial<Pick<DashboardTile, 'color' | 'show_description'>>) => ({
+            tileId,
+            properties,
+        }),
         duplicateTile: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
         removeTile: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
         moveToDashboard: (
@@ -382,16 +386,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         lemonToast.error('Could not update dashboard: ' + String(e))
                         return values.dashboard
                     }
-                },
-                updateTileColor: async ({ tileId, color }) => {
-                    await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
-                        tiles: [{ id: tileId, color }],
-                    })
-                    const matchingTile = values.tiles.find((tile) => tile.id === tileId)
-                    if (matchingTile) {
-                        matchingTile.color = color as InsightColor
-                    }
-                    return values.dashboard
                 },
                 removeTile: async ({ tile }) => {
                     try {
@@ -576,6 +570,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             ...tile,
                             layouts: itemLayouts[tile.id]?.sm ? { sm: itemLayouts[tile.id].sm } : {},
                         })),
+                    } as DashboardType<QueryBasedInsightModel>
+                },
+                setTileProperty: (state, { tileId, properties }) => {
+                    return {
+                        ...state,
+                        tiles: state?.tiles?.map((tile) => (tile.id === tileId ? { ...tile, ...properties } : tile)),
                     } as DashboardType<QueryBasedInsightModel>
                 },
                 [dashboardsModel.actionTypes.tileMovedToDashboard]: (state, { tile, dashboardId }) => {
@@ -1371,6 +1371,32 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
+        updateTileColor: async ({ tileId, color }) => {
+            const previousColor = values.tiles.find((tile) => tile.id === tileId)?.color
+            actions.setTileProperty(tileId, { color })
+            try {
+                await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
+                    tiles: [{ id: tileId, color }],
+                })
+            } catch {
+                actions.setTileProperty(tileId, { color: previousColor })
+                lemonToast.error('Failed to update tile color')
+            }
+        },
+        toggleTileDescription: async ({ tileId }) => {
+            const matchingTile = values.tiles.find((tile) => tile.id === tileId)
+            const previousValue = matchingTile?.show_description
+            const newValue = !previousValue
+            actions.setTileProperty(tileId, { show_description: newValue })
+            try {
+                await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
+                    tiles: [{ id: tileId, show_description: newValue }],
+                })
+            } catch {
+                actions.setTileProperty(tileId, { show_description: previousValue })
+                lemonToast.error('Failed to update tile')
+            }
+        },
         setRefreshError: sharedListeners.reportRefreshTiming,
         setRefreshStatuses: sharedListeners.reportRefreshTiming,
         setRefreshStatus: sharedListeners.reportRefreshTiming,

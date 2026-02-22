@@ -54,6 +54,7 @@ interface InsightMetaProps
         InsightCardProps,
         | 'ribbonColor'
         | 'updateColor'
+        | 'toggleShowDescription'
         | 'removeFromDashboard'
         | 'deleteWithUndo'
         | 'refresh'
@@ -85,6 +86,7 @@ export function InsightMeta({
     ribbonColor,
     dashboardId,
     updateColor,
+    toggleShowDescription,
     filtersOverride,
     variablesOverride,
     removeFromDashboard,
@@ -112,6 +114,14 @@ export function InsightMeta({
     const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const compact =
+        !!featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_REDESIGN] &&
+        (placement === DashboardPlacement.Dashboard ||
+            placement === DashboardPlacement.ProjectHomepage ||
+            placement === DashboardPlacement.Public)
+
+    const hideCompactHeading = compact && !!filtersOverride?.date_from
 
     const otherDashboards = nameSortedDashboards.filter((d) => !dashboards?.includes(d.id))
 
@@ -175,6 +185,7 @@ export function InsightMeta({
     if (!canViewInsight) {
         return (
             <CardMeta
+                compact={compact}
                 ribbonColor={ribbonColor}
                 showEditingControls={false}
                 showDetailsControls={false}
@@ -208,6 +219,7 @@ export function InsightMeta({
 
     return (
         <CardMeta
+            compact={compact}
             ribbonColor={ribbonColor}
             showEditingControls={showEditingControls}
             showDetailsControls={showDetailsControls}
@@ -215,12 +227,14 @@ export function InsightMeta({
             areDetailsShown={areDetailsShown}
             detailsTooltip="Show insight details, such as creator, last edit, and applied filters."
             topHeading={
-                <TopHeading
-                    query={insight.query}
-                    lastRefresh={insight.last_refresh}
-                    hasTileOverrides={Object.keys(tile?.filters_overrides ?? {}).length > 0}
-                    resolvedDateRange={insightData?.resolved_date_range}
-                />
+                hideCompactHeading ? null : (
+                    <TopHeading
+                        query={insight.query}
+                        lastRefresh={insight.last_refresh}
+                        hasTileOverrides={Object.keys(tile?.filters_overrides ?? {}).length > 0}
+                        resolvedDateRange={insightData?.resolved_date_range}
+                    />
+                )
             }
             content={
                 <InsightMetaContent
@@ -237,7 +251,17 @@ export function InsightMeta({
                     loading={loading}
                     loadingQueued={loadingQueued}
                     tags={insight.tags}
+                    compact={compact}
+                    showDescription={!!tile?.show_description}
                 />
+            }
+            metaTitle={name}
+            metaDescription={
+                insight.description && !tile?.show_description ? (
+                    <LemonMarkdown className="text-xs" lowKeyHeadings>
+                        {insight.description}
+                    </LemonMarkdown>
+                ) : null
             }
             metaDetails={
                 <InsightDetails query={insight.query} footerInfo={insight} variablesOverride={variablesOverride} />
@@ -297,6 +321,11 @@ export function InsightMeta({
                     {canEditDashboard && (
                         <>
                             <LemonDivider />
+                            {toggleShowDescription && !!insight.description && (
+                                <LemonButton onClick={toggleShowDescription} fullWidth>
+                                    {tile?.show_description ? 'Hide description' : 'Show description'}
+                                </LemonButton>
+                            )}
                             {updateColor && (
                                 <LemonButtonWithDropdown
                                     dropdown={{
@@ -458,6 +487,8 @@ export function InsightMetaContent({
     loading,
     loadingQueued,
     tags,
+    compact,
+    showDescription,
 }: {
     title: string
     fallbackTitle?: string
@@ -466,6 +497,8 @@ export function InsightMetaContent({
     loading?: boolean
     loadingQueued?: boolean
     tags?: string[]
+    compact?: boolean
+    showDescription?: boolean
 }): JSX.Element {
     let titleEl: JSX.Element = (
         <h4 title={title} data-attr="insight-card-title">
@@ -494,12 +527,12 @@ export function InsightMetaContent({
     return (
         <>
             {titleEl}
-            {!!description && (
+            {(!compact || showDescription) && !!description && (
                 <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
                     {description}
                 </LemonMarkdown>
             )}
-            {tags && tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
+            {!compact && tags && tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
             <LemonTableLoader loading={loading} />
         </>
     )
