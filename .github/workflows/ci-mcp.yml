@@ -118,6 +118,9 @@ jobs:
             - name: Run unit tests
               run: cd services/mcp && pnpm run test
 
+            - name: Run Hono unit tests
+              run: cd services/mcp && pnpm run test:hono
+
     integration-tests:
         name: Integration Tests
         runs-on: depot-ubuntu-latest-4
