@@ -6,20 +6,22 @@ export const FlagPayloadSnippet = memo(({ language = 'javascript' }: { language?
 
     const snippets: Record<string, string> = {
         javascript: dedent`
-            const matchedFlagPayload = posthog.getFeatureFlagPayload('flag-key')
+            const result = posthog.getFeatureFlagResult('flag-key')
+            if (result?.payload) {
+                console.log(result.payload)
+            }
         `,
         react: dedent`
-            import { useFeatureFlagPayload, useFeatureFlagEnabled } from '@posthog/react'
+            import { useFeatureFlagResult } from '@posthog/react'
 
             function App() {
-                const variant = useFeatureFlagEnabled('show-welcome-message')
-                const payload = useFeatureFlagPayload('show-welcome-message')
+                const result = useFeatureFlagResult('show-welcome-message')
                 return (
                     <>
-                        {variant ? (
+                        {result?.enabled ? (
                             <div className="welcome-message">
-                                <h2>{payload?.welcomeTitle}</h2>
-                                <p>{payload?.welcomeMessage}</p>
+                                <h2>{result?.payload?.welcomeTitle}</h2>
+                                <p>{result?.payload?.welcomeMessage}</p>
                             </div>
                         ) : (
                             <div>
@@ -32,19 +34,45 @@ export const FlagPayloadSnippet = memo(({ language = 'javascript' }: { language?
             }
         `,
         'node.js': dedent`
-            const matchedFlagPayload = await client.getFeatureFlagPayload('flag-key', 'distinct_id_of_your_user', isFeatureFlagEnabled)
+            const result = await client.getFeatureFlagResult('flag-key', 'distinct_id_of_your_user')
+            if (result?.payload) {
+                console.log(result.payload)
+            }
         `,
         python: dedent`
-            matched_flag_payload = posthog.get_feature_flag_payload('flag-key', 'distinct_id_of_your_user')
+            result = posthog.get_feature_flag_result('flag-key', 'distinct_id_of_your_user')
+            if result and result.payload:
+                print(result.payload)
         `,
         php: dedent`
-            // Payloads are returned as part of the flag evaluation
+            $result = PostHog::getFeatureFlagResult('flag-key', 'distinct_id_of_your_user');
+            if ($result?->getPayload()) {
+                echo $result->getPayload();
+            }
         `,
         ruby: dedent`
-            matched_flag_payload = posthog.get_feature_flag_payload('flag-key', 'distinct_id_of_your_user')
+            result = posthog.get_feature_flag_result('flag-key', 'distinct_id_of_your_user')
+            if result&.payload
+                puts result.payload
+            end
         `,
         go: dedent`
-            // Payloads are returned as part of the flag evaluation
+            result, err := client.GetFeatureFlagResult(posthog.FeatureFlagPayload{
+                Key:        "flag-key",
+                DistinctId: "distinct_id_of_your_user",
+            })
+            if err != nil {
+                // Handle error
+                return
+            }
+
+            if result.Enabled {
+                // Unmarshal the payload into a typed struct
+                var config MyConfig
+                if err := result.GetPayloadAs(&config); err == nil {
+                    fmt.Println(config)
+                }
+            }
         `,
     }
 

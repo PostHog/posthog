@@ -6,7 +6,8 @@ export const ExperimentImplementationSnippet = memo(({ language = 'javascript' }
 
     const snippets: Record<string, string> = {
         javascript: dedent`
-            if (posthog.getFeatureFlag('your-experiment-feature-flag') === 'test') {
+            const result = posthog.getFeatureFlagResult('your-experiment-feature-flag')
+            if (result?.variant === 'test') {
                 // Do something differently for this user
             } else {
                 // It's a good idea to let control variant always be the default behaviour,
@@ -17,21 +18,21 @@ export const ExperimentImplementationSnippet = memo(({ language = 'javascript' }
             posthog.featureFlags.overrideFeatureFlags({ flags: {'your-experiment-feature-flag': 'test'} })
         `,
         react: dedent`
-            // You can either use the useFeatureFlagVariantKey hook,
+            // You can either use the useFeatureFlagResult hook,
             // or you can use the feature flags component - https://posthog.com/docs/libraries/react#feature-flags-react-component
 
-            // Method one: using the useFeatureFlagVariantKey hook
-            import { useFeatureFlagVariantKey } from 'posthog-js/react'
+            // Method one: using the useFeatureFlagResult hook
+            import { useFeatureFlagResult } from '@posthog/react'
 
             function App() {
-                const variant = useFeatureFlagVariantKey('your-experiment-feature-flag')
-                if (variant === 'test') {
+                const result = useFeatureFlagResult('your-experiment-feature-flag')
+                if (result?.variant === 'test') {
                     // do something
                 }
             }
 
             // Method two: using the feature flags component
-            import { PostHogFeature } from 'posthog-js/react'
+            import { PostHogFeature } from '@posthog/react'
 
             function App() {
                 return (
@@ -47,7 +48,8 @@ export const ExperimentImplementationSnippet = memo(({ language = 'javascript' }
             posthog.featureFlags.overrideFeatureFlags({ flags: {'your-experiment-feature-flag': 'test'} })
         `,
         'react-native': dedent`
-            if (posthog.getFeatureFlag('your-experiment-feature-flag') === 'test') {
+            const result = posthog.getFeatureFlagResult('your-experiment-feature-flag')
+            if (result?.variant === 'test') {
                 // Do something differently for this user
             } else {
                 // It's a good idea to let control variant always be the default behaviour,
@@ -55,9 +57,8 @@ export const ExperimentImplementationSnippet = memo(({ language = 'javascript' }
             }
         `,
         'node.js': dedent`
-            const experimentFlagValue = await client.getFeatureFlag('your-experiment-feature-flag', 'user distinct id')
-
-            if (experimentFlagValue === 'test' ) {
+            const result = await client.getFeatureFlagResult('your-experiment-feature-flag', 'user distinct id')
+            if (result?.variant === 'test') {
                 // Do something differently for this user
             } else {
                 // It's a good idea to let control variant always be the default behaviour,
@@ -65,16 +66,16 @@ export const ExperimentImplementationSnippet = memo(({ language = 'javascript' }
             }
         `,
         python: dedent`
-            experiment_flag_value = posthog.get_feature_flag("your-experiment-feature-flag", "user_distinct_id")
-
-            if experiment_flag_value == 'test':
+            result = posthog.get_feature_flag_result("your-experiment-feature-flag", "user_distinct_id")
+            if result and result.variant == 'test':
                 # Do something differently for this user
             else:
                 # It's a good idea to let control variant always be the default behaviour,
                 # so if something goes wrong with flag evaluation, you don't break your app.
         `,
         php: dedent`
-            if (PostHog::getFeatureFlag('your-experiment-feature-flag', 'user distinct id') == 'test') {
+            $result = PostHog::getFeatureFlagResult('your-experiment-feature-flag', 'user distinct id');
+            if ($result?->getVariant() === 'test') {
                 // Do something differently for this user
             } else {
                 // It's a good idea to let control variant always be the default behaviour,
@@ -82,9 +83,8 @@ export const ExperimentImplementationSnippet = memo(({ language = 'javascript' }
             }
         `,
         ruby: dedent`
-            experimentFlagValue = posthog.get_feature_flag('your-experiment-feature-flag', 'user distinct id')
-
-            if experimentFlagValue == 'test'
+            result = posthog.get_feature_flag_result('your-experiment-feature-flag', 'user distinct id')
+            if result&.variant == 'test'
                 # Do something differently for this user
             else
                 # It's a good idea to let control variant always be the default behaviour,
@@ -92,14 +92,14 @@ export const ExperimentImplementationSnippet = memo(({ language = 'javascript' }
             end
         `,
         go: dedent`
-            experimentFlagValue, err := client.GetFeatureFlag(posthog.FeatureFlagPayload{
+            result, err := client.GetFeatureFlagResult(posthog.FeatureFlagPayload{
                 Key:        "your-experiment-feature-flag",
                 DistinctId: "distinct-id",
             })
             if err != nil {
                 // Handle error (e.g. capture error and fallback to default behaviour)
             }
-            if experimentFlagValue == "test" {
+            if result.Variant != nil && *result.Variant == "test" {
                 // Do something differently for this user
             } else {
                 // It's a good idea to let control variant always be the default behaviour,
@@ -107,7 +107,8 @@ export const ExperimentImplementationSnippet = memo(({ language = 'javascript' }
             }
         `,
         android: dedent`
-            if (PostHog.getFeatureFlag("your-experiment-feature-flag") == "test") {
+            val result = PostHog.getFeatureFlagResult("your-experiment-feature-flag")
+            if (result?.variant == "test") {
                 // do something
             } else {
                 // It's a good idea to let control variant always be the default behaviour,
@@ -115,7 +116,8 @@ export const ExperimentImplementationSnippet = memo(({ language = 'javascript' }
             }
         `,
         ios: dedent`
-            if (PostHogSDK.shared.getFeatureFlag("your-experiment-feature-flag") as? String == "test") {
+            let result = PostHogSDK.shared.getFeatureFlagResult("your-experiment-feature-flag")
+            if result?.variant == "test" {
                 // do something
             } else {
                 // It's a good idea to let control variant always be the default behaviour,
@@ -123,7 +125,8 @@ export const ExperimentImplementationSnippet = memo(({ language = 'javascript' }
             }
         `,
         flutter: dedent`
-            if (await Posthog().getFeatureFlag('your-experiment-feature-flag') == 'test') {
+            final result = await Posthog().getFeatureFlagResult('your-experiment-feature-flag');
+            if (result?.variant == 'test') {
                 // Do something differently for this user
             } else {
                 // It's a good idea to let control variant always be the default behaviour,

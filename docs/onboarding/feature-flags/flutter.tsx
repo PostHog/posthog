@@ -27,11 +27,11 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 language: 'dart',
                                 file: 'Dart',
                                 code: dedent`
-                                    final isMyFlagEnabled = await Posthog().isFeatureEnabled('flag-key');
-                                    if (isMyFlagEnabled) {
+                                    final result = await Posthog().getFeatureFlagResult('flag-key');
+                                    if (result?.enabled == true) {
                                         // Do something differently for this user
-                                        // Optional: fetch the payload
-                                        final matchedFlagPayload = await Posthog().getFeatureFlagPayload('flag-key');
+                                        // Optional: use the flag payload
+                                        final matchedFlagPayload = result!.payload;
                                     }
                                 `,
                             },
@@ -56,11 +56,11 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 language: 'dart',
                                 file: 'Dart',
                                 code: dedent`
-                                    final enabledVariant = await Posthog().getFeatureFlag('flag-key');
-                                    if (enabledVariant == 'variant-key') { // replace 'variant-key' with the key of your variant
+                                    final result = await Posthog().getFeatureFlagResult('flag-key');
+                                    if (result?.variant == 'variant-key') { // replace 'variant-key' with the key of your variant
                                         // Do something differently for this user
-                                        // Optional: fetch the payload
-                                        final matchedFlagPayload = await Posthog().getFeatureFlagPayload('flag-key');
+                                        // Optional: use the payload
+                                        final matchedFlagPayload = result!.payload;
                                     }
                                 `,
                             },
