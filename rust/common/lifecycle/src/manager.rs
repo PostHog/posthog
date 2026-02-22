@@ -220,10 +220,17 @@ impl Manager {
         let tag_owned = tag.to_string();
 
         if let Some(deadline) = options.liveness_deadline {
+            let labels = [
+                ("service_name".to_string(), self.name.clone()),
+                ("component".to_string(), tag_owned.clone()),
+            ];
+            let health_gauge = ::metrics::gauge!("lifecycle_component_healthy", &labels);
+
             self.liveness_components.push(LivenessComponentRef {
                 tag: tag_owned.clone(),
                 healthy_until_ms: healthy_until_ms.clone(),
                 stall_threshold: options.stall_threshold,
+                health_gauge,
             });
 
             debug!(
@@ -370,7 +377,6 @@ impl Manager {
         }
 
         if has_liveness_components {
-            let name_for_health = name.clone();
             let liveness_for_health = self.liveness_components.clone();
             let health_token = shutdown_token.clone();
             let health_event_tx = self
@@ -400,7 +406,7 @@ impl Manager {
                                     (false, "stalled")
                                 };
 
-                                metrics::emit_component_healthy(&name_for_health, &comp.tag, healthy);
+                                comp.health_gauge.set(if healthy { 1.0 } else { 0.0 });
 
                                 if healthy {
                                     stall_counts[i] = 0;

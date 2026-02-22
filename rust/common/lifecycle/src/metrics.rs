@@ -4,7 +4,6 @@ pub(crate) const METRIC_COMPONENT_SHUTDOWN_DURATION: &str =
     "lifecycle_component_shutdown_duration_seconds";
 pub(crate) const METRIC_COMPONENT_SHUTDOWN_RESULT: &str =
     "lifecycle_component_shutdown_result_total";
-pub(crate) const METRIC_COMPONENT_HEALTHY: &str = "lifecycle_component_healthy";
 
 pub(crate) fn emit_shutdown_initiated(
     service_name: &str,
@@ -52,13 +51,4 @@ pub(crate) fn emit_component_shutdown_result(service_name: &str, component: &str
         "result" => result.to_string()
     )
     .increment(1);
-}
-
-pub(crate) fn emit_component_healthy(service_name: &str, component: &str, healthy: bool) {
-    metrics::gauge!(
-        METRIC_COMPONENT_HEALTHY,
-        "service_name" => service_name.to_string(),
-        "component" => component.to_string()
-    )
-    .set(if healthy { 1.0 } else { 0.0 });
 }

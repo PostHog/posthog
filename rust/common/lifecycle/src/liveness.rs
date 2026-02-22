@@ -12,6 +12,7 @@ pub(crate) struct LivenessComponentRef {
     pub tag: String,
     pub healthy_until_ms: Arc<std::sync::atomic::AtomicI64>,
     pub stall_threshold: u32,
+    pub health_gauge: metrics::Gauge,
 }
 
 /// K8s liveness probe handler. **Intentionally always returns 200.**
