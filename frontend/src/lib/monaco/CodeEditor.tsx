@@ -249,6 +249,42 @@ export function CodeEditor({
 
         if (enableVimMode && vimStatusBarRef.current) {
             vimModeRef.current = initVimMode(editor, vimStatusBarRef.current)
+
+            // Set up clipboard integration for vim yank
+            // Access the CodeMirror vim instance through the monaco-vim adapter
+            const vimAdapter = vimModeRef.current as any
+            if (vimAdapter?.cm?.state?.vim) {
+                const vim = vimAdapter.cm.state.vim
+                const originalRegisterController = vim.registerController
+
+                if (originalRegisterController) {
+                    // Intercept register writes to copy yanked text to system clipboard
+                    const originalSetRegister = originalRegisterController.setRegister
+                    if (originalSetRegister) {
+                        originalRegisterController.setRegister = function (
+                            name: string,
+                            text: string | string[],
+                            linewise?: boolean
+                        ): void {
+                            // Call the original setRegister
+                            originalSetRegister.call(this, name, text, linewise)
+
+                            // Copy to system clipboard when yanking to unnamed register or yank register
+                            // The unnamed register (") is used for yank, delete, and change operations
+                            // The yank register (0) specifically stores yanked text
+                            if (name === '"' || name === '0') {
+                                const textToCopy = Array.isArray(text) ? text.join('\n') : text
+                                // Copy silently without toast notification to avoid cluttering the UI
+                                if (navigator.clipboard) {
+                                    void navigator.clipboard.writeText(textToCopy).catch(() => {
+                                        // Silently fail if clipboard access is denied
+                                    })
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         } else if (vimModeRef.current) {
             vimModeRef.current.dispose()
             vimModeRef.current = null
