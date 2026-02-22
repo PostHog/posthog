@@ -12,6 +12,7 @@ import {
 } from '../../types'
 import { createRedisPoolFromConfig } from '../../utils/db/redis'
 import { logger, serializeError } from '../../utils/logger'
+import { captureException } from '../../utils/posthog'
 import { getBlockDecryptor } from '../shared/crypto'
 import { getKeyStore } from '../shared/keystore'
 import { RedisCachedKeyStore } from '../shared/keystore/cache'
@@ -240,6 +241,7 @@ export class RecordingApi {
                 teamId,
                 sessionId,
             })
+            captureException(error)
             res.status(500).json({ error: 'Failed to fetch block from S3' })
         }
     }
@@ -273,6 +275,7 @@ export class RecordingApi {
                 error: serializeError(error),
                 teamId,
             })
+            captureException(error)
             res.status(500).json({ error: 'Failed to bulk delete recordings' })
         }
     }
@@ -310,6 +313,7 @@ export class RecordingApi {
                 teamId,
                 sessionId,
             })
+            captureException(error)
             res.status(500).json({ error: 'Failed to delete recording key' })
         }
     }
