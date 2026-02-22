@@ -77,21 +77,23 @@ pub async fn flags_definitions(
     state.flag_definitions_limiter.check_rate_limit(team.id)?;
 
     // Record usage for billing with library tracking
-    let library = Library::from_headers(&headers);
-    if let Err(e) = increment_request_count(
-        state.redis_client.clone(),
-        team.id,
-        1,
-        FlagRequestType::FlagDefinitions,
-        Some(library),
-    )
-    .await
-    {
-        inc(
-            "flag_request_redis_error",
-            &[("error".to_string(), e.to_string())],
+    if !*state.config.skip_writes {
+        let library = Library::from_headers(&headers);
+        if let Err(e) = increment_request_count(
+            state.redis_client.clone(),
+            team.id,
             1,
-        );
+            FlagRequestType::FlagDefinitions,
+            Some(library),
+        )
+        .await
+        {
+            inc(
+                "flag_request_redis_error",
+                &[("error".to_string(), e.to_string())],
+                1,
+            );
+        }
     }
 
     // Retrieve cached response from HyperCache (always with cohorts)

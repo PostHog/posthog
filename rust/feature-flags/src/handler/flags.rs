@@ -262,6 +262,7 @@ pub async fn evaluate_for_request(
             .optimize_experience_continuity_lookups
             .0,
         parallel_eval_threshold: state.config.parallel_eval_threshold,
+        skip_writes: *state.config.skip_writes,
     };
 
     evaluation::evaluate_feature_flags(ctx, request_id).await
