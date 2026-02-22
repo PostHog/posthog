@@ -45,6 +45,7 @@ class Settings(BaseSettings):
 
     glm5_api_base_url_us: str | None = None
     glm5_api_base_url_eu: str | None = None
+    glm5_api_key: str | None = None
 
     # Project token for LLM analytics events
     posthog_project_token: str | None = None

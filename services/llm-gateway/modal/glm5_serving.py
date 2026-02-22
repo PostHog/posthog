@@ -4,19 +4,25 @@ GLM-5-FP8 inference on Modal via vLLM.
 Adapted from Modal's official vLLM example:
 https://github.com/modal-labs/modal-examples/blob/main/06_gpu_and_ml/llm-serving/vllm_inference.py
 
-Deployment (run manually or from CI — Modal handles the infra):
-    modal deploy modal/glm5_serving.py                # US (default)
+Deployment (run manually, or from a CI job that has MODAL_TOKEN_ID/SECRET):
+    modal deploy modal/glm5_serving.py                  # US (default)
     MODAL_REGION=eu modal deploy modal/glm5_serving.py  # EU
 
-After deploy, Modal prints the endpoint URL. Set it on the LLM Gateway:
-    LLM_GATEWAY_GLM5_API_BASE_URL_US=https://<workspace>--posthog-glm5-us-serve.modal.run
-    LLM_GATEWAY_GLM5_API_BASE_URL_EU=https://<workspace>--posthog-glm5-eu-serve.modal.run
+After deploy, Modal prints the endpoint URL. Configure the LLM Gateway with:
+    LLM_GATEWAY_GLM5_API_BASE_URL_US=https://<workspace>--posthog-glm5-us-serve.modal.run/v1
+    LLM_GATEWAY_GLM5_API_BASE_URL_EU=https://<workspace>--posthog-glm5-eu-serve.modal.run/v1
+    LLM_GATEWAY_GLM5_API_KEY=<same value as VLLM_API_KEY in posthog-glm5-secrets>
+
+    The URL MUST end with /v1 — litellm's hosted_vllm/ provider appends
+    /chat/completions to whatever api_base you give it.
 
 Prerequisites:
     pip install modal
-    modal token set  (or MODAL_TOKEN_ID / MODAL_TOKEN_SECRET env vars)
-    Create a Modal secret named "posthog-hf-token" with HF_TOKEN if the model
-    requires authentication (GLM-5-FP8 is MIT-licensed, so optional).
+    modal token set  (or set MODAL_TOKEN_ID / MODAL_TOKEN_SECRET env vars)
+
+    Create a Modal secret named "posthog-glm5-secrets" with:
+        VLLM_API_KEY=<generate a strong random key>
+        HF_TOKEN=<optional, GLM-5-FP8 is MIT-licensed>
 """
 
 import os
@@ -24,7 +30,7 @@ import os
 import modal
 
 MODEL_ID = "zai-org/GLM-5-FP8"
-MODEL_REVISION = "main"
+MODEL_REVISION = "7ca2d2f1f1703aa0b189977fe3c126caf18b70e1"
 SERVED_MODEL_NAME = "glm-5"
 N_GPU = 8
 VLLM_PORT = 8000
@@ -65,12 +71,14 @@ vllm_cache_vol = modal.Volume.from_name(f"glm5-vllm-cache-{REGION}", create_if_m
         "/root/.cache/vllm": vllm_cache_vol,
     },
     region=MODAL_REGIONS.get(REGION, "us-east"),
-    secrets=[modal.Secret.from_name("posthog-hf-token", required=False)],
+    secrets=[modal.Secret.from_name("posthog-glm5-secrets")],
 )
 @modal.concurrent(max_inputs=64)
 @modal.web_server(port=VLLM_PORT, startup_timeout=10 * MINUTES)
 def serve():
     import subprocess
+
+    api_key = os.environ.get("VLLM_API_KEY")
 
     cmd = [
         "vllm",
@@ -98,4 +106,7 @@ def serve():
         "--uvicorn-log-level=info",
     ]
 
-    subprocess.Popen(" ".join(cmd), shell=True)
+    if api_key:
+        cmd += ["--api-key", api_key]
+
+    subprocess.Popen(cmd)

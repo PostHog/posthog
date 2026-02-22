@@ -152,6 +152,7 @@ def _mock_hosted_settings() -> MagicMock:
     s = MagicMock()
     s.glm5_api_base_url_us = None
     s.glm5_api_base_url_eu = None
+    s.glm5_api_key = None
     return s
 
 

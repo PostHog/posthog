@@ -20,8 +20,8 @@ async def _handle_anthropic_messages(
 ) -> dict[str, Any] | StreamingResponse:
     hosted = resolve_hosted_model(body.model)
     if hosted:
-        litellm_model, api_base = hosted
-        return await _handle_hosted_via_openai(body, litellm_model, api_base, user, product)
+        litellm_model, api_base, api_key = hosted
+        return await _handle_hosted_via_openai(body, litellm_model, api_base, api_key, user, product)
 
     data = body.model_dump(exclude_none=True)
     return await handle_llm_request(
@@ -39,6 +39,7 @@ async def _handle_hosted_via_openai(
     body: AnthropicMessagesRequest,
     litellm_model: str,
     api_base: str,
+    api_key: str | None,
     user: RateLimitedUser,
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
@@ -62,6 +63,8 @@ async def _handle_hosted_via_openai(
         "stream": body.stream or False,
         "api_base": api_base,
     }
+    if api_key:
+        data["api_key"] = api_key
     for key in ("temperature", "top_p", "stop"):
         if key in extras:
             data[key] = extras[key]

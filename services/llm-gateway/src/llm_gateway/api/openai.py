@@ -35,9 +35,11 @@ async def _handle_chat_completions(
 
     hosted = resolve_hosted_model(body.model)
     if hosted:
-        litellm_model, api_base = hosted
+        litellm_model, api_base, api_key = hosted
         data["model"] = litellm_model
         data["api_base"] = api_base
+        if api_key:
+            data["api_key"] = api_key
         return await handle_llm_request(
             request_data=data,
             user=user,
