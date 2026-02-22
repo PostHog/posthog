@@ -29,6 +29,7 @@ type HonoEnv = {
 }
 
 const SESSION_TTL_MS = 30 * 60 * 1000
+const MAX_SESSIONS_PER_INSTANCE = 10_000
 
 type SessionEntry<T> = { transport: T; createdAt: number }
 
@@ -158,7 +159,26 @@ export function createApp(redis: RedisLike & { ping(): Promise<string> }): Hono<
         }
     }
 
-    app.use('*', cors())
+    function totalSessionCount(): number {
+        return streamableSessions.size + sseSessions.size
+    }
+
+    app.use('*', async (c, next) => {
+        await next()
+        c.header('X-Content-Type-Options', 'nosniff')
+        c.header('X-Frame-Options', 'DENY')
+    })
+
+    app.use(
+        '*',
+        cors({
+            origin: (origin) => origin,
+            allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+            allowHeaders: ['Authorization', 'Content-Type', 'mcp-session-id', 'x-posthog-organization-id', 'x-posthog-project-id', 'x-posthog-mcp-version'],
+            exposeHeaders: ['mcp-session-id'],
+            maxAge: 86400,
+        })
+    )
 
     app.use('*', async (c, next) => {
         c.set('redis', redis)
@@ -267,6 +287,10 @@ export function createApp(redis: RedisLike & { ping(): Promise<string> }): Hono<
                 }
             }
 
+            if (totalSessionCount() >= MAX_SESSIONS_PER_INSTANCE) {
+                return new Response('Too many active sessions', { status: 503 })
+            }
+
             const mcpServer = new HonoMcpServer(redis, props)
             await mcpServer.init()
 
@@ -307,6 +331,10 @@ export function createApp(redis: RedisLike & { ping(): Promise<string> }): Hono<
         evictStaleSessions()
 
         if (method === 'GET') {
+            if (totalSessionCount() >= MAX_SESSIONS_PER_INSTANCE) {
+                return new Response('Too many active sessions', { status: 503 })
+            }
+
             const sessionId = uuidv4()
             const mcpServer = new HonoMcpServer(redis, props)
             await mcpServer.init()
