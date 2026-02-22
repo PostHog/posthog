@@ -12,6 +12,8 @@ import { toHtml } from 'hast-util-to-html'
 import { decode } from 'he'
 import { common, createLowlight } from 'lowlight'
 
+import { ProductTourStep, ProductTourStepTranslation } from '~/types'
+
 import { EmbedExtension } from './EmbedExtension'
 
 const lowlight = createLowlight(common)
@@ -96,20 +98,32 @@ export function generateStepHtml(content: JSONContent | null): string {
  * Prepares a step for rendering by adding pre-computed contentHtml.
  * Use this when passing steps to renderProductTourPreview or the SDK.
  */
-export function prepareStepForRender<T extends { content?: Record<string, any> | null }>(
-    step: T
-): T & { contentHtml?: string } {
+export function prepareStepForRender(step: ProductTourStep): ProductTourStep {
     return {
         ...step,
         contentHtml: step.content ? generateStepHtml(step.content) : undefined,
+        ...(step.translations
+            ? {
+                  translations: generateTranslationsHtml(step.translations),
+              }
+            : {}),
     }
 }
 
 /**
  * Prepares multiple steps for rendering by adding pre-computed contentHtml to each.
  */
-export function prepareStepsForRender<T extends { content?: Record<string, any> | null }>(
-    steps: T[]
-): (T & { contentHtml?: string })[] {
+export function prepareStepsForRender(steps: ProductTourStep[]): ProductTourStep[] {
     return steps.map(prepareStepForRender)
+}
+
+export function generateTranslationsHtml(
+    translations: Record<string, ProductTourStepTranslation>
+): Record<string, ProductTourStepTranslation> {
+    return Object.fromEntries(
+        Object.entries(translations).map(([lang, t]) => [
+            lang,
+            { ...t, contentHtml: t.content ? generateStepHtml(t.content) : undefined },
+        ])
+    )
 }
