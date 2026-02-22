@@ -722,11 +722,11 @@ async fn global_timeout_does_not_fire_when_components_finish() {
 // ---------------------------------------------------------------------------
 
 /// A second component calling signal_failure() after shutdown is already in
-/// progress does not cause problems. The shutdown wait loop's event handler
-/// drops Failure events (the `_ => {}` arm). The manager finishes based on
-/// the first trigger — the second failure is harmlessly ignored.
+/// progress does not cause problems. The drain loop handles the late Failure
+/// by marking the component Died (so it resolves immediately), but preserves
+/// the original trigger's error via first_failure.
 #[tokio::test]
-async fn signal_failure_during_shutdown_is_ignored() {
+async fn signal_failure_during_shutdown_marks_died() {
     let mut manager = test_manager();
     let h1 = manager.register("first", ComponentOptions::new());
     let h2 = manager.register("second", ComponentOptions::new());
@@ -755,6 +755,49 @@ async fn signal_failure_during_shutdown_is_ignored() {
         result,
         Err(LifecycleError::ComponentFailure { tag, reason })
             if tag == "first" && reason == "primary failure"
+    ));
+}
+
+/// Failure event during the shutdown drain loop marks the component Died and
+/// resolves it immediately — the manager finishes without waiting for the 5s
+/// global timeout. Both handles are held alive (via pending futures) so the
+/// only way "late_fail" can resolve is through the Failure arm in the drain.
+/// Exercises the same ComponentEvent::Failure path that a health monitor late
+/// poll would take.
+#[tokio::test]
+async fn failure_during_drain_resolves_component_without_global_timeout() {
+    let mut manager = Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_global_shutdown_timeout(Duration::from_secs(5))
+        .build();
+
+    let trigger = manager.register("trigger", ComponentOptions::new());
+    let late_fail = manager.register("late_fail", ComponentOptions::new());
+    let guard = manager.monitor_background();
+
+    let late_fail_clone = late_fail.clone();
+    tokio::spawn(async move {
+        late_fail_clone.shutdown_recv().await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        late_fail_clone.signal_failure("late failure during drain");
+        std::future::pending::<()>().await;
+    });
+    drop(late_fail);
+
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        trigger.signal_failure("primary trigger");
+        std::future::pending::<()>().await;
+    });
+
+    let result = tokio::time::timeout(Duration::from_millis(500), guard.wait())
+        .await
+        .expect("manager should resolve promptly via Failure in drain, not wait for global timeout");
+
+    assert!(matches!(
+        result,
+        Err(LifecycleError::ComponentFailure { tag, .. }) if tag == "trigger"
     ));
 }
 
