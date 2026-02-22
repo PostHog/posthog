@@ -985,64 +985,124 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 cumulative_actors_query = self._build_cumulative_actors_query(actor_query)
                 actor_query = self._explode_cumulative_actors(cumulative_actors_query)
 
-            count_expr: ast.Expr
+            # count_expr always represents the number of distinct actors
+            count_expr = parse_expr("COUNT(DISTINCT actor_activity.actor_id)")
+
+            # aggregation_value_expr is only used when aggregation_target is set
+            aggregation_value_expr: ast.Expr | None = None
             if self.aggregation_target:
                 if self.query.retentionFilter.aggregationType == AggregationType.AVG:
-                    count_expr = parse_expr(
+                    aggregation_value_expr = parse_expr(
                         "sum(actor_activity.retention_value) / COUNT(DISTINCT actor_activity.actor_id)"
                     )
                 else:
-                    count_expr = parse_expr("sum(actor_activity.retention_value)")
-            else:
-                count_expr = parse_expr("COUNT(DISTINCT actor_activity.actor_id)")
+                    aggregation_value_expr = parse_expr("sum(actor_activity.retention_value)")
 
             # Add breakdown if needed
             if self.breakdowns_in_query:
-                retention_query = parse_select(
-                    """
-                    SELECT
-                        actor_activity.start_interval_index AS start_event_matching_interval,
-                        actor_activity.intervals_from_base AS intervals_from_base,
-                        actor_activity.breakdown_value AS breakdown_value,
-                        {count_expr} AS count
-
-                    FROM {actor_query} AS actor_activity
-
-                    GROUP BY
-                        start_event_matching_interval,
-                        intervals_from_base,
-                        breakdown_value
-
-                    ORDER BY
-                        breakdown_value,
-                        start_event_matching_interval,
-                        intervals_from_base
-
-                    LIMIT 100000
-                    """,
-                    {"actor_query": actor_query, "count_expr": count_expr},
-                    timings=self.timings,
-                )
-            else:
-                retention_query = parse_select(
-                    """
-                        SELECT actor_activity.start_interval_index     AS start_event_matching_interval,
-                               actor_activity.intervals_from_base      AS intervals_from_base,
-                               {count_expr} AS count
+                if self.aggregation_target:
+                    retention_query = parse_select(
+                        """
+                        SELECT
+                            actor_activity.start_interval_index AS start_event_matching_interval,
+                            actor_activity.intervals_from_base AS intervals_from_base,
+                            actor_activity.breakdown_value AS breakdown_value,
+                            {count_expr} AS count,
+                            {aggregation_value_expr} AS aggregation_value
 
                         FROM {actor_query} AS actor_activity
 
-                        GROUP BY start_event_matching_interval,
-                                 intervals_from_base
+                        GROUP BY
+                            start_event_matching_interval,
+                            intervals_from_base,
+                            breakdown_value
 
-                        ORDER BY start_event_matching_interval,
-                                 intervals_from_base
+                        ORDER BY
+                            breakdown_value,
+                            start_event_matching_interval,
+                            intervals_from_base
 
                         LIMIT 100000
-                    """,
-                    {"actor_query": actor_query, "count_expr": count_expr},
-                    timings=self.timings,
-                )
+                        """,
+                        {
+                            "actor_query": actor_query,
+                            "count_expr": count_expr,
+                            "aggregation_value_expr": aggregation_value_expr,
+                        },
+                        timings=self.timings,
+                    )
+                else:
+                    retention_query = parse_select(
+                        """
+                        SELECT
+                            actor_activity.start_interval_index AS start_event_matching_interval,
+                            actor_activity.intervals_from_base AS intervals_from_base,
+                            actor_activity.breakdown_value AS breakdown_value,
+                            {count_expr} AS count
+
+                        FROM {actor_query} AS actor_activity
+
+                        GROUP BY
+                            start_event_matching_interval,
+                            intervals_from_base,
+                            breakdown_value
+
+                        ORDER BY
+                            breakdown_value,
+                            start_event_matching_interval,
+                            intervals_from_base
+
+                        LIMIT 100000
+                        """,
+                        {"actor_query": actor_query, "count_expr": count_expr},
+                        timings=self.timings,
+                    )
+            else:
+                if self.aggregation_target:
+                    retention_query = parse_select(
+                        """
+                            SELECT actor_activity.start_interval_index     AS start_event_matching_interval,
+                                   actor_activity.intervals_from_base      AS intervals_from_base,
+                                   {count_expr} AS count,
+                                   {aggregation_value_expr} AS aggregation_value
+
+                            FROM {actor_query} AS actor_activity
+
+                            GROUP BY start_event_matching_interval,
+                                     intervals_from_base
+
+                            ORDER BY start_event_matching_interval,
+                                     intervals_from_base
+
+                            LIMIT 100000
+                        """,
+                        {
+                            "actor_query": actor_query,
+                            "count_expr": count_expr,
+                            "aggregation_value_expr": aggregation_value_expr,
+                        },
+                        timings=self.timings,
+                    )
+                else:
+                    retention_query = parse_select(
+                        """
+                            SELECT actor_activity.start_interval_index     AS start_event_matching_interval,
+                                   actor_activity.intervals_from_base      AS intervals_from_base,
+                                   {count_expr} AS count
+
+                            FROM {actor_query} AS actor_activity
+
+                            GROUP BY start_event_matching_interval,
+                                     intervals_from_base
+
+                            ORDER BY start_event_matching_interval,
+                                     intervals_from_base
+
+                            LIMIT 100000
+                        """,
+                        {"actor_query": actor_query, "count_expr": count_expr},
+                        timings=self.timings,
+                    )
         return retention_query
 
     def _build_cumulative_actors_query(
@@ -1146,10 +1206,14 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
         if self.breakdowns_in_query:
             # Step 1: Calculate total cohort size for each breakdown value (size at intervals_from_base = 0)
+            # When aggregation_target is set, the query returns count (user count) and aggregation_value (sum/avg)
             breakdown_totals: dict[str, int] = {}
             original_results = response.results or []
             for row in original_results:
-                start_interval, intervals_from_base, breakdown_value, count = row
+                if self.aggregation_target:
+                    start_interval, intervals_from_base, breakdown_value, count, aggregation_value = row
+                else:
+                    start_interval, intervals_from_base, breakdown_value, count = row
                 if intervals_from_base == 0:
                     breakdown_totals[breakdown_value] = breakdown_totals.get(breakdown_value, 0) + count
 
@@ -1164,9 +1228,14 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             other_values = {item[0] for item in sorted_breakdowns[breakdown_limit:]}
 
             # Step 3: Aggregate results, grouping less frequent breakdowns into 'Other'
-            aggregated_data: dict[str, dict[int, dict[int, float]]] = {}
+            aggregated_count_data: dict[str, dict[int, dict[int, int]]] = {}
+            aggregated_value_data: dict[str, dict[int, dict[int, float]]] = {}
             for row in original_results:
-                start_interval, intervals_from_base, breakdown_value, count = row
+                if self.aggregation_target:
+                    start_interval, intervals_from_base, breakdown_value, count, aggregation_value = row
+                else:
+                    start_interval, intervals_from_base, breakdown_value, count = row
+                    aggregation_value = None
 
                 target_breakdown = breakdown_value
                 if breakdown_value in other_values:
@@ -1174,12 +1243,24 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
                 # Apply sampling correction when aggregating into the final structure
                 corrected_count = correct_result_for_sampling(count, self.query.samplingFactor)
-                aggregated_data[target_breakdown] = aggregated_data.get(target_breakdown, {})
-                breakdown_data = aggregated_data[target_breakdown]
 
+                aggregated_count_data[target_breakdown] = aggregated_count_data.get(target_breakdown, {})
+                breakdown_data = aggregated_count_data[target_breakdown]
                 breakdown_data[start_interval] = breakdown_data.get(start_interval, {})
                 interval_data = breakdown_data[start_interval]
-                interval_data[intervals_from_base] = interval_data.get(intervals_from_base, 0.0) + corrected_count
+                interval_data[intervals_from_base] = interval_data.get(intervals_from_base, 0) + corrected_count
+
+                if self.aggregation_target and aggregation_value is not None:
+                    corrected_aggregation_value = correct_result_for_sampling(
+                        aggregation_value, self.query.samplingFactor
+                    )
+                    aggregated_value_data[target_breakdown] = aggregated_value_data.get(target_breakdown, {})
+                    value_breakdown_data = aggregated_value_data[target_breakdown]
+                    value_breakdown_data[start_interval] = value_breakdown_data.get(start_interval, {})
+                    value_interval_data = value_breakdown_data[start_interval]
+                    value_interval_data[intervals_from_base] = (
+                        value_interval_data.get(intervals_from_base, 0.0) + corrected_aggregation_value
+                    )
 
             # Step 4: Format final output
             final_results: list[dict[str, Any]] = []
@@ -1189,15 +1270,22 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 ordered_breakdown_keys.append(BREAKDOWN_OTHER_STRING_LABEL)
 
             for breakdown_value in ordered_breakdown_keys:
-                intervals_data: dict[int, dict[int, float]] = aggregated_data.get(breakdown_value, {})
+                count_intervals_data: dict[int, dict[int, int]] = aggregated_count_data.get(breakdown_value, {})
+                value_intervals_data: dict[int, dict[int, float]] = aggregated_value_data.get(breakdown_value, {})
                 labels = self.get_bracket_labels()
 
                 breakdown_results = []
                 for start_interval in range(self.query_date_range.intervals_between):
-                    result_dict: dict[int, float] = intervals_data.get(start_interval, {})
+                    count_result_dict: dict[int, int] = count_intervals_data.get(start_interval, {})
+                    value_result_dict: dict[int, float] = value_intervals_data.get(start_interval, {})
                     values = [
                         {
-                            "count": result_dict.get(return_interval, 0.0),
+                            "count": count_result_dict.get(return_interval, 0),
+                            **(
+                                {"aggregation_value": value_result_dict.get(return_interval, 0.0)}
+                                if self.aggregation_target
+                                else {}
+                            ),
                             "label": labels[return_interval],
                         }
                         for return_interval in range(self.lookahead_period_count)
@@ -1217,18 +1305,35 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             results = final_results
         else:
             # Rename this variable to avoid conflict with the one in the if block
-            results_by_interval_pair: dict[tuple[int, int], dict[str, float]] = {
-                (start_event_matching_interval, intervals_from_base): {
-                    "count": correct_result_for_sampling(count, self.query.samplingFactor)
+            if self.aggregation_target:
+                results_by_interval_pair: dict[tuple[int, int], dict[str, float]] = {
+                    (start_event_matching_interval, intervals_from_base): {
+                        "count": correct_result_for_sampling(count, self.query.samplingFactor),
+                        "aggregation_value": correct_result_for_sampling(aggregation_value, self.query.samplingFactor),
+                    }
+                    for (
+                        start_event_matching_interval,
+                        intervals_from_base,
+                        count,
+                        aggregation_value,
+                    ) in response.results
                 }
-                for (start_event_matching_interval, intervals_from_base, count) in response.results
-            }
+            else:
+                results_by_interval_pair = {
+                    (start_event_matching_interval, intervals_from_base): {
+                        "count": correct_result_for_sampling(count, self.query.samplingFactor)
+                    }
+                    for (start_event_matching_interval, intervals_from_base, count) in response.results
+                }
             labels = self.get_bracket_labels()
+            default_values = {"count": 0.0}
+            if self.aggregation_target:
+                default_values["aggregation_value"] = 0.0
             results = [
                 {
                     "values": [
                         {
-                            **results_by_interval_pair.get((start_interval, return_interval), {"count": 0.0}),
+                            **results_by_interval_pair.get((start_interval, return_interval), default_values),
                             "label": labels[return_interval],
                         }
                         for return_interval in range(self.lookahead_period_count)

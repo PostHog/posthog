@@ -52,9 +52,6 @@ export function RetentionTable({
     // only one breakdown value so don't need to highlight using different colors/autoexpand it
     const isSingleBreakdown = Object.keys(tableRowsSplitByBreakdownValue).length === 1
 
-    const aggregationType = retentionFilter?.aggregationType
-    const showSizeColumn = !hideSizeColumn && (!aggregationType || aggregationType === 'count')
-
     return (
         <table
             className={clsx('RetentionTable', {
@@ -72,7 +69,7 @@ export function RetentionTable({
             <tbody>
                 <tr>
                     <th className="bg whitespace-nowrap">Cohort</th>
-                    {showSizeColumn && <th className="bg">Size</th>}
+                    {!hideSizeColumn && <th className="bg">Size</th>}
                     {tableHeaders.map((header, columnIndex) => (
                         <th
                             key={header}
@@ -136,7 +133,7 @@ export function RetentionTable({
                                     </div>
                                 </td>
 
-                                {showSizeColumn && (
+                                {!hideSizeColumn && (
                                     <td>
                                         <span className="RetentionTable__TextTab">
                                             {noBreakdown
@@ -191,7 +188,7 @@ export function RetentionTable({
                                         <td className={clsx('pl-2 whitespace-nowrap', { 'pl-6': !isSingleBreakdown })}>
                                             {row.label}
                                         </td>
-                                        {showSizeColumn && (
+                                        {!hideSizeColumn && (
                                             <td>
                                                 <span className="RetentionTable__TextTab">{row.cohortSize}</span>
                                             </td>
@@ -212,7 +209,9 @@ export function RetentionTable({
                                                         <CohortDay
                                                             percentage={column.percentage}
                                                             value={
-                                                                isPropertyValueAggregation ? column.count : undefined
+                                                                isPropertyValueAggregation
+                                                                    ? column.aggregation_value
+                                                                    : undefined
                                                             }
                                                             clickable={true}
                                                             isCurrentPeriod={column.isCurrentPeriod}
