@@ -5,7 +5,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { ModifiedRequest } from '~/api/router'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
-import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS, KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
+import { KAFKA_CDP_BATCH_HOGFLOW_REQUESTS } from '~/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, Hub, PluginServerService } from '../types'
@@ -135,6 +135,7 @@ export class CdpApi {
             this.hub.KAFKA_CLIENT_RACK,
             'WAREHOUSE_PRODUCER'
         )
+        this.hogFunctionMonitoringService.setWarehouseKafkaProducer(this.cdpWarehouseKafkaProducer)
         await this.cdpSourceWebhooksConsumer.start()
     }
 
@@ -633,31 +634,10 @@ export class CdpApi {
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             const { webhook_id } = req.params
-            return this.processAndRespondToWebhook(webhook_id, req, res, async (result) => {
+            return this.processAndRespondToWebhook(webhook_id, req, res, (result) => {
                 if (result.error) {
                     return res.status(500).json({ error: 'Internal error' })
                 }
-                if (!result.execResult || typeof result.execResult !== 'object') {
-                    return res.status(500).json({ error: 'Template did not return a payload' })
-                }
-
-                const hogFunction = result.invocation.hogFunction
-                const schemaId = hogFunction.inputs?.schema_id?.value
-                if (!schemaId) {
-                    return res.status(500).json({ error: 'Missing schema_id on hog function' })
-                }
-
-                const kafkaProducer = this.cdpWarehouseKafkaProducer
-                if (!kafkaProducer) {
-                    return res.status(500).json({ error: 'Kafka producer not available' })
-                }
-
-                await kafkaProducer.produce({
-                    topic: KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
-                    key: `${hogFunction.team_id}:${schemaId}`,
-                    value: Buffer.from(JSON.stringify(result.execResult)),
-                })
-
                 return res.status(200).json({ status: 'ok' })
             })
         }
