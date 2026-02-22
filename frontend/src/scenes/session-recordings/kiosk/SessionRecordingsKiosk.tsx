@@ -1,12 +1,13 @@
 import './SessionRecordingsKiosk.scss'
 
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { Link } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { KioskPlayer } from './KioskPlayer'
+import { KioskSetup } from './KioskSetup'
 import { sessionRecordingsKioskLogic } from './sessionRecordingsKioskLogic'
 
 export const scene: SceneExport = {
@@ -15,7 +16,16 @@ export const scene: SceneExport = {
 }
 
 export function SessionRecordingsKiosk(): JSX.Element {
-    const { recordingsLoading, hasRecordings } = useValues(sessionRecordingsKioskLogic)
+    const { isConfigured, recordingsLoading, hasRecordings } = useValues(sessionRecordingsKioskLogic)
+    const { resetPlayback } = useActions(sessionRecordingsKioskLogic)
+
+    if (!isConfigured) {
+        return (
+            <div className="SessionRecordingsKiosk SessionRecordingsKiosk--setup">
+                <KioskSetup />
+            </div>
+        )
+    }
 
     if (recordingsLoading) {
         return (
@@ -29,11 +39,11 @@ export function SessionRecordingsKiosk(): JSX.Element {
         return (
             <div className="SessionRecordingsKiosk SessionRecordingsKiosk--empty">
                 <div className="SessionRecordingsKiosk__message">
-                    <h2>No recordings available</h2>
-                    <p>There are no unplayed session recordings to display.</p>
-                    <p>
-                        <Link to="/replay">Go to Session replay</Link>
-                    </p>
+                    <h2>No recordings found</h2>
+                    <p>No recordings matched your filters. Try adjusting the date range or page filter.</p>
+                    <LemonButton type="secondary" onClick={resetPlayback}>
+                        Back to setup
+                    </LemonButton>
                 </div>
             </div>
         )
@@ -45,5 +55,3 @@ export function SessionRecordingsKiosk(): JSX.Element {
         </div>
     )
 }
-
-export default SessionRecordingsKiosk
