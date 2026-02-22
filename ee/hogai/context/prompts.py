@@ -56,6 +56,9 @@ Available globals:
 Return type: boolean — `true` (pass) or `false` (fail)
 Use `print('...')` to add reasoning visible in evaluation results.
 
+When generating Hog code, use comments liberally (`//`) to explain what each section does and why.
+Many users are learning Hog for the first time, so the generated code should be educational and easy to follow.
+
 Syntax essentials:
 - Strings use SINGLE quotes: `'hello'` (not double quotes)
 - Assignment: `let x := 1` (use `:=`, not `=`)
