@@ -135,6 +135,43 @@ export function getTicketSummaryData(
     return null
 }
 
+const ESCALATION_PHRASES = [
+    'support ticket',
+    'raise a ticket',
+    'create a ticket',
+    'file a ticket',
+    'open a ticket',
+    'contact support',
+    'support team',
+    'support engineer',
+    'reach out to support',
+    'report this',
+]
+
+/**
+ * Checks whether the recent conversation contained escalation-related language,
+ * indicating that ticket creation was suggested by the AI or discussed by the user.
+ * Scans the last 5 messages for phrases suggesting ticket creation or contacting support.
+ */
+export function wasTicketAISuggested(threadGrouped: ThreadMessage[]): boolean {
+    if (threadGrouped.length === 0) {
+        return false
+    }
+
+    const startIndex = Math.max(0, threadGrouped.length - 5)
+    for (let i = threadGrouped.length - 1; i >= startIndex; i--) {
+        const msg = threadGrouped[i]
+        if ('content' in msg && typeof msg.content === 'string') {
+            const contentLower = msg.content.toLowerCase()
+            if (ESCALATION_PHRASES.some((phrase) => contentLower.includes(phrase))) {
+                return true
+            }
+        }
+    }
+
+    return false
+}
+
 /**
  * Checks if a message is a ticket confirmation message.
  */
