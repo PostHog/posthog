@@ -6641,6 +6641,7 @@ class SurveyAppearanceSchema(BaseModel):
     borderColor: str | None = None
     buttonColor: str | None = None
     buttonTextColor: str | None = None
+    closeButtonColor: str | None = None
     inputBackground: str | None = None
     inputTextColor: str | None = None
     maxWidth: str | None = None

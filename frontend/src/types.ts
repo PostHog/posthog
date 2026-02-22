@@ -3629,6 +3629,8 @@ export interface SurveyAppearance {
     backgroundColor?: string
     // Optional override for main survey text color. If not set, auto-calculated from backgroundColor.
     textColor?: string
+    // Optional override for close button (X) color. If not set, auto-calculated from backgroundColor.
+    closeButtonColor?: string
     submitButtonColor?: string
     // TODO: remove submitButtonText in favor of buttonText once it's more deprecated
     submitButtonText?: string
