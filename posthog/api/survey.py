@@ -18,6 +18,7 @@ import nh3
 import structlog
 import posthoganalytics
 from axes.decorators import axes_dispatch
+from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from nanoid import generate
@@ -948,7 +949,8 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     queryset = Survey.objects.select_related(
         "linked_flag", "linked_insight", "targeting_flag", "internal_targeting_flag"
     ).all()
-    filter_backends = [filters.SearchFilter]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_fields = ["archived"]
     search_fields = ["name", "description"]
 
     def get_serializer_class(self) -> type[serializers.Serializer]:

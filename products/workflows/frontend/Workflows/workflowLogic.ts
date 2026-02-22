@@ -20,6 +20,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { HogFunctionTemplateType } from '~/types'
 
+import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
 import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import { type HogFlow, type HogFlowAction, HogFlowActionValidationResult, type HogFlowEdge } from './hogflows/types'
 import type { workflowLogicType } from './workflowLogicType'
@@ -354,9 +355,17 @@ export const workflowLogic = kea<workflowLogicType>([
                         }
 
                         if (action.type === 'trigger') {
-                            // custom validation here that we can't easily express in the schema
-                            if (action.config.type === 'event') {
-                                if (!action.config.filters.events?.length && !action.config.filters.actions?.length) {
+                            const registeredTypes = getRegisteredTriggerTypes()
+                            const matchingType = registeredTypes.find((t) => t.matchConfig?.(action.config))
+
+                            if (matchingType?.validate) {
+                                const triggerValidation = matchingType.validate(action.config)
+                                if (triggerValidation && !triggerValidation.valid) {
+                                    result.valid = false
+                                    result.errors = { ...result.errors, ...triggerValidation.errors }
+                                }
+                            } else if (action.config.type === 'event') {
+                                if (!action.config.filters?.events?.length && !action.config.filters?.actions?.length) {
                                     result.valid = false
                                     result.errors = {
                                         filters: 'At least one event or action is required',
@@ -411,7 +420,7 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values }) => ({
         saveWorkflowPartial: async ({ workflow }) => {
             const merged = { ...values.workflow, ...workflow }
             if (merged.status === 'active' && values.workflowHasActionErrors) {
@@ -426,7 +435,7 @@ export const workflowLogic = kea<workflowLogicType>([
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
             const tasksToMarkAsCompleted: SetupTaskId[] = []
             lemonToast.success('Workflow saved')
-            if (props.id === 'new' && originalWorkflow.id) {
+            if (values.logicProps.id === 'new' && originalWorkflow.id) {
                 router.actions.replace(
                     urls.workflow(
                         originalWorkflow.id,
@@ -496,11 +505,14 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
 
-            action.config = { ...config } as HogFlowAction['config']
+            const updatedConfig = { ...config } as HogFlowAction['config']
+            const newActions = values.workflow.actions.map((a) =>
+                a.id === actionId ? { ...a, config: updatedConfig } : a
+            )
 
-            const changes = { actions: [...values.workflow.actions] } as Partial<HogFlow>
+            const changes = { actions: newActions } as Partial<HogFlow>
             if (action.type === 'trigger') {
-                changes.trigger = action.config as TriggerAction['config']
+                changes.trigger = updatedConfig as TriggerAction['config']
             }
 
             actions.setWorkflowValues(changes)
