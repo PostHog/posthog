@@ -22682,6 +22682,9 @@
                 "is_identified": {
                     "type": "boolean"
                 },
+                "last_seen_at": {
+                    "type": "string"
+                },
                 "name": {
                     "type": "string"
                 },

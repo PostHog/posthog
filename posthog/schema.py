@@ -2996,6 +2996,7 @@ class PersonType(BaseModel):
     distinct_ids: list[str]
     id: str | None = None
     is_identified: bool | None = None
+    last_seen_at: str | None = None
     name: str | None = None
     properties: dict[str, Any]
     uuid: str | None = None
