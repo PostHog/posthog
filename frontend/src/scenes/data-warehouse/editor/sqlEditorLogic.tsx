@@ -266,7 +266,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     kind: NodeKind.HogQLQuery,
                     query: '',
                 },
-                display: ChartDisplayType.ActionsLineGraph,
+                display: ChartDisplayType.Auto,
             } as DataVisualizationNode,
             {
                 setSourceQuery: (_, { sourceQuery }) => sourceQuery,

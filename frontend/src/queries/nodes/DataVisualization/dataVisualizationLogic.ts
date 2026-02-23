@@ -239,6 +239,38 @@ const isNumericalType = (type: ColumnScalar): boolean => {
     return false
 }
 
+const isTimeSeriesVisualizationType = (visualizationType: ChartDisplayType): boolean => {
+    return (
+        visualizationType === ChartDisplayType.ActionsLineGraph ||
+        visualizationType === ChartDisplayType.ActionsAreaGraph ||
+        visualizationType === ChartDisplayType.ActionsLineGraphCumulative
+    )
+}
+
+const resolveNonTimeSeriesVisualizationType = (columns: Column[]): ChartDisplayType => {
+    const numericalColumns = columns.filter((column) => column.type.isNumerical)
+
+    if (numericalColumns.length === 1 && columns.length === 1) {
+        return ChartDisplayType.BoldNumber
+    }
+
+    if (numericalColumns.length > 0) {
+        return ChartDisplayType.ActionsBar
+    }
+
+    return ChartDisplayType.ActionsTable
+}
+
+const getAutoVisualizationType = (columns: Column[]): ChartDisplayType => {
+    const hasDateColumn = columns.some((column) => ['DATE', 'DATETIME'].includes(column.type.name))
+
+    if (hasDateColumn) {
+        return ChartDisplayType.ActionsLineGraph
+    }
+
+    return resolveNonTimeSeriesVisualizationType(columns)
+}
+
 const getHeatmapAutoSettings = (columns: Column[], heatmapSettings: HeatmapSettings): Partial<HeatmapSettings> => {
     const stringColumns = columns.filter((column) => column.type.name === 'STRING')
     const numericalColumns = columns.filter((column) => column.type.isNumerical)
@@ -902,15 +934,31 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         dataVisualizationProps: [() => [(_, props) => props], (props): DataVisualizationLogicProps => props],
+        effectiveVisualizationType: [
+            (s) => [s.visualizationType, s.columns],
+            (visualizationType, columns): ChartDisplayType => {
+                const hasDateColumn = columns.some((column) => ['DATE', 'DATETIME'].includes(column.type.name))
+
+                if (visualizationType === ChartDisplayType.Auto) {
+                    return getAutoVisualizationType(columns)
+                }
+
+                if (!hasDateColumn && isTimeSeriesVisualizationType(visualizationType)) {
+                    return resolveNonTimeSeriesVisualizationType(columns)
+                }
+
+                return visualizationType
+            },
+        ],
         isTableVisualization: [
-            (s) => [s.visualizationType],
+            (s) => [s.effectiveVisualizationType],
             (visualizationType): boolean =>
                 // BoldNumber relies on yAxis formatting so it's considered a table visualization
                 visualizationType === ChartDisplayType.ActionsTable ||
                 visualizationType === ChartDisplayType.BoldNumber,
         ],
         showTableSettings: [
-            (s) => [s.visualizationType],
+            (s) => [s.effectiveVisualizationType],
             (visualizationType): boolean =>
                 visualizationType === ChartDisplayType.ActionsTable ||
                 visualizationType === ChartDisplayType.BoldNumber,
