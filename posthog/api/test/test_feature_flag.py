@@ -594,7 +594,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_create_minimal_feature_flag(self, mock_capture):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
-            {"key": "omega-feature"},
+            {
+                "key": "omega-feature",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
+            },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -609,7 +612,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.user,
             "feature flag created",
             {
-                "groups_count": 1,  # 1 is always created by default
+                "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": False,
@@ -632,7 +635,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
-            {"key": "api-created-feature"},
+            {
+                "key": "api-created-feature",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
+            },
             format="json",
             headers={"authorization": f"Bearer {personal_api_key}"},
         )
