@@ -306,7 +306,9 @@ export async function postProcessSnapshots(
         }
     }
 
-    // Persist cross-source state back
+    // Persist cross-source state back.
+    // matchedExtensions is a Set shared by reference, so mutations accumulate
+    // automatically — only primitive fields need explicit writeback.
     state.hasSeenMeta = context.hasSeenMeta
     state.seenFullByWindow = context.seenFullByWindow
 

@@ -132,6 +132,17 @@ describe('postProcessSnapshots', () => {
             const result = await postProcessSnapshots(input, state, 'test-session')
             expect(result).toHaveLength(expectedCount)
         })
+
+        it('does not dedup identical snapshots across separate calls', async () => {
+            const state = createPostProcessingState()
+            const snap = makeSnapshot({ type: 3, timestamp: 1000, data: { source: 1, payload: 'a' } })
+
+            const result1 = await postProcessSnapshots([snap], state, 'test-session')
+            const result2 = await postProcessSnapshots([snap], state, 'test-session')
+
+            expect(result1).toHaveLength(1)
+            expect(result2).toHaveLength(1)
+        })
     })
 
     describe('chrome extension stripping', () => {
@@ -188,6 +199,48 @@ describe('postProcessSnapshots', () => {
             const customEvents = result.filter((s) => s.type === EventType.Custom)
             expect(customEvents).toHaveLength(0)
             expect(result).toHaveLength(1)
+        })
+
+        it('inserts a custom event for each full snapshot with extension data', async () => {
+            const makeExtensionNode = (): any => ({
+                type: 0,
+                childNodes: [
+                    {
+                        type: 2,
+                        tagName: 'html',
+                        attributes: {},
+                        childNodes: [
+                            { type: 2, tagName: 'head', attributes: {}, childNodes: [] },
+                            {
+                                type: 2,
+                                tagName: 'body',
+                                attributes: {},
+                                childNodes: [
+                                    {
+                                        type: 2,
+                                        tagName: 'div',
+                                        attributes: { id: 'dji-sru' },
+                                        childNodes: [{ type: 3, textContent: 'ext' }],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            })
+
+            const state = createPostProcessingState()
+            const input = [
+                makeMetaSnapshot(999),
+                makeFullSnapshot(1000, 1, makeExtensionNode()),
+                makeMetaSnapshot(1999),
+                makeFullSnapshot(2000, 1, makeExtensionNode()),
+            ]
+            const result = await postProcessSnapshots(input, state, 'test-session')
+
+            const customEvents = result.filter((s) => s.type === EventType.Custom)
+            expect(customEvents).toHaveLength(2)
+            expect(customEvents.every((e) => (e as any).data.tag === 'chrome-extension-stripped')).toBe(true)
         })
     })
 
@@ -270,16 +323,11 @@ describe('postProcessSnapshots', () => {
 
     describe('yielding', () => {
         it('yields to main thread during large batches', async () => {
-            const originalPerformanceNow = performance.now
             let callCount = 0
-
-            // Mock performance.now to simulate time passing
             jest.spyOn(performance, 'now').mockImplementation(() => {
                 callCount++
-                // Return increasing time: each call advances 10ms
                 return callCount * 10
             })
-
             const setTimeoutSpy = jest.spyOn(global, 'setTimeout')
 
             const state = createPostProcessingState()
@@ -289,12 +337,8 @@ describe('postProcessSnapshots', () => {
 
             await postProcessSnapshots(snapshots, state, 'test-session')
 
-            // setTimeout should have been called for yielding (at least once since 20 * 10ms > 50ms)
             const yieldCalls = setTimeoutSpy.mock.calls.filter((call) => call[1] === 0 && typeof call[0] === 'function')
             expect(yieldCalls.length).toBeGreaterThan(0)
-
-            performance.now = originalPerformanceNow
-            setTimeoutSpy.mockRestore()
         })
     })
 
