@@ -403,11 +403,11 @@ describe('resolveTraceEventById', () => {
     ]
 
     it.each([
-        ['event id', 'event-1'],
-        ['generation id', 'gen-1'],
-        ['span id', 'span-2'],
-    ])('matches by %s', (_label, eventId) => {
-        expect(resolveTraceEventById(showableEvents, eventId)).toBeTruthy()
+        ['event id', 'event-1', 'event-1'],
+        ['generation id', 'gen-1', 'event-1'],
+        ['span id', 'span-2', 'event-2'],
+    ])('matches by %s', (_label, eventId, expectedId) => {
+        expect(resolveTraceEventById(showableEvents, eventId)?.id).toBe(expectedId)
     })
 
     it('returns null when no event matches', () => {

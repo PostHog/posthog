@@ -167,21 +167,16 @@ function PersonColumnCellWithRedirect({ person }: { person: PersonData | null | 
 }
 
 function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JSX.Element {
-    const { personsCache, isDistinctIdLoading, currentTeamId } = useValues(llmPersonsLazyLoaderLogic)
+    const { personsCache, currentTeamId } = useValues(llmPersonsLazyLoaderLogic)
     const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
 
     const cached = personsCache[distinctId]
-    const loading = isDistinctIdLoading(distinctId)
 
     useEffect(() => {
         if (currentTeamId && cached === undefined) {
             ensurePersonLoaded(distinctId)
         }
     }, [currentTeamId, cached, distinctId, ensurePersonLoaded])
-
-    if (loading || cached === undefined) {
-        return <AIDataLoading variant="inline" />
-    }
 
     const personData: PersonData = cached
         ? { distinct_id: cached.distinct_id, properties: cached.properties }
