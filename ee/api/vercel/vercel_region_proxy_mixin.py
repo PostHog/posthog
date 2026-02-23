@@ -5,7 +5,7 @@ from urllib.parse import urlparse, urlunparse
 
 from django.conf import settings
 from django.core.cache import cache
-from django.http import HttpRequest, HttpResponse, HttpResponseBase
+from django.http import HttpRequest, HttpResponse
 
 import requests
 import structlog
@@ -180,7 +180,7 @@ class VercelRegionProxyMixin:
         )
         raise exceptions.NotFound("Installation not found")
 
-    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
+    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         if self.is_dev_env or not self.current_region:
             return super().dispatch(request, *args, **kwargs)  # type: ignore[misc]
 

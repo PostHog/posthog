@@ -1,7 +1,7 @@
 from typing import Any
 from urllib.parse import urlparse
 
-from django.http import HttpRequest, HttpResponse, HttpResponseBase, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 
 import structlog
 from rest_framework import decorators, exceptions, permissions, serializers, viewsets
@@ -58,9 +58,9 @@ class VercelSSOSerializer(DataclassSerializer[SSOParams]):
 class VercelSSOViewSet(VercelErrorResponseMixin, VercelRegionProxyMixin, viewsets.GenericViewSet):
     permission_classes = [permissions.AllowAny]
 
-    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
+    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         # SSO codes are single-use, so we redirect the browser instead of proxying server-side
-        return viewsets.GenericViewSet.dispatch(self, request, *args, **kwargs)
+        return viewsets.GenericViewSet.dispatch(self, request, *args, **kwargs)  # type: ignore[return-value]
 
     def _should_redirect_to_eu(self, resource_id: str | None) -> bool:
         if self.is_dev_env or self.current_region != "us" or not resource_id:
