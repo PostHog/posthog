@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 import requests
@@ -8,6 +9,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceRespo
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.typing import Endpoint, EndpointResource
 from posthog.temporal.data_imports.sources.intercom.settings import INTERCOM_ENDPOINTS
+
+logger = logging.getLogger(__name__)
 
 INTERCOM_BASE_URL = "https://api.intercom.io"
 INTERCOM_VERSION = "2.11"
@@ -49,6 +52,46 @@ class IntercomCursorPaginator(BasePaginator):
             request.params["starting_after"] = self._next_cursor
 
 
+class IntercomSearchPaginator(BasePaginator):
+    """Paginator for Intercom search endpoints (POST /contacts/search, etc.).
+
+    Search endpoints use cursor-based pagination within the JSON request body,
+    not query parameters.
+    """
+
+    def __init__(self, per_page: int = 150):
+        super().__init__()
+        self._per_page = per_page
+        self._next_cursor: str | None = None
+
+    def init_request(self, request: Request) -> None:
+        if request.json is None:
+            request.json = {}
+        if "pagination" not in request.json:
+            request.json["pagination"] = {}
+        request.json["pagination"]["per_page"] = self._per_page
+
+    def update_state(self, response: Response, data: list[Any] | None = None) -> None:
+        try:
+            response_data = response.json()
+            pages = response_data.get("pages", {})
+            next_page = pages.get("next", {})
+            self._next_cursor = next_page.get("starting_after") if isinstance(next_page, dict) else None
+            self._has_next_page = self._next_cursor is not None
+        except Exception:
+            self._has_next_page = False
+            self._next_cursor = None
+
+    def update_request(self, request: Request) -> None:
+        if request.json is None:
+            request.json = {}
+        if "pagination" not in request.json:
+            request.json["pagination"] = {}
+        request.json["pagination"]["per_page"] = self._per_page
+        if self._next_cursor:
+            request.json["pagination"]["starting_after"] = self._next_cursor
+
+
 class IntercomPageNumberPaginator(BasePaginator):
     """Paginator for Intercom POST endpoints that use page-number pagination
     via query parameters (e.g. POST /companies/list?page=1&per_page=15).
@@ -83,21 +126,50 @@ class IntercomPageNumberPaginator(BasePaginator):
         request.params["per_page"] = self._per_page
 
 
-def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
+def get_resource(
+    name: str,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any | None = None,
+) -> EndpointResource:
     config = INTERCOM_ENDPOINTS[name]
 
-    endpoint_config: Endpoint = {
-        "path": config.path,
-        "data_selector": config.data_selector,
-    }
+    if should_use_incremental_field and config.search_path:
+        # Use search endpoint for server-side filtering by updated_at
+        filter_value = int(db_incremental_field_last_value) if db_incremental_field_last_value is not None else 0
+        json_body: dict[str, Any] = {
+            "query": {
+                "operator": "OR",
+                "value": [
+                    {"field": "updated_at", "operator": ">", "value": filter_value},
+                    {"field": "updated_at", "operator": "=", "value": filter_value},
+                ],
+            },
+            "sort": {
+                "field": "updated_at",
+                "order": "ascending",
+            },
+        }
 
-    if not config.paginated:
-        endpoint_config["paginator"] = "single_page"
-    elif config.method == "POST":
-        endpoint_config["method"] = "POST"
-        endpoint_config["paginator"] = IntercomPageNumberPaginator(per_page=config.page_size)
+        endpoint_config: Endpoint = {
+            "path": config.search_path,
+            "method": "POST",
+            "json": json_body,
+            "data_selector": config.search_data_selector or config.data_selector,
+            "paginator": IntercomSearchPaginator(per_page=config.page_size),
+        }
     else:
-        endpoint_config["paginator"] = IntercomCursorPaginator(per_page=config.page_size)
+        endpoint_config = {
+            "path": config.path,
+            "data_selector": config.data_selector,
+        }
+
+        if not config.paginated:
+            endpoint_config["paginator"] = "single_page"
+        elif config.method == "POST":
+            endpoint_config["method"] = "POST"
+            endpoint_config["paginator"] = IntercomPageNumberPaginator(per_page=config.page_size)
+        else:
+            endpoint_config["paginator"] = IntercomCursorPaginator(per_page=config.page_size)
 
     return {
         "name": config.name,
@@ -144,6 +216,15 @@ def intercom_source(
 ) -> SourceResponse:
     endpoint_config = INTERCOM_ENDPOINTS[endpoint]
 
+    resource_config = get_resource(endpoint, should_use_incremental_field, db_incremental_field_last_value)
+    logger.info(
+        "Intercom source: endpoint=%s, incremental=%s, last_value=%s, path=%s",
+        endpoint,
+        should_use_incremental_field,
+        db_incremental_field_last_value,
+        resource_config["endpoint"].get("path"),
+    )
+
     config: RESTAPIConfig = {
         "client": {
             "base_url": INTERCOM_BASE_URL,
@@ -160,7 +241,7 @@ def intercom_source(
             "primary_key": "id",
             "write_disposition": "replace",
         },
-        "resources": [get_resource(endpoint, should_use_incremental_field)],
+        "resources": [resource_config],
     }
 
     resources = rest_api_resources(config, team_id, job_id, None)

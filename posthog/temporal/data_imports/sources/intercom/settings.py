@@ -14,6 +14,8 @@ class IntercomEndpointConfig:
     method: Literal["GET", "POST"] = "GET"
     page_size: int = 150
     paginated: bool = True
+    search_path: str | None = None
+    search_data_selector: str | None = None
 
 
 INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
@@ -21,6 +23,8 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         name="contacts",
         path="/contacts",
         data_selector="data",
+        search_path="/contacts/search",
+        search_data_selector="data",
     ),
     "companies": IntercomEndpointConfig(
         name="companies",
@@ -33,6 +37,8 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         name="conversations",
         path="/conversations",
         data_selector="conversations",
+        search_path="/conversations/search",
+        search_data_selector="conversations",
     ),
     "admins": IntercomEndpointConfig(
         name="admins",
