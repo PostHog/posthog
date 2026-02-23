@@ -87,6 +87,27 @@ class SlackThreadHandler:
             logger.warning("slack_find_progress_message_failed", error=str(e))
         return None
 
+    def update_reaction(self, emoji: str, remove: str | None = "seedling") -> None:
+        """Swap the reaction on the original thread message."""
+        try:
+            client = self._get_client()
+            if remove:
+                try:
+                    client.reactions_remove(
+                        channel=self.context.channel,
+                        timestamp=self.context.thread_ts,
+                        name=remove,
+                    )
+                except Exception:
+                    pass
+            client.reactions_add(
+                channel=self.context.channel,
+                timestamp=self.context.thread_ts,
+                name=emoji,
+            )
+        except Exception as e:
+            logger.warning("slack_update_reaction_failed", error=str(e))
+
     def post_or_update_progress(self, stage: str, task_url: str | None = None) -> None:
         """Post a new progress message or update the existing one."""
         text = f"*{PROGRESS_MESSAGE_MARKER}* :hourglass_flowing_sand:\nStage: {stage}"

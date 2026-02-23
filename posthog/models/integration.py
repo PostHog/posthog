@@ -285,7 +285,7 @@ class OauthIntegration:
                 token_url="https://slack.com/api/oauth.v2.access",
                 client_id=from_settings["SLACK_TWIG_CLIENT_ID"],
                 client_secret=from_settings["SLACK_TWIG_CLIENT_SECRET"],
-                scope="channels:read,groups:read,channels:history,groups:history,chat:write,reactions:write,users:read,users:read.email",
+                scope="app_mentions:read,channels:read,groups:read,channels:history,groups:history,chat:write,reactions:write,users:read,users:read.email",
                 id_path="team.id",
                 name_path="team.name",
             )

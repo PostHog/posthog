@@ -559,34 +559,16 @@ def guess_repository(
 def route_twig_event_to_relevant_region(
     request: HttpRequest, event: dict, slack_team_id: str, integration_kind: str = "slack-twig"
 ) -> None:
-    logger.info(
-        "twig_route_start",
-        slack_team_id=slack_team_id,
-        integration_kind=integration_kind,
-        host=request.get_host(),
-        is_debug=settings.DEBUG,
-        primary_region_domain=SLACK_PRIMARY_REGION_DOMAIN,
-    )
-
     integration = (
         Integration.objects.filter(kind=integration_kind, integration_id=slack_team_id)
         .select_related("team", "team__organization")
         .first()
     )
 
-    logger.info(
-        "twig_route_integration_lookup",
-        found=integration is not None,
-        integration_id=integration.id if integration else None,
-        team_id=integration.team_id if integration else None,
-    )
-
     if integration and not (settings.DEBUG and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN):
-        logger.info("twig_route_handling_locally", integration_id=integration.id)
         if event.get("type") == "app_mention":
             handle_twig_app_mention(event, integration)
     elif request.get_host() == SLACK_PRIMARY_REGION_DOMAIN:
-        logger.info("twig_route_proxying_to_secondary")
         proxy_slack_event_to_secondary_region(request)
     else:
         logger.warning("twig_no_integration_found", slack_team_id=slack_team_id)
@@ -596,50 +578,39 @@ def handle_twig_app_mention(event: dict, integration: Integration) -> None:
     channel = event.get("channel")
     slack_team_id = integration.integration_id
     if not channel or not slack_team_id:
-        logger.warning("twig_mention_missing_channel_or_team", channel=channel, slack_team_id=slack_team_id)
         return
 
     thread_ts = event.get("thread_ts") or event.get("ts")
     if not thread_ts:
-        logger.warning("twig_mention_missing_thread_ts")
         return
 
     slack_user_id = event.get("user")
     if not slack_user_id:
-        logger.warning("twig_mention_missing_user")
         return
 
     logger.info(
-        "twig_app_mention_received",
+        "twig_event_received",
         channel=channel,
         user=slack_user_id,
-        text=event.get("text"),
         thread_ts=thread_ts,
-        slack_team_id=slack_team_id,
+        team_id=integration.team_id,
     )
 
     try:
         slack = SlackIntegration(integration)
 
-        logger.info("twig_mention_resolving_user", slack_user_id=slack_user_id)
         user_context = resolve_slack_user(slack, integration, slack_user_id, channel, thread_ts)
         if not user_context:
-            logger.warning("twig_mention_user_not_resolved", slack_user_id=slack_user_id)
             return
-        logger.info("twig_mention_user_resolved", user_id=user_context.user.id)
 
         auth_response = slack.client.auth_test()
         our_bot_id = auth_response.get("bot_id")
-        logger.info("twig_mention_bot_id", bot_id=our_bot_id)
 
         thread_messages = _collect_thread_messages(slack, channel, thread_ts, our_bot_id)
-        logger.info("twig_mention_thread_messages", count=len(thread_messages) if thread_messages else 0)
         if not thread_messages:
-            logger.warning("twig_mention_no_thread_messages")
             return
 
         repos = guess_repository(thread_messages, integration, user=user_context.user)
-        logger.info("twig_mention_repos_guessed", repos=repos, count=len(repos))
 
         if len(repos) != 1:
             if len(repos) == 0:
@@ -672,22 +643,30 @@ def handle_twig_app_mention(event: dict, integration: Integration) -> None:
             thread_ts=thread_ts,
         )
 
-        logger.info(
-            "twig_mention_creating_task",
-            title=title,
-            repository=repository,
-            user_id=user_context.user.id,
-        )
-
-        Task.create_and_run(
-            team=integration.team,
-            title=title,
-            description=description,
-            origin_product=Task.OriginProduct.SLACK,
-            user_id=user_context.user.id,
-            repository=repository,
-            slack_thread_context=slack_thread_context,
-        )
+        try:
+            Task.create_and_run(
+                team=integration.team,
+                title=title,
+                description=description,
+                origin_product=Task.OriginProduct.SLACK,
+                user_id=user_context.user.id,
+                repository=repository,
+                slack_thread_context=slack_thread_context,
+            )
+        except Exception as e:
+            logger.exception(
+                "twig_task_creation_failed",
+                error=str(e),
+                team_id=integration.team_id,
+                channel=channel,
+                thread_ts=thread_ts,
+            )
+            slack.client.chat_postMessage(
+                channel=channel,
+                thread_ts=thread_ts,
+                text="Sorry, I ran into an internal error creating the task. Please try again in a minute.",
+            )
+            return
 
         logger.info(
             "twig_task_created",
@@ -703,37 +682,26 @@ def handle_twig_app_mention(event: dict, integration: Integration) -> None:
 
 @csrf_exempt
 def twig_event_handler(request: HttpRequest) -> HttpResponse:
-    logger.info("twig_event_handler_called", method=request.method, host=request.get_host())
-
     if request.method != "POST":
         return HttpResponse(status=405)
 
     try:
         twig_config = SlackIntegration.twig_slack_config()
-        logger.info("twig_event_config_loaded", has_signing_secret=bool(twig_config.get("SLACK_TWIG_SIGNING_SECRET")))
         validate_slack_request(request, twig_config["SLACK_TWIG_SIGNING_SECRET"])
-        logger.info("twig_event_signature_valid")
     except SlackIntegrationError as e:
-        logger.warning(
-            "twig_event_invalid_request",
-            error=str(e),
-            has_signing_secret=bool(SlackIntegration.twig_slack_config().get("SLACK_TWIG_SIGNING_SECRET")),
-        )
+        logger.warning("twig_event_invalid_request", error=str(e))
         return HttpResponse("Invalid request", status=403)
 
     retry_num = request.headers.get("X-Slack-Retry-Num")
     if retry_num:
-        logger.warning("twig_event_retry", retry_num=retry_num)
         return HttpResponse(status=200)
 
     try:
         data = json.loads(request.body)
     except json.JSONDecodeError:
-        logger.warning("twig_event_invalid_json")
         return HttpResponse("Invalid JSON", status=400)
 
     event_type = data.get("type")
-    logger.info("twig_event_received", event_type=event_type)
 
     if event_type == "url_verification":
         challenge = data.get("challenge", "")
@@ -742,20 +710,10 @@ def twig_event_handler(request: HttpRequest) -> HttpResponse:
     if event_type == "event_callback":
         event = data.get("event", {})
         slack_team_id = data.get("team_id", "")
-        logger.info(
-            "twig_event_callback",
-            inner_event_type=event.get("type"),
-            slack_team_id=slack_team_id,
-            channel=event.get("channel"),
-            user=event.get("user"),
-        )
 
         if event.get("type") == "app_mention":
             route_twig_event_to_relevant_region(request, event, slack_team_id)
-        else:
-            logger.info("twig_event_ignored", inner_event_type=event.get("type"))
 
         return HttpResponse(status=202)
 
-    logger.info("twig_event_unhandled_type", event_type=event_type)
     return HttpResponse(status=200)
