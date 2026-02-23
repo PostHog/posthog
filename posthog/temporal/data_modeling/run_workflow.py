@@ -515,31 +515,32 @@ async def materialize_model(
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
 
-            if delta_table is None:
-                delta_table = deltalake.DeltaTable.create(
-                    table_uri=table_uri,
-                    schema=batch.schema,
-                    storage_options=storage_options,
+            if index == 0:
+                await logger.adebug(
+                    f"Writing batch to delta table. index={index}. mode=overwrite. schema_mode=overwrite. batch_row_count={batch.num_rows}"
                 )
 
-            mode: typing.Literal["error", "append", "overwrite", "ignore"] = "append"
-            schema_mode: typing.Literal["merge", "overwrite"] | None = None
-            if index == 0:
-                mode = "overwrite"
-                schema_mode = "overwrite"
+                write_start = dt.datetime.now()
+                deltalake.write_deltalake(
+                    table_or_uri=table_uri,
+                    storage_options=storage_options,
+                    data=batch,
+                    mode="overwrite",
+                    schema_mode="overwrite",
+                )
+                delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
+            else:
+                await logger.adebug(
+                    f"Writing batch to delta table. index={index}. mode=append. batch_row_count={batch.num_rows}"
+                )
 
-            await logger.adebug(
-                f"Writing batch to delta table. index={index}. mode={mode}. batch_row_count={batch.num_rows}"
-            )
-
-            write_start = dt.datetime.now()
-            deltalake.write_deltalake(
-                table_or_uri=delta_table,
-                storage_options=storage_options,
-                data=batch,
-                mode=mode,
-                schema_mode=schema_mode,
-            )
+                write_start = dt.datetime.now()
+                deltalake.write_deltalake(
+                    table_or_uri=delta_table,  # type: ignore[call-overload]
+                    storage_options=storage_options,
+                    data=batch,
+                    mode="append",
+                )
             write_duration = (dt.datetime.now() - write_start).total_seconds()
 
             row_count = row_count + batch.num_rows
