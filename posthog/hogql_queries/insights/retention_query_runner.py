@@ -1312,7 +1312,8 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 results_by_interval_pair: dict[tuple[int, int], dict[str, float]] = {
                     (start_event_matching_interval, intervals_from_base): {
                         "count": correct_result_for_sampling(count, self.query.samplingFactor),
-                        "aggregation_value": correct_result_for_sampling(aggregation_value, self.query.samplingFactor),
+                        "aggregation_value": correct_result_for_sampling(aggregation_value, self.query.samplingFactor)
+                        or 0.0,
                     }
                     for (
                         start_event_matching_interval,
