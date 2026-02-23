@@ -103,7 +103,7 @@ describe('IngestionConsumer', () => {
     ) => {
         const ingester = new IngestionConsumer(
             hub,
-            { ...hub, hogTransformer: createHogTransformerService(hub) },
+            { ...hub, hogTransformer: createHogTransformerService(hub, hub) },
             overrides
         )
         // NOTE: We don't actually use kafka so we skip instantiation for faster tests

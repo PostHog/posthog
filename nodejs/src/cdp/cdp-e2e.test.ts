@@ -108,25 +108,34 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            eventsConsumer = new CdpEventsConsumer({
-                ...hub,
-                CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: mode === 'hybrid' ? 'kafka' : mode,
-            })
+            eventsConsumer = new CdpEventsConsumer(
+                {
+                    ...hub,
+                    CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: mode === 'hybrid' ? 'kafka' : mode,
+                },
+                hub
+            )
             await eventsConsumer.start()
 
-            cyclotronWorkerKafka = new CdpCyclotronWorker({
-                ...hub,
-                CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
-                CDP_CYCLOTRON_TEST_SEEK_LATENCY: true,
-                CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE: 1.0, // Always sample for testing
-                CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: 1,
-            })
+            cyclotronWorkerKafka = new CdpCyclotronWorker(
+                {
+                    ...hub,
+                    CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
+                    CDP_CYCLOTRON_TEST_SEEK_LATENCY: true,
+                    CDP_CYCLOTRON_TEST_SEEK_SAMPLE_RATE: 1.0, // Always sample for testing
+                    CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: 1,
+                },
+                hub
+            )
             await cyclotronWorkerKafka.start()
 
-            cyclotronWorkerPostgres = new CdpCyclotronWorker({
-                ...hub,
-                CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres',
-            })
+            cyclotronWorkerPostgres = new CdpCyclotronWorker(
+                {
+                    ...hub,
+                    CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres',
+                },
+                hub
+            )
             await cyclotronWorkerPostgres.start()
 
             globals = createHogExecutionGlobals({

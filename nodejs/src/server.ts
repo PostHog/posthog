@@ -123,7 +123,7 @@ export class PluginServer {
                     serviceLoaders.push(async () => {
                         const consumer = new IngestionConsumer(
                             hub,
-                            { ...hub, hogTransformer: createHogTransformerService(hub) },
+                            { ...hub, hogTransformer: createHogTransformerService(hub, hub) },
                             {
                                 INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
                                 INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
@@ -137,7 +137,7 @@ export class PluginServer {
                 serviceLoaders.push(async () => {
                     const consumer = new IngestionConsumer(hub, {
                         ...hub,
-                        hogTransformer: createHogTransformerService(hub),
+                        hogTransformer: createHogTransformerService(hub, hub),
                     })
                     await consumer.start()
                     return consumer.service
@@ -194,7 +194,7 @@ export class PluginServer {
 
             if (capabilities.cdpProcessedEvents) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpEventsConsumer(hub)
+                    const consumer = new CdpEventsConsumer(hub, hub)
                     await consumer.start()
                     return consumer.service
                 })
@@ -202,7 +202,7 @@ export class PluginServer {
 
             if (capabilities.cdpDataWarehouseEvents) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpDatawarehouseEventsConsumer(hub)
+                    const consumer = new CdpDatawarehouseEventsConsumer(hub, hub)
                     await consumer.start()
                     return consumer.service
                 })
@@ -210,7 +210,7 @@ export class PluginServer {
 
             if (capabilities.cdpInternalEvents) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpInternalEventsConsumer(hub)
+                    const consumer = new CdpInternalEventsConsumer(hub, hub)
                     await consumer.start()
                     return consumer.service
                 })
@@ -218,7 +218,7 @@ export class PluginServer {
 
             if (capabilities.cdpPersonUpdates) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpPersonUpdatesConsumer(hub)
+                    const consumer = new CdpPersonUpdatesConsumer(hub, hub)
                     await consumer.start()
                     return consumer.service
                 })
@@ -226,7 +226,7 @@ export class PluginServer {
 
             if (capabilities.cdpLegacyOnEvent) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpLegacyEventsConsumer(hub)
+                    const consumer = new CdpLegacyEventsConsumer(hub, hub)
                     await consumer.start()
                     return consumer.service
                 })
@@ -234,7 +234,7 @@ export class PluginServer {
 
             if (capabilities.cdpApi) {
                 serviceLoaders.push(async () => {
-                    const api = new CdpApi(hub)
+                    const api = new CdpApi(hub, hub)
                     this.expressApp.use('/', api.router())
                     await api.start()
                     return api.service
@@ -243,7 +243,7 @@ export class PluginServer {
 
             if (capabilities.cdpCyclotronWorker) {
                 serviceLoaders.push(async () => {
-                    const worker = new CdpCyclotronWorker(hub)
+                    const worker = new CdpCyclotronWorker(hub, hub)
                     await worker.start()
                     return worker.service
                 })
@@ -255,7 +255,7 @@ export class PluginServer {
                 // that don't have the shadow database set up.
                 if (process.env.CYCLOTRON_SHADOW_DATABASE_URL) {
                     serviceLoaders.push(async () => {
-                        const worker = new CdpCyclotronShadowWorker(hub)
+                        const worker = new CdpCyclotronShadowWorker(hub, hub)
                         await worker.start()
                         return worker.service
                     })
@@ -269,7 +269,7 @@ export class PluginServer {
 
             if (capabilities.cdpCyclotronWorkerHogFlow) {
                 serviceLoaders.push(async () => {
-                    const worker = new CdpCyclotronWorkerHogFlow(hub)
+                    const worker = new CdpCyclotronWorkerHogFlow(hub, hub)
                     await worker.start()
                     return worker.service
                 })
@@ -284,7 +284,7 @@ export class PluginServer {
 
             if (capabilities.cdpPrecalculatedFilters) {
                 serviceLoaders.push(async () => {
-                    const worker = new CdpPrecalculatedFiltersConsumer(hub)
+                    const worker = new CdpPrecalculatedFiltersConsumer(hub, hub)
                     await worker.start()
                     return worker.service
                 })
@@ -292,7 +292,7 @@ export class PluginServer {
 
             if (capabilities.cdpCohortMembership) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpCohortMembershipConsumer(hub)
+                    const consumer = new CdpCohortMembershipConsumer(hub, hub)
                     await consumer.start()
                     return consumer.service
                 })
@@ -308,7 +308,7 @@ export class PluginServer {
 
             if (capabilities.cdpBatchHogFlow) {
                 serviceLoaders.push(async () => {
-                    const consumer = new CdpBatchHogFlowRequestsConsumer(hub)
+                    const consumer = new CdpBatchHogFlowRequestsConsumer(hub, hub)
                     await consumer.start()
                     return consumer.service
                 })
