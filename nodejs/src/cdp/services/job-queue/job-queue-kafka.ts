@@ -162,17 +162,11 @@ export class CyclotronJobQueueKafka {
             invocations.push(invocation)
         }
 
-        const result = await this.consumeBatch(invocations)
-
         if (this.fetchTester) {
-            const fetchTestTask = this.fetchTester.maybeMeasureFetchLatency(messages)
-
-            return {
-                backgroundTask: Promise.all([result.backgroundTask, fetchTestTask]),
-            }
+            await this.fetchTester.maybeMeasureFetchLatency(messages)
         }
 
-        return result
+        return await this.consumeBatch(invocations)
     }
 }
 

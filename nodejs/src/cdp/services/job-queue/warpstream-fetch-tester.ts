@@ -65,9 +65,23 @@ export class WarpstreamFetchTester {
             return
         }
 
-        const targets = this.sampleTargets(allTargets, this.config.CDP_CYCLOTRON_TEST_FETCH_COUNT)
+        const individualCount = this.config.CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT
+        const batchCount = this.config.CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT
+        const batchSize = this.config.CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE
 
-        await Promise.all([this.runIndividualFetches(targets), this.runBatchFetches(targets)])
+        const tasks: Promise<void>[] = []
+
+        if (individualCount > 0) {
+            const targets = this.sampleTargets(allTargets, individualCount)
+            tasks.push(this.runIndividualFetches(targets))
+        }
+
+        if (batchCount > 0 && batchSize > 0) {
+            const targets = this.sampleTargets(allTargets, batchCount * batchSize)
+            tasks.push(this.runBatchFetches(targets))
+        }
+
+        await Promise.all(tasks)
     }
 
     private async runIndividualFetches(targets: FetchTarget[]): Promise<void> {

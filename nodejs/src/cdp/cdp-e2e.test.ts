@@ -119,8 +119,9 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
                 CDP_CYCLOTRON_TEST_SEEK_LATENCY: true,
                 CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: 1,
-                CDP_CYCLOTRON_TEST_FETCH_COUNT: 50,
-                CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE: 10,
+                CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT: 5,
+                CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT: 1,
+                CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE: 5,
                 CDP_CYCLOTRON_WARPSTREAM_HTTP_URL: 'http://localhost:8080',
             })
             await cyclotronWorkerKafka.start()
