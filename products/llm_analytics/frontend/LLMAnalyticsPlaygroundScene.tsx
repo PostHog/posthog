@@ -20,6 +20,7 @@ import {
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { ComparisonItem, Message, MessageRole, ModelOption } from './llmAnalyticsPlaygroundLogic'
@@ -57,7 +58,11 @@ function RateLimitBanner(): JSX.Element | null {
         <LemonBanner type="warning" className="mb-4">
             You've hit our playground request limit. You can make another request in{' '}
             <strong>{humanFriendlyDuration(Math.ceil((rateLimitedUntil - Date.now()) / 1000), { maxUnits: 1 })}</strong>
-            . We're working on bring-your-own-key and other improvements to remove this limit.
+            .{' '}
+            <Link to={urls.settings('environment-llm-analytics', 'llm-analytics-byok')} className="font-semibold">
+                Add your own API key
+            </Link>{' '}
+            to remove this limit.
         </LemonBanner>
     )
 }
