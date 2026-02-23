@@ -1,13 +1,13 @@
-import { AddingMetricTracker, AverageMetricTracker, MaxMetricTracker } from './metric-tracker'
+import { AverageMetricTracker, MaxMetricTracker, SummingMetricTracker } from './metric-tracker'
 
-describe('AddingMetricTracker', () => {
+describe('SummingMetricTracker', () => {
     it('should store the metric name as given', () => {
-        const tracker = new AddingMetricTracker('events', 10, 1000)
+        const tracker = new SummingMetricTracker('events', 10, 1000)
         expect(tracker.metricName).toBe('events')
     })
 
     it('should accumulate multiple records to the same key', () => {
-        const tracker = new AddingMetricTracker('events', 10, 1000)
+        const tracker = new SummingMetricTracker('events', 10, 1000)
         tracker.record({ team_id: '1' }, 3)
         tracker.record({ team_id: '1' }, 7)
         tracker.record({ team_id: '1' }, 2)
@@ -19,7 +19,7 @@ describe('AddingMetricTracker', () => {
     })
 
     it('should handle multiple keys independently', () => {
-        const tracker = new AddingMetricTracker('events', 10, 1000)
+        const tracker = new SummingMetricTracker('events', 10, 1000)
         tracker.record({ team_id: '1' }, 10)
         tracker.record({ team_id: '2' }, 20)
 
@@ -32,12 +32,12 @@ describe('AddingMetricTracker', () => {
     })
 
     it('should return empty array when no data recorded', () => {
-        const tracker = new AddingMetricTracker('events', 10, 1000)
+        const tracker = new SummingMetricTracker('events', 10, 1000)
         expect(tracker.flush()).toEqual([])
     })
 
     it('should clear data after flush', () => {
-        const tracker = new AddingMetricTracker('events', 10, 1000)
+        const tracker = new SummingMetricTracker('events', 10, 1000)
         tracker.record({ team_id: '1' }, 5)
 
         tracker.flush()
@@ -46,7 +46,7 @@ describe('AddingMetricTracker', () => {
     })
 
     it('should accumulate fresh data after flush', () => {
-        const tracker = new AddingMetricTracker('events', 10, 1000)
+        const tracker = new SummingMetricTracker('events', 10, 1000)
         tracker.record({ team_id: '1' }, 10)
         tracker.flush()
 
@@ -59,7 +59,7 @@ describe('AddingMetricTracker', () => {
     })
 
     it('should deserialize key back to object', () => {
-        const tracker = new AddingMetricTracker('events', 10, 1000)
+        const tracker = new SummingMetricTracker('events', 10, 1000)
         tracker.record({ team_id: '42', event: '$pageview' }, 1)
 
         const entries = tracker.flush()
@@ -72,7 +72,7 @@ describe('AddingMetricTracker', () => {
             { numEntries: 3, topN: 10, expectedCount: 3, desc: 'takes all entries when fewer than N' },
             { numEntries: 10, topN: 1, expectedCount: 1, desc: 'takes only the top entry when N=1' },
         ])('$desc (entries=$numEntries, topN=$topN)', ({ numEntries, topN, expectedCount }) => {
-            const tracker = new AddingMetricTracker('metric', topN, 1000)
+            const tracker = new SummingMetricTracker('metric', topN, 1000)
 
             for (let i = 0; i < numEntries; i++) {
                 tracker.record({ id: String(i) }, i + 1)
@@ -82,7 +82,7 @@ describe('AddingMetricTracker', () => {
         })
 
         it('should select entries with highest values', () => {
-            const tracker = new AddingMetricTracker('metric', 2, 1000)
+            const tracker = new SummingMetricTracker('metric', 2, 1000)
             tracker.record({ id: 'low' }, 1)
             tracker.record({ id: 'high' }, 100)
             tracker.record({ id: 'medium' }, 50)
@@ -92,7 +92,7 @@ describe('AddingMetricTracker', () => {
         })
 
         it('should sort entries by value descending', () => {
-            const tracker = new AddingMetricTracker('metric', 5, 1000)
+            const tracker = new SummingMetricTracker('metric', 5, 1000)
             tracker.record({ id: 'a' }, 3)
             tracker.record({ id: 'b' }, 1)
             tracker.record({ id: 'c' }, 5)
@@ -105,7 +105,7 @@ describe('AddingMetricTracker', () => {
 
     describe('maxKeys eviction', () => {
         it('should drop lowest-value half when maxKeys exceeded', () => {
-            const tracker = new AddingMetricTracker('metric', 10, 4)
+            const tracker = new SummingMetricTracker('metric', 10, 4)
             tracker.record({ id: 'a' }, 1)
             tracker.record({ id: 'b' }, 10)
             tracker.record({ id: 'c' }, 5)
@@ -121,7 +121,7 @@ describe('AddingMetricTracker', () => {
         })
 
         it('should keep higher-value keys after eviction', () => {
-            const tracker = new AddingMetricTracker('metric', 10, 4)
+            const tracker = new SummingMetricTracker('metric', 10, 4)
             tracker.record({ id: 'low1' }, 1)
             tracker.record({ id: 'low2' }, 2)
             tracker.record({ id: 'high1' }, 100)
@@ -133,7 +133,7 @@ describe('AddingMetricTracker', () => {
         })
 
         it('should allow new keys after eviction frees space', () => {
-            const tracker = new AddingMetricTracker('metric', 10, 4)
+            const tracker = new SummingMetricTracker('metric', 10, 4)
             tracker.record({ id: 'a' }, 1)
             tracker.record({ id: 'b' }, 2)
             tracker.record({ id: 'c' }, 3)
@@ -146,7 +146,7 @@ describe('AddingMetricTracker', () => {
         })
 
         it('should not evict when at the limit', () => {
-            const tracker = new AddingMetricTracker('metric', 10, 5)
+            const tracker = new SummingMetricTracker('metric', 10, 5)
             tracker.record({ id: 'a' }, 1)
             tracker.record({ id: 'b' }, 1)
             tracker.record({ id: 'c' }, 1)

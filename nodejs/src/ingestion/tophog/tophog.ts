@@ -1,6 +1,6 @@
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { logger } from '../../utils/logger'
-import { AddingMetricTracker, AverageMetricTracker, MaxMetricTracker, Tracker } from './metric-tracker'
+import { AverageMetricTracker, MaxMetricTracker, SummingMetricTracker, Tracker } from './metric-tracker'
 
 export interface MetricConfig {
     topN?: number
@@ -40,11 +40,11 @@ export class TopHog {
         }
     }
 
-    register(name: string, opts?: MetricConfig): AddingMetricTracker {
+    register(name: string, opts?: MetricConfig): SummingMetricTracker {
         return this.getOrCreate(
             name,
             () =>
-                new AddingMetricTracker(
+                new SummingMetricTracker(
                     name,
                     opts?.topN ?? this.config.defaultTopN,
                     opts?.maxKeys ?? this.config.maxKeys

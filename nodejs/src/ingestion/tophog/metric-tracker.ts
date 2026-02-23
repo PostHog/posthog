@@ -52,7 +52,7 @@ export class MetricTracker<TStored> {
     }
 }
 
-export class AddingMetricTracker {
+export class SummingMetricTracker {
     readonly type = 'sum'
     private readonly tracker: MetricTracker<{ count: number; value: number }>
 
