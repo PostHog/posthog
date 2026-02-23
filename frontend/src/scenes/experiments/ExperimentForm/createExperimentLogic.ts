@@ -484,7 +484,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                         lemonToast.success('Experiment updated successfully!')
                     } else {
                         // Create flow
-                        const isWizard = router.values.searchParams['mode'] === 'wizard'
+                        const isWizard = !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_WIZARD_CREATION_FORM]
                         actions.reportExperimentCreated(response, {
                             creation_source: isWizard ? 'wizard' : 'classic_form',
                             has_linked_flag: !!response.feature_flag?.id,
