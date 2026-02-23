@@ -58,7 +58,7 @@ const APPLE_SYSTEM_MODULES: &[&str] = &[
 ];
 
 fn is_system_module(module: &Option<String>) -> bool {
-    module.as_ref().map_or(false, |m| {
+    module.as_ref().is_some_and(|m| {
         APPLE_SYSTEM_MODULES
             .iter()
             .any(|prefix| m.starts_with(prefix))
@@ -248,7 +248,7 @@ impl RawAppleFrame {
         let is_compiler_generated = symbol_info
             .filename
             .as_ref()
-            .map_or(false, |f| f == "<compiler-generated>");
+            .is_some_and(|f| f == "<compiler-generated>");
         let in_app = if is_system_module(&self.module) || is_compiler_generated {
             false
         } else {
@@ -300,7 +300,7 @@ impl RawAppleFrame {
         let is_compiler_generated = self
             .filename
             .as_ref()
-            .map_or(false, |f| f == "<compiler-generated>");
+            .is_some_and(|f| f == "<compiler-generated>");
         let in_app = if is_system_module(&self.module) || is_compiler_generated {
             false
         } else {
