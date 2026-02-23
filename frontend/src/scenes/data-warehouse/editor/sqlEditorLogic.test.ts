@@ -238,7 +238,7 @@ describe('sqlEditorLogic', () => {
 
             expect(logic.values.titleSectionProps.forceBackTo).toEqual({
                 key: 'endpoints',
-                name: 'Back to endpoints',
+                name: 'Endpoints',
                 path: urls.endpoints(),
                 iconType: 'endpoint',
             })
