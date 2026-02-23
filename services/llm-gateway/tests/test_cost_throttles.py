@@ -640,6 +640,46 @@ class TestUnconfiguredProductsNotLimitedPerUser:
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
+    async def test_logs_warning_for_unconfigured_product_with_end_user(self, capsys: pytest.CaptureFixture[str]) -> None:
+        get_settings.cache_clear()
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle, _UserCostThrottleBase
+
+        _UserCostThrottleBase._warned_products = set()
+
+        throttle = UserCostBurstThrottle(redis=None)
+        context = make_context(product="wizard")
+
+        await throttle.allow_request(context)
+        captured = capsys.readouterr()
+        assert "user_cost_limits_missing_product" in captured.out
+        assert "wizard" in captured.out
+
+        await throttle.allow_request(context)
+        captured2 = capsys.readouterr()
+        assert "user_cost_limits_missing_product" not in captured2.out
+
+        _UserCostThrottleBase._warned_products = set()
+        get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_no_warning_for_unconfigured_product_without_end_user(self, capsys: pytest.CaptureFixture[str]) -> None:
+        get_settings.cache_clear()
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle, _UserCostThrottleBase
+
+        _UserCostThrottleBase._warned_products = set()
+
+        throttle = UserCostBurstThrottle(redis=None)
+        user = make_user(auth_method="personal_api_key")
+        context = make_context(user=user, product="wizard", end_user_id=None)
+
+        await throttle.allow_request(context)
+        captured = capsys.readouterr()
+        assert "user_cost_limits_missing_product" not in captured.out
+
+        _UserCostThrottleBase._warned_products = set()
+        get_settings.cache_clear()
+
+    @pytest.mark.asyncio
     async def test_dynamically_adding_product_config_enables_limits(self, monkeypatch: pytest.MonkeyPatch) -> None:
         get_settings.cache_clear()
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle

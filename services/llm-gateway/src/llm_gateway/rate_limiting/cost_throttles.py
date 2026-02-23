@@ -134,8 +134,12 @@ class _UserCostThrottleBase(CostThrottle):
     - OAuth: end_user_id is the token holder (set at context creation)
     - Personal API key: end_user_id is the 'user' param from the request (set in callback)
 
-    Skipped when: no end_user_id, product not in user_cost_limits config, or limits disabled.
+    If no end_user_id is set, user rate limiting is skipped.
+    If a product is not in user_cost_limits config, user rate limiting is skipped but a warning
+    is logged — add the product to LLM_GATEWAY_USER_COST_LIMITS to enable per-user throttling.
     """
+
+    _warned_products: set[str] = set()
 
     def _get_cache_key(self, context: ThrottleContext) -> str:
         if not context.end_user_id:
@@ -147,7 +151,15 @@ class _UserCostThrottleBase(CostThrottle):
         return f"{base}:tm{team_mult}"
 
     def _has_config(self, context: ThrottleContext) -> bool:
-        return context.product in get_settings().user_cost_limits
+        has = context.product in get_settings().user_cost_limits
+        if not has and context.end_user_id and context.product not in self._warned_products:
+            self._warned_products.add(context.product)
+            logger.warning(
+                "user_cost_limits_missing_product",
+                product=context.product,
+                message=f"No user_cost_limits config for product '{context.product}' — per-user throttling skipped",
+            )
+        return has
 
     def _require_config(self, context: ThrottleContext) -> UserCostLimit:
         config = get_settings().user_cost_limits.get(context.product)
