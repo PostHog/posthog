@@ -55,7 +55,8 @@ export function SessionRecordingContent(): JSX.Element {
         <div className="h-full flex flex-col">
             {isTimestampOutsideRecording && (
                 <LemonBanner type="info" className="m-2">
-                    The exception occurred outside the recorded session timeframe. Showing the closest available moment.
+                    The exception occurred outside the recorded session timeframe. It is attached to a session but not
+                    visible in the recording.
                 </LemonBanner>
             )}
             <div className="flex-1 flex justify-center items-center min-h-0">
