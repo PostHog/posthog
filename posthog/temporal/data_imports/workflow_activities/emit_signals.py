@@ -239,6 +239,7 @@ async def _summarize_description(
             posthoganalytics.capture_exception(
                 e,
                 properties={
+                    "ai_product": "signals",
                     "tag": "data_warehouse_signals_import",
                     "error_type": "summarization_failed",
                     "source_type": output.source_type,
@@ -356,6 +357,7 @@ async def _check_actionability(
             posthoganalytics.capture_exception(
                 e,
                 properties={
+                    "ai_product": "signals",
                     "tag": "data_warehouse_signals_import",
                     "error_type": "actionability_check_failed",
                     "source_type": output.source_type,
