@@ -166,12 +166,9 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                     <div className="flex-1">
                         <LemonButton
                             type="secondary"
-                            onClick={() => {
-                                const defaultColumns = query.defaultColumns
-                                const fallbackColumns = defaultDataTableColumns(query.source.kind)
-
+                            onClick={() =>
                                 setColumns(query.defaultColumns || defaultDataTableColumns(query.source.kind))
-                            }}
+                            }
                         >
                             Reset to defaults
                         </LemonButton>
