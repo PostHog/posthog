@@ -127,6 +127,7 @@ async def fetch_signal_type_examples_activity(input: FetchSignalTypeExamplesInpu
                 )
                 WHERE content != ''
                   AND timestamp >= now() - INTERVAL 1 MONTH
+                  AND NOT JSONExtractBool(metadata, 'deleted')
             )
             GROUP BY source_product, source_type
         """
@@ -320,6 +321,7 @@ async def run_signal_semantic_search_activity(input: RunSignalSemanticSearchInpu
             )
             WHERE JSONExtractString(metadata, 'report_id') != ''
               AND timestamp >= now() - INTERVAL 1 MONTH
+              AND NOT JSONExtractBool(metadata, 'deleted')
             ORDER BY distance ASC
             LIMIT {limit}
         """
@@ -570,13 +572,14 @@ class AssignAndEmitSignalInput:
 class AssignAndEmitSignalOutput:
     report_id: str
     promoted: bool
+    timestamp: datetime
 
 
 @temporalio.activity.defn
 async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> AssignAndEmitSignalOutput:
     match_result = input.match_result
 
-    def do_assign_and_emit() -> tuple[str, bool]:
+    def do_assign_and_emit() -> tuple[str, bool, datetime]:
         with transaction.atomic():
             promoted = False
 
@@ -614,6 +617,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
 
             metadata["match_metadata"] = asdict(match_result.match_metadata)
 
+            ts = input.timestamp or timezone.now()
+
             emit_embedding_request(
                 content=input.description,
                 team_id=input.team_id,
@@ -622,14 +627,14 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 rendering="plain",
                 document_id=input.signal_id,
                 models=[m.value for m in EmbeddingModelName],
-                timestamp=input.timestamp or timezone.now(),
+                timestamp=ts,
                 metadata=metadata,
             )
 
-            return report_id, promoted
+            return report_id, promoted, ts
 
     try:
-        report_id, promoted = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)()
+        report_id, promoted, ts = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)()
         logger.debug(
             f"Assigned and emitted signal to report {report_id}",
             report_id=report_id,
@@ -638,7 +643,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             promoted=promoted,
             is_new_report=isinstance(match_result, NewReportMatch),
         )
-        return AssignAndEmitSignalOutput(report_id=report_id, promoted=promoted)
+        return AssignAndEmitSignalOutput(report_id=report_id, promoted=promoted, timestamp=ts)
     except Exception as e:
         logger.exception(
             f"Failed to assign/emit signal: {e}",
@@ -646,6 +651,73 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             signal_id=input.signal_id,
         )
         raise
+
+
+@dataclass
+class WaitForClickHouseInput:
+    team_id: int
+    signal_id: str
+    timestamp: datetime
+
+
+WAIT_POLL_INTERVAL_SECONDS = 5
+WAIT_MAX_ATTEMPTS = 12  # 5s * 12 = 60s
+
+
+@temporalio.activity.defn
+async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) -> None:
+    """Poll ClickHouse until the emitted signal appears, or give up after ~1 minute."""
+    team = await Team.objects.aget(pk=input.team_id)
+
+    query = """
+        SELECT count()
+        FROM (
+            SELECT
+                document_id,
+                argMax(metadata, inserted_at) as metadata
+            FROM document_embeddings
+            WHERE toDate(timestamp) = toDate({timestamp})
+              AND product = 'signals'
+              AND document_type = 'signal'
+              AND model_name = {model_name}
+              AND rendering = 'plain'
+              AND document_id = {signal_id}
+            GROUP BY document_id
+        )
+        WHERE NOT JSONExtractBool(metadata, 'deleted')
+    """
+
+    placeholders = {
+        "timestamp": ast.Constant(value=input.timestamp),
+        "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+        "signal_id": ast.Constant(value=input.signal_id),
+    }
+
+    for attempt in range(WAIT_MAX_ATTEMPTS):
+        temporalio.activity.heartbeat(attempt)
+
+        result = await sync_to_async(execute_hogql_query, thread_sensitive=False)(
+            query_type="SignalsWaitForClickHouse",
+            query=query,
+            team=team,
+            placeholders=placeholders,
+        )
+
+        if result.results and result.results[0][0] > 0:
+            logger.debug(
+                f"Signal {input.signal_id} found in ClickHouse after {attempt + 1} attempt(s)",
+                signal_id=input.signal_id,
+                team_id=input.team_id,
+            )
+            return
+
+        await asyncio.sleep(WAIT_POLL_INTERVAL_SECONDS)
+
+    logger.warning(
+        f"Signal {input.signal_id} not found in ClickHouse after {WAIT_MAX_ATTEMPTS} attempts, proceeding anyway",
+        signal_id=input.signal_id,
+        team_id=input.team_id,
+    )
 
 
 CONTINUE_AS_NEW_THRESHOLD = 20
@@ -742,6 +814,21 @@ async def _process_one_signal(inputs: EmitSignalInputs) -> str:
         start_to_close_timeout=timedelta(minutes=2),
         retry_policy=RetryPolicy(maximum_attempts=3),
     )
+
+    # Wait for the signal to appear in ClickHouse before processing the next one,
+    # so subsequent signals can find it during semantic search
+    if workflow.patched("wait-for-clickhouse-v1"):
+        await workflow.execute_activity(
+            wait_for_signal_in_clickhouse_activity,
+            WaitForClickHouseInput(
+                team_id=inputs.team_id,
+                signal_id=signal_id,
+                timestamp=assign_result.timestamp,
+            ),
+            start_to_close_timeout=timedelta(minutes=2),
+            heartbeat_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
 
     if assign_result.promoted:
         try:

@@ -184,6 +184,8 @@ export interface ActionFilterRowProps {
     filtersLeftPadding?: boolean
     /** Doc link to show in the tooltip of the New Filter button */
     addFilterDocLink?: string
+    /** Doc link to show in the tooltip of the Combine events button */
+    inlineEventsDocLink?: string
     /** Allow adding non-captured events */
     allowNonCapturedEvents?: boolean
     hogQLGlobals?: Record<string, any>
@@ -225,6 +227,7 @@ export function ActionFilterRow({
     excludedProperties,
     allowNonCapturedEvents,
     hogQLGlobals,
+    inlineEventsDocLink,
 }: ActionFilterRowProps & Pick<TaxonomicPopoverProps, 'excludedProperties' | 'allowNonCapturedEvents'>): JSX.Element {
     const showQuickFilters = useFeatureFlag('TAXONOMIC_QUICK_FILTERS', 'test')
     const effectiveActionsTaxonomicGroupTypes = showQuickFilters
@@ -562,7 +565,7 @@ export function ActionFilterRow({
                 })
             }}
             tooltip="Combine events"
-            tooltipDocLink="https://posthog.com/docs/product-analytics/trends/overview#combine-events-inline"
+            tooltipDocLink={inlineEventsDocLink}
         />
     )
 
