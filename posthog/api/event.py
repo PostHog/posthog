@@ -184,9 +184,13 @@ class EventViewSet(
         else:
             throttles = [EventValuesNoEventNameBurstThrottle(), EventValuesNoEventNameSustainedThrottle()]
 
+        durations = []
         for throttle in throttles:
             if not throttle.allow_request(request_to_check, self):
-                self.throttled(request_to_check, throttle.wait() or 0.0)
+                durations.append(throttle.wait())
+        
+        if durations:
+            self.throttled(request_to_check, max(durations) or 0.0)
 
     def _build_next_url(
         self,
