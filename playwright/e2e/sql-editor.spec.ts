@@ -8,7 +8,7 @@ test.describe('SQL Editor', () => {
     test('See SQL Editor', async ({ page }) => {
         await expect(page.locator('[data-attr=editor-scene]')).toBeVisible()
         await expect(page.locator('[data-attr=sql-editor-source-empty-state]')).toBeVisible()
-        await expect(page.locator('[data-attr=editor-scene]').getByText('SQL query', { exact: true })).toBeVisible()
+        await expect(page.locator('[data-attr=editor-scene]').getByText('New SQL query', { exact: true })).toBeVisible()
     })
 
     test('Add source link', async ({ page }) => {
@@ -31,12 +31,13 @@ test.describe('SQL Editor', () => {
         await expect(page.locator('[data-attr=hogql-query-editor]')).toBeVisible()
         await page.locator('[data-attr=hogql-query-editor]').click()
         await page.locator('[data-attr=hogql-query-editor]').pressSequentially('SELECT 1')
+        await page.locator('[data-attr=sql-editor-run-button]').click()
+        await expect(page.locator('[data-attr=sql-editor-output-pane-empty-state]')).not.toBeVisible()
 
         // Open save options, then click save as view
         await expect(page.locator('[data-attr=sql-editor-save-options-button]')).toBeEnabled()
         await page.locator('[data-attr=sql-editor-save-options-button]').click()
-        await expect(page.locator('[data-attr=sql-editor-save-view-button]')).toBeVisible()
-        await page.locator('[data-attr=sql-editor-save-view-button]').click()
+        await page.getByText('Save as view', { exact: true }).click()
 
         // Wait for the modal/dialog to appear and be ready
         const nameInput = page.locator('[data-attr=sql-editor-input-save-view-name]')
