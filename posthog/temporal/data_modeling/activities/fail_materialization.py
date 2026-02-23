@@ -9,7 +9,7 @@ from posthog.sync import database_sync_to_async
 from products.data_modeling.backend.models import Node
 from products.data_warehouse.backend.models import DataModelingJob
 
-from .utils import update_node_system_properties
+from .utils import strip_hostname_from_error, update_node_system_properties
 
 LOGGER = get_logger(__name__)
 
@@ -25,18 +25,21 @@ class FailMaterializationInputs:
 
 @database_sync_to_async
 def _fail_node_and_data_modeling_job(inputs: FailMaterializationInputs):
+    # strip hostnames from error for user-facing storage while preserving original for logging
+    sanitized_error = strip_hostname_from_error(inputs.error)
+
     node = Node.objects.get(id=inputs.node_id, team_id=inputs.team_id, dag_id_text=inputs.dag_id)
     update_node_system_properties(
         node,
         status="failed",
         job_id=inputs.job_id,
-        error=inputs.error,
+        error=sanitized_error,
     )
     node.save()
 
     job = DataModelingJob.objects.get(id=inputs.job_id)
     job.status = DataModelingJob.Status.FAILED
-    job.error = inputs.error
+    job.error = sanitized_error
     job.save()
 
     if job.saved_query_id:
