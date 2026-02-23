@@ -165,7 +165,7 @@ class TestRunEvaluationWorkflow:
                         evaluation=evaluation,
                         event_data=event_data,
                         result=result,
-                        start_time=datetime.now(),
+                        start_time=datetime(2024, 1, 1, 12, 0, 0),
                     )
                 )
 
@@ -310,7 +310,7 @@ class TestRunEvaluationWorkflow:
                         evaluation=evaluation,
                         event_data=event_data,
                         result=result,
-                        start_time=datetime.now(),
+                        start_time=datetime(2024, 1, 1, 12, 0, 0),
                     )
                 )
 
@@ -355,7 +355,7 @@ class TestRunEvaluationWorkflow:
                         evaluation=evaluation,
                         event_data=event_data,
                         result=result,
-                        start_time=datetime.now(),
+                        start_time=datetime(2024, 1, 1, 12, 0, 0),
                     )
                 )
 
