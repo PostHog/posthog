@@ -513,11 +513,15 @@ export function LineGraph_({
     Chart.register(annotationPlugin)
     Chart.register(chartTrendline)
 
+    const MAX_CHART_DATASETS = 50
     const { canvasRef, chartRef } = useChart({
         getConfig: () => {
             let filteredDatasets = datasets
             if (!isHorizontal) {
                 filteredDatasets = filteredDatasets.filter((data) => !getTrendsHidden(data as IndexedTrendResult))
+            }
+            if (filteredDatasets.length > MAX_CHART_DATASETS) {
+                filteredDatasets = filteredDatasets.slice(0, MAX_CHART_DATASETS)
             }
 
             const processedDatasets = filteredDatasets.map(processDataset)
