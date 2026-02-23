@@ -7,6 +7,7 @@ from typing import Optional
 import posthoganalytics
 
 from posthog.models import Organization, User
+from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.team import Team
 from posthog.settings import SITE_URL
 from posthog.utils import get_instance_realm
@@ -266,6 +267,16 @@ def get_event_source(request) -> str:
     if isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):
         return "web"
     return "api"
+
+
+def get_request_analytics_properties(request) -> dict[str, str | bool | None]:
+    """Extract standard analytics properties from a request."""
+    return {
+        "source": get_event_source(request),
+        "$current_url": request.headers.get("Referer"),
+        "$session_id": request.headers.get("X-Posthog-Session-Id"),
+        "was_impersonated": is_impersonated_session(request),
+    }
 
 
 def report_user_action(user: User, event: str, properties: Optional[dict] = None, team: Optional[Team] = None):
