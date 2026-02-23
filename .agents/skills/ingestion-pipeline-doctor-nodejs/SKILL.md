@@ -41,7 +41,7 @@ See `nodejs/src/ingestion/analytics/joined-ingestion-pipeline.ts` for the real i
 | Result types      | `nodejs/src/ingestion/pipelines/results.ts`                   |
 | Doc-test chapters | `nodejs/src/ingestion/pipelines/docs/*.test.ts`               |
 | Joined pipeline   | `nodejs/src/ingestion/analytics/joined-ingestion-pipeline.ts` |
-| Doctor agents     | `nodejs/src/ingestion/doctor/agents/`                         |
+| Doctor agents     | `.claude/agents/ingestion/`                                   |
 | Test helpers      | `nodejs/src/ingestion/pipelines/docs/helpers.ts`              |
 
 ## Which agent to use
