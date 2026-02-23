@@ -35,8 +35,8 @@ export function createRecordSessionStep<T extends RecordSessionStepInput>(
         // Reset revoked sessions counter once we're consuming
         SessionRecordingIngesterMetrics.resetSessionsRevoked()
 
-        const debugEnabled = isDebugLoggingEnabled(parsedMessage.metadata.partition)
-        if (debugEnabled) {
+        const { partition } = parsedMessage.metadata
+        if (isDebugLoggingEnabled(partition)) {
             logger.debug('🔄', 'processing_session_recording', {
                 partition: parsedMessage.metadata.partition,
                 offset: parsedMessage.metadata.offset,
@@ -44,11 +44,6 @@ export function createRecordSessionStep<T extends RecordSessionStepInput>(
                 session_id: parsedMessage.session_id,
                 raw_size: parsedMessage.metadata.rawSize,
             })
-        }
-
-        const { partition } = parsedMessage.metadata
-        const isDebug = isDebugLoggingEnabled(partition)
-        if (isDebug) {
             logger.info('🔁', '[blob_ingester_consumer_v2] - [PARTITION DEBUG] - consuming event', {
                 ...parsedMessage.metadata,
                 team_id: team.teamId,
