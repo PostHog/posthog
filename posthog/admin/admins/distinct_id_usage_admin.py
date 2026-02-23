@@ -194,20 +194,11 @@ def _handle_add_to_restriction(request) -> None:
         messages.error(request, f"Restriction {restriction_id} not found.")
         return
 
-    current_ids = restriction.distinct_ids or []
-    if distinct_id in current_ids:
-        messages.info(
-            request,
-            f"distinct_id already in {restriction.get_restriction_type_display()} restriction for {restriction.token[:16]}…",
-        )
-        return
-
-    restriction.distinct_ids = [*current_ids, distinct_id]
-    restriction.save()
-    messages.success(
-        request,
-        f"Added distinct_id to {restriction.get_restriction_type_display()} restriction for {restriction.token[:16]}…",
-    )
+    label = f"{restriction.get_restriction_type_display()} restriction for {restriction.token[:16]}…"
+    if restriction.add_distinct_id(distinct_id):
+        messages.success(request, f"Added distinct_id to {label}")
+    else:
+        messages.info(request, f"distinct_id already in {label}")
 
 
 def _handle_create_or_update_restriction(request) -> None:
@@ -223,32 +214,16 @@ def _handle_create_or_update_restriction(request) -> None:
         messages.error(request, f"Invalid restriction type: {restriction_type}")
         return
 
-    try:
-        restriction = EventIngestionRestrictionConfig.objects.get(token=token, restriction_type=restriction_type)
-        current_ids = restriction.distinct_ids or []
-        if distinct_id in current_ids:
-            messages.info(
-                request,
-                f"distinct_id already in {restriction.get_restriction_type_display()} restriction.",
-            )
-            return
-        restriction.distinct_ids = [*current_ids, distinct_id]
-        restriction.save()
-        messages.success(
-            request,
-            f"Added distinct_id to existing {restriction.get_restriction_type_display()} restriction for {token[:16]}…",
-        )
-    except EventIngestionRestrictionConfig.DoesNotExist:
-        EventIngestionRestrictionConfig.objects.create(
-            token=token,
-            restriction_type=restriction_type,
-            distinct_ids=[distinct_id],
-            pipelines=["analytics"],
-        )
-        messages.success(
-            request,
-            f"Created {restriction_type} restriction for {token[:16]}…",
-        )
+    restriction, created, added = EventIngestionRestrictionConfig.add_distinct_id_for_token(
+        token, restriction_type, distinct_id
+    )
+    label = restriction.get_restriction_type_display()
+    if created:
+        messages.success(request, f"Created {label} restriction for {token[:16]}…")
+    elif added:
+        messages.success(request, f"Added distinct_id to existing {label} restriction for {token[:16]}…")
+    else:
+        messages.info(request, f"distinct_id already in {label} restriction.")
 
 
 def _handle_post_action(request) -> HttpResponseRedirect:
