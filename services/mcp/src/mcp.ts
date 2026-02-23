@@ -286,7 +286,7 @@ export class MCP extends McpAgent<Env> {
 
     async init(): Promise<void> {
         const { features, version, organizationId, projectId } = this.requestProperties
-        const instructions = version === 2 ? INSTRUCTIONS_V2 : INSTRUCTIONS_V1
+        const instructions = version === 2 ? INSTRUCTIONS_V2 : INSTRUCTIONS_TEMPLATE_V1
         this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
 
         // Pre-seed cache with org/project IDs from headers/query params
