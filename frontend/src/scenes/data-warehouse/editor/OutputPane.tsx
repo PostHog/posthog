@@ -794,7 +794,11 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
             <InsightErrorState
                 query={sourceQuery}
                 excludeDetail
-                title={error}
+                title={
+                    <pre className="text-xs bg-danger-highlight p-2 rounded overflow-auto max-h-40 max-w-[80%] mx-auto text-left whitespace-pre-wrap break-words">
+                        {error}
+                    </pre>
+                }
                 excludeActions={queryCancelled} // Don't display fix/debugger buttons if the query was cancelled
                 fixWithAIComponent={
                     <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
