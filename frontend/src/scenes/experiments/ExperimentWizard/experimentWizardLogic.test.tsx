@@ -16,6 +16,7 @@ import { NEW_EXPERIMENT } from '../constants'
 import { experimentsLogic } from '../experimentsLogic'
 import { experimentWizardLogic } from './experimentWizardLogic'
 import { AboutStep } from './steps/AboutStep'
+import { VariantsStep } from './steps/VariantsStep'
 
 jest.mock('scenes/feature-flags/JSONEditorInput', () => ({
     JSONEditorInput: ({ onChange, value, placeholder, readOnly }: any) => (
@@ -447,6 +448,120 @@ describe('experimentWizardLogic', () => {
                     ]),
                 }),
             })
+        })
+    })
+
+    describe('VariantsStep with linked feature flag', () => {
+        let logic: ReturnType<typeof experimentWizardLogic.build>
+        let createLogic: ReturnType<typeof createExperimentLogic.build>
+
+        beforeEach(() => {
+            localStorage.clear()
+            sessionStorage.clear()
+            useMocks(apiMocks)
+            initKeaTests()
+
+            featureFlagsLogic.mount()
+            experimentsLogic.mount()
+
+            createLogic = createExperimentLogic({ tabId: TAB_ID })
+            createLogic.mount()
+
+            logic = experimentWizardLogic({ tabId: TAB_ID })
+            logic.mount()
+        })
+
+        afterEach(() => {
+            cleanup()
+            logic?.unmount()
+            createLogic?.unmount()
+            experimentsLogic.unmount()
+            featureFlagsLogic.unmount()
+        })
+
+        const renderVariantsStep = (): void => {
+            render(
+                <BindLogic logic={experimentWizardLogic} props={{ tabId: TAB_ID }}>
+                    <VariantsStep />
+                </BindLogic>
+            )
+        }
+
+        const makeFlagWithVariantsAndRollout = (
+            variants: Array<{ key: string; rollout_percentage: number }>,
+            rolloutPercentage: number
+        ): Partial<FeatureFlagType> => ({
+            ...mockEligibleFlags[0],
+            filters: {
+                groups: [{ properties: [], rollout_percentage: rolloutPercentage }],
+                multivariate: { variants },
+            },
+        })
+
+        it('shows read-only banner when a linked flag is set', () => {
+            logic.actions.setLinkedFeatureFlag(mockEligibleFlags[0] as FeatureFlagType)
+
+            renderVariantsStep()
+
+            expect(screen.getByText(/For linked feature flags, this step is read-only/)).toBeInTheDocument()
+        })
+
+        it.each([
+            {
+                desc: '2 variants with 50/50 split at 100% rollout',
+                variants: [
+                    { key: 'control', rollout_percentage: 50 },
+                    { key: 'test', rollout_percentage: 50 },
+                ],
+                rollout: 100,
+                expectedKeys: ['control', 'test'],
+            },
+            {
+                desc: '3 variants with uneven split at 80% rollout',
+                variants: [
+                    { key: 'control', rollout_percentage: 34 },
+                    { key: 'variant-a', rollout_percentage: 33 },
+                    { key: 'variant-b', rollout_percentage: 33 },
+                ],
+                rollout: 80,
+                expectedKeys: ['control', 'variant-a', 'variant-b'],
+            },
+        ])('displays variant keys and rollout for $desc', ({ variants, rollout, expectedKeys }) => {
+            const flag = makeFlagWithVariantsAndRollout(variants, rollout)
+            logic.actions.setLinkedFeatureFlag(flag as FeatureFlagType)
+
+            renderVariantsStep()
+
+            for (const key of expectedKeys) {
+                expect(screen.getByText(key)).toBeInTheDocument()
+            }
+            expect(screen.getByText(`${rollout}%`)).toBeInTheDocument()
+        })
+
+        it('defaults rollout to 100% when groups have no rollout_percentage', () => {
+            const flag: Partial<FeatureFlagType> = {
+                ...mockEligibleFlags[0],
+                filters: {
+                    groups: [{ properties: [] }],
+                    multivariate: {
+                        variants: [
+                            { key: 'control', rollout_percentage: 50 },
+                            { key: 'test', rollout_percentage: 50 },
+                        ],
+                    },
+                },
+            }
+            logic.actions.setLinkedFeatureFlag(flag as FeatureFlagType)
+
+            renderVariantsStep()
+
+            expect(screen.getByText('100%')).toBeInTheDocument()
+        })
+
+        it('does not show read-only banner when no linked flag is set', () => {
+            renderVariantsStep()
+
+            expect(screen.queryByText(/For linked feature flags, this step is read-only/)).not.toBeInTheDocument()
         })
     })
 })
