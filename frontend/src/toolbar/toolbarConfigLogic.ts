@@ -281,9 +281,6 @@ export async function toolbarFetch(
             toolbarConfigLogic.actions.authenticate()
         }
     }
-    if (response.status === 401) {
-        toolbarConfigLogic.actions.tokenExpired()
-    }
     return response
 }
 
@@ -325,7 +322,6 @@ export async function toolbarUploadMedia(file: File): Promise<{ id: string; url:
     })
 
     if (response.status === 401) {
-        toolbarConfigLogic.actions.tokenExpired()
         throw new Error('Authentication expired')
     }
 
