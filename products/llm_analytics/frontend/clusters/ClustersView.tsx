@@ -251,7 +251,7 @@ export function ClustersView(): JSX.Element {
                                                 didn't fit any group.
 
                                             </p>
-                                            <p className="mb-0">Click any dot to drill into that specific trace.</p>
+                                            <p className="mb-0">Click any dot to drill into that specific {clusteringLevel === 'generation' ? 'generation' : 'trace'}.</p>
                                         </div>
                                     }
                                     placement="left"
