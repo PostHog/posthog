@@ -27,6 +27,7 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         path="/companies/list",
         data_selector="data",
         method="POST",
+        page_size=50,
     ),
     "conversations": IntercomEndpointConfig(
         name="conversations",

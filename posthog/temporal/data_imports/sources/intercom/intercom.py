@@ -14,7 +14,7 @@ INTERCOM_VERSION = "2.11"
 
 
 class IntercomCursorPaginator(BasePaginator):
-    """Paginator for Intercom GET endpoints using cursor-based pagination.
+    """Paginator for Intercom endpoints using cursor-based pagination.
 
     Reads cursor from `pages.next.starting_after` in the response and sets it
     as a `starting_after` query parameter on subsequent requests.
@@ -49,40 +49,38 @@ class IntercomCursorPaginator(BasePaginator):
             request.params["starting_after"] = self._next_cursor
 
 
-class IntercomBodyCursorPaginator(BasePaginator):
-    """Paginator for Intercom POST endpoints (e.g. /companies/list) using cursor-based pagination.
-
-    Same cursor logic as IntercomCursorPaginator but passes the cursor
-    in the JSON request body instead of query parameters.
+class IntercomPageNumberPaginator(BasePaginator):
+    """Paginator for Intercom POST endpoints that use page-number pagination
+    via query parameters (e.g. POST /companies/list?page=1&per_page=15).
     """
 
-    def __init__(self, per_page: int = 150):
+    def __init__(self, per_page: int = 50):
         super().__init__()
         self._per_page = per_page
-        self._next_cursor: str | None = None
+        self._current_page = 1
+        self._total_pages = 1
 
     def init_request(self, request: Request) -> None:
-        if request.json is None:
-            request.json = {}
-        request.json["per_page"] = self._per_page
+        if request.params is None:
+            request.params = {}
+        request.params["page"] = self._current_page
+        request.params["per_page"] = self._per_page
 
     def update_state(self, response: Response, data: list[Any] | None = None) -> None:
         try:
             response_data = response.json()
             pages = response_data.get("pages", {})
-            next_page = pages.get("next", {})
-            self._next_cursor = next_page.get("starting_after") if isinstance(next_page, dict) else None
-            self._has_next_page = self._next_cursor is not None
+            self._total_pages = pages.get("total_pages", 1)
+            self._has_next_page = self._current_page < self._total_pages
         except Exception:
             self._has_next_page = False
-            self._next_cursor = None
 
     def update_request(self, request: Request) -> None:
-        if request.json is None:
-            request.json = {}
-        request.json["per_page"] = self._per_page
-        if self._next_cursor:
-            request.json["pagination"] = {"starting_after": self._next_cursor}
+        self._current_page += 1
+        if request.params is None:
+            request.params = {}
+        request.params["page"] = self._current_page
+        request.params["per_page"] = self._per_page
 
 
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
@@ -97,7 +95,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         endpoint_config["paginator"] = "single_page"
     elif config.method == "POST":
         endpoint_config["method"] = "POST"
-        endpoint_config["paginator"] = IntercomBodyCursorPaginator(per_page=config.page_size)
+        endpoint_config["paginator"] = IntercomPageNumberPaginator(per_page=config.page_size)
     else:
         endpoint_config["paginator"] = IntercomCursorPaginator(per_page=config.page_size)
 
@@ -155,7 +153,6 @@ def intercom_source(
             },
             "headers": {
                 "Accept": "application/json",
-                "Content-Type": "application/json",
                 "Intercom-Version": INTERCOM_VERSION,
             },
         },
