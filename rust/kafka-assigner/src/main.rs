@@ -37,11 +37,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cancel = CancellationToken::new();
 
     // gRPC server
-    let service = KafkaAssignerService::from_config(
-        Arc::clone(&store),
-        Arc::clone(&registry),
-        &config,
-    );
+    let service =
+        KafkaAssignerService::from_config(Arc::clone(&store), Arc::clone(&registry), &config);
     let bind_addr = config.bind_address();
     let listener = TcpListener::bind(&bind_addr).await?;
     tracing::info!(addr = %bind_addr, "gRPC server listening");
@@ -50,10 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_handle = tokio::spawn(async move {
         Server::builder()
             .add_service(KafkaAssignerServer::new(service))
-            .serve_with_incoming_shutdown(
-                TcpListenerStream::new(listener),
-                grpc_cancel.cancelled(),
-            )
+            .serve_with_incoming_shutdown(TcpListenerStream::new(listener), grpc_cancel.cancelled())
             .await
     });
 
@@ -69,7 +63,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Assigner: leader election + coordination loop
     let assigner_config = AssignerConfig::from(&config);
-    let strategy = config.build_strategy().map_err(|e| format!("invalid strategy config: {e}"))?;
+    let strategy = config
+        .build_strategy()
+        .map_err(|e| format!("invalid strategy config: {e}"))?;
     let assigner = Assigner::new(Arc::clone(&store), assigner_config, strategy);
     let assigner_cancel = cancel.child_token();
     let assigner_handle = tokio::spawn(async move {
