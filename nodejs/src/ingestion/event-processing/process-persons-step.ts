@@ -40,57 +40,39 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
     return async function processPersonsStep(input: TInput): Promise<PipelineResult<TInput & ProcessPersonsOutput>> {
         const { normalizedEvent, team, timestamp, personlessPerson } = input
 
-        let person: Person
-        const sideEffects: Promise<unknown>[] = []
-
-        let shouldProcessPerson = !personlessPerson
-        let forceUpgrade = false
-
-        if (personlessPerson) {
-            person = personlessPerson
-            forceUpgrade = !!person.force_upgrade
-            shouldProcessPerson = forceUpgrade
+        if (personlessPerson && !personlessPerson.force_upgrade) {
+            return ok({ ...input, person: personlessPerson })
         }
 
-        if (shouldProcessPerson) {
-            const context = new PersonContext(
-                normalizedEvent,
-                team,
-                String(normalizedEvent.distinct_id),
-                timestamp,
-                true,
-                kafkaProducer,
-                personsStore,
-                options.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
-                mergeMode,
-                options.PERSON_PROPERTIES_UPDATE_ALL
-            )
-
-            const processor = new PersonEventProcessor(
-                context,
-                new PersonPropertyService(context),
-                new PersonMergeService(context)
-            )
-            const result = await processor.processEvent()
-
-            if (!isOkResult(result)) {
-                return result
-            }
-
-            person = result.value
-            sideEffects.push(...result.sideEffects)
-
-            if (forceUpgrade) {
-                person.force_upgrade = true
-            }
-        }
-
-        return ok(
-            {
-                ...input,
-                person: person!,
-            },
-            sideEffects
+        const context = new PersonContext(
+            normalizedEvent,
+            team,
+            String(normalizedEvent.distinct_id),
+            timestamp,
+            true,
+            kafkaProducer,
+            personsStore,
+            options.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
+            mergeMode,
+            options.PERSON_PROPERTIES_UPDATE_ALL
         )
+
+        const processor = new PersonEventProcessor(
+            context,
+            new PersonPropertyService(context),
+            new PersonMergeService(context)
+        )
+        const result = await processor.processEvent()
+
+        if (!isOkResult(result)) {
+            return result
+        }
+
+        const person = result.value
+        if (personlessPerson?.force_upgrade) {
+            person.force_upgrade = true
+        }
+
+        return ok({ ...input, person }, result.sideEffects)
     }
 }
