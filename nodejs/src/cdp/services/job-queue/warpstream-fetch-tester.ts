@@ -147,7 +147,7 @@ export class WarpstreamFetchTester {
                         partitions: partitions.map((p) => ({
                             partition: p.partition,
                             fetch_offset: p.fetch_offset,
-                            max_bytes: 1048576,
+                            partition_max_bytes: 1048576,
                         })),
                     })),
                 }
