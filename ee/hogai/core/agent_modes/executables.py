@@ -223,6 +223,8 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         if self._has_legacy_summarize_sessions_messages(state.messages):
             model_name = "claude-sonnet-4-5"
 
+        is_sonnet_4_5 = model_name == "claude-sonnet-4-5"
+
         base_model = MaxChatAnthropic(
             model=model_name,
             streaming=True,
@@ -234,11 +236,11 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
                 "context-1m-2025-08-07",
                 "fine-grained-tool-streaming-2025-05-14",
             ],
-            max_tokens=16384,
-            thinking=self.THINKING_CONFIG,
+            max_tokens=8192 if is_sonnet_4_5 else 16384,
+            thinking=self.THINKING_CONFIG if not is_sonnet_4_5 else {"type": "enabled", "budget_tokens": 1024},
             # langchain-anthropic 0.3.x doesn't have a first-class effort field;
             # forward it via model_kwargs so the Anthropic API receives output_config.
-            model_kwargs={"output_config": {"effort": "medium"}},
+            model_kwargs={"output_config": {"effort": "medium"}} if not is_sonnet_4_5 else {},
             conversation_start_dt=state.start_dt,
             billable=True,
         )
