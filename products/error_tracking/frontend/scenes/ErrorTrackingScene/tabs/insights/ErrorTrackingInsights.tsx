@@ -27,34 +27,6 @@ function buildExceptionVolumeQuery(dateFrom: string, dateTo: string): InsightViz
     }
 }
 
-function buildSessionsOverviewQuery(dateFrom: string, dateTo: string): InsightVizNode<TrendsQuery> {
-    return {
-        kind: NodeKind.InsightVizNode,
-        source: {
-            kind: NodeKind.TrendsQuery,
-            series: [
-                {
-                    kind: NodeKind.EventsNode,
-                    event: null,
-                    name: 'Total sessions',
-                    math: BaseMathType.UniqueSessions,
-                },
-                {
-                    kind: NodeKind.EventsNode,
-                    event: '$exception',
-                    name: 'Sessions with crash',
-                    math: BaseMathType.UniqueSessions,
-                },
-            ],
-            interval: 'day',
-            dateRange: { date_from: dateFrom, date_to: dateTo },
-            trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
-        },
-        showHeader: false,
-        showTable: false,
-    }
-}
-
 function buildCrashFreeSessionsQuery(dateFrom: string, dateTo: string): InsightVizNode<TrendsQuery> {
     return {
         kind: NodeKind.InsightVizNode,
@@ -186,11 +158,13 @@ function ChartCard({
 }
 
 export function ErrorTrackingInsights(): JSX.Element {
-    const { dateFrom, dateTo } = useValues(errorTrackingInsightsLogic)
+    const { dateFrom, chartDateTo } = useValues(errorTrackingInsightsLogic)
 
-    const exceptionVolumeQuery = useMemo(() => buildExceptionVolumeQuery(dateFrom, dateTo), [dateFrom, dateTo])
-    const sessionsOverviewQuery = useMemo(() => buildSessionsOverviewQuery(dateFrom, dateTo), [dateFrom, dateTo])
-    const crashFreeQuery = useMemo(() => buildCrashFreeSessionsQuery(dateFrom, dateTo), [dateFrom, dateTo])
+    const exceptionVolumeQuery = useMemo(
+        () => buildExceptionVolumeQuery(dateFrom, chartDateTo),
+        [dateFrom, chartDateTo]
+    )
+    const crashFreeQuery = useMemo(() => buildCrashFreeSessionsQuery(dateFrom, chartDateTo), [dateFrom, chartDateTo])
 
     return (
         <div className="space-y-4 mt-4">
@@ -200,17 +174,11 @@ export function ErrorTrackingInsights(): JSX.Element {
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                 <ChartCard title="Exception volume" description="Exceptions per day" query={exceptionVolumeQuery} />
                 <ChartCard
-                    title="Sessions overview"
-                    description="Total sessions vs sessions with at least one crash"
-                    query={sessionsOverviewQuery}
+                    title="Crash-free sessions"
+                    description="Percentage of sessions without any exceptions"
+                    query={crashFreeQuery}
                 />
             </div>
-
-            <ChartCard
-                title="Crash-free sessions"
-                description="Percentage of sessions without any exceptions"
-                query={crashFreeQuery}
-            />
         </div>
     )
 }

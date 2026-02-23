@@ -61,6 +61,13 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                 return effective.format('YYYY-MM-DD')
             },
         ],
+        chartDateTo: [
+            (s) => [s.anchorDate, s.viewMode],
+            (anchorDate, viewMode): string => {
+                const end = viewMode === 'week' ? anchorDate.add(1, 'week') : anchorDate.add(1, 'month')
+                return end.format('YYYY-MM-DD')
+            },
+        ],
         dateLabel: [
             (s) => [s.anchorDate, s.viewMode],
             (anchorDate, viewMode): string => {
