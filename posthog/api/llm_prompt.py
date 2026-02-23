@@ -131,15 +131,14 @@ class LLMPromptViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbid
         return get_prompt_by_name_from_cache(self.team, prompt_name)
 
     def _get_prompt_by_name_from_db(self, prompt_name: str) -> LLMPrompt | None:
-        return (
-            LLMPrompt.objects.filter(
+        try:
+            return LLMPrompt.objects.get(
                 team=self.team,
                 name=prompt_name,
                 deleted=False,
             )
-            .select_related("created_by")
-            .first()
-        )
+        except LLMPrompt.DoesNotExist:
+            return None
 
     def perform_create(self, serializer):
         instance = serializer.save()
