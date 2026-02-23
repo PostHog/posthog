@@ -393,10 +393,7 @@ mod tests {
 
         let result = txn.commit_write().await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("after 1 attempts"));
+        assert!(result.unwrap_err().to_string().contains("after 1 attempts"));
         mock.assert();
     }
 
