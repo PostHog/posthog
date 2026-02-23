@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Log in to PostHog</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f4f4f8;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            color: #2d2d2d;
+        }
+        .card {
+            background: #fff;
+            border-radius: 12px;
+            padding: 40px;
+            max-width: 420px;
+            width: 100%;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            text-align: center;
+        }
+        .logo {
+            width: 40px;
+            height: 40px;
+            margin: 0 auto 20px;
+        }
+        h1 {
+            font-size: 22px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        p {
+            color: #6b6b6b;
+            font-size: 15px;
+            margin-bottom: 28px;
+            line-height: 1.5;
+        }
+        .buttons {
+            display: flex;
+            gap: 12px;
+        }
+        .btn {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 14px 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            background: #fff;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: border-color 0.15s, background 0.15s;
+            text-decoration: none;
+            color: #2d2d2d;
+        }
+        .btn:hover {
+            border-color: #1d4aff;
+            background: #f8f9ff;
+        }
+        .hint {
+            margin-top: 20px;
+            font-size: 13px;
+            color: #999;
+        }
+        .hint a {
+            color: #1d4aff;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <svg class="logo" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M0 64C0 28.6538 28.6538 0 64 0C99.3462 0 128 28.6538 128 64C128 99.3462 99.3462 128 64 128C28.6538 128 0 99.3462 0 64Z" fill="#1D4AFF"/>
+            <path d="M63.5 84L44 64.5L63.5 45L83 64.5L63.5 84Z" fill="white"/>
+            <path d="M63.5 104L44 84.5L63.5 65L83 84.5L63.5 104Z" fill="white" fill-opacity="0.5"/>
+            <path d="M63.5 64L44 44.5L63.5 25L83 44.5L63.5 64Z" fill="white" fill-opacity="0.5"/>
+        </svg>
+        <h1>Log in to PostHog</h1>
+        <p>Where is your PostHog project hosted?</p>
+        <div class="buttons">
+            <a class="btn" id="btn-us" href="#">US Cloud</a>
+            <a class="btn" id="btn-eu" href="#">EU Cloud</a>
+        </div>
+        <p class="hint">
+            Not sure? Check your PostHog URL — it starts with
+            <a href="https://us.posthog.com" target="_blank">us.</a> or
+            <a href="https://eu.posthog.com" target="_blank">eu.</a>
+        </p>
+    </div>
+    <script>
+        const params = new URLSearchParams('{{AUTHORIZE_PARAMS}}');
+        function buildUrl(region) {
+            params.set('_region', region);
+            return '/oauth/authorize/?' + params.toString();
+        }
+        document.getElementById('btn-us').href = buildUrl('us');
+        document.getElementById('btn-eu').href = buildUrl('eu');
+    </script>
+</body>
+</html>
