@@ -79,6 +79,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
         if self.action == "completion":
             serializer = LLMProxyCompletionSerializer(data=getattr(self.request, "data", {}))
             if serializer.is_valid():
+                self._completion_validated_data = serializer.validated_data
                 provider_key_id = serializer.validated_data.get("provider_key_id")
                 provider = serializer.validated_data.get("provider")
                 if provider_key_id and provider:
@@ -166,11 +167,12 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     status=402,
                 )
 
-            serializer = LLMProxyCompletionSerializer(data=request.data)
-            if not serializer.is_valid():
-                return Response({"error": serializer.errors}, status=400)
-
-            data = serializer.validated_data
+            data = getattr(self, "_completion_validated_data", None)
+            if data is None:
+                serializer = LLMProxyCompletionSerializer(data=request.data)
+                if not serializer.is_valid():
+                    return Response({"error": serializer.errors}, status=400)
+                data = serializer.validated_data
             model = data.get("model")
             thinking = data.get("thinking", False)
 
