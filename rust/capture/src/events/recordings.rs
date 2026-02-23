@@ -373,10 +373,7 @@ pub async fn serialize_snapshot_data_async(
     })
     .await
     .map_err(|e| {
-        error!(
-            "failed to spawn blocking task for snapshot serialization: {}",
-            e
-        );
+        error!("failed to spawn blocking task for snapshot serialization: {e:#}");
         CaptureError::NonRetryableSinkError
     })
 }

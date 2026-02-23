@@ -57,7 +57,11 @@ export function IntegrationView({
         <div className="rounded border bg-surface-primary">
             <div className="flex justify-between items-center p-2">
                 <div className="flex gap-4 items-center ml-2">
-                    <img src={integration.icon_url} className="w-10 h-10 rounded" />
+                    <img
+                        src={integration.icon_url}
+                        alt={`${integration.kind} integration`}
+                        className="w-10 h-10 rounded"
+                    />
                     <div>
                         <div className="flex gap-2">
                             <span>

@@ -13,6 +13,7 @@ import {
     EventPropertyFilter,
     FeaturePropertyFilter,
     FilterLogicalOperator,
+    PersonPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
     UniversalFiltersGroup,
@@ -162,38 +163,52 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                 return
             }
 
-            if (taxonomicGroup.type === TaxonomicFilterGroupType.PageviewEvents) {
+            if (
+                taxonomicGroup.type === TaxonomicFilterGroupType.PageviewEvents ||
+                taxonomicGroup.type === TaxonomicFilterGroupType.PageviewUrls
+            ) {
                 const urlFilter: EventPropertyFilter = {
                     key: '$current_url',
                     value: propertyKey ? String(propertyKey) : '',
                     operator: PropertyOperator.IContains,
                     type: PropertyFilterType.Event,
                 }
-                const eventFilter: ActionFilter = {
-                    id: '$pageview',
-                    name: '$pageview',
-                    type: EntityTypes.EVENTS,
-                    properties: [urlFilter],
+                if (taxonomicGroup.type === TaxonomicFilterGroupType.PageviewEvents) {
+                    const eventFilter: ActionFilter = {
+                        id: '$pageview',
+                        name: '$pageview',
+                        type: EntityTypes.EVENTS,
+                        properties: [urlFilter],
+                    }
+                    newValues.push(eventFilter)
+                } else {
+                    newValues.push(urlFilter)
                 }
-                newValues.push(eventFilter)
                 actions.setGroupValues(newValues)
                 return
             }
 
-            if (taxonomicGroup.type === TaxonomicFilterGroupType.ScreenEvents) {
+            if (
+                taxonomicGroup.type === TaxonomicFilterGroupType.ScreenEvents ||
+                taxonomicGroup.type === TaxonomicFilterGroupType.Screens
+            ) {
                 const screenNameFilter: EventPropertyFilter = {
                     key: '$screen_name',
                     value: propertyKey ? String(propertyKey) : '',
                     operator: PropertyOperator.Exact,
                     type: PropertyFilterType.Event,
                 }
-                const eventFilter: ActionFilter = {
-                    id: '$screen',
-                    name: '$screen',
-                    type: EntityTypes.EVENTS,
-                    properties: [screenNameFilter],
+                if (taxonomicGroup.type === TaxonomicFilterGroupType.ScreenEvents) {
+                    const eventFilter: ActionFilter = {
+                        id: '$screen',
+                        name: '$screen',
+                        type: EntityTypes.EVENTS,
+                        properties: [screenNameFilter],
+                    }
+                    newValues.push(eventFilter)
+                } else {
+                    newValues.push(screenNameFilter)
                 }
-                newValues.push(eventFilter)
                 actions.setGroupValues(newValues)
                 return
             }
@@ -212,6 +227,18 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                     properties: [elTextFilter],
                 }
                 newValues.push(eventFilter)
+                actions.setGroupValues(newValues)
+                return
+            }
+
+            if (taxonomicGroup.type === TaxonomicFilterGroupType.EmailAddresses) {
+                const emailFilter: PersonPropertyFilter = {
+                    key: 'email',
+                    value: propertyKey ? String(propertyKey) : '',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Person,
+                }
+                newValues.push(emailFilter)
                 actions.setGroupValues(newValues)
                 return
             }

@@ -14,8 +14,8 @@
 export type VisibilityEnumApi = (typeof VisibilityEnumApi)[keyof typeof VisibilityEnumApi]
 
 export const VisibilityEnumApi = {
-    private: 'private',
-    shared: 'shared',
+    Private: 'private',
+    Shared: 'shared',
 } as const
 
 export interface ColumnConfigurationApi {

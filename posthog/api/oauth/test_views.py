@@ -2031,6 +2031,7 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertTrue(data["active"])
         self.assertEqual(data["client_id"], "test_confidential_client_id")
+        self.assertEqual(data["client_name"], "Test Confidential App")
         self.assertIn("scoped_teams", data)
         self.assertIn("scoped_organizations", data)
 

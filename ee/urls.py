@@ -109,6 +109,7 @@ if settings.ADMIN_PORTAL_ENABLED:
     )
     from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
+    from posthog.admin.admins.tophog_admin import tophog_dashboard_view
 
     admin_urlpatterns = [
         path("admin/oauth2/callback", admin_oauth2_callback, name="admin_oauth2_callback"),
@@ -131,6 +132,11 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/backfill-precalculated-person-properties/",
             admin.site.admin_view(backfill_precalculated_person_properties_view),
             name="backfill-precalculated-person-properties",
+        ),
+        path(
+            "admin/tophog/",
+            admin.site.admin_view(tophog_dashboard_view),
+            name="tophog-dashboard",
         ),
         path(
             "admin/logout/",
