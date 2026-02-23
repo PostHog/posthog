@@ -653,6 +653,9 @@ class TestEarlyAccessFeature(APIBaseTest):
                 "payload_count": 0,
                 "creation_context": "early_access_features",
                 "source": "web",
+                "$current_url": None,
+                "$session_id": None,
+                "was_impersonated": False,
             },
         )
 
