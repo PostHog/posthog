@@ -289,10 +289,12 @@ export function SmartEdge({
             )}
             <EdgeLabelRenderer>
                 {data?.label ? (
-                    <EdgeLabel
-                        transform={`translate(-50%, -50%) translate(${labelPoint.x}px,${labelPoint.y}px)`}
-                        label={(data?.label as string) || ''}
-                    />
+                    <div style={{ opacity: connectsToDraft ? 0.5 : 1 }}>
+                        <EdgeLabel
+                            transform={`translate(-50%, -50%) translate(${labelPoint.x}px,${labelPoint.y}px)`}
+                            label={(data?.label as string) || ''}
+                        />
+                    </div>
                 ) : null}
             </EdgeLabelRenderer>
         </>
