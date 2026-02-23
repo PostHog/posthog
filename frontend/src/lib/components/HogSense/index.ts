@@ -1,3 +1,6 @@
 export { hogSenseLogic, evaluateDetections } from './hogSenseLogic'
 export type { HogSenseLogicProps } from './hogSenseLogic'
+export { HogSenseRenderer } from './HogSenseRenderer'
+export { HogSenseHint } from './HogSenseHint'
+export { HogSenseTooltipContent, SeverityIcon, severityColor } from './HogSenseTooltipContent'
 export type { DetectionEntry, Finding, GuidanceDoc, HogSenseSeverity } from './types'
