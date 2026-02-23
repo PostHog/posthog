@@ -104,6 +104,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         BASE_DIR: '..',
         TASK_TIMEOUT: 30,
         TASKS_PER_WORKER: 10,
+        INGESTION_PIPELINE: null,
+        INGESTION_LANE: null,
         INGESTION_CONCURRENCY: 10,
         INGESTION_BATCH_SIZE: 500,
         INGESTION_OVERFLOW_ENABLED: false,

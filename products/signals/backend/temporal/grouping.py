@@ -127,6 +127,7 @@ async def fetch_signal_type_examples_activity(input: FetchSignalTypeExamplesInpu
                 )
                 WHERE content != ''
                   AND timestamp >= now() - INTERVAL 1 MONTH
+                  AND NOT JSONExtractBool(metadata, 'deleted')
             )
             GROUP BY source_product, source_type
         """
@@ -320,6 +321,7 @@ async def run_signal_semantic_search_activity(input: RunSignalSemanticSearchInpu
             )
             WHERE JSONExtractString(metadata, 'report_id') != ''
               AND timestamp >= now() - INTERVAL 1 MONTH
+              AND NOT JSONExtractBool(metadata, 'deleted')
             ORDER BY distance ASC
             LIMIT {limit}
         """

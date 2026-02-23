@@ -1394,6 +1394,7 @@ export interface PersonType {
     distinct_ids: string[]
     properties: Record<string, any>
     created_at?: string
+    last_seen_at?: string
     is_identified?: boolean
 }
 
@@ -4986,6 +4987,7 @@ export type APIScopeObject =
     | 'dataset'
     | 'desktop_recording'
     | 'early_access_feature'
+    | 'element'
     | 'endpoint'
     | 'error_tracking'
     | 'evaluation'
@@ -4997,6 +4999,7 @@ export type APIScopeObject =
     | 'feature_flag'
     | 'group'
     | 'health_issue'
+    | 'heatmap'
     | 'hog_function'
     | 'insight'
     | 'insight_variable'
@@ -5025,6 +5028,7 @@ export type APIScopeObject =
     | 'survey'
     | 'task'
     | 'ticket'
+    | 'uploaded_media'
     | 'user'
     | 'warehouse_table'
     | 'warehouse_view'

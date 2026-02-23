@@ -661,3 +661,10 @@ class RestoreRedeemThrottle(SimpleRateThrottle):
     def get_cache_key(self, request, view):
         # Throttle by IP
         return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
+
+
+class ToolbarOAuthRefreshThrottle(IPThrottle):
+    """Rate limit the unauthenticated toolbar OAuth refresh endpoint by IP."""
+
+    scope = "toolbar_oauth_refresh"
+    rate = "30/minute"

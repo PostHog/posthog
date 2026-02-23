@@ -84,7 +84,9 @@ class TestAITemporalModuleIntegrity:
             "reset_report_to_potential_activity",
             "run_signal_semantic_search_activity",
             "safety_judge_activity",
+            "wait_for_signal_in_clickhouse_activity",
             "summarize_signals_activity",
+            "wait_for_signal_in_clickhouse_activity",
         ]
         actual_activity_names = [activity.__name__ for activity in ai.AI_ACTIVITIES + ai.SIGNALS_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (

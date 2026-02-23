@@ -4260,6 +4260,9 @@ const api = {
         async getReportSignals(reportId: string): Promise<{ report: SignalReport | null; signals: SignalNode[] }> {
             return await new ApiRequest().signalReport(reportId).withAction('signals').get()
         },
+        async delete(id: SignalReport['id']): Promise<void> {
+            await new ApiRequest().signalReport(id).delete()
+        },
     },
 
     signalSourceConfigs: {
