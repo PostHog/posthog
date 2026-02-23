@@ -1,6 +1,28 @@
 import type { GraphEdge, SignalNode } from './types'
 import { isMatchedMetadata } from './types'
 
+// ── UI components ──────────────────────────────────────────────────────────────
+
+/** Small triangle of grip dots for corner resize handles. Set `flip` to mirror horizontally. */
+export function ResizeGripDots({ flip }: { flip?: boolean }): JSX.Element {
+    return (
+        <svg
+            width="10"
+            height="10"
+            viewBox="0 0 10 10"
+            className="text-muted opacity-60"
+            style={flip ? { transform: 'scaleX(-1)' } : undefined}
+        >
+            <circle cx="1.5" cy="8.5" r="1" fill="currentColor" />
+            <circle cx="5" cy="8.5" r="1" fill="currentColor" />
+            <circle cx="5" cy="5" r="1" fill="currentColor" />
+            <circle cx="8.5" cy="8.5" r="1" fill="currentColor" />
+            <circle cx="8.5" cy="5" r="1" fill="currentColor" />
+            <circle cx="8.5" cy="1.5" r="1" fill="currentColor" />
+        </svg>
+    )
+}
+
 // ── Edge builder ───────────────────────────────────────────────────────────────
 
 export function buildEdges(signals: SignalNode[]): GraphEdge[] {

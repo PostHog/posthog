@@ -1,10 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useCallback } from 'react'
 
-import api from 'lib/api'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -15,24 +14,33 @@ import { ReportListPanel } from './signals/ReportListPanel'
 import { SignalGraph } from './signals/SignalGraph'
 import { SimulationControls } from './signals/SimulationControls'
 import { statusBadgeColor } from './signals/helpers'
-import type { GraphEdge, ReportData, ReportSignalsResponse, SignalNode, SimConfig } from './signals/types'
+import { signalsDebugLogic } from './signals/signalsDebugLogic'
+import type { SimConfig } from './signals/types'
 import { DEFAULT_CONFIG } from './signals/types'
 import { useD3ForceSimulation } from './signals/useD3ForceSimulation'
 
 export function SignalsDebug(): JSX.Element {
-    const [reportId, setReportId] = useState('')
-    const [loading, setLoading] = useState(false)
-    const [report, setReport] = useState<ReportData | null>(null)
-    const [signals, setSignals] = useState<SignalNode[]>([])
-    const [loaded, setLoaded] = useState(false)
-    const [selectedSignalId, setSelectedSignalId] = useState<string | null>(null)
-    const [hoveredEdge, setHoveredEdge] = useState<GraphEdge | null>(null)
-    const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
+    const {
+        reportId,
+        report,
+        signals,
+        rootIds,
+        selectedSignalId,
+        selectedSignal,
+        hoveredEdge,
+        mousePos,
+        loading,
+        loaded,
+    } = useValues(signalsDebugLogic)
+
+    const { setReportId, loadReportSignals, selectReport, setSelectedSignalId, setHoveredEdge, setMousePos } =
+        useActions(signalsDebugLogic)
+
     const [simConfig, setSimConfig] = useLocalStorage<SimConfig>('signals-debug-physics', { ...DEFAULT_CONFIG })
 
     const {
         positions,
-        edges,
+        edges: simEdges,
         containerRef,
         onNodeDragStart,
         draggedNodeId,
@@ -42,56 +50,9 @@ export function SignalsDebug(): JSX.Element {
         resetView,
     } = useD3ForceSimulation(signals, simConfig)
 
-    const rootIds = useMemo(() => {
-        const childIds = new Set(edges.map((e) => e.target))
-        return new Set(signals.filter((s) => !childIds.has(s.signal_id)).map((s) => s.signal_id))
-    }, [signals, edges])
-
-    const selectedSignal = useMemo(
-        () => (selectedSignalId ? (signals.find((s) => s.signal_id === selectedSignalId) ?? null) : null),
-        [signals, selectedSignalId]
-    )
-
-    const loadReport = useCallback(async (id: string) => {
-        const trimmed = id.trim()
-        if (!trimmed) {
-            return
-        }
-        // Clear everything immediately to prevent artefacting from the previous report
-        setSignals([])
-        setReport(null)
-        setSelectedSignalId(null)
-        setHoveredEdge(null)
-        setLoaded(false)
-        setLoading(true)
-        try {
-            const response = await api.get<ReportSignalsResponse>(
-                `api/environments/@current/signals/report_signals/?report_id=${encodeURIComponent(trimmed)}`
-            )
-            setReport(response.report)
-            setSignals(response.signals)
-            setLoaded(true)
-            if (response.signals.length === 0) {
-                lemonToast.info('No signals found for this report')
-            }
-        } catch (error) {
-            lemonToast.error(`Failed to load signals: ${error}`)
-        } finally {
-            setLoading(false)
-        }
-    }, [])
-
     const handleLoad = useCallback(() => {
-        void loadReport(reportId)
-    }, [reportId, loadReport])
-
-    const handleSelectReport = useCallback(
-        (id: string) => {
-            setReportId(id)
-            void loadReport(id)
-        },
-        [loadReport]
-    )
+        void loadReportSignals(reportId)
+    }, [reportId, loadReportSignals])
 
     const handleKeyDown = useCallback(
         (e: React.KeyboardEvent) => {
@@ -102,9 +63,12 @@ export function SignalsDebug(): JSX.Element {
         [handleLoad]
     )
 
-    const handleMouseMove = useCallback((e: React.MouseEvent) => {
-        setMousePos({ x: e.clientX, y: e.clientY })
-    }, [])
+    const handleMouseMove = useCallback(
+        (e: React.MouseEvent) => {
+            setMousePos({ x: e.clientX, y: e.clientY })
+        },
+        [setMousePos]
+    )
 
     return (
         <SceneContent className="h-full flex flex-col grow gap-y-1">
@@ -136,7 +100,7 @@ export function SignalsDebug(): JSX.Element {
             {/* Main area — report list on left, graph on right */}
             <div className="relative grow flex overflow-hidden">
                 {/* Report list panel */}
-                <ReportListPanel selectedReportId={report?.id ?? null} onSelectReport={handleSelectReport} />
+                <ReportListPanel selectedReportId={report?.id ?? null} onSelectReport={selectReport} />
 
                 {/* Graph area */}
                 <div className="relative grow border rounded bg-surface-primary overflow-hidden">
@@ -182,7 +146,7 @@ export function SignalsDebug(): JSX.Element {
                         <SignalGraph
                             signals={signals}
                             positions={positions}
-                            edges={edges}
+                            edges={simEdges}
                             selectedSignalId={selectedSignalId}
                             onSelectSignal={setSelectedSignalId}
                             hoveredEdge={hoveredEdge}

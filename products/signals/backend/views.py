@@ -7,7 +7,7 @@ from django.db.models import Count
 
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema, extend_schema_view
-from rest_framework import serializers, status, viewsets
+from rest_framework import filters, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -68,73 +68,56 @@ class SignalViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         return Response({"status": "ok"}, status=status.HTTP_202_ACCEPTED)
 
-    @extend_schema(exclude=True)
-    @action(methods=["GET"], detail=False, url_path="list_reports")
-    def list_reports(self, request: Request, *args, **kwargs):
-        """Paginated list of all signal reports for this team. DEBUG only."""
-        if not settings.DEBUG:
-            raise NotFound()
 
-        limit = int(request.query_params.get("limit", 20))
-        offset = int(request.query_params.get("offset", 0))
-        status_filter = request.query_params.get("status")
+@extend_schema_view(
+    list=extend_schema(exclude=True),
+    retrieve=extend_schema(exclude=True),
+)
+class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    serializer_class = SignalReportSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"  # Using task scope as signal_report doesn't have its own scope yet
+    queryset = SignalReport.objects.all()
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ["signal_count", "total_weight", "created_at", "updated_at"]
+    ordering = ["-signal_count"]
 
-        qs = (
-            SignalReport.objects.filter(team=self.team)
-            .annotate(artefact_count=Count("artefacts"))
-            .order_by("-signal_count")
-        )
+    def safely_get_queryset(self, queryset):
+        qs = queryset.filter(team=self.team).annotate(artefact_count=Count("artefacts"))
 
+        status_filter = self.request.query_params.get("status")
         if status_filter:
             qs = qs.filter(status=status_filter)
 
-        total = qs.count()
-        reports = qs[offset : offset + limit]
-        serializer = SignalReportSerializer(reports, many=True)
+        return qs
 
-        next_offset = offset + limit
-        next_url = None
-        if next_offset < total:
-            next_url = request.build_absolute_uri(f"?limit={limit}&offset={next_offset}")
-            if status_filter:
-                next_url += f"&status={status_filter}"
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(), "team": self.team}
 
+    @extend_schema(exclude=True)
+    @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["signal_report:read"])
+    def artefacts(self, request, pk=None, **kwargs):
+        from typing import cast
+
+        report = cast(SignalReport, self.get_object())
+        artefacts = report.artefacts.filter(type=SignalReportArtefact.ArtefactType.VIDEO_SEGMENT).order_by(
+            "-created_at"
+        )
+        serializer = SignalReportArtefactSerializer(artefacts, many=True)
         return Response(
             {
-                "count": total,
-                "next": next_url,
-                "previous": None,
                 "results": serializer.data,
+                "count": len(serializer.data),
             }
         )
 
     @extend_schema(exclude=True)
-    @action(methods=["GET"], detail=False, url_path="report_signals")
-    def report_signals(self, request: Request, *args, **kwargs):
-        """Fetch all signals for a report from ClickHouse, including full metadata. DEBUG only."""
-        if not settings.DEBUG:
-            raise NotFound()
-
-        report_id = request.query_params.get("report_id")
-        if not report_id:
-            return Response({"error": "report_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Fetch the report from Postgres for context
-        report_data = None
-        try:
-            report = SignalReport.objects.get(id=report_id, team=self.team)
-            report_data = {
-                "id": str(report.id),
-                "title": report.title,
-                "summary": report.summary,
-                "status": report.status,
-                "total_weight": report.total_weight,
-                "signal_count": report.signal_count,
-                "created_at": report.created_at.isoformat() if report.created_at else None,
-                "updated_at": report.updated_at.isoformat() if report.updated_at else None,
-            }
-        except SignalReport.DoesNotExist:
-            pass
+    @action(detail=True, methods=["get"], url_path="signals")
+    def signals(self, request, pk=None, **kwargs):
+        """Fetch all signals for a report from ClickHouse, including full metadata."""
+        report = self.get_object()
+        report_data = SignalReportSerializer(report).data
 
         # Fetch signals from ClickHouse
         query = """
@@ -165,15 +148,15 @@ class SignalViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             team=self.team,
             placeholders={
                 "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
-                "report_id": ast.Constant(value=report_id),
+                "report_id": ast.Constant(value=str(report.id)),
             },
         )
 
-        signals = []
+        signals_list = []
         for row in result.results or []:
             document_id, content, metadata_str, timestamp = row
             metadata = json.loads(metadata_str)
-            signals.append(
+            signals_list.append(
                 {
                     "signal_id": document_id,
                     "content": content,
@@ -187,50 +170,4 @@ class SignalViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 }
             )
 
-        return Response({"report": report_data, "signals": signals})
-
-
-@extend_schema_view(
-    list=extend_schema(exclude=True),
-    retrieve=extend_schema(exclude=True),
-)
-class SignalReportViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
-    serializer_class = SignalReportSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "task"  # Using task scope as signal_report doesn't have its own scope yet
-    queryset = SignalReport.objects.all()
-
-    def safely_get_queryset(self, queryset):
-        from django.db.models import Count
-
-        qs = (
-            queryset.filter(
-                team=self.team,
-                status=SignalReport.Status.READY,
-            )
-            .annotate(artefact_count=Count("artefacts"))
-            .order_by("-total_weight", "-updated_at")
-        )
-
-        return qs
-
-    def get_serializer_context(self):
-        return {**super().get_serializer_context(), "team": self.team}
-
-    @extend_schema(exclude=True)
-    @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["signal_report:read"])
-    def artefacts(self, request, pk=None, **kwargs):
-        from typing import cast
-
-        report = cast(SignalReport, self.get_object())
-        artefacts = report.artefacts.filter(type=SignalReportArtefact.ArtefactType.VIDEO_SEGMENT).order_by(
-            "-created_at"
-        )
-        serializer = SignalReportArtefactSerializer(artefacts, many=True)
-        return Response(
-            {
-                "results": serializer.data,
-                "count": len(serializer.data),
-            }
-        )
+        return Response({"report": report_data, "signals": signals_list})

@@ -31,29 +31,6 @@ export interface SignalNode {
     match_metadata?: SignalMatchMetadata | null
 }
 
-export interface ReportData {
-    id: string
-    title: string | null
-    summary: string | null
-    status: string
-    total_weight: number
-    signal_count: number
-    created_at: string | null
-    updated_at: string | null
-}
-
-export interface ReportSignalsResponse {
-    report: ReportData | null
-    signals: SignalNode[]
-}
-
-export interface ReportListResponse {
-    count: number
-    next: string | null
-    previous: string | null
-    results: ReportData[]
-}
-
 // ── Layout / graph types ───────────────────────────────────────────────────────
 
 export interface LayoutPosition {

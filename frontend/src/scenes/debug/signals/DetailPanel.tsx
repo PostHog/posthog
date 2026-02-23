@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-import { sourceProductColor } from './helpers'
+import { ResizeGripDots, sourceProductColor } from './helpers'
 import { SignalNode, isMatchedMetadata } from './types'
 
 function Section({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
@@ -103,14 +103,14 @@ export function DetailPanel({
             <div
                 className="absolute left-0 top-0 bottom-0 cursor-ew-resize z-30 hover:bg-primary/10 transition-colors"
                 // eslint-disable-next-line react/forbid-dom-props
-                style={{ width: 5 }}
+                style={{ width: 10 }}
                 onMouseDown={onResizeMouseDown}
             />
             {/* Resize handle — bottom edge */}
             <div
                 className="absolute left-0 right-0 bottom-0 cursor-ns-resize z-30 hover:bg-primary/10 transition-colors"
                 // eslint-disable-next-line react/forbid-dom-props
-                style={{ height: 5 }}
+                style={{ height: 10 }}
                 onMouseDown={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
@@ -127,6 +127,65 @@ export function DetailPanel({
                     document.addEventListener('mouseup', onUp)
                 }}
             />
+            {/* Resize handle — bottom-left corner (simultaneous width + height) */}
+            <div
+                className="absolute left-0 bottom-0 z-40 cursor-nesw-resize flex items-end justify-start p-1"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ width: 18, height: 18 }}
+                onMouseDown={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    const startX = e.clientX
+                    const startY = e.clientY
+                    const startW = size.width
+                    const startH = size.height
+                    const onMove = (ev: MouseEvent): void => {
+                        setSize({
+                            width: Math.max(320, startW + (startX - ev.clientX)),
+                            height: Math.max(300, startH + (ev.clientY - startY)),
+                        })
+                    }
+                    const onUp = (): void => {
+                        document.removeEventListener('mousemove', onMove)
+                        document.removeEventListener('mouseup', onUp)
+                    }
+                    document.addEventListener('mousemove', onMove)
+                    document.addEventListener('mouseup', onUp)
+                }}
+            >
+                <ResizeGripDots flip />
+            </div>
+            {/* Resize handle — bottom-right corner (height + reposition) */}
+            <div
+                className="absolute right-0 bottom-0 z-40 cursor-nwse-resize flex items-end justify-end p-1"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ width: 18, height: 18 }}
+                onMouseDown={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    const startX = e.clientX
+                    const startY = e.clientY
+                    const startW = size.width
+                    const startH = size.height
+                    const startPosX = position.x
+                    const onMove = (ev: MouseEvent): void => {
+                        const dx = ev.clientX - startX
+                        setSize({
+                            width: Math.max(320, startW + dx),
+                            height: Math.max(300, startH + (ev.clientY - startY)),
+                        })
+                        setPosition((p) => ({ ...p, x: Math.max(0, startPosX - dx) }))
+                    }
+                    const onUp = (): void => {
+                        document.removeEventListener('mousemove', onMove)
+                        document.removeEventListener('mouseup', onUp)
+                    }
+                    document.addEventListener('mousemove', onMove)
+                    document.addEventListener('mouseup', onUp)
+                }}
+            >
+                <ResizeGripDots />
+            </div>
             {/* Drag handle — title bar */}
             <div
                 className="flex items-center justify-between px-3 py-2 border-b cursor-grab active:cursor-grabbing select-none shrink-0"

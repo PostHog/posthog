@@ -1,14 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useActions, useValues } from 'kea'
 
-import api from 'lib/api'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
 import { statusBadgeColor } from './helpers'
-import type { ReportData, ReportListResponse } from './types'
-
-const PAGE_SIZE = 20
+import { signalsDebugLogic } from './signalsDebugLogic'
 
 export function ReportListPanel({
     selectedReportId,
@@ -17,75 +14,19 @@ export function ReportListPanel({
     selectedReportId: string | null
     onSelectReport: (reportId: string) => void
 }): JSX.Element {
-    const [reports, setReports] = useState<ReportData[]>([])
-    const [loading, setLoading] = useState(false)
-    const [loadingMore, setLoadingMore] = useState(false)
-    const [hasMore, setHasMore] = useState(false)
-    const [total, setTotal] = useState(0)
-    const [search, setSearch] = useState('')
-    const [statusFilter, setStatusFilter] = useState<string | null>(null)
-    const [initialized, setInitialized] = useState(false)
+    const {
+        filteredReports,
+        reports,
+        reportsTotal,
+        reportsHasMore,
+        reportsInitialized,
+        reportsResponseLoading,
+        moreReportsResponseLoading,
+        reportSearch,
+        statusFilter,
+    } = useValues(signalsDebugLogic)
 
-    // Keep current statusFilter in a ref so fetchReports always reads the latest value
-    const statusFilterRef = useRef(statusFilter)
-    statusFilterRef.current = statusFilter
-
-    const fetchReports = useCallback(async (offset: number, append: boolean) => {
-        if (append) {
-            setLoadingMore(true)
-        } else {
-            setLoading(true)
-        }
-        try {
-            const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) })
-            const currentStatus = statusFilterRef.current
-            if (currentStatus) {
-                params.set('status', currentStatus)
-            }
-            const response = await api.get<ReportListResponse>(
-                `api/environments/@current/signals/list_reports/?${params.toString()}`
-            )
-            setReports((prev) => (append ? [...prev, ...response.results] : response.results))
-            setHasMore(response.next !== null)
-            setTotal(response.count)
-            setInitialized(true)
-        } catch {
-            // silently fail — debug tool
-        } finally {
-            setLoading(false)
-            setLoadingMore(false)
-        }
-    }, [])
-
-    // Load on mount
-    useEffect(() => {
-        void fetchReports(0, false)
-    }, [fetchReports])
-
-    const handleRefresh = (): void => {
-        void fetchReports(0, false)
-    }
-
-    const handleLoadMore = (): void => {
-        void fetchReports(reports.length, true)
-    }
-
-    const handleStatusFilter = (s: string): void => {
-        const next = s === 'all' ? null : s
-        setStatusFilter(next)
-        // Update the ref immediately so fetchReports picks it up
-        statusFilterRef.current = next
-        void fetchReports(0, false)
-    }
-
-    const filteredReports = search
-        ? reports.filter(
-              (r) =>
-                  r.title?.toLowerCase().includes(search.toLowerCase()) ||
-                  r.id.toLowerCase().includes(search.toLowerCase()) ||
-                  r.status.toLowerCase().includes(search.toLowerCase())
-          )
-        : reports
+    const { setReportSearch, setStatusFilter, loadReports, loadMoreReports } = useActions(signalsDebugLogic)
 
     const statuses = ['all', 'ready', 'in_progress', 'candidate', 'pending_input', 'potential', 'failed']
 
@@ -95,17 +36,17 @@ export function ReportListPanel({
             <div className="shrink-0 p-2 space-y-2 border-b">
                 <div className="flex items-center justify-between px-1">
                     <div className="font-semibold text-xs text-muted uppercase tracking-wide">
-                        Reports{initialized ? ` (${total})` : ''}
+                        Reports{reportsInitialized ? ` (${reportsTotal})` : ''}
                     </div>
-                    <LemonButton size="xsmall" type="tertiary" onClick={handleRefresh}>
+                    <LemonButton size="xsmall" type="tertiary" onClick={() => loadReports()}>
                         Refresh
                     </LemonButton>
                 </div>
                 <LemonInput
                     size="small"
                     placeholder="Filter by title or ID..."
-                    value={search}
-                    onChange={setSearch}
+                    value={reportSearch}
+                    onChange={setReportSearch}
                     fullWidth
                 />
                 <div className="flex flex-wrap gap-1">
@@ -117,7 +58,7 @@ export function ReportListPanel({
                                     ? 'bg-primary-highlight text-primary border-primary font-medium'
                                     : 'bg-surface-primary text-muted border-border hover:bg-surface-secondary'
                             }`}
-                            onClick={() => handleStatusFilter(s)}
+                            onClick={() => setStatusFilter(s === 'all' ? null : s)}
                         >
                             {s === 'all' ? 'All' : s.replace('_', ' ')}
                         </button>
@@ -127,13 +68,13 @@ export function ReportListPanel({
 
             {/* List */}
             <div className="flex-1 overflow-y-auto">
-                {loading && !loadingMore ? (
+                {reportsResponseLoading && !moreReportsResponseLoading ? (
                     <div className="flex items-center justify-center py-8">
                         <Spinner />
                     </div>
                 ) : filteredReports.length === 0 ? (
                     <div className="text-muted text-xs text-center py-8 px-3">
-                        {initialized ? 'No reports found' : 'Loading...'}
+                        {reportsInitialized ? 'No reports found' : 'Loading...'}
                     </div>
                 ) : (
                     <>
@@ -171,17 +112,17 @@ export function ReportListPanel({
                         })}
 
                         {/* Load more */}
-                        {hasMore && !search && (
+                        {reportsHasMore && !reportSearch && (
                             <div className="p-2">
                                 <LemonButton
                                     size="small"
                                     type="secondary"
                                     fullWidth
                                     center
-                                    loading={loadingMore}
-                                    onClick={handleLoadMore}
+                                    loading={moreReportsResponseLoading}
+                                    onClick={loadMoreReports}
                                 >
-                                    Load more ({reports.length} of {total})
+                                    Load more ({reports.length} of {reportsTotal})
                                 </LemonButton>
                             </div>
                         )}
