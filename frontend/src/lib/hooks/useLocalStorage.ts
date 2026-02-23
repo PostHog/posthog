@@ -45,6 +45,9 @@ export function useLocalStorage<T>(key: string, defaultValue: T): [T, (value: T 
         (value: T | ((prev: T) => T)) => {
             setStoredValue((prev) => {
                 const valueToStore = value instanceof Function ? value(prev) : value
+                if (JSON.stringify(valueToStore) === JSON.stringify(prev)) {
+                    return prev
+                }
                 setStoredValueInStorage(key, valueToStore)
                 return valueToStore
             })
