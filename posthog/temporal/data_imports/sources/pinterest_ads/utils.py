@@ -34,15 +34,11 @@ class PinterestAdsRetryableError(PinterestAdsAPIError):
     pass
 
 
-def _is_retryable_status(status_code: int) -> bool:
-    return status_code in RETRYABLE_STATUS_CODES
-
-
 def _check_response(response: requests.Response) -> None:
     if response.status_code == 200:
         return
 
-    if _is_retryable_status(response.status_code):
+    if response.status_code in RETRYABLE_STATUS_CODES:
         raise PinterestAdsRetryableError(
             f"Pinterest Ads API error (retryable): {response.status_code} {response.text[:500]}",
             status_code=response.status_code,
@@ -92,6 +88,11 @@ def get_date_range(
 
             start_date = last_dt.strftime("%Y-%m-%d")
         except Exception:
+            logger.warning(
+                "pinterest_ads_invalid_incremental_value",
+                value=str(db_incremental_field_last_value),
+                value_type=type(db_incremental_field_last_value).__name__,
+            )
             start_date = (datetime.now() - timedelta(days=DEFAULT_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
     else:
         start_date = (datetime.now() - timedelta(days=DEFAULT_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
@@ -224,25 +225,12 @@ def fetch_account_currency(session: requests.Session, ad_account_id: str) -> str
             if currency:
                 logger.info("pinterest_ads_account_currency", ad_account_id=ad_account_id, currency=currency)
                 return str(currency)
+        else:
+            logger.warning(
+                "pinterest_ads_currency_fetch_http_error",
+                ad_account_id=ad_account_id,
+                status_code=response.status_code,
+            )
     except Exception as e:
         logger.warning("pinterest_ads_currency_fetch_failed", ad_account_id=ad_account_id, error=str(e))
     return None
-
-
-def validate_ad_account(access_token: str, ad_account_id: str) -> tuple[bool, Optional[str]]:
-    session = build_session(access_token)
-    url = f"{BASE_URL}/ad_accounts/{ad_account_id}"
-    try:
-        response = session.get(url, timeout=10)
-        if response.status_code == 200:
-            return True, None
-        elif response.status_code == 403:
-            return False, "Access denied to this ad account. Check your permissions."
-        elif response.status_code == 404:
-            return False, "Ad account not found. Check your ad account ID."
-        else:
-            return False, f"Failed to validate ad account: {response.status_code}"
-    except requests.Timeout:
-        return False, "Request timed out while validating ad account"
-    except Exception as e:
-        return False, f"Error validating ad account: {str(e)}"

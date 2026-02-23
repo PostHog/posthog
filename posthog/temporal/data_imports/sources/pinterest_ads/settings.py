@@ -35,7 +35,7 @@ ANALYTICS_COLUMNS = [
     "ENGAGEMENT_1",
     "ENGAGEMENT_2",
     "ENGAGEMENT_RATE",
-    "EENGAGEMENT_RATE",
+    "EENGAGEMENT_RATE",  # not a typo — this is the actual Pinterest API column name
     "REPIN_RATE",
     # Rates
     "CTR",
@@ -69,6 +69,16 @@ ANALYTICS_COLUMNS = [
 class EndpointType(str, Enum):
     ENTITY = "entity"
     ANALYTICS = "analytics"
+
+
+_DATE_INCREMENTAL_FIELD: list[IncrementalField] = [
+    {
+        "label": "date",
+        "type": IncrementalFieldType.Date,
+        "field": "date",
+        "field_type": IncrementalFieldType.Date,
+    }
+]
 
 
 @dataclass
@@ -114,14 +124,7 @@ PINTEREST_ADS_CONFIG: dict[str, EndpointConfig] = {
     "campaign_analytics": EndpointConfig(
         name="campaign_analytics",
         primary_keys=["campaign_id", "date"],
-        incremental_fields=[
-            {
-                "label": "date",
-                "type": IncrementalFieldType.Date,
-                "field": "date",
-                "field_type": IncrementalFieldType.Date,
-            }
-        ],
+        incremental_fields=_DATE_INCREMENTAL_FIELD,
         partition_keys=["date"],
         partition_mode="datetime",
         partition_format="week",
@@ -130,14 +133,7 @@ PINTEREST_ADS_CONFIG: dict[str, EndpointConfig] = {
     "ad_group_analytics": EndpointConfig(
         name="ad_group_analytics",
         primary_keys=["ad_group_id", "date"],
-        incremental_fields=[
-            {
-                "label": "date",
-                "type": IncrementalFieldType.Date,
-                "field": "date",
-                "field_type": IncrementalFieldType.Date,
-            }
-        ],
+        incremental_fields=_DATE_INCREMENTAL_FIELD,
         partition_keys=["date"],
         partition_mode="datetime",
         partition_format="week",
@@ -146,14 +142,7 @@ PINTEREST_ADS_CONFIG: dict[str, EndpointConfig] = {
     "ad_analytics": EndpointConfig(
         name="ad_analytics",
         primary_keys=["ad_id", "date"],
-        incremental_fields=[
-            {
-                "label": "date",
-                "type": IncrementalFieldType.Date,
-                "field": "date",
-                "field_type": IncrementalFieldType.Date,
-            }
-        ],
+        incremental_fields=_DATE_INCREMENTAL_FIELD,
         partition_keys=["date"],
         partition_mode="datetime",
         partition_format="week",

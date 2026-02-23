@@ -14,104 +14,92 @@ from posthog.temporal.data_imports.sources.pinterest_ads.utils import (
     fetch_entities,
     fetch_entity_ids,
     get_date_range,
-    validate_ad_account,
 )
 
 
 class TestGetDateRange:
-    def test_with_datetime(self):
-        last_value = dt.datetime(2024, 3, 15, 14, 30, 0)
+    @pytest.mark.parametrize(
+        "last_value,expected_start",
+        [
+            (dt.datetime(2024, 3, 15, 14, 30, 0), "2024-03-15"),
+            (dt.date(2024, 3, 15), "2024-03-15"),
+            ("2024-03-15", "2024-03-15"),
+        ],
+    )
+    def test_incremental_values(self, last_value, expected_start):
         start_date, end_date = get_date_range(True, last_value)
 
-        assert start_date == "2024-03-15"
+        assert start_date == expected_start
         assert end_date == dt.datetime.now().strftime("%Y-%m-%d")
 
-    def test_with_date(self):
-        last_value = dt.date(2024, 3, 15)
-        start_date, end_date = get_date_range(True, last_value)
-
-        assert start_date == "2024-03-15"
-
-    def test_with_string(self):
-        start_date, end_date = get_date_range(True, "2024-03-15")
-
-        assert start_date == "2024-03-15"
-
-    def test_with_invalid_string(self):
-        start_date, end_date = get_date_range(True, "invalid-date")
+    def test_invalid_string_falls_back_to_default(self):
+        start_date, _ = get_date_range(True, "invalid-date")
 
         assert start_date is not None
         assert start_date != "invalid-date"
 
-    def test_no_incremental(self):
-        start_date, end_date = get_date_range(False)
+    @pytest.mark.parametrize(
+        "should_use_incremental,last_value",
+        [
+            (False, None),
+            (True, None),
+        ],
+    )
+    def test_defaults_to_lookback_window(self, should_use_incremental, last_value):
+        start_date, end_date = get_date_range(should_use_incremental, last_value)
 
         assert start_date is not None
         assert end_date == dt.datetime.now().strftime("%Y-%m-%d")
 
-    def test_none_value(self):
-        start_date, end_date = get_date_range(True, None)
-
-        assert start_date is not None
-
 
 class TestChunkList:
-    def test_exact_chunks(self):
-        items = list(range(10))
-        chunks = _chunk_list(items, 5)
-        assert len(chunks) == 2
-        assert chunks[0] == [0, 1, 2, 3, 4]
-        assert chunks[1] == [5, 6, 7, 8, 9]
-
-    def test_partial_last_chunk(self):
-        items = list(range(7))
-        chunks = _chunk_list(items, 3)
-        assert len(chunks) == 3
-        assert chunks[2] == [6]
-
-    def test_single_chunk(self):
-        items = [1, 2, 3]
-        chunks = _chunk_list(items, 250)
-        assert len(chunks) == 1
-
-    def test_empty_list(self):
-        assert _chunk_list([], 250) == []
+    @pytest.mark.parametrize(
+        "items,chunk_size,expected_count,expected_last",
+        [
+            (list(range(10)), 5, 2, [5, 6, 7, 8, 9]),
+            (list(range(7)), 3, 3, [6]),
+            ([1, 2, 3], 250, 1, [1, 2, 3]),
+            ([], 250, 0, None),
+        ],
+    )
+    def test_chunking(self, items, chunk_size, expected_count, expected_last):
+        chunks = _chunk_list(items, chunk_size)
+        assert len(chunks) == expected_count
+        if expected_last is not None:
+            assert chunks[-1] == expected_last
 
 
 class TestChunkDateRange:
-    def test_within_limit(self):
-        chunks = _chunk_date_range("2024-01-01", "2024-03-01")
-        assert len(chunks) == 1
-        assert chunks[0] == ("2024-01-01", "2024-03-01")
-
-    def test_exceeds_limit(self):
-        chunks = _chunk_date_range("2024-01-01", "2024-06-30")
-        assert len(chunks) == 3
-        assert chunks[0][0] == "2024-01-01"
-        assert chunks[-1][1] == "2024-06-30"
-
-    def test_exact_limit(self):
-        chunks = _chunk_date_range("2024-01-01", "2024-03-30")
-        assert len(chunks) == 1
-
-    def test_single_day(self):
-        chunks = _chunk_date_range("2024-01-01", "2024-01-01")
-        assert len(chunks) == 1
-        assert chunks[0] == ("2024-01-01", "2024-01-01")
+    @pytest.mark.parametrize(
+        "start,end,expected_count",
+        [
+            ("2024-01-01", "2024-03-01", 1),
+            ("2024-01-01", "2024-06-30", 3),
+            ("2024-01-01", "2024-03-30", 1),
+            ("2024-01-01", "2024-01-01", 1),
+        ],
+    )
+    def test_date_chunking(self, start, end, expected_count):
+        chunks = _chunk_date_range(start, end)
+        assert len(chunks) == expected_count
+        assert chunks[0][0] == start
+        assert chunks[-1][1] == end
 
 
 class TestNormalizeRow:
-    def test_uppercase_to_lowercase(self):
-        row = {"CAMPAIGN_ID": "123", "SPEND_IN_DOLLAR": 5.0, "DATE": "2024-01-01"}
-        result = _normalize_row(row)
-        assert result == {"campaign_id": "123", "spend_in_dollar": 5.0, "date": "2024-01-01"}
-
-    def test_already_lowercase(self):
-        row = {"id": "123", "name": "test"}
-        assert _normalize_row(row) == row
-
-    def test_empty_row(self):
-        assert _normalize_row({}) == {}
+    @pytest.mark.parametrize(
+        "input_row,expected",
+        [
+            (
+                {"CAMPAIGN_ID": "123", "SPEND_IN_DOLLAR": 5.0, "DATE": "2024-01-01"},
+                {"campaign_id": "123", "spend_in_dollar": 5.0, "date": "2024-01-01"},
+            ),
+            ({"id": "123", "name": "test"}, {"id": "123", "name": "test"}),
+            ({}, {}),
+        ],
+    )
+    def test_normalize(self, input_row, expected):
+        assert _normalize_row(input_row) == expected
 
 
 class TestBuildSession:
@@ -172,34 +160,24 @@ class TestFetchEntityIds:
 
 
 class TestFetchAccountCurrency:
-    def test_returns_currency(self):
+    @pytest.mark.parametrize(
+        "status_code,json_data,expected",
+        [
+            (200, {"id": "acc123", "currency": "EUR"}, "EUR"),
+            (200, {"id": "acc123"}, None),
+            (403, {}, None),
+            (500, {}, None),
+        ],
+    )
+    def test_currency_fetch(self, status_code, json_data, expected):
         mock_session = mock.MagicMock()
         mock_response = mock.MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"id": "acc123", "currency": "EUR"}
+        mock_response.status_code = status_code
+        mock_response.json.return_value = json_data
         mock_session.get.return_value = mock_response
 
         result = fetch_account_currency(mock_session, "acc123")
-        assert result == "EUR"
-
-    def test_returns_none_on_missing_currency(self):
-        mock_session = mock.MagicMock()
-        mock_response = mock.MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"id": "acc123"}
-        mock_session.get.return_value = mock_response
-
-        result = fetch_account_currency(mock_session, "acc123")
-        assert result is None
-
-    def test_returns_none_on_error(self):
-        mock_session = mock.MagicMock()
-        mock_response = mock.MagicMock()
-        mock_response.status_code = 403
-        mock_session.get.return_value = mock_response
-
-        result = fetch_account_currency(mock_session, "acc123")
-        assert result is None
+        assert result == expected
 
     def test_returns_none_on_exception(self):
         mock_session = mock.MagicMock()
@@ -252,46 +230,6 @@ class TestFetchAnalytics:
         result = fetch_analytics(session, "acc123", "campaign_analytics", [], "2024-01-01", "2024-01-31")
         assert result == []
         mock_request.assert_not_called()
-
-
-class TestValidateAdAccount:
-    @mock.patch("posthog.temporal.data_imports.sources.pinterest_ads.utils.build_session")
-    def test_valid_account(self, mock_build):
-        mock_session = mock.MagicMock()
-        mock_response = mock.MagicMock()
-        mock_response.status_code = 200
-        mock_session.get.return_value = mock_response
-        mock_build.return_value = mock_session
-
-        is_valid, error = validate_ad_account("token", "acc123")
-        assert is_valid is True
-        assert error is None
-
-    @mock.patch("posthog.temporal.data_imports.sources.pinterest_ads.utils.build_session")
-    def test_forbidden(self, mock_build):
-        mock_session = mock.MagicMock()
-        mock_response = mock.MagicMock()
-        mock_response.status_code = 403
-        mock_session.get.return_value = mock_response
-        mock_build.return_value = mock_session
-
-        is_valid, error = validate_ad_account("token", "acc123")
-        assert is_valid is False
-        assert error is not None
-        assert "Access denied" in error
-
-    @mock.patch("posthog.temporal.data_imports.sources.pinterest_ads.utils.build_session")
-    def test_not_found(self, mock_build):
-        mock_session = mock.MagicMock()
-        mock_response = mock.MagicMock()
-        mock_response.status_code = 404
-        mock_session.get.return_value = mock_response
-        mock_build.return_value = mock_session
-
-        is_valid, error = validate_ad_account("token", "acc123")
-        assert is_valid is False
-        assert error is not None
-        assert "not found" in error
 
 
 class TestPinterestAdsSource:
