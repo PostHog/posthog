@@ -57,6 +57,40 @@ interface EvaluationConfigResponse {
     } | null
 }
 
+async function fetchByokModels(
+    validKeys: LLMProviderKey[],
+    activeProviderKeyId: string | null
+): Promise<ModelOption[]> {
+    const sortedKeys = validKeys
+        .slice()
+        .sort((a, b) => (a.id === activeProviderKeyId ? -1 : b.id === activeProviderKeyId ? 1 : 0))
+
+    const modelResponses = await Promise.all(
+        sortedKeys.map(async (key) => {
+            try {
+                const models = (await api.get(
+                    `/api/llm_proxy/models/?provider_key_id=${encodeURIComponent(key.id)}`
+                )) as Omit<ModelOption, 'providerKeyId'>[]
+                return models.map((model) => ({ ...model, providerKeyId: key.id }))
+            } catch {
+                return []
+            }
+        })
+    )
+
+    const dedupedModels = new Map<string, ModelOption>()
+    for (const models of modelResponses) {
+        for (const model of models) {
+            const dedupeKey = `${model.provider.toLowerCase()}::${model.id}`
+            if (!dedupedModels.has(dedupeKey)) {
+                dedupedModels.set(dedupeKey, model)
+            }
+        }
+    }
+
+    return Array.from(dedupedModels.values())
+}
+
 enum InputMessageRole {
     User = 'user',
     Assistant = 'assistant',
@@ -338,73 +372,40 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
             loadModelOptions: async () => {
                 const teamId = teamLogic.values.currentTeamId
 
-                // Fetch and cache the active provider key ID from evaluation config
-                let activeProviderKeyId: string | null = null
                 if (teamId) {
                     try {
-                        const configResponse = (await api.get(
-                            `/api/environments/${teamId}/llm_analytics/evaluation_config/`
-                        )) as EvaluationConfigResponse
-                        activeProviderKeyId = configResponse?.active_provider_key?.id ?? null
-                    } catch {
-                        // Ignore - activeProviderKeyId stays null
-                    }
-                }
-                llmAnalyticsPlaygroundLogic.actions.setActiveProviderKeyId(activeProviderKeyId)
+                        let activeProviderKeyId: string | null = null
+                        try {
+                            const configResponse = (await api.get(
+                                `/api/environments/${teamId}/llm_analytics/evaluation_config/`
+                            )) as EvaluationConfigResponse
+                            activeProviderKeyId = configResponse?.active_provider_key?.id ?? null
+                        } catch {
+                            // Non-critical — activeProviderKeyId stays null
+                        }
+                        llmAnalyticsPlaygroundLogic.actions.setActiveProviderKeyId(activeProviderKeyId)
 
-                if (teamId) {
-                    try {
-                        const providerKeysResponse = await api.get(
-                            `/api/environments/${teamId}/llm_analytics/provider_keys/`
-                        )
-                        const allKeys = (providerKeysResponse.results ?? []) as LLMProviderKey[]
+                        const keysResponse = await api.get(`/api/environments/${teamId}/llm_analytics/provider_keys/`)
+                        const allKeys = (keysResponse.results ?? []) as LLMProviderKey[]
                         llmAnalyticsPlaygroundLogic.actions.setFetchedProviderKeys(allKeys)
 
-                        const validProviderKeys = allKeys.filter((key) => key.state === 'ok')
-                        const sortedProviderKeys = validProviderKeys.sort((a, b) =>
-                            a.id === activeProviderKeyId ? -1 : b.id === activeProviderKeyId ? 1 : 0
-                        )
-
-                        if (sortedProviderKeys.length > 0) {
-                            const modelResponses = await Promise.all(
-                                sortedProviderKeys.map(async (key) => {
-                                    try {
-                                        const models = (await api.get(
-                                            `/api/llm_proxy/models/?provider_key_id=${encodeURIComponent(key.id)}`
-                                        )) as Omit<ModelOption, 'providerKeyId'>[]
-                                        return models.map((model) => ({ ...model, providerKeyId: key.id }))
-                                    } catch {
-                                        return []
-                                    }
-                                })
-                            )
-
-                            const dedupedModels = new Map<string, ModelOption>()
-                            for (const models of modelResponses) {
-                                for (const model of models) {
-                                    const dedupeKey = `${model.provider.toLowerCase()}::${model.id}`
-                                    if (!dedupedModels.has(dedupeKey)) {
-                                        dedupedModels.set(dedupeKey, model)
-                                    }
-                                }
-                            }
-
-                            const aggregatedModels = Array.from(dedupedModels.values())
-                            if (aggregatedModels.length > 0) {
-                                const closestMatch = matchClosestModel(values.model, aggregatedModels)
+                        const validKeys = allKeys.filter((key) => key.state === 'ok')
+                        if (validKeys.length > 0) {
+                            const byokModels = await fetchByokModels(validKeys, activeProviderKeyId)
+                            if (byokModels.length > 0) {
+                                const closestMatch = matchClosestModel(values.model, byokModels)
                                 if (values.model !== closestMatch) {
                                     llmAnalyticsPlaygroundLogic.actions.setModel(closestMatch)
                                 }
-                                return aggregatedModels
+                                return byokModels
                             }
                         }
                     } catch {
-                        // Fall back to default model list if provider key loading fails.
+                        // Fall back to default model list below
                     }
                 }
 
                 const fallbackResponse = (await api.get('/api/llm_proxy/models/')) as ModelOption[]
-
                 const options = fallbackResponse ?? []
                 const closestMatch = matchClosestModel(values.model, options)
 
