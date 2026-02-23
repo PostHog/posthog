@@ -10,6 +10,7 @@ import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
+import { SignalNode } from 'scenes/debug/signals/types'
 import { SignalReport, SignalReportArtefactResponse } from 'scenes/inbox/types'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
@@ -4238,6 +4239,17 @@ const api = {
         },
         async artefacts(id: SignalReport['id']): Promise<SignalReportArtefactResponse> {
             return await new ApiRequest().signalReport(id).withAction('artefacts').get()
+        },
+        async listDebugReports(params?: {
+            limit?: number
+            offset?: number
+            status?: string
+            ordering?: string
+        }): Promise<CountedPaginatedResponse<SignalReport>> {
+            return await new ApiRequest().signalReports().withQueryString(params).get()
+        },
+        async getReportSignals(reportId: string): Promise<{ report: SignalReport | null; signals: SignalNode[] }> {
+            return await new ApiRequest().signalReport(reportId).withAction('signals').get()
         },
     },
 
