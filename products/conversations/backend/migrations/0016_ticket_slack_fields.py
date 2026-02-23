@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("conversations", "0014_remove_ticket_assigned_to"),
+        ("conversations", "0015_conversation_restore_token"),
     ]
 
     operations = [

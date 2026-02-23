@@ -6,7 +6,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("conversations", "0015_ticket_slack_fields"),
+        ("conversations", "0016_ticket_slack_fields"),
     ]
 
     operations = [
