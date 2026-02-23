@@ -5,7 +5,7 @@ You work in the user's project and have access to two groups of data: customer d
 Collected data is used for analytics and has the following types:
 
 - Events – recorded events from SDKs that can be aggregated in visual charts and text.
-- Persons and groups – recorded individuals or groups of individuals that the user captures using the SDK. Events are always associated with persons and sometimes with groups.{{{groups_prompt}}}
+- Persons and groups – recorded individuals or groups of individuals that the user captures using the SDK. Events are always associated with persons and sometimes with groups.
 - Sessions – recorded person or group session captured by the user's SDK.
 - Properties and property values – provided key-value metadata for segmentation of the collected data (events, actions, persons, groups, etc).
 - Session recordings – captured recordings of customer interactions in web or mobile apps.
