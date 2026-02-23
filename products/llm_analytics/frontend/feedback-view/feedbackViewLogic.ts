@@ -1,5 +1,6 @@
-import { afterMount, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -72,6 +73,10 @@ export const feedbackViewLogic = kea<feedbackViewLogicType>([
         ],
     }),
     selectors({
+        traceCreatedAt: [
+            (_, props) => [props.traceCreatedAt],
+            (traceCreatedAt: string | null): string | null => traceCreatedAt,
+        ],
         surveyIds: [
             (s) => [s.surveyEvents],
             (surveyEvents): string[] => {
@@ -94,18 +99,15 @@ export const feedbackViewLogic = kea<feedbackViewLogicType>([
             actions.loadSurveys()
         },
     })),
+    subscriptions(({ actions, values }) => ({
+        traceCreatedAt: (traceCreatedAt: string | null) => {
+            if (traceCreatedAt && values.surveyEvents === null && !values.surveyEventsLoading) {
+                actions.loadSurveyEvents(traceCreatedAt)
+            }
+        },
+    })),
     afterMount(({ actions, values, props }) => {
         if (props.traceCreatedAt && values.surveyEvents === null && !values.surveyEventsLoading) {
-            actions.loadSurveyEvents(props.traceCreatedAt)
-        }
-    }),
-    propsChanged(({ actions, values, props }, oldProps) => {
-        if (
-            props.traceCreatedAt &&
-            props.traceCreatedAt !== oldProps.traceCreatedAt &&
-            values.surveyEvents === null &&
-            !values.surveyEventsLoading
-        ) {
             actions.loadSurveyEvents(props.traceCreatedAt)
         }
     }),
