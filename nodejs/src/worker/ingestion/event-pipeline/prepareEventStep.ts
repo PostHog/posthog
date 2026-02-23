@@ -1,12 +1,11 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
-
+import { PluginEvent } from '~/plugin-scaffold'
 import { PreIngestionEvent, Team } from '~/types'
 
 import { AI_EVENT_TYPES, processAiEvent } from '../../../ingestion/ai'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
-import { GroupStoreForBatch } from '../groups/group-store-for-batch.interface'
+import { BatchWritingGroupStore } from '../groups/batch-writing-group-store'
 import { EventsProcessor } from '../process-event'
 import { parseEventTimestamp } from '../timestamps'
 import { captureIngestionWarning } from '../utils'
@@ -15,7 +14,7 @@ import { invalidTimestampCounter } from './metrics'
 export async function prepareEventStep(
     kafkaProducer: KafkaProducerWrapper,
     eventsProcessor: EventsProcessor,
-    groupStoreForBatch: GroupStoreForBatch,
+    groupStore: BatchWritingGroupStore,
     event: PluginEvent,
     processPerson: boolean,
     team: Team
@@ -46,7 +45,7 @@ export async function prepareEventStep(
         parseEventTimestamp(event, invalidTimestampCallback),
         uuid!, // it will throw if it's undefined,
         processPerson,
-        groupStoreForBatch
+        groupStore
     )
     await Promise.all(tsParsingIngestionWarnings)
 

@@ -1,7 +1,26 @@
 # serializer version: 1
 # name: TestMarketingAnalyticsAggregatedQueryRunner.test_join_uses_match_key_not_or_condition
   '''
-  
+  WITH campaign_costs AS (
+  SELECT campaign, id, source, any(match_key) AS match_key, sum(ifNull(toFloat(cost), 0)) AS total_cost, sum(ifNull(toFloat(clicks), 0)) AS total_clicks, sum(ifNull(toFloat(impressions), 0)) AS total_impressions, sum(ifNull(toFloat(reported_conversion), 0)) AS total_reported_conversions, sum(ifNull(toFloat(reported_conversion_value), 0)) AS total_reported_conversion_value 
+  FROM (
+  SELECT 'Campaign' AS campaign, 'id1' AS id, 'google' AS source, 100 AS impressions, 10 AS clicks, 50.0 AS cost, 5 AS reported_conversion, 'Campaign' AS match_key) 
+  GROUP BY campaign, id, source), ucg AS (
+  SELECT conv.campaign AS campaign, conv.id AS id, conv.source AS source, conv.campaign AS match_key, sum(conv.conversion_0) AS conversion_0 
+  FROM (
+  SELECT if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign, if(notEmpty(campaign_id), campaign_id, '-') AS id, if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source, count() AS conversion_0 
+  FROM (
+  SELECT person_id, if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name, '-' AS campaign_id, if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name, 1 AS conversion_value 
+  FROM (
+  SELECT person_id, conversion_timestamps[i] AS conversion_time, conversion_math_values[i] AS conversion_math_value, conversion_campaigns[i] AS conversion_campaign, conversion_sources[i] AS conversion_source, arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp, if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign, if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source 
+  FROM (
+  SELECT events.person_id, arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps, arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toFloat(1), 0))) AS conversion_math_values, arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns, arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources, arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps, arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS utm_campaigns, arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_source, '')), ''))) AS utm_sources 
+  FROM events 
+  WHERE or(and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01 00:00:00')), lessOrEquals(events.timestamp, toDateTime('2023-01-31 23:59:59'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2023-01-01 00:00:00'), toIntervalSecond(7776000))), lessOrEquals(events.timestamp, toDateTime('2023-01-31 23:59:59')))) 
+  GROUP BY events.person_id 
+  HAVING greater(length(conversion_timestamps), 0)) ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions 
+  GROUP BY campaign, id, source) AS conv 
+  GROUP BY conv.campaign, conv.id, conv.source) 
   SELECT sum(round(campaign_costs.total_cost, 2)) AS Cost, sum(round(campaign_costs.total_clicks, 0)) AS Clicks, sum(round(campaign_costs.total_impressions, 0)) AS Impressions, sum(round(campaign_costs.total_reported_conversions, 2)) AS `Reported Conversion`, sum(round(campaign_costs.total_reported_conversion_value, 2)) AS `Reported Conversion Value`, sum(ucg.conversion_0) AS `Test Purchase` 
   FROM campaign_costs LEFT JOIN ucg AS ucg ON and(equals(campaign_costs.match_key, ucg.match_key), equals(campaign_costs.source, ucg.source))
   '''

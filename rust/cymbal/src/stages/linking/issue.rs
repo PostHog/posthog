@@ -15,7 +15,7 @@ use crate::{
     },
     metric_consts::{ISSUE_CREATED, ISSUE_LINKER_OPERATOR},
     posthog_utils::capture_issue_created,
-    stages::{linking::LinkingStage, pipeline::ExceptionEventHandledError},
+    stages::{linking::LinkingStage, pipeline::HandledError},
     teams::TeamManager,
     types::{
         exception_properties::ExceptionProperties,
@@ -60,7 +60,7 @@ impl IssueLinker {
 impl ValueOperator for IssueLinker {
     type Item = ExceptionProperties;
     type Context = LinkingStage;
-    type HandledError = ExceptionEventHandledError;
+    type HandledError = HandledError;
     type UnhandledError = UnhandledError;
 
     fn name(&self) -> &'static str {

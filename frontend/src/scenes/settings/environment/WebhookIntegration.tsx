@@ -53,15 +53,6 @@ export function WebhookIntegration(): JSX.Element {
 
     return (
         <div>
-            <p>
-                Send notifications when selected actions are performed by users.
-                <br />
-                Guidance on integrating with webhooks available in our docs,{' '}
-                <Link to="https://posthog.com/docs/webhooks/slack">for Slack</Link> and{' '}
-                <Link to="https://posthog.com/docs/webhooks/microsoft-teams">for Microsoft Teams</Link>. Discord is also
-                supported.
-            </p>
-
             <div className="deprecated-space-y-4 max-w-160">
                 <LemonInput
                     value={webhook}

@@ -38,7 +38,10 @@ const HeatmapsJSWarning = (): JSX.Element | null => {
             ) : !posthog.heatmaps.isEnabled ? (
                 <>
                     You can enable heatmap collection in your posthog-js configuration or{' '}
-                    <Link to={joinWithUiHost(uiHost, `${urls.settings()}#heatmaps`)} target="_blank">
+                    <Link
+                        to={joinWithUiHost(uiHost, urls.settings('environment-heatmaps', 'heatmaps'))}
+                        target="_blank"
+                    >
                         in your project config
                     </Link>
                     .

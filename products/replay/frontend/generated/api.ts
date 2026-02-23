@@ -15,9 +15,7 @@ import type {
     PatchedSessionRecordingPlaylistApi,
     SessionRecordingApi,
     SessionRecordingPlaylistApi,
-    SessionRecordingPlaylistsList2Params,
     SessionRecordingPlaylistsListParams,
-    SessionRecordingsList2Params,
     SessionRecordingsListParams,
 } from './api.schemas'
 
@@ -56,8 +54,8 @@ export const getSessionRecordingPlaylistsListUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/session_recording_playlists/?${stringifiedParams}`
-        : `/api/environments/${projectId}/session_recording_playlists/`
+        ? `/api/projects/${projectId}/session_recording_playlists/?${stringifiedParams}`
+        : `/api/projects/${projectId}/session_recording_playlists/`
 }
 
 export const sessionRecordingPlaylistsList = async (
@@ -75,7 +73,7 @@ export const sessionRecordingPlaylistsList = async (
 }
 
 export const getSessionRecordingPlaylistsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/session_recording_playlists/`
+    return `/api/projects/${projectId}/session_recording_playlists/`
 }
 
 export const sessionRecordingPlaylistsCreate = async (
@@ -92,7 +90,7 @@ export const sessionRecordingPlaylistsCreate = async (
 }
 
 export const getSessionRecordingPlaylistsRetrieveUrl = (projectId: string, shortId: string) => {
-    return `/api/environments/${projectId}/session_recording_playlists/${shortId}/`
+    return `/api/projects/${projectId}/session_recording_playlists/${shortId}/`
 }
 
 export const sessionRecordingPlaylistsRetrieve = async (
@@ -107,7 +105,7 @@ export const sessionRecordingPlaylistsRetrieve = async (
 }
 
 export const getSessionRecordingPlaylistsUpdateUrl = (projectId: string, shortId: string) => {
-    return `/api/environments/${projectId}/session_recording_playlists/${shortId}/`
+    return `/api/projects/${projectId}/session_recording_playlists/${shortId}/`
 }
 
 export const sessionRecordingPlaylistsUpdate = async (
@@ -125,7 +123,7 @@ export const sessionRecordingPlaylistsUpdate = async (
 }
 
 export const getSessionRecordingPlaylistsPartialUpdateUrl = (projectId: string, shortId: string) => {
-    return `/api/environments/${projectId}/session_recording_playlists/${shortId}/`
+    return `/api/projects/${projectId}/session_recording_playlists/${shortId}/`
 }
 
 export const sessionRecordingPlaylistsPartialUpdate = async (
@@ -146,7 +144,7 @@ export const sessionRecordingPlaylistsPartialUpdate = async (
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
 export const getSessionRecordingPlaylistsDestroyUrl = (projectId: string, shortId: string) => {
-    return `/api/environments/${projectId}/session_recording_playlists/${shortId}/`
+    return `/api/projects/${projectId}/session_recording_playlists/${shortId}/`
 }
 
 export const sessionRecordingPlaylistsDestroy = async (
@@ -161,7 +159,7 @@ export const sessionRecordingPlaylistsDestroy = async (
 }
 
 export const getSessionRecordingPlaylistsRecordingsRetrieveUrl = (projectId: string, shortId: string) => {
-    return `/api/environments/${projectId}/session_recording_playlists/${shortId}/recordings/`
+    return `/api/projects/${projectId}/session_recording_playlists/${shortId}/recordings/`
 }
 
 export const sessionRecordingPlaylistsRecordingsRetrieve = async (
@@ -180,7 +178,7 @@ export const getSessionRecordingPlaylistsRecordingsCreateUrl = (
     shortId: string,
     sessionRecordingId: string
 ) => {
-    return `/api/environments/${projectId}/session_recording_playlists/${shortId}/recordings/${sessionRecordingId}/`
+    return `/api/projects/${projectId}/session_recording_playlists/${shortId}/recordings/${sessionRecordingId}/`
 }
 
 export const sessionRecordingPlaylistsRecordingsCreate = async (
@@ -203,7 +201,7 @@ export const getSessionRecordingPlaylistsRecordingsDestroyUrl = (
     shortId: string,
     sessionRecordingId: string
 ) => {
-    return `/api/environments/${projectId}/session_recording_playlists/${shortId}/recordings/${sessionRecordingId}/`
+    return `/api/projects/${projectId}/session_recording_playlists/${shortId}/recordings/${sessionRecordingId}/`
 }
 
 export const sessionRecordingPlaylistsRecordingsDestroy = async (
@@ -230,8 +228,8 @@ export const getSessionRecordingsListUrl = (projectId: string, params?: SessionR
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/session_recordings/?${stringifiedParams}`
-        : `/api/environments/${projectId}/session_recordings/`
+        ? `/api/projects/${projectId}/session_recordings/?${stringifiedParams}`
+        : `/api/projects/${projectId}/session_recordings/`
 }
 
 export const sessionRecordingsList = async (
@@ -246,7 +244,7 @@ export const sessionRecordingsList = async (
 }
 
 export const getSessionRecordingsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/session_recordings/${id}/`
+    return `/api/projects/${projectId}/session_recordings/${id}/`
 }
 
 export const sessionRecordingsRetrieve = async (
@@ -261,7 +259,7 @@ export const sessionRecordingsRetrieve = async (
 }
 
 export const getSessionRecordingsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/session_recordings/${id}/`
+    return `/api/projects/${projectId}/session_recordings/${id}/`
 }
 
 export const sessionRecordingsUpdate = async (
@@ -279,7 +277,7 @@ export const sessionRecordingsUpdate = async (
 }
 
 export const getSessionRecordingsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/session_recordings/${id}/`
+    return `/api/projects/${projectId}/session_recordings/${id}/`
 }
 
 export const sessionRecordingsPartialUpdate = async (
@@ -297,284 +295,11 @@ export const sessionRecordingsPartialUpdate = async (
 }
 
 export const getSessionRecordingsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/session_recordings/${id}/`
+    return `/api/projects/${projectId}/session_recordings/${id}/`
 }
 
 export const sessionRecordingsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getSessionRecordingsDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-/**
- * Override list to include synthetic playlists
- */
-export const getSessionRecordingPlaylistsList2Url = (
-    projectId: string,
-    params?: SessionRecordingPlaylistsList2Params
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/session_recording_playlists/?${stringifiedParams}`
-        : `/api/projects/${projectId}/session_recording_playlists/`
-}
-
-export const sessionRecordingPlaylistsList2 = async (
-    projectId: string,
-    params?: SessionRecordingPlaylistsList2Params,
-    options?: RequestInit
-): Promise<PaginatedSessionRecordingPlaylistListApi> => {
-    return apiMutator<PaginatedSessionRecordingPlaylistListApi>(
-        getSessionRecordingPlaylistsList2Url(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export const getSessionRecordingPlaylistsCreate2Url = (projectId: string) => {
-    return `/api/projects/${projectId}/session_recording_playlists/`
-}
-
-export const sessionRecordingPlaylistsCreate2 = async (
-    projectId: string,
-    sessionRecordingPlaylistApi: NonReadonly<SessionRecordingPlaylistApi>,
-    options?: RequestInit
-): Promise<SessionRecordingPlaylistApi> => {
-    return apiMutator<SessionRecordingPlaylistApi>(getSessionRecordingPlaylistsCreate2Url(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sessionRecordingPlaylistApi),
-    })
-}
-
-export const getSessionRecordingPlaylistsRetrieve2Url = (projectId: string, shortId: string) => {
-    return `/api/projects/${projectId}/session_recording_playlists/${shortId}/`
-}
-
-export const sessionRecordingPlaylistsRetrieve2 = async (
-    projectId: string,
-    shortId: string,
-    options?: RequestInit
-): Promise<SessionRecordingPlaylistApi> => {
-    return apiMutator<SessionRecordingPlaylistApi>(getSessionRecordingPlaylistsRetrieve2Url(projectId, shortId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getSessionRecordingPlaylistsUpdate2Url = (projectId: string, shortId: string) => {
-    return `/api/projects/${projectId}/session_recording_playlists/${shortId}/`
-}
-
-export const sessionRecordingPlaylistsUpdate2 = async (
-    projectId: string,
-    shortId: string,
-    sessionRecordingPlaylistApi: NonReadonly<SessionRecordingPlaylistApi>,
-    options?: RequestInit
-): Promise<SessionRecordingPlaylistApi> => {
-    return apiMutator<SessionRecordingPlaylistApi>(getSessionRecordingPlaylistsUpdate2Url(projectId, shortId), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sessionRecordingPlaylistApi),
-    })
-}
-
-export const getSessionRecordingPlaylistsPartialUpdate2Url = (projectId: string, shortId: string) => {
-    return `/api/projects/${projectId}/session_recording_playlists/${shortId}/`
-}
-
-export const sessionRecordingPlaylistsPartialUpdate2 = async (
-    projectId: string,
-    shortId: string,
-    patchedSessionRecordingPlaylistApi: NonReadonly<PatchedSessionRecordingPlaylistApi>,
-    options?: RequestInit
-): Promise<SessionRecordingPlaylistApi> => {
-    return apiMutator<SessionRecordingPlaylistApi>(getSessionRecordingPlaylistsPartialUpdate2Url(projectId, shortId), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedSessionRecordingPlaylistApi),
-    })
-}
-
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
-export const getSessionRecordingPlaylistsDestroy2Url = (projectId: string, shortId: string) => {
-    return `/api/projects/${projectId}/session_recording_playlists/${shortId}/`
-}
-
-export const sessionRecordingPlaylistsDestroy2 = async (
-    projectId: string,
-    shortId: string,
-    options?: RequestInit
-): Promise<unknown> => {
-    return apiMutator<unknown>(getSessionRecordingPlaylistsDestroy2Url(projectId, shortId), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getSessionRecordingPlaylistsRecordingsRetrieve2Url = (projectId: string, shortId: string) => {
-    return `/api/projects/${projectId}/session_recording_playlists/${shortId}/recordings/`
-}
-
-export const sessionRecordingPlaylistsRecordingsRetrieve2 = async (
-    projectId: string,
-    shortId: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getSessionRecordingPlaylistsRecordingsRetrieve2Url(projectId, shortId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getSessionRecordingPlaylistsRecordingsCreate2Url = (
-    projectId: string,
-    shortId: string,
-    sessionRecordingId: string
-) => {
-    return `/api/projects/${projectId}/session_recording_playlists/${shortId}/recordings/${sessionRecordingId}/`
-}
-
-export const sessionRecordingPlaylistsRecordingsCreate2 = async (
-    projectId: string,
-    shortId: string,
-    sessionRecordingId: string,
-    sessionRecordingPlaylistApi: NonReadonly<SessionRecordingPlaylistApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getSessionRecordingPlaylistsRecordingsCreate2Url(projectId, shortId, sessionRecordingId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sessionRecordingPlaylistApi),
-    })
-}
-
-export const getSessionRecordingPlaylistsRecordingsDestroy2Url = (
-    projectId: string,
-    shortId: string,
-    sessionRecordingId: string
-) => {
-    return `/api/projects/${projectId}/session_recording_playlists/${shortId}/recordings/${sessionRecordingId}/`
-}
-
-export const sessionRecordingPlaylistsRecordingsDestroy2 = async (
-    projectId: string,
-    shortId: string,
-    sessionRecordingId: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getSessionRecordingPlaylistsRecordingsDestroy2Url(projectId, shortId, sessionRecordingId), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getSessionRecordingsList2Url = (projectId: string, params?: SessionRecordingsList2Params) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/session_recordings/?${stringifiedParams}`
-        : `/api/projects/${projectId}/session_recordings/`
-}
-
-export const sessionRecordingsList2 = async (
-    projectId: string,
-    params?: SessionRecordingsList2Params,
-    options?: RequestInit
-): Promise<PaginatedSessionRecordingListApi> => {
-    return apiMutator<PaginatedSessionRecordingListApi>(getSessionRecordingsList2Url(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getSessionRecordingsRetrieve2Url = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/session_recordings/${id}/`
-}
-
-export const sessionRecordingsRetrieve2 = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<SessionRecordingApi> => {
-    return apiMutator<SessionRecordingApi>(getSessionRecordingsRetrieve2Url(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getSessionRecordingsUpdate2Url = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/session_recordings/${id}/`
-}
-
-export const sessionRecordingsUpdate2 = async (
-    projectId: string,
-    id: string,
-    sessionRecordingApi: NonReadonly<SessionRecordingApi>,
-    options?: RequestInit
-): Promise<SessionRecordingApi> => {
-    return apiMutator<SessionRecordingApi>(getSessionRecordingsUpdate2Url(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sessionRecordingApi),
-    })
-}
-
-export const getSessionRecordingsPartialUpdate2Url = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/session_recordings/${id}/`
-}
-
-export const sessionRecordingsPartialUpdate2 = async (
-    projectId: string,
-    id: string,
-    patchedSessionRecordingApi: NonReadonly<PatchedSessionRecordingApi>,
-    options?: RequestInit
-): Promise<SessionRecordingApi> => {
-    return apiMutator<SessionRecordingApi>(getSessionRecordingsPartialUpdate2Url(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedSessionRecordingApi),
-    })
-}
-
-export const getSessionRecordingsDestroy2Url = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/session_recordings/${id}/`
-}
-
-export const sessionRecordingsDestroy2 = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getSessionRecordingsDestroy2Url(projectId, id), {
         ...options,
         method: 'DELETE',
     })

@@ -86,6 +86,7 @@ jobs:
                       "hook-worker": 100,
                       "kafka-deduplicator": 239,
                       "limiters": 23,
+                      "personhog-coordination": 30,
                       "personhog-replica": 49,
                       "personhog-router": 10,
                       "posthog-symbol-data": 4,
@@ -255,9 +256,9 @@ jobs:
               id: setup-uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
-                  version: 0.9.9
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'

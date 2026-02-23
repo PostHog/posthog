@@ -80,15 +80,6 @@ export DUCKLAKE_BUCKET_REGION=${DUCKLAKE_BUCKET_REGION:-us-east-1}
 export DUCKLAKE_S3_ACCESS_KEY=${DUCKLAKE_S3_ACCESS_KEY:-object_storage_root_user}
 export DUCKLAKE_S3_SECRET_KEY=${DUCKLAKE_S3_SECRET_KEY:-object_storage_root_password}
 
-if ! python3 - <<'PY' >/dev/null 2>&1
-import duckdb  # noqa: F401
-PY
-then
-    echo "DuckLake requires the duckdb Python package."
-    echo "Run 'uv sync --active' (or activate Flox) before executing hogli start."
-    exit 1
-fi
-
 # Geo files
 ./bin/download-mmdb
 
@@ -101,11 +92,6 @@ if ! command -v mprocs &>/dev/null; then
         exit 1
     fi
 fi
-
-# Advertise intent-based dev environment
-echo ""
-echo "💡 New: 'hogli dev:setup' lets you configure which services to start"
-echo ""
 
 # Use custom config, if provided (e.g. bin/start --custom bin/mprocs-custom.yaml)
 # Ensure to provide config path after --custom flag
@@ -129,12 +115,12 @@ if [[ "$*" == *"--custom"* ]]; then
     exec mprocs --config "$config_path"
 else
     GENERATED_CONFIG="$REPOSITORY_ROOT/.posthog/.generated/mprocs.yaml"
-
+    
     # Generate/regenerate config using hogli (defaults to product_analytics if no config exists)
     if command -v hogli &>/dev/null; then
         hogli dev:generate 2>/dev/null || true
     fi
-
+    
     if [[ -f "$GENERATED_CONFIG" ]]; then
         exec mprocs --config "$GENERATED_CONFIG"
     else

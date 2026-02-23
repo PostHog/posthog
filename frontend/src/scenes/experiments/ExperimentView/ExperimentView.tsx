@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 import { LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
+import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from 'scenes/experiments/constants'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
@@ -55,7 +55,6 @@ import {
     LegacyResultsQuery,
     LoadingState,
     PageHeaderCustom,
-    StopExperimentModal,
 } from './components'
 
 const MetricsTab = (): JSX.Element => {
@@ -66,7 +65,6 @@ const MetricsTab = (): JSX.Element => {
         primaryMetricsLengthWithSharedMetrics,
         hasMinimumExposureForResults,
         usesNewQueryRunner,
-        featureFlags,
     } = useValues(experimentLogic)
     /**
      * we still use the legacy metric results here. Results on the new format are loaded
@@ -96,19 +94,18 @@ const MetricsTab = (): JSX.Element => {
         firstPrimaryMetric &&
         firstPrimaryMetricResult
 
-    const isAiSummaryEnabled =
-        featureFlags[FEATURE_FLAGS.EXPERIMENT_AI_SUMMARY] === 'test' &&
-        usesNewQueryRunner &&
-        hasMinimumExposureForResults
-
-    const isSessionReplaySummaryEnabled = featureFlags[FEATURE_FLAGS.EXPERIMENTS_SESSION_REPLAY_SUMMARY]
-
     return (
         <>
-            {(isAiSummaryEnabled || isSessionReplaySummaryEnabled) && (
+            {usesNewQueryRunner && (
                 <div className="mt-1 mb-4 flex justify-start gap-2">
-                    {isAiSummaryEnabled && <SummarizeExperimentButton />}
-                    {isSessionReplaySummaryEnabled && <SummarizeSessionReplaysButton experiment={experiment} />}
+                    <SummarizeExperimentButton
+                        disabledReason={
+                            !hasMinimumExposureForResults
+                                ? `Experiment needs at least ${EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS} exposures to summarize results.`
+                                : undefined
+                        }
+                    />
+                    <SummarizeSessionReplaysButton experiment={experiment} />
                 </div>
             )}
             {usesNewQueryRunner && (
@@ -377,7 +374,6 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                     <DistributionModal />
                     <ReleaseConditionsModal />
 
-                    <StopExperimentModal />
                     <EditConclusionModal />
 
                     <VariantDeltaTimeseries />

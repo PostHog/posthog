@@ -4,6 +4,7 @@
  */
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
+import { TextMorph } from 'torph/react'
 
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
@@ -145,7 +146,7 @@ export function TextViewDisplay({
                     onClick={handleCopy}
                     tooltip={copied ? 'Copied!' : 'Copy text representation'}
                 >
-                    {copied ? 'Copied!' : 'Copy text'}
+                    <TextMorph as="span">{copied ? 'Copied!' : 'Copy text'}</TextMorph>
                 </LemonButton>
             </div>
             <pre className="font-mono text-xs whitespace-pre-wrap p-4 bg-bg-light rounded border border-border overflow-auto flex-1 min-h-0 max-h-[200vh]">

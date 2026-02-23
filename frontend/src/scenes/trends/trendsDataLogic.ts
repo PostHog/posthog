@@ -226,22 +226,21 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     )
                 }
 
-                /** Unique series in the results, determined by `item.label` and `item.action.order`. */
-                const uniqSeries = Array.from(
-                    new Set(
-                        indexedResults
-                            .slice()
-                            .sort((a, b) => (a.action?.order ?? 0) - (b.action?.order ?? 0))
-                            .map((item) => `${item.label}_${item.action?.order}_${item?.breakdown_value}`)
-                    )
-                )
+                const colorIndexMap = new Map<string, number>()
+                indexedResults
+                    .slice()
+                    .sort((a, b) => (a.action?.order ?? 0) - (b.action?.order ?? 0))
+                    .forEach((item) => {
+                        const key = `${item.label}_${item.action?.order}_${item?.breakdown_value}`
+                        if (!colorIndexMap.has(key)) {
+                            colorIndexMap.set(key, colorIndexMap.size)
+                        }
+                    })
 
-                // Give current and previous versions of the same dataset the same colorIndex
                 return indexedResults.map((item, index) => {
-                    const colorIndex = uniqSeries.findIndex(
-                        (identifier) => identifier === `${item.label}_${item.action?.order}_${item?.breakdown_value}`
-                    )
-                    return { ...item, colorIndex: colorIndex, id: index }
+                    const key = `${item.label}_${item.action?.order}_${item?.breakdown_value}`
+                    const colorIndex = colorIndexMap.get(key) ?? 0
+                    return { ...item, colorIndex, id: index }
                 })
             },
         ],

@@ -41,21 +41,32 @@ export const NotebookMarkLink = Mark.create({
                 props: {
                     handleDOMEvents: {
                         click(_, event) {
-                            if (event.metaKey) {
-                                const link = event.target as HTMLAnchorElement
-                                const href = link.href
+                            const link = (event.target as HTMLElement).closest?.('a')
+                            if (link) {
+                                event.preventDefault()
 
-                                if (href && isSafeProtocol(href)) {
-                                    event.preventDefault()
-                                    window.open(href, link.target)
-                                }
-                            } else {
-                                const range = getMarkRange(editor.state.selection.$anchor, markType)
-                                if (range) {
-                                    editor.commands.setTextSelection(range)
+                                if (event.metaKey) {
+                                    const href = link.href
+                                    if (href && isSafeProtocol(href)) {
+                                        window.open(href, link.target)
+                                    }
                                 }
                             }
                         },
+                    },
+                    handleClick(view, pos, event) {
+                        if (event.metaKey) {
+                            return false
+                        }
+
+                        const $pos = view.state.doc.resolve(pos)
+                        const range = getMarkRange($pos, markType)
+                        if (range) {
+                            editor.commands.setTextSelection(range)
+                            return true
+                        }
+
+                        return false
                     },
                 },
             }),

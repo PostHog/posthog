@@ -3,14 +3,6 @@
 exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
 [
   [
-    "normalizeEventStep",
-    [
-      true,
-      null,
-      0,
-    ],
-  ],
-  [
     "processPersonsStep",
     [
       {
@@ -38,6 +30,7 @@ exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
         "available_features": [],
         "cookieless_server_hash_mode": null,
         "drop_events_older_than_seconds": null,
+        "enforced_event_schemas": [],
         "heatmaps_opt_in": null,
         "id": 2,
         "ingested_event": true,
@@ -117,7 +110,7 @@ exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
       {
         "distinct_id": "my_id",
         "event": "default event",
-        "ip": "127.0.0.1",
+        "ip": null,
         "now": "2020-02-23T02:15:00.000Z",
         "properties": {
           "$ip": "127.0.0.1",
@@ -134,6 +127,7 @@ exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
         "available_features": [],
         "cookieless_server_hash_mode": null,
         "drop_events_older_than_seconds": null,
+        "enforced_event_schemas": [],
         "heatmaps_opt_in": null,
         "id": 2,
         "ingested_event": true,

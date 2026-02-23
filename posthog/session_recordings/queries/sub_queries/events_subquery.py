@@ -154,11 +154,19 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             return False
 
         # Don't use hybrid query if there are negative operators
-        # Negative operators (IS_NOT, NOT_ICONTAINS, etc.) would match too many people
+        # Negative operators (IS_NOT, NOT_ICONTAINS, NOT_IN, etc.) would match too many people
         # For example, "email doesn't contain @company.com" matches almost everyone
+        # Or "user not in cohort X" matches everyone except cohort members
         # This would load 100-1000 random people and miss the actual recordings we want
+        HYBRID_QUERY_UNSAFE_OPERATORS = [
+            PropertyOperator.IS_NOT_SET,
+            PropertyOperator.IS_NOT,
+            PropertyOperator.NOT_REGEX,
+            PropertyOperator.NOT_ICONTAINS,
+            PropertyOperator.NOT_IN,  # Cohort negation (e.g., user not in cohort X)
+        ]
         for prop in person_properties:
-            if is_negative_prop(prop):
+            if hasattr(prop, "operator") and prop.operator in HYBRID_QUERY_UNSAFE_OPERATORS:
                 return False
 
         # Check if at least one property is eligible for hybrid query

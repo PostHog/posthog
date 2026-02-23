@@ -105,7 +105,7 @@ export function ProductTourStepsEditor({ tourId }: ProductTourStepsEditorProps):
     const cardHeaderClasses = 'flex items-center justify-between px-3 py-2 bg-surface-primary border-b font-semibold'
 
     return (
-        <div className="flex gap-4 items-start p-4 overflow-auto">
+        <div className="flex gap-4 items-start overflow-auto">
             {/* Sidebar - hidden for announcements */}
             {!isAnnouncementMode && (
                 <div className={`flex flex-col w-[220px] min-w-[220px] ${cardClasses}`}>
