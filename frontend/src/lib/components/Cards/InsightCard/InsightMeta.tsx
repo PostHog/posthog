@@ -267,7 +267,16 @@ export function InsightMeta({
                 ) : null
             }
             metaDescriptionText={insight.description || ''}
-            onMetaSave={canEditInsight ? (updates) => updateInsightDirect(insight, updates) : undefined}
+            onMetaSave={
+                canEditInsight
+                    ? (updates) => {
+                          updateInsightDirect(insight, updates)
+                          if (updates.description && !tile?.show_description && toggleShowDescription) {
+                              toggleShowDescription()
+                          }
+                      }
+                    : undefined
+            }
             metaDetails={
                 <InsightDetails query={insight.query} footerInfo={insight} variablesOverride={variablesOverride} />
             }

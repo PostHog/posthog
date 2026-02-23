@@ -46,10 +46,10 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     extraControls?: JSX.Element | null
     /** Description shown in the compact popover. */
     metaDescription?: JSX.Element | null
+    /** Heading always shown in the popover (e.g. insight type + date range). Falls back to topHeading. */
+    popoverTopHeading?: JSX.Element | null
     /** Insight title shown in the compact popover. */
     metaTitle?: string
-    /** Top heading shown in the compact popover (defaults to topHeading). */
-    popoverTopHeading?: JSX.Element | null
     /** Raw description text for editing. */
     metaDescriptionText?: string
     /** When provided, makes title/description editable in the compact popover. */
@@ -143,9 +143,11 @@ export function CardMeta({
                                 onMouseLeaveInside={hideDetails}
                                 overlay={
                                     <div className="p-4 max-w-md space-y-2" onMouseDown={(e) => e.stopPropagation()}>
-                                        <h4 className="font-semibold m-0 mb-1">
-                                            {popoverTopHeading ?? topHeading}
-                                        </h4>
+                                        {(popoverTopHeading ?? topHeading) && (
+                                            <h5 className="uppercase text-xs font-bold text-muted tracking-wide m-0">
+                                                {popoverTopHeading ?? topHeading}
+                                            </h5>
+                                        )}
                                         {onMetaSave ? (
                                             <>
                                                 <EditableField
