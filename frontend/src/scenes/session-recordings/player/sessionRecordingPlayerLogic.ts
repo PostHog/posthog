@@ -1409,7 +1409,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // Otherwise keep existing player visible (last valid frame)
             }
             if (values.currentTimestamp !== undefined) {
-                actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
+                const clampedTimestamp = clamp(values.currentTimestamp, segment.startTimestamp, segment.endTimestamp)
+                actions.seekToTimestamp(clampedTimestamp, values.playingState === SessionPlayerState.PLAY)
             }
         },
         setSkipInactivitySetting: ({ skipInactivitySetting }) => {
@@ -1823,13 +1824,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (values.currentSegment && newTimestamp > values.currentSegment.endTimestamp) {
                 const nextSegment = values.segmentForTimestamp(newTimestamp)
 
-                if (nextSegment) {
+                if (nextSegment && !objectsEqual(nextSegment, values.currentSegment)) {
                     // NOTE: confusingly this setCurrentTimestamp call is essential to playback
                     // we rely on the segmentation to travel smoothly through the recording
                     actions.setCurrentTimestamp(Math.max(newTimestamp, nextSegment.startTimestamp))
                     actions.setCurrentSegment(nextSegment)
                 } else {
-                    // At the end of the recording. Pause the player and set fully to the end
+                    // No next segment, or segmentForTimestamp returned the same segment
+                    // (timestamp is beyond all segments). Either way, we've reached the end.
                     actions.setEndReached()
                 }
 

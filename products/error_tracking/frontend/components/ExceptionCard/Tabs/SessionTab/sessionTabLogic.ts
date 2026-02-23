@@ -5,6 +5,8 @@ import { SessionRecordingPlayerProps } from 'scenes/session-recordings/player/Se
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
+import { SessionPlayerData } from '~/types'
+
 import type { sessionTabLogicType } from './sessionTabLogicType'
 
 export type SessionTabLogicProps = {
@@ -38,7 +40,7 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
     connect(({ sessionId }: SessionTabLogicProps) => ({
         values: [
             sessionRecordingDataCoordinatorLogic(getRecordingProps(sessionId)),
-            ['isNotFound', 'sessionPlayerMetaDataLoading'],
+            ['isNotFound', 'sessionPlayerMetaDataLoading', 'sessionPlayerData'],
         ],
         actions: [
             sessionRecordingPlayerLogic(getRecordingProps(sessionId)),
@@ -73,6 +75,27 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
             (_, p) => [p.sessionId],
             (sessionId) => {
                 return getRecordingProps(sessionId)
+            },
+        ],
+        isTimestampOutsideRecording: [
+            (s) => [s.recordingTimestamp, s.sessionPlayerData, s.sessionPlayerMetaDataLoading],
+            (
+                recordingTimestamp: number | null,
+                sessionPlayerData: SessionPlayerData,
+                sessionPlayerMetaDataLoading: boolean
+            ): boolean => {
+                if (
+                    sessionPlayerMetaDataLoading ||
+                    !recordingTimestamp ||
+                    !sessionPlayerData.start ||
+                    !sessionPlayerData.end
+                ) {
+                    return false
+                }
+                return (
+                    recordingTimestamp < sessionPlayerData.start.valueOf() ||
+                    recordingTimestamp > sessionPlayerData.end.valueOf()
+                )
             },
         ],
     }),
