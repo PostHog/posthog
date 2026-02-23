@@ -37,7 +37,7 @@ class PinterestAdsSource(SimpleSource[PinterestAdsSourceConfig], OAuthMixin):
             betaSource=True,
             unreleasedSource=True,
             featureFlag="pinterest-ads-source",
-            iconPath="/static/services/pinterest.com.png",
+            iconPath="/static/services/pinterest_ads.png",
             docsUrl="https://posthog.com/docs/cdp/sources/pinterest-ads",
             fields=cast(
                 list[FieldType],
