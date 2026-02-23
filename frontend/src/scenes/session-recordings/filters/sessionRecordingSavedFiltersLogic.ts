@@ -1,7 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
-import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
@@ -119,15 +118,6 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
         },
     })),
     listeners(({ actions }) => ({
-        setAppliedSavedFilter: ({ appliedSavedFilter }) => {
-            if (appliedSavedFilter) {
-                posthog.capture('viewed playlist', {
-                    playlist_id: appliedSavedFilter.id,
-                    playlist_name: appliedSavedFilter.name,
-                    playlist_type: 'saved_filter',
-                })
-            }
-        },
         setSavedPlaylistsFilters: () => {
             actions.loadSavedFilters()
         },
