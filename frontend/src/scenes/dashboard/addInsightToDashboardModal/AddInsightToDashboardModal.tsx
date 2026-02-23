@@ -72,7 +72,7 @@ export function AddInsightToDashboardModal(): JSX.Element {
                                     <LemonButton
                                         key={type}
                                         type="primary"
-                                        size="xsmall"
+                                        size="small"
                                         icon={<Icon />}
                                         to={urls.insightNew({ type: type, dashboardId: dashboard?.id })}
                                         tooltip={INSIGHT_TYPES_METADATA[type]?.description}
@@ -111,7 +111,7 @@ export function AddInsightToDashboardModal(): JSX.Element {
                                 >
                                     <LemonButton
                                         type="secondary"
-                                        size="xsmall"
+                                        size="small"
                                         onClick={() => toggleShowMoreInsightTypes()}
                                     >
                                         More

@@ -57,6 +57,7 @@ export function ErrorTrackingScene(): JSX.Element {
     const hasIssueCorrelation = useFeatureFlag('ERROR_TRACKING_ISSUE_CORRELATION')
 
     useOnMountEffect(() => {
+        const utmSource = new URLSearchParams(window.location.search).get('utm_source')
         api.hogFunctions
             .list({
                 types: ['internal_destination'],
@@ -66,6 +67,7 @@ export function ErrorTrackingScene(): JSX.Element {
                 posthog.capture('error_tracking_issues_list_viewed', {
                     active_tab: activeTab,
                     alert_destination_count: res.results.length,
+                    ...(utmSource ? { utm_source: utmSource } : {}),
                 })
             })
     })

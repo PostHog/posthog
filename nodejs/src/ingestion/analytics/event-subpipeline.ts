@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
@@ -18,7 +18,9 @@ import { createHogTransformEventStep } from '../event-processing/hog-transform-e
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from '../event-processing/normalize-process-person-flag-step'
 import { createProcessPersonlessStep } from '../event-processing/process-personless-step'
+import { createProcessPersonsStep } from '../event-processing/process-persons-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
+import { TopHogWrapper, count } from '../pipelines/extensions/tophog'
 
 export interface EventSubpipelineInput {
     message: Message
@@ -39,30 +41,32 @@ export interface EventSubpipelineConfig {
     groupStore: BatchWritingGroupStore
     kafkaProducer: KafkaProducerWrapper
     groupId: string
+    topHog: TopHogWrapper
 }
 
 export function createEventSubpipeline<TInput extends EventSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: EventSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { options, teamManager, groupTypeManager, hogTransformer, personsStore, groupStore, kafkaProducer, groupId } =
-        config
+    const {
+        options,
+        teamManager,
+        groupTypeManager,
+        hogTransformer,
+        personsStore,
+        groupStore,
+        kafkaProducer,
+        groupId,
+        topHog,
+    } = config
 
     return builder
         .pipe(createNormalizeProcessPersonFlagStep())
         .pipe(createHogTransformEventStep(hogTransformer))
         .pipe(createNormalizeEventStep())
         .pipe(createProcessPersonlessStep(personsStore))
-        .pipe(
-            createEventPipelineRunnerV1Step(
-                options,
-                kafkaProducer,
-                teamManager,
-                groupTypeManager,
-                personsStore,
-                groupStore
-            )
-        )
+        .pipe(createProcessPersonsStep(options, kafkaProducer, personsStore))
+        .pipe(createEventPipelineRunnerV1Step(options, kafkaProducer, teamManager, groupTypeManager, groupStore))
         .pipe(
             createExtractHeatmapDataStep({
                 kafkaProducer,
@@ -71,10 +75,13 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
         )
         .pipe(createCreateEventStep())
         .pipe(
-            createEmitEventStep({
-                kafkaProducer,
-                clickhouseJsonEventsTopic: options.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                groupId,
-            })
+            topHog(
+                createEmitEventStep({
+                    kafkaProducer,
+                    clickhouseJsonEventsTopic: options.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                    groupId,
+                }),
+                [count('emitted_events', (input) => ({ team_id: String(input.eventToEmit.team_id) }))]
+            )
         )
 }

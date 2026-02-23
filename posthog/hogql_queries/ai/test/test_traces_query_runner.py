@@ -343,6 +343,55 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(response.results[0].id, "trace_0")
 
     @freeze_time("2025-01-16T00:00:00Z")
+    def test_pagination_with_multi_event_traces(self):
+        """
+        Regression test: pagination must not produce overlapping results when traces
+        have multiple events. The subquery orders trace IDs by min(timestamp) DESC to
+        match the main query's ORDER BY first_timestamp DESC. If these orderings
+        diverge (e.g. using max(timestamp) in the subquery), offset-based pagination
+        breaks because trace positions shift between pages.
+
+        Setup: 5 traces where max(timestamp) and min(timestamp) give reversed orderings.
+          trace_0: events at hour 0 and hour 10 → min=0, max=10
+          trace_1: events at hour 1 and hour 9  → min=1, max=9
+          trace_2: events at hour 2 and hour 8  → min=2, max=8
+          trace_3: events at hour 3 and hour 7  → min=3, max=7
+          trace_4: events at hour 4 and hour 6  → min=4, max=6
+
+        By min(timestamp) DESC: trace_4, trace_3, trace_2, trace_1, trace_0
+        By max(timestamp) DESC: trace_0, trace_1, trace_2, trace_3, trace_4
+        """
+        _create_person(distinct_ids=["person1"], team=self.team)
+        for i in range(5):
+            _create_ai_generation_event(
+                distinct_id="person1",
+                team=self.team,
+                trace_id=f"trace_{i}",
+                timestamp=datetime(2025, 1, 15, i),
+            )
+            _create_ai_generation_event(
+                distinct_id="person1",
+                team=self.team,
+                trace_id=f"trace_{i}",
+                timestamp=datetime(2025, 1, 15, 10 - i),
+            )
+
+        # Page 1 (limit=2, offset=0): returns limit+1=3 results, hasMore=True
+        response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=2, offset=0)).calculate()
+        self.assertEqual(response.hasMore, True)
+        page1_ids = [t.id for t in response.results]
+        self.assertEqual(page1_ids, ["trace_4", "trace_3", "trace_2"])
+
+        # Page 2 (limit=2, offset=3): returns remaining 2 traces, hasMore=False
+        response = TracesQueryRunner(team=self.team, query=TracesQuery(limit=2, offset=3)).calculate()
+        self.assertEqual(response.hasMore, False)
+        page2_ids = [t.id for t in response.results]
+        self.assertEqual(page2_ids, ["trace_1", "trace_0"])
+
+        # No trace ID appears on both pages
+        self.assertEqual(len(set(page1_ids) & set(page2_ids)), 0)
+
+    @freeze_time("2025-01-16T00:00:00Z")
     def test_maps_all_fields(self):
         _create_person(distinct_ids=["person1"], team=self.team)
         _create_ai_generation_event(
