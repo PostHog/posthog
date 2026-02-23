@@ -240,11 +240,9 @@ async function expectStoryToMatchSnapshot(
         await Promise.all(waitForSelectors.map((selector) => page.waitForSelector(selector)))
     }
 
-    await waitForCanvasRenderingSignal(page, enableCanvasRendering, waitForSelectors)
-
     // Snapshot both light and dark themes
-    await takeSnapshotWithTheme(page, context, browser, 'light', storyContext)
-    await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext)
+    await takeSnapshotWithTheme(page, context, browser, 'light', storyContext, enableCanvasRendering, waitForSelectors)
+    await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext, enableCanvasRendering, waitForSelectors)
 }
 
 async function setStorybookCanvasRendering(
@@ -369,7 +367,9 @@ async function takeSnapshotWithTheme(
     context: TestContext,
     browser: SupportedBrowserName,
     theme: SnapshotTheme,
-    storyContext: StoryContext
+    storyContext: StoryContext,
+    enableCanvasRendering: boolean,
+    waitForSelectors: string[]
 ): Promise<void> {
     const { allowImagesWithoutWidth = false } = storyContext.parameters?.testOptions ?? {}
 
@@ -477,6 +477,13 @@ async function takeSnapshotWithTheme(
 
     // final wait for any remaining renders
     await page.waitForTimeout(1000)
+
+    // Re-trigger and verify canvas rendering right before the screenshot.
+    // Canvas charts can get cleared/reflowed after earlier readiness checks.
+    if (enableCanvasRendering) {
+        await setStorybookCanvasRendering(page, true, true)
+    }
+    await waitForCanvasRenderingSignal(page, enableCanvasRendering, waitForSelectors)
 
     // Do take the snapshot
     await doTakeSnapshotWithTheme(page, context, browser, theme, storyContext)
