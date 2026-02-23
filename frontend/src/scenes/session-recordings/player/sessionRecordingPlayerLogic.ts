@@ -1409,8 +1409,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // Otherwise keep existing player visible (last valid frame)
             }
             if (values.currentTimestamp !== undefined) {
-                const clampedTimestamp = clamp(values.currentTimestamp, segment.startTimestamp, segment.endTimestamp)
-                actions.seekToTimestamp(clampedTimestamp, values.playingState === SessionPlayerState.PLAY)
+                actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
             }
         },
         setSkipInactivitySetting: ({ skipInactivitySetting }) => {
