@@ -1,15 +1,23 @@
 #!/usr/bin/env tsx
 /**
- * Copies shared reference files from products/posthog_ai into src/instructions/references/.
- * Run via `pnpm run build:instructions`.
+ * Copies shared prompt files.
  */
 import { cpSync, mkdirSync } from 'fs'
-import { resolve } from 'path'
+import { dirname, resolve } from 'path'
 
 const ROOT_DIR = resolve(__dirname, '..')
 const REPO_ROOT = resolve(ROOT_DIR, '../..')
-const SRC = resolve(REPO_ROOT, 'products/posthog_ai/skills/query-data/references')
-const DEST = resolve(ROOT_DIR, 'src/instructions/references')
 
-mkdirSync(DEST, { recursive: true })
-cpSync(SRC, DEST, { recursive: true })
+const PROMPTS = [
+    {
+        src: 'products/posthog_ai/skills/query-examples/references/guidelines.md',
+        dest: 'shared/guidelines.md',
+    },
+]
+
+for (const prompt of PROMPTS) {
+    const src = resolve(REPO_ROOT, prompt.src)
+    const dest = resolve(ROOT_DIR, prompt.dest)
+    mkdirSync(dirname(dest), { recursive: true })
+    cpSync(src, dest, { recursive: true })
+}

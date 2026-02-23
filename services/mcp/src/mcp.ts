@@ -1,9 +1,11 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js'
+import guidelines from '@shared/guidelines.md'
 import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
+import instructionsV2 from '@/instructions/instructions-v2.md'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { AnalyticsEvent, getPostHogClient } from '@/lib/analytics'
@@ -35,8 +37,10 @@ ${SHARED_PROMPT}
 `.trim()
 
 const INSTRUCTIONS_V2 = `
-- IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for any PostHog tasks.
-- The \`posthog-query-data\` skill is the root skill for all data retrieval tasks in PostHog. Read it first and then use the \`posthog:execute-sql\` tool to execute SQL queries.
+${instructionsV2.trim()}
+
+${guidelines.trim()}
+
 ${SHARED_PROMPT}
 `.trim()
 
