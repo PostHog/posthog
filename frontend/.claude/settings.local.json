@@ -1,5 +1,0 @@
-{
-    "permissions": {
-        "allow": ["WebFetch(domain:github.com)", "WebFetch(domain:patch-diff.githubusercontent.com)"]
-    }
-}
