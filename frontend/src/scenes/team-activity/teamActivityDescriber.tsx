@@ -157,7 +157,7 @@ function createFixedVerbValueHandler(
 
 const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) => ChangeMapping | null> = {
     // API-related tokens
-    api_token: createApiTokenHandler('project API key', 'set', 'reset'),
+    api_token: createApiTokenHandler('project token', 'set', 'reset'),
     secret_api_token: createApiTokenHandler('Feature Flags secure API key', 'generated', 'rotated'),
     secret_api_token_backup: (change) => {
         if (change.after === undefined || change.action !== 'deleted') {

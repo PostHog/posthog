@@ -1,5 +1,6 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js'
+import guidelines from '@shared/guidelines.md'
 import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
 
@@ -17,28 +18,17 @@ import {
 } from '@/lib/constants'
 import { handleToolError } from '@/lib/errors'
 import { formatResponse } from '@/lib/response'
+import { formatPrompt } from '@/lib/utils'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
+import INSTRUCTIONS_TEMPLATE_V1 from '@/templates/instructions-v1.md'
+import INSTRUCTIONS_TEMPLATE_V2 from '@/templates/instructions-v2.md'
 import { getToolsFromContext } from '@/tools'
 import type { CloudRegion, Context, State, Tool } from '@/tools/types'
 import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
 
-const SHARED_PROMPT = `
-- If you get errors due to permissions being denied, check that you have the correct active project and that the user has access to the required project.
-- If you cannot answer the user's PostHog related request or question using other available tools in this MCP, use the 'docs-search' tool to provide information from the documentation to guide user how they can do it themselves - when doing so provide condensed instructions with links to sources.
-`
-
-const INSTRUCTIONS_V1 = `
-- You are a helpful assistant that can query PostHog API.
-${SHARED_PROMPT}
-`.trim()
-
-const INSTRUCTIONS_V2 = `
-- IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for any PostHog tasks.
-- The \`posthog-query-data\` skill is the root skill for all data retrieval tasks in PostHog. Read it first and then use the \`posthog:execute-sql\` tool to execute SQL queries.
-${SHARED_PROMPT}
-`.trim()
+const INSTRUCTIONS_V2 = formatPrompt(INSTRUCTIONS_TEMPLATE_V2, { guidelines: guidelines.trim() })
 
 export type RequestProperties = {
     userHash: string
@@ -52,7 +42,7 @@ export type RequestProperties = {
 }
 
 export class MCP extends McpAgent<Env> {
-    server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions: INSTRUCTIONS_V1 })
+    server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions: INSTRUCTIONS_TEMPLATE_V1 })
 
     initialState: State = {
         projectId: undefined,
@@ -166,31 +156,21 @@ export class MCP extends McpAgent<Env> {
         return _distinctId
     }
 
-    private async getBaseEventProperties(): Promise<Record<string, any>> {
-        const props: Record<string, any> = {}
-
-        if (this.requestProperties.sessionId) {
-            props.$session_id = await this.sessionManager.getSessionUuid(this.requestProperties.sessionId)
-        }
-
-        const clientName = await this.cache.get('clientName')
-        if (clientName) {
-            props.client_name = clientName
-        }
-
-        return props
-    }
-
     async trackEvent(event: AnalyticsEvent, properties: Record<string, any> = {}): Promise<void> {
         try {
             const distinctId = await this.getDistinctId()
+
             const client = getPostHogClient()
 
             client.capture({
                 distinctId,
                 event,
                 properties: {
-                    ...(await this.getBaseEventProperties()),
+                    ...(this.requestProperties.sessionId
+                        ? {
+                              $session_id: await this.sessionManager.getSessionUuid(this.requestProperties.sessionId),
+                          }
+                        : {}),
                     ...properties,
                 },
             })
@@ -307,7 +287,7 @@ export class MCP extends McpAgent<Env> {
 
     async init(): Promise<void> {
         const { features, version, organizationId, projectId } = this.requestProperties
-        const instructions = version === 2 ? INSTRUCTIONS_V2 : INSTRUCTIONS_V1
+        const instructions = version === 2 ? INSTRUCTIONS_V2 : INSTRUCTIONS_TEMPLATE_V1
         this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
 
         // Pre-seed cache with org/project IDs from headers/query params

@@ -69,15 +69,15 @@ export function StepContentEditor({
     autoFocus = false,
     uploadImage,
 }: StepContentEditorProps): JSX.Element {
-    const { productTour, productTourForm, selectedStepIndex } = useValues(productTourLogic({ id: tourId }))
+    const { productTour, productTourForm, selectedStep, selectedStepIndex } = useValues(
+        productTourLogic({ id: tourId })
+    )
     const { updateSelectedStep } = useActions(productTourLogic({ id: tourId }))
 
-    const steps = productTourForm.content?.steps ?? []
-    const step = steps[selectedStepIndex]
     const appearance = productTourForm.content?.appearance
     const isBanner = productTour ? isBannerAnnouncement(productTour) : false
 
-    const content = step?.content as JSONContent | null
+    const content = selectedStep?.content as JSONContent | null
     const placeholder =
         placeholderProp ??
         (isBanner
@@ -554,7 +554,7 @@ export function StepContentEditor({
                 editorContent
             ) : (
                 <ResizableElement
-                    defaultWidth={getWidthValue(step?.maxWidth)}
+                    defaultWidth={getWidthValue(selectedStep?.maxWidth)}
                     minWidth={200}
                     maxWidth={700}
                     onResize={(width) => updateSelectedStep({ maxWidth: width })}

@@ -218,6 +218,7 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
             "enable_partial_responses",
             "enable_iframe_embedding",
             "user_access_level",
+            "form_content",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -282,6 +283,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "enable_partial_responses",
             "enable_iframe_embedding",
             "_create_in_folder",
+            "form_content",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
@@ -2024,7 +2026,7 @@ def surveys(request: Request):
             request,
             generate_exception_response(
                 "surveys",
-                "API key not provided. You can find your project API key in your PostHog project settings.",
+                "Project token not provided. You can find your project token in your PostHog project settings.",
                 type="authentication_error",
                 code="missing_api_key",
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -2061,7 +2063,7 @@ def surveys(request: Request):
                 request,
                 generate_exception_response(
                     "surveys",
-                    "Project API key invalid. You can find your project API key in your PostHog project settings.",
+                    "Project token invalid. You can find your project token in your PostHog project settings.",
                     type="authentication_error",
                     code="invalid_api_key",
                     status_code=status.HTTP_401_UNAUTHORIZED,

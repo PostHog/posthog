@@ -266,7 +266,9 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_INGESTION_CONTROLS: 'error-tracking-ingestion-controls', // owner: #team-error-tracking
     ERROR_TRACKING_REVENUE_SORTING: 'error-tracking-revenue-sorting', // owner: @david #team-error-tracking
     ERROR_TRACKING_SPIKE_ALERTING: 'error-tracking-spike-alerting', // owner: #team-error-tracking
+    ERROR_TRACKING_WEEKLY_DIGEST: 'error-tracking-weekly-digest', // owner: #team-error-tracking
     EVENT_MEDIA_PREVIEWS: 'event-media-previews', // owner: @alexlider
+    EXPERIMENT_AI_ANALYSIS_TAB: 'experiment-ai-analysis-tab', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_FF_CROSS_SELL: 'experiments-ff-cross-sell', // owner: @rodrigoi #team-experiments
     EXPERIMENT_QUERY_PREAGGREGATION: 'experiment-query-preaggregation', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
@@ -298,7 +300,8 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_SUMMARIZATION: 'llm-analytics-summarization', // owner: #team-llm-analytics
     LLM_ANALYTICS_TEXT_VIEW: 'llm-analytics-text-view', // owner: #team-llm-analytics
     LLM_ANALYTICS_TRANSLATION: 'llm-analytics-translation', // owner: #team-llm-analytics
-    LLM_ANALYTICS_PROMPTS: 'llm-analytics-prompts', // owner: #team-llm-analytics
+    PROMPT_MANAGEMENT: 'prompt-management', // owner: #team-llm-analytics
+    LLM_ANALYTICS_SENTIMENT: 'llm-analytics-sentiment', // owner: #team-llm-analytics
     LLM_ANALYTICS_USER_FEEDBACK: 'llm-analytics-user-feedback', // owner: @adboio #team-surveys
     LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT: 'llm-observability-show-input-output', // owner: #team-llm-analytics
     LOGS: 'logs', // owner: #team-logs
@@ -332,6 +335,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_EVENTS_COMBINATION_IN_TRENDS: 'events-combination-in-trends', // owner: @gesh #team-product-analytics
     PRODUCT_ANALYTICS_EVENTS_COMBINATION_IN_FUNNELS: 'events-combination-in-funnels', // owner: @gesh #team-product-analytics
     PRODUCT_ANALYTICS_FUNNEL_DWH_SUPPORT: 'funnel-dwh-support', // owner: @thmsobrmlr #team-product-analytics
+    PRODUCT_ANALYTICS_FUNNEL_DWH_STEP_UI: 'funnel-dwh-step-ui', // owner: @thmsobrmlr #team-product-analytics multivariate=control,popover
     PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
     PRODUCT_ANALYTICS_PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_RETENTION_AGGREGATION: 'retention-aggregation', // owner: @anirudhpillai #team-product-analytics
@@ -339,12 +343,13 @@ export const FEATURE_FLAGS = {
     PRODUCT_SUPPORT: 'product-support', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_SIDE_PANEL: 'product-support-side-panel', // owner: @veryayskiy #team-conversations
     ONBOARDING_AI_PRODUCT_RECOMMENDATIONS: 'onboarding-ai-product-recommendations', // owner: @rafaeelaudibert #team-growth, AI-powered product recommendations in onboarding multivariate=control,test,chat
+    ONBOARDING_SESSION_REPLAY_MEDIA: 'onboarding-session-replay-media', // owner: @fercgomes #team-growth multivariate=control,screenshot,demo
     ONBOARDING_SKIP_INSTALL_STEP: 'onboarding-skip-install-step', // owner: @rafaeelaudibert #team-growth multivariate=true
     PASSKEY_SIGNUP_ENABLED: 'passkey-signup-enabled', // owner: @reecejones #team-platform-features
     PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
     PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS: 'product-analytics-dashboard-modal-smart-defaults', // owner: @sam #team-product-analytics
     PRODUCT_TOURS: 'product-tours-2025', // owner: @adboio #team-surveys
-    PRODUCT_TOURS_RICH_TEXT: 'product-tours-rich-text', // owner: @adboio #team-surveys
+    PRODUCT_TOURS_LOCALIZATION: 'product-tours-localization', // owner: @adboio #team-surveys
     PROJECT_UPGRADE_MODAL_REDESIGN: 'project-upgrade-modal-redesign', // owner: @reecejones #team-platform-features
     POSTHOG_AI_BILLING_DISPLAY: 'posthog-ai-billing-display', // owner: #team-posthog-ai
     POSTHOG_AI_CHANGELOG: 'posthog-ai-changelog', // owner: #team-posthog-ai

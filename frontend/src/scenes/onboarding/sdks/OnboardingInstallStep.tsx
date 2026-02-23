@@ -132,11 +132,11 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
                             <LemonButton
                                 size="small"
                                 type="primary"
-                                onClick={() => void copyToClipboard(currentTeam?.api_token || '', 'Project API key')}
+                                onClick={() => void copyToClipboard(currentTeam?.api_token || '', 'Project token')}
                                 icon={<IconCopy />}
-                                data-attr="copy-api-key"
+                                data-attr="copy-project-token"
                             >
-                                Copy API key
+                                Copy project token
                             </LemonButton>
                             <InviteMembersButton
                                 type="primary"
