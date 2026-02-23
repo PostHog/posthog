@@ -50,7 +50,7 @@ async def calculate_task_metrics(team: Team, segments: list[VideoSegmentMetadata
 
     return TaskMetrics(
         relevant_user_count=relevant_user_count,
-        occurrence_count=len(segments),
+        occurrence_count=len({s.session_id for s in segments}),
         last_occurrence_at=last_occurrence_at,
     )
 

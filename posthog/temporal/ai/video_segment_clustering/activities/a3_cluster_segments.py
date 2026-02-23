@@ -6,6 +6,7 @@ Clustering video segments using iterative K-means, with noise handling.
 import json
 import math
 import asyncio
+from collections import defaultdict
 from dataclasses import dataclass
 
 import numpy as np
@@ -169,7 +170,62 @@ def _perform_clustering(segments: list[VideoSegment]) -> _ClusteringResultWithCe
         # Merge centroids
         centroids.update(noise_result.centroids)
 
+    # Keep at most one segment per session within each cluster
+    result = _deduplicate_sessions_within_clusters(result, segments, centroids)
+
     return _ClusteringResultWithCentroids(result=result, centroids=centroids)
+
+
+def _deduplicate_sessions_within_clusters(
+    result: ClusteringResult,
+    segments: list[VideoSegment],
+    centroids: dict[int, list[float]],
+) -> ClusteringResult:
+    """For each cluster, keep only the segment closest to the centroid per session."""
+    segment_lookup = {s.document_id: s for s in segments}
+    dropped_doc_ids: set[str] = set()
+    # Iterate over all clusters
+    for cluster in result.clusters:
+        centroid = centroids.get(cluster.cluster_id)
+        if centroid is None:
+            continue
+        # Group segments by session_id
+        session_to_doc_ids: dict[str, list[str]] = defaultdict(list)
+        for doc_id in cluster.segment_ids:
+            seg = segment_lookup.get(doc_id)
+            if seg:
+                session_to_doc_ids[seg.session_id].append(doc_id)
+        # For sessions with multiple segments, pick the closest to centroid
+        kept_doc_ids: list[str] = []
+        for _, doc_ids in session_to_doc_ids.items():
+            if len(doc_ids) == 1:
+                # Single segment per session per cluster, keeping it
+                kept_doc_ids.append(doc_ids[0])
+                continue
+            # Multiple segments per session per cluster, picking the closest to centroid
+            centroid_arr = np.array(centroid).reshape(1, -1)
+            embeddings = np.array([segment_lookup[did].embedding for did in doc_ids])
+            distances = cosine_distances(embeddings, centroid_arr).flatten()
+            best_idx = int(np.argmin(distances))
+            kept_doc_ids.append(doc_ids[best_idx])
+            dropped_doc_ids.update(did for i, did in enumerate(doc_ids) if i != best_idx)
+        cluster.segment_ids = kept_doc_ids
+        cluster.size = len(kept_doc_ids)
+    if dropped_doc_ids:
+        # Remove dropped segments
+        result.segment_to_cluster = {
+            doc_id: cid for doc_id, cid in result.segment_to_cluster.items() if doc_id not in dropped_doc_ids
+        }
+        # Mark dropped segments as noise (-1)
+        all_document_ids = [s.document_id for s in segments]
+        result.labels = [result.segment_to_cluster.get(doc_id, -1) for doc_id in all_document_ids]
+        # Add dropped segments to noise
+        result.noise_segment_ids.extend(dropped_doc_ids)
+        logger.debug(
+            "Deduplicated sessions within clusters",
+            segments_dropped=len(dropped_doc_ids),
+        )
+    return result
 
 
 def _estimate_k(n_segments: int, k_multiplier: float = constants.KMEANS_K_MULTIPLIER) -> int:
