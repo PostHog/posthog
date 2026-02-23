@@ -171,23 +171,18 @@ class EventViewSet(
 
     def get_throttles(self):
         if self.action == "values":
-            return []
+            request_obj = getattr(self, "request", None)
+            has_event_name = bool(
+                request_obj
+                and request_obj.GET.getlist("event_name", None)
+                and len(request_obj.GET.getlist("event_name", None)) > 0
+            )
+            if has_event_name:
+                throttle_classes = [EventValuesBurstThrottle, EventValuesSustainedThrottle]
+            else:
+                throttle_classes = [EventValuesNoEventNameBurstThrottle, EventValuesNoEventNameSustainedThrottle]
+            return [throttle_class() for throttle_class in throttle_classes]
         return super().get_throttles()
-
-    def check_throttles(self, request_to_check: request.Request) -> None:
-        if self.action != "values":
-            return super().check_throttles(request_to_check)
-
-        has_event_name = bool(request_to_check.GET.getlist("event_name", None) and len(request_to_check.GET.getlist("event_name", None)) > 0)
-        if has_event_name:
-            throttles = [EventValuesBurstThrottle(), EventValuesSustainedThrottle()]
-        else:
-            throttles = [EventValuesNoEventNameBurstThrottle(), EventValuesNoEventNameSustainedThrottle()]
-
-        durations = []
-        for throttle in throttles:
-            if not throttle.allow_request(request_to_check, self):
-                durations.append(throttle.wait())
         
         if durations:
             self.throttled(request_to_check, max(durations) or 0.0)
