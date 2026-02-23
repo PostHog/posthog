@@ -7,12 +7,20 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework.request import Request
 
-from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxyDailyRateThrottle, LLMProxySustainedRateThrottle
+from posthog.rate_limit import (
+    LLMProxyBurstRateThrottle,
+    LLMProxyBYOKBurstRateThrottle,
+    LLMProxyBYOKDailyRateThrottle,
+    LLMProxyBYOKSustainedRateThrottle,
+    LLMProxyDailyRateThrottle,
+    LLMProxySustainedRateThrottle,
+)
 
 from products.llm_analytics.backend.api.proxy import LLMProxyViewSet
 from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
-ALL_THROTTLES = (LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle, LLMProxyDailyRateThrottle)
+TRIAL_THROTTLES = (LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle, LLMProxyDailyRateThrottle)
+BYOK_THROTTLES = (LLMProxyBYOKBurstRateThrottle, LLMProxyBYOKSustainedRateThrottle, LLMProxyBYOKDailyRateThrottle)
 
 
 class TestLLMProxyThrottles(APIBaseTest):
@@ -36,12 +44,12 @@ class TestLLMProxyThrottles(APIBaseTest):
         self.viewset.action = action
         self.viewset.request = cast(Request, SimpleNamespace(data=data, user=self.user))
 
-    # Params: (provider_key_id, key_provider, encrypted_config, request_provider, has_team, expect_throttled)
+    # Params: (provider_key_id, key_provider, encrypted_config, request_provider, has_team, expected_throttles)
     @parameterized.expand(
         [
-            ("no_provider_key", None, "openai", None, "openai", True, True),
-            ("invalid_provider_key_id", str(uuid4()), "openai", None, "openai", True, True),
-            ("provider_key_without_api_key", "generated", "openai", {}, "openai", True, True),
+            ("no_provider_key", None, "openai", None, "openai", True, TRIAL_THROTTLES),
+            ("invalid_provider_key_id", str(uuid4()), "openai", None, "openai", True, TRIAL_THROTTLES),
+            ("provider_key_without_api_key", "generated", "openai", {}, "openai", True, TRIAL_THROTTLES),
             (
                 "provider_mismatch_key_anthropic_req_openai",
                 "generated",
@@ -49,7 +57,7 @@ class TestLLMProxyThrottles(APIBaseTest):
                 {"api_key": "sk-ant-key"},
                 "openai",
                 True,
-                True,
+                TRIAL_THROTTLES,
             ),
             (
                 "provider_mismatch_key_openai_req_anthropic",
@@ -58,10 +66,18 @@ class TestLLMProxyThrottles(APIBaseTest):
                 {"api_key": "sk-key"},
                 "anthropic",
                 True,
-                True,
+                TRIAL_THROTTLES,
             ),
-            ("valid_matching_provider_key", "generated", "openai", {"api_key": "sk-test-key"}, "openai", True, False),
-            ("user_without_team", "generated", "openai", {"api_key": "sk-test-key"}, "openai", False, True),
+            (
+                "valid_matching_provider_key",
+                "generated",
+                "openai",
+                {"api_key": "sk-test-key"},
+                "openai",
+                True,
+                BYOK_THROTTLES,
+            ),
+            ("user_without_team", "generated", "openai", {"api_key": "sk-test-key"}, "openai", False, TRIAL_THROTTLES),
         ]
     )
     def test_completion_throttle_behavior(
@@ -72,7 +88,7 @@ class TestLLMProxyThrottles(APIBaseTest):
         encrypted_config,
         request_provider: str,
         has_team: bool,
-        expect_throttled: bool,
+        expected_throttles: tuple,
     ) -> None:
         if not has_team:
             self.user.current_team = None
@@ -91,12 +107,9 @@ class TestLLMProxyThrottles(APIBaseTest):
 
         throttles = self.viewset.get_throttles()
 
-        if expect_throttled:
-            assert len(throttles) == len(ALL_THROTTLES)
-            for throttle, expected_cls in zip(throttles, ALL_THROTTLES):
-                assert isinstance(throttle, expected_cls)
-        else:
-            assert throttles == []
+        assert len(throttles) == len(expected_throttles)
+        for throttle, expected_cls in zip(throttles, expected_throttles):
+            assert isinstance(throttle, expected_cls)
 
     def test_models_endpoint_is_never_throttled(self) -> None:
         self._set_request("models", {})

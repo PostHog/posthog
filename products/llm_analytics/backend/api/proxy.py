@@ -25,11 +25,18 @@ from posthog.api.monitoring import monitor
 from posthog.auth import SessionAuthentication
 from posthog.event_usage import groups, report_user_action
 from posthog.models import User
-from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxyDailyRateThrottle, LLMProxySustainedRateThrottle
+from posthog.rate_limit import (
+    LLMProxyBurstRateThrottle,
+    LLMProxyBYOKBurstRateThrottle,
+    LLMProxyBYOKDailyRateThrottle,
+    LLMProxyBYOKSustainedRateThrottle,
+    LLMProxyDailyRateThrottle,
+    LLMProxySustainedRateThrottle,
+)
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
-from products.llm_analytics.backend.api.metrics import llma_track_latency
+from products.llm_analytics.backend.api.metrics import LLMA_PROXY_BYOK_REQUESTS, llma_track_latency
 from products.llm_analytics.backend.llm import (
     SUPPORTED_MODELS_WITH_THINKING,
     Client,
@@ -86,7 +93,12 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     try:
                         key = self._get_provider_key(str(provider_key_id), self.request.user, touch_last_used=False)
                         if key and key.provider == provider:
-                            return []
+                            LLMA_PROXY_BYOK_REQUESTS.labels(provider=provider).inc()
+                            return [
+                                LLMProxyBYOKBurstRateThrottle(),
+                                LLMProxyBYOKSustainedRateThrottle(),
+                                LLMProxyBYOKDailyRateThrottle(),
+                            ]
                     except ValueError:
                         pass
 
