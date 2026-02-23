@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { IconGear, IconMessage, IconPencil, IconPlay, IconPlus, IconTrash } from '@posthog/icons'
 import {
@@ -24,7 +24,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
-import { ComparisonItem, Message, MessageRole, ModelOption } from './llmAnalyticsPlaygroundLogic'
+import { ComparisonItem, Message, MessageRole } from './llmAnalyticsPlaygroundLogic'
 
 // Helper to format milliseconds
 const formatMs = (ms: number | null | undefined): string => {
@@ -522,44 +522,21 @@ function getModelOptionsErrorMessage(errorStatus: number | null): string | null 
 }
 
 function ConfigurationPanel(): JSX.Element {
-    const { maxTokens, thinking, reasoningLevel, model, modelOptions, modelOptionsLoading, modelOptionsErrorStatus } =
-        useValues(llmAnalyticsPlaygroundLogic)
+    const {
+        maxTokens,
+        thinking,
+        reasoningLevel,
+        model,
+        modelOptions,
+        modelOptionsLoading,
+        modelOptionsErrorStatus,
+        groupedModelOptions,
+    } = useValues(llmAnalyticsPlaygroundLogic)
     const { setMaxTokens, setThinking, setReasoningLevel, setModel, loadModelOptions } =
         useActions(llmAnalyticsPlaygroundLogic)
 
     const options = Array.isArray(modelOptions) ? modelOptions : []
     const errorMessage = getModelOptionsErrorMessage(modelOptionsErrorStatus)
-
-    const groupedModelOptions = useMemo(() => {
-        const modelsByProvider = options.reduce(
-            (acc, option) => {
-                const provider = option.provider || 'Unknown'
-                if (!acc[provider]) {
-                    acc[provider] = []
-                }
-                acc[provider].push(option)
-                return acc
-            },
-            {} as Record<string, ModelOption[]>
-        )
-
-        const entries = Object.entries(modelsByProvider) as [string, ModelOption[]][]
-
-        return entries
-            .sort(([providerA], [providerB]) => providerA.localeCompare(providerB))
-            .map(([provider, providerModels]) => ({
-                title: provider,
-                options: providerModels
-                    .slice()
-                    .sort((a: ModelOption, b: ModelOption) => b.name.localeCompare(a.name))
-                    .map((option: ModelOption) => ({
-                        label: option.name,
-                        value: option.id,
-                        provider: option.provider,
-                        tooltip: option.description || `Provider: ${option.provider}`,
-                    })),
-            }))
-    }, [options])
 
     return (
         <div className="space-y-4">

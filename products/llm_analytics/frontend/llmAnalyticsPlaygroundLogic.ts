@@ -479,20 +479,18 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                     return
                 }
 
+                const providerKeyId =
+                    selectedModel.providerKeyId ??
+                    values.providerKeyForCurrentModel?.id ??
+                    (await loadActiveProviderKeyId())
+
                 const requestData: any = {
                     system: requestSystemPrompt,
                     messages: messagesToSend.filter((m) => m.role === 'user' || m.role === 'assistant'),
                     model: selectedModel.id,
                     provider: selectedModel.provider.toLowerCase(),
                     thinking: values.thinking,
-                    ...(values.providerKeyForCurrentModel
-                        ? { provider_key_id: values.providerKeyForCurrentModel.id }
-                        : {}),
-                }
-
-                const providerKeyId = selectedModel.providerKeyId ?? (await loadActiveProviderKeyId())
-                if (providerKeyId) {
-                    requestData.provider_key_id = providerKeyId
+                    ...(providerKeyId ? { provider_key_id: providerKeyId } : {}),
                 }
 
                 // Include tools if available
@@ -692,6 +690,35 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         actions.loadProviderKeys()
     }),
     selectors({
+        groupedModelOptions: [
+            (s) => [s.modelOptions],
+            (modelOptions: ModelOption[]) => {
+                const options = Array.isArray(modelOptions) ? modelOptions : []
+                const modelsByProvider: Record<string, ModelOption[]> = {}
+                for (const option of options) {
+                    const provider = option.provider || 'Unknown'
+                    if (!modelsByProvider[provider]) {
+                        modelsByProvider[provider] = []
+                    }
+                    modelsByProvider[provider].push(option)
+                }
+
+                return Object.entries(modelsByProvider)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([provider, providerModels]) => ({
+                        title: provider,
+                        options: providerModels
+                            .slice()
+                            .sort((a, b) => b.name.localeCompare(a.name))
+                            .map((option) => ({
+                                label: option.name,
+                                value: option.id,
+                                provider: option.provider,
+                                tooltip: option.description || `Provider: ${option.provider}`,
+                            })),
+                    }))
+            },
+        ],
         providerKeyForCurrentModel: [
             (s) => [s.model, s.modelOptions, s.providerKeys],
             (model: string, modelOptions: ModelOption[], providerKeys: LLMProviderKey[]): LLMProviderKey | null => {
