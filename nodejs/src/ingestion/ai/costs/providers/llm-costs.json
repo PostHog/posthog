@@ -3520,11 +3520,6 @@
                 "completion_token": 0.000003,
                 "cache_read_token": 1.0000000000000001e-7
             },
-            "inceptron-int4": {
-                "prompt_token": 5e-7,
-                "completion_token": 0.0000024,
-                "cache_read_token": 1.2e-7
-            },
             "moonshotai-int4": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.000003,
@@ -5359,10 +5354,6 @@
                 "prompt_token": 2.5e-7,
                 "completion_token": 2.5e-7
             },
-            "nebius-fp8": {
-                "prompt_token": 2e-7,
-                "completion_token": 6e-7
-            },
             "novita-fp8": {
                 "prompt_token": 9e-8,
                 "completion_token": 5.8e-7
@@ -6062,6 +6053,10 @@
                 "cache_read_token": 1.5e-7
             },
             "novita": {
+                "prompt_token": 6e-7,
+                "completion_token": 0.0000036
+            },
+            "parasail-bf16": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000036
             }
