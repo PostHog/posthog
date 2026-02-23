@@ -2,17 +2,11 @@ import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconGear } from '@posthog/icons'
-import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTab, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import {
-    TabsPrimitive,
-    TabsPrimitiveContent,
-    TabsPrimitiveList,
-    TabsPrimitiveTrigger,
-} from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -36,6 +30,7 @@ import {
 } from './errorTrackingSceneLogic'
 import { ImpactFilters } from './tabs/impact/ImpactFilters'
 import { ImpactList } from './tabs/impact/ImpactList'
+import { ErrorTrackingInsights } from './tabs/insights/ErrorTrackingInsights'
 import { IssuesFilters } from './tabs/issues/IssuesFilters'
 import { IssuesList } from './tabs/issues/IssuesList'
 
@@ -72,6 +67,48 @@ export function ErrorTrackingScene(): JSX.Element {
             })
     })
 
+    const tabs: LemonTab<ErrorTrackingSceneActiveTab>[] = [
+        {
+            key: 'issues',
+            label: 'Issues',
+            content: (
+                <>
+                    <ErrorTrackingIssueFilteringTool />
+                    {hasIssueCorrelation && <ErrorTrackingIssueImpactTool />}
+                    {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
+                    <div className="border rounded bg-surface-primary p-2">
+                        <IssuesFilters />
+                    </div>
+                    <IssuesList />
+                </>
+            ),
+            link: urls.errorTracking({ activeTab: 'issues' }),
+        },
+        ...(hasIssueCorrelation
+            ? [
+                  {
+                      key: 'impact' as const,
+                      label: 'Impact',
+                      content: (
+                          <>
+                              <div className="border rounded bg-surface-primary p-2">
+                                  <ImpactFilters />
+                              </div>
+                              <ImpactList />
+                          </>
+                      ),
+                      link: urls.errorTracking({ activeTab: 'impact' }),
+                  },
+              ]
+            : []),
+        {
+            key: 'insights',
+            label: 'Insights',
+            content: <ErrorTrackingInsights />,
+            link: urls.errorTracking({ activeTab: 'insights' }),
+        },
+    ]
+
     return (
         <StyleVariables>
             <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }}>
@@ -79,44 +116,12 @@ export function ErrorTrackingScene(): JSX.Element {
                     <ErrorTrackingSetupPrompt>
                         <SceneContent>
                             <Header />
-
-                            <ErrorTrackingIssueFilteringTool />
-
-                            {hasIssueCorrelation && <ErrorTrackingIssueImpactTool />}
-
-                            {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
-                            {hasIssueCorrelation ? (
-                                <div>
-                                    <TabsPrimitive
-                                        value={activeTab}
-                                        onValueChange={(value) => setActiveTab(value as ErrorTrackingSceneActiveTab)}
-                                        className="border rounded bg-surface-primary"
-                                    >
-                                        <TabsPrimitiveList className="border-b">
-                                            <TabsPrimitiveTrigger value="issues" className="px-2 py-1 cursor-pointer">
-                                                Issues
-                                            </TabsPrimitiveTrigger>
-                                            <TabsPrimitiveTrigger value="impact" className="px-2 py-1 cursor-pointer">
-                                                Impact
-                                            </TabsPrimitiveTrigger>
-                                        </TabsPrimitiveList>
-                                        <TabsPrimitiveContent value="issues" className="p-2">
-                                            <IssuesFilters />
-                                        </TabsPrimitiveContent>
-                                        <TabsPrimitiveContent value="impact" className="p-2">
-                                            <ImpactFilters />
-                                        </TabsPrimitiveContent>
-                                    </TabsPrimitive>
-                                    {activeTab === 'issues' ? <IssuesList /> : <ImpactList />}
-                                </div>
-                            ) : (
-                                <div>
-                                    <div className="border rounded bg-surface-primary p-2">
-                                        <IssuesFilters />
-                                    </div>
-                                    <IssuesList />
-                                </div>
-                            )}
+                            <LemonTabs
+                                activeKey={activeTab}
+                                onChange={(key) => setActiveTab(key)}
+                                tabs={tabs}
+                                sceneInset
+                            />
                         </SceneContent>
                     </ErrorTrackingSetupPrompt>
                 </BindLogic>
