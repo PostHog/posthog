@@ -1,7 +1,7 @@
 import { newPipelineBuilder } from '../builders/helpers'
 import { createContext } from '../helpers'
 import { dlq, isOkResult, ok } from '../results'
-import { TopHogRegistry, average, averageResult, counter, createTopHogWrapper, max, maxResult, timer } from './tophog'
+import { TopHogRegistry, average, averageResult, count, createTopHogWrapper, max, maxResult, timer } from './tophog'
 
 describe('topHog wrapper', () => {
     function createMockTopHog(): TopHogRegistry & {
@@ -26,7 +26,7 @@ describe('topHog wrapper', () => {
         }
 
         const pipeline = newPipelineBuilder<{ teamId: number }>()
-            .pipe(topHog(myStep, [counter('events', (input) => ({ team_id: String(input.teamId) }))]))
+            .pipe(topHog(myStep, [count('events', (input) => ({ team_id: String(input.teamId) }))]))
             .build()
 
         await pipeline.process(createContext(ok({ teamId: 42 })))
@@ -64,7 +64,7 @@ describe('topHog wrapper', () => {
         const pipeline = newPipelineBuilder<{ teamId: number; userId: string }>()
             .pipe(
                 topHog(myStep, [
-                    counter('by_team', (input) => ({ team_id: String(input.teamId) })),
+                    count('by_team', (input) => ({ team_id: String(input.teamId) })),
                     timer('by_user', (input) => ({ user_id: input.userId })),
                 ])
             )
@@ -84,7 +84,7 @@ describe('topHog wrapper', () => {
         const step = jest.fn().mockResolvedValue(ok({ done: true }))
 
         const pipeline = newPipelineBuilder<{ teamId: number }>()
-            .pipe(topHog(step, [counter('heatmap_events', (input) => ({ team_id: String(input.teamId) }))]))
+            .pipe(topHog(step, [count('heatmap_events', (input) => ({ team_id: String(input.teamId) }))]))
             .build()
 
         await pipeline.process(createContext(ok({ teamId: 7 })))
@@ -99,7 +99,7 @@ describe('topHog wrapper', () => {
         const step = jest.fn().mockResolvedValue(dlq('bad data'))
 
         const pipeline = newPipelineBuilder<{ teamId: number }>()
-            .pipe(topHog(step, [counter('events', (input) => ({ team_id: String(input.teamId) }))]))
+            .pipe(topHog(step, [count('events', (input) => ({ team_id: String(input.teamId) }))]))
             .build()
 
         await pipeline.process(createContext(ok({ teamId: 1 })))
@@ -129,7 +129,7 @@ describe('topHog wrapper', () => {
         }
 
         const pipeline = newPipelineBuilder<{ teamId: number }>()
-            .pipe(topHog(namedStep, [counter('events', (input) => ({ team_id: String(input.teamId) }))]))
+            .pipe(topHog(namedStep, [count('events', (input) => ({ team_id: String(input.teamId) }))]))
             .build()
 
         const result = await pipeline.process(createContext(ok({ teamId: 5 })))
@@ -146,7 +146,7 @@ describe('topHog wrapper', () => {
         }
 
         const pipeline = newPipelineBuilder<{ teamId: number }>()
-            .pipe(topHog(trackedStep, [counter('events', (input) => ({ team_id: String(input.teamId) }))]))
+            .pipe(topHog(trackedStep, [count('events', (input) => ({ team_id: String(input.teamId) }))]))
             .build()
 
         const result = await pipeline.process(createContext(ok({ teamId: 5 })))

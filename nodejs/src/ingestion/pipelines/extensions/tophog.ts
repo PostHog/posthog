@@ -17,7 +17,7 @@ export interface TopHogMetric<TInput, TOutput> {
 
 export type TopHogMetricFactory<TInput, TOutput> = (registry: TopHogRegistry) => TopHogMetric<TInput, TOutput>
 
-export function counter<TInput, TOutput>(
+export function count<TInput, TOutput>(
     name: string,
     key: (input: TInput) => Record<string, string>,
     value?: (input: TInput) => number,
@@ -26,7 +26,7 @@ export function counter<TInput, TOutput>(
     return (registry) => new InputMetric(registry.register(name, opts), key, value ?? (() => 1))
 }
 
-export function resultCounter<TInput, TOutput>(
+export function countResult<TInput, TOutput>(
     name: string,
     key: (output: TOutput, input: TInput) => Record<string, string>,
     value?: (output: TOutput, input: TInput) => number,

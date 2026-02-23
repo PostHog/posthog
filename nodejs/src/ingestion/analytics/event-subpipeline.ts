@@ -19,7 +19,7 @@ import { createNormalizeEventStep } from '../event-processing/normalize-event-st
 import { createNormalizeProcessPersonFlagStep } from '../event-processing/normalize-process-person-flag-step'
 import { createProcessPersonlessStep } from '../event-processing/process-personless-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
-import { TopHogWrapper, counter } from '../pipelines/extensions/tophog'
+import { TopHogWrapper, count } from '../pipelines/extensions/tophog'
 
 export interface EventSubpipelineInput {
     message: Message
@@ -88,7 +88,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
                     clickhouseJsonEventsTopic: options.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                     groupId,
                 }),
-                [counter('emitted_events', (input) => ({ team_id: String(input.eventToEmit.team_id) }))]
+                [count('emitted_events', (input) => ({ team_id: String(input.eventToEmit.team_id) }))]
             )
         )
 }

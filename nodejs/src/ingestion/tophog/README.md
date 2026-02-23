@@ -8,7 +8,7 @@ This is not a tool for analyzing customer behavior. It is designed for realtime 
 
 Each metric type has an input variant (records before the step runs, derives key/value from the step input) and a result variant (records after the step completes, only on OK results, derives key/value from the step output).
 
-- **`counter(name, keyFn, valueFn?, opts?)`** / **`resultCounter(name, keyFn, valueFn?, opts?)`** — accumulates a sum. Defaults to counting 1 per invocation. Use for tracking volume (e.g. messages received, bytes ingested, events produced).
+- **`count(name, keyFn, valueFn?, opts?)`** / **`countResult(name, keyFn, valueFn?, opts?)`** — accumulates a sum. Defaults to counting 1 per invocation. Use for tracking volume (e.g. messages received, bytes ingested, events produced).
 - **`max(name, keyFn, valueFn, opts?)`** / **`maxResult(name, keyFn, valueFn, opts?)`** — tracks the maximum observed value per key. Use for finding peak values (e.g. largest payload size, slowest individual request).
 - **`average(name, keyFn, valueFn, opts?)`** / **`averageResult(name, keyFn, valueFn, opts?)`** — tracks the average value per key. Ranks and evicts by average, not sum. Use for finding keys with consistently high values rather than high volume (e.g. average payload size per team).
 - **`timer(name, keyFn, opts?)`** — records elapsed wall-clock time in milliseconds. The key is derived from the step input at start time. Records regardless of whether the step succeeds or fails.
@@ -59,20 +59,20 @@ return builder
     .pipe(
         topHog(parseMessage, [
             // Count messages per team
-            counter('parsed_messages', (input) => ({
+            count('parsed_messages', (input) => ({
                 team_id: String(input.team_id),
             })),
             // Count messages per team + distinct_id
-            counter('parsed_messages_by_distinct_id', (input) => ({
+            count('parsed_messages_by_distinct_id', (input) => ({
                 team_id: String(input.team_id),
                 distinct_id: input.distinct_id,
             })),
             // Track total payload size per team
-            counter('parsed_message_bytes', (input) => ({
+            count('parsed_message_bytes', (input) => ({
                 team_id: String(input.team_id),
             }), (input) => input.message.value?.length ?? 0),
             // Track total payload size per team + distinct_id
-            counter('parsed_message_bytes_by_distinct_id', (input) => ({
+            count('parsed_message_bytes_by_distinct_id', (input) => ({
                 team_id: String(input.team_id),
                 distinct_id: input.distinct_id,
             }), (input) => input.message.value?.length ?? 0),
@@ -94,7 +94,7 @@ return builder
                 distinct_id: input.distinct_id,
             })),
             // Count successful person processing results per team
-            resultCounter('persons_processed', (output, input) => ({
+            countResult('persons_processed', (output, input) => ({
                 team_id: String(input.team_id),
             })),
         ])
@@ -142,8 +142,8 @@ TopHog (registry + Kafka reporter)
 └── ...
 
 Pipeline extension (pipelines/extensions/tophog.ts)
-├── counter("emitted_events", keyFn)        → records count before step runs
-├── resultCounter("output_size", keyFn)     → records count after step, on OK results only
+├── count("emitted_events", keyFn)        → records count before step runs
+├── countResult("output_size", keyFn)     → records count after step, on OK results only
 ├── max("max_payload", keyFn, valueFn)      → tracks max value before step runs
 ├── maxResult("max_output", keyFn, valueFn) → tracks max value after step, on OK results only
 ├── average("avg_size", keyFn, valueFn)     → tracks average before step runs
