@@ -43,8 +43,8 @@ export interface SessionReplayPipelineConfig {
  *
  * The pipeline processes messages through these phases:
  * 1. Restrictions - Parse headers and apply event ingestion restrictions (drop/overflow)
- * 2. Parse - Parse Kafka messages into structured session recording data
- * 3. Team Filter - Validate team ownership and enrich with team context
+ * 2. Team Filter - Validate team ownership and enrich with team context
+ * 3. Parse - Parse Kafka messages into structured session recording data (inside teamAware for warning handling)
  * 4. Version Monitor - Check library version and emit warnings for old versions
  */
 export function createSessionReplayPipeline(
@@ -82,8 +82,6 @@ export function createSessionReplayPipeline(
                                 preservePartitionLocality: true, // Sessions must stay on the same partition
                             })
                         )
-                        // Parse message content
-                        .pipe(createParseMessageStep({ topTracker }))
                         // Validate team ownership and enrich with team context
                         .pipe(createTeamFilterStep(teamService))
                 )
@@ -100,8 +98,13 @@ export function createSessionReplayPipeline(
                         b
                             .teamAware((b) =>
                                 b
-                                    // Monitor library version and emit warnings for old versions
-                                    .sequentially((b) => b.pipe(createLibVersionMonitorStep()))
+                                    .sequentially((b) =>
+                                        b
+                                            // Parse message content
+                                            .pipe(createParseMessageStep({ topTracker }))
+                                            // Monitor library version and emit warnings for old versions
+                                            .pipe(createLibVersionMonitorStep())
+                                    )
                                     .gather()
                             )
                             .handleIngestionWarnings(ingestionWarningProducer)

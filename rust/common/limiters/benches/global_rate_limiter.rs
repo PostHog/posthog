@@ -73,7 +73,6 @@ fn bench_config() -> GlobalRateLimiterConfig {
         global_threshold: 100_000,
         window_interval: Duration::from_secs(60),
         bucket_interval: Duration::from_secs(10),
-        rate_limit_interval: Duration::from_secs(60),
         redis_key_prefix: "bench:grl".to_string(),
         global_cache_ttl: Duration::from_secs(300),
         local_cache_ttl: Duration::from_secs(1200), // 20 minutes for hot cache simulation

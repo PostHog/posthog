@@ -1,5 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
+import { IconSparkles } from '@posthog/icons'
 import { LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -61,6 +62,23 @@ import {
     PageHeaderCustom,
 } from './components'
 
+const AiAnalysisTab = (): JSX.Element => {
+    const { experiment, hasMinimumExposureForResults } = useValues(experimentLogic)
+
+    return (
+        <div className="flex flex-row gap-2">
+            <SummarizeExperimentButton
+                disabledReason={
+                    !hasMinimumExposureForResults
+                        ? 'Experiment needs at least 50 exposures to summarize results.'
+                        : undefined
+                }
+            />
+            <SummarizeSessionReplaysButton experiment={experiment} />
+        </div>
+    )
+}
+
 const MetricsTab = (): JSX.Element => {
     const {
         experiment,
@@ -98,9 +116,11 @@ const MetricsTab = (): JSX.Element => {
         firstPrimaryMetric &&
         firstPrimaryMetricResult
 
+    const isAiAnalysisTabEnabled = useFeatureFlag('EXPERIMENT_AI_ANALYSIS_TAB')
+
     return (
         <>
-            {usesNewQueryRunner && (
+            {usesNewQueryRunner && !isAiAnalysisTabEnabled && (
                 <div className="mt-1 mb-4 flex justify-start gap-2">
                     <SummarizeExperimentButton
                         disabledReason={
@@ -112,6 +132,7 @@ const MetricsTab = (): JSX.Element => {
                     <SummarizeSessionReplaysButton experiment={experiment} />
                 </div>
             )}
+
             {usesNewQueryRunner && (
                 <div className="w-full mb-4">
                     <Exposures />
@@ -199,6 +220,7 @@ const MetricsTab = (): JSX.Element => {
         </>
     )
 }
+
 const CodeTab = (): JSX.Element => {
     const { experiment } = useValues(experimentLogic)
 
@@ -239,6 +261,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
 
     const showWizard = useFeatureFlag('EXPERIMENTS_WIZARD_CREATION_FORM', 'test')
+    const isAiAnalysisTabEnabled = useFeatureFlag('EXPERIMENT_AI_ANALYSIS_TAB')
 
     /**
      * We show the create form if the experiment is draft + has no primary metrics. Otherwise,
@@ -276,6 +299,20 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                 label: 'Metrics',
                                 content: <MetricsTab />,
                             },
+                            ...(isAiAnalysisTabEnabled && usesNewQueryRunner
+                                ? [
+                                      {
+                                          key: 'ai_analysis',
+                                          label: (
+                                              <div className="flex items-center gap-1">
+                                                  <IconSparkles />
+                                                  <span>AI analysis</span>
+                                              </div>
+                                          ),
+                                          content: <AiAnalysisTab />,
+                                      },
+                                  ]
+                                : []),
                             ...(!isExperimentDraft
                                 ? [
                                       {
