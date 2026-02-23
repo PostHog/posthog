@@ -237,7 +237,7 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcce
         return internal_value
 
 
-class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
+class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     sources_map = serializers.JSONField(required=False)
     conversion_goals = serializers.JSONField(required=False)
     attribution_window_days = serializers.IntegerField(required=False, min_value=1, max_value=90)
@@ -259,6 +259,20 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
             "custom_source_mappings",
             "campaign_field_preferences",
         ]
+
+    def to_internal_value(self, data):
+        internal_value = super().to_internal_value(data)
+        if "sources_map" in internal_value:
+            internal_value["_sources_map"] = internal_value["sources_map"]
+        if "conversion_goals" in internal_value:
+            internal_value["_conversion_goals"] = internal_value["conversion_goals"]
+        if "campaign_name_mappings" in internal_value:
+            internal_value["_campaign_name_mappings"] = internal_value["campaign_name_mappings"]
+        if "custom_source_mappings" in internal_value:
+            internal_value["_custom_source_mappings"] = internal_value["custom_source_mappings"]
+        if "campaign_field_preferences" in internal_value:
+            internal_value["_campaign_field_preferences"] = internal_value["campaign_field_preferences"]
+        return internal_value
 
     def update(self, instance, validated_data):
         # Handle sources_map with partial updates
@@ -962,7 +976,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         }
 
         marketing_serializer = TeamMarketingAnalyticsConfigSerializer(
-            instance.marketing_analytics_config, data=validated_data, partial=True
+            instance.marketing_analytics_config,
+            data=validated_data,
+            partial=True,
+            context={**self.context, "user_access_control": self.user_access_control},
         )
         if not marketing_serializer.is_valid():
             raise serializers.ValidationError(_format_serializer_errors(marketing_serializer.errors))
