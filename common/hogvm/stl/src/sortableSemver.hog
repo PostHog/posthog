@@ -1,0 +1,14 @@
+fun sortableSemver(version) {
+  if (version == null) {
+    return []
+  }
+  // Extract version pattern like "1.2.3" from strings like "v1.2.3-alpha"
+  // Matches ClickHouse: extract(version, '(\d+(\.\d+)+)')
+  let extracted := extractRegex(version, '(\\d+(\\.\\d+)+)')
+  if (empty(extracted)) {
+    return []
+  }
+  // Split by '.' and convert each part to integer
+  let parts := splitByString('.', extracted)
+  return arrayMap(x -> toInt(x) ?? 0, parts)
+}
