@@ -1,5 +1,5 @@
 import { JSONContent } from '@tiptap/core'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconLock } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
@@ -42,6 +42,10 @@ export function MessageInput({
     const [isUploading, setIsUploading] = useState(false)
     const [localIsPrivate, setLocalIsPrivate] = useState(false)
     const editorRef = useRef<RichContentEditorType | null>(null)
+
+    useEffect(() => {
+        setIsEmpty(!draftContent)
+    }, [draftContent])
 
     // Support controlled or uncontrolled isPrivate
     const isPrivate = controlledIsPrivate ?? localIsPrivate
