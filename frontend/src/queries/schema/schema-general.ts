@@ -1546,8 +1546,9 @@ export type RetentionFilter = {
 }
 
 export interface RetentionValue {
-    count: integer
+    count: number
     label?: string
+    aggregation_value?: number
 }
 
 export interface RetentionResult {

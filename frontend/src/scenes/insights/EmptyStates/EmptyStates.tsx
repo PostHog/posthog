@@ -516,7 +516,7 @@ export function InsightValidationError({
 }
 
 export interface InsightErrorStateProps {
-    title?: string | null
+    title?: string | JSX.Element | null
     query?: Record<string, any> | Node | null
     queryId?: string | null
     excludeDetail?: boolean

@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCode, IconCursorClick, IconDocument, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -116,12 +116,14 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
         dateRange,
         targetingFlagFilters,
         launchValidationIssues,
+        hasDraft,
     } = useValues(productTourLogic({ id }))
     const {
         editingProductTour,
         launchProductTour,
         stopProductTour,
         resumeProductTour,
+        discardDraft,
         setDateRange,
         openToolbarModal,
     } = useActions(productTourLogic({ id }))
@@ -299,6 +301,22 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                     </>
                 }
             />
+
+            {hasDraft && (
+                <LemonBanner type="info" className="mb-4">
+                    <div className="flex items-center justify-between w-full">
+                        <span>You have unsaved changes</span>
+                        <div className="flex items-center gap-2">
+                            <LemonButton type="secondary" size="xsmall" onClick={discardDraft}>
+                                Discard
+                            </LemonButton>
+                            <LemonButton type="primary" size="xsmall" onClick={() => editingProductTour(true)}>
+                                Continue editing
+                            </LemonButton>
+                        </div>
+                    </div>
+                </LemonBanner>
+            )}
 
             <LemonTabs
                 activeKey={tabKey}

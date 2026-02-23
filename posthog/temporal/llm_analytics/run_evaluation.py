@@ -207,13 +207,29 @@ async def disable_evaluation_activity(evaluation_id: str, team_id: int) -> None:
     await database_sync_to_async(_disable)()
 
 
+@dataclass
+class ExecuteLLMJudgeInputs:
+    evaluation: dict[str, Any]
+    event_data: dict[str, Any]
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "team_id": self.evaluation.get("team_id"),
+            "evaluation_id": self.evaluation.get("id"),
+        }
+
+
 @temporalio.activity.defn
-async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dict[str, Any]) -> dict[str, Any]:
+async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str, Any]:
     """Execute LLM judge to evaluate the target event.
 
     Fetches API key configuration internally to avoid passing sensitive data between activities.
     """
     from django.utils import timezone
+
+    evaluation = inputs.evaluation
+    event_data = inputs.event_data
 
     if evaluation["evaluation_type"] != "llm_judge":
         raise ApplicationError(
@@ -474,14 +490,28 @@ Output: {output_data}"""
     return result_dict
 
 
+@dataclass
+class EmitEvaluationEventInputs:
+    evaluation: dict[str, Any]
+    event_data: dict[str, Any]
+    result: dict[str, Any]
+    start_time: datetime
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "team_id": self.event_data.get("team_id"),
+            "evaluation_id": self.evaluation.get("id"),
+        }
+
+
 @temporalio.activity.defn
-async def emit_evaluation_event_activity(
-    evaluation: dict[str, Any],
-    event_data: dict[str, Any],
-    result: dict[str, Any],
-    start_time: datetime,
-) -> None:
+async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> None:
     """Emit $ai_evaluation event to ClickHouse"""
+    evaluation = inputs.evaluation
+    event_data = inputs.event_data
+    result = inputs.result
+    start_time = inputs.start_time
 
     def _emit():
         try:
@@ -542,14 +572,28 @@ async def emit_evaluation_event_activity(
     await database_sync_to_async(_emit, thread_sensitive=False)()
 
 
+@dataclass
+class EmitInternalTelemetryInputs:
+    evaluation: dict[str, Any]
+    team_id: int
+    result: dict[str, Any]
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "team_id": self.team_id,
+            "evaluation_id": self.evaluation.get("id"),
+        }
+
+
 @temporalio.activity.defn
-async def emit_internal_telemetry_activity(
-    evaluation: dict[str, Any],
-    team_id: int,
-    result: dict[str, Any],
-) -> None:
+async def emit_internal_telemetry_activity(inputs: EmitInternalTelemetryInputs) -> None:
     """Emit telemetry event to PostHog org for internal tracking"""
     from posthog.tasks.usage_report import get_ph_client
+
+    evaluation = inputs.evaluation
+    team_id = inputs.team_id
+    result = inputs.result
 
     def _emit_telemetry():
         team = Team.objects.get(id=team_id)
@@ -599,7 +643,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         try:
             result = await temporalio.workflow.execute_activity(
                 execute_llm_judge_activity,
-                args=[evaluation, inputs.event_data],
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=inputs.event_data),
                 schedule_to_close_timeout=timedelta(minutes=6),  # > SDK timeout (300s) to allow graceful handling
                 retry_policy=LLM_JUDGE_RETRY_POLICY,
             )
@@ -652,7 +696,12 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         # Activity 4: Emit evaluation event
         await temporalio.workflow.execute_activity(
             emit_evaluation_event_activity,
-            args=[evaluation, inputs.event_data, result, start_time],
+            EmitEvaluationEventInputs(
+                evaluation=evaluation,
+                event_data=inputs.event_data,
+                result=result,
+                start_time=start_time,
+            ),
             schedule_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -660,7 +709,11 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         # Activity 5: Emit internal telemetry (fire-and-forget)
         await temporalio.workflow.execute_activity(
             emit_internal_telemetry_activity,
-            args=[evaluation, evaluation["team_id"], result],
+            EmitInternalTelemetryInputs(
+                evaluation=evaluation,
+                team_id=evaluation["team_id"],
+                result=result,
+            ),
             schedule_to_close_timeout=timedelta(seconds=30),
         )
 

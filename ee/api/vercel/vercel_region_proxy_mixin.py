@@ -78,7 +78,12 @@ class VercelRegionProxyMixin:
             auth_result = VercelAuthentication().authenticate(drf_request)
             return auth_result[0].claims.installation_id if auth_result else None
 
-        except (exceptions.AuthenticationFailed, exceptions.ValidationError):
+        except (exceptions.AuthenticationFailed, exceptions.ValidationError) as e:
+            logger.warning(
+                "Failed to extract installation_id from Vercel request",
+                error=str(e),
+                integration="vercel",
+            )
             return None
 
     def _extract_data_region_from_metadata(self, request: HttpRequest) -> Optional[str]:
@@ -109,11 +114,14 @@ class VercelRegionProxyMixin:
         parsed_url = urlparse(request.build_absolute_uri())
         target_url = urlunparse(parsed_url._replace(netloc=self.EU_DOMAIN))
 
+        headers = dict(request.headers)
+        headers["Host"] = self.EU_DOMAIN
+
         try:
             response = requests.request(
                 method=request.method or "GET",
                 url=target_url,
-                headers=dict(request.headers),  # Django's headers object works directly
+                headers=headers,
                 params=dict(request.GET.lists()) if request.GET else None,
                 data=request.body or None,
                 timeout=self.PROXY_TIMEOUT,
@@ -125,6 +133,9 @@ class VercelRegionProxyMixin:
                 status_code=response.status_code,
                 integration="vercel",
             )
+
+            if response.status_code == 204:
+                return Response(status=204)
 
             content_type = response.headers.get("content-type", "")
             if not content_type.startswith(("application/json", "text/")):
@@ -185,6 +196,8 @@ class VercelRegionProxyMixin:
             )
             try:
                 drf_response = self._proxy_to_eu(request)
+                if drf_response.status_code == 204:
+                    return HttpResponse(status=204)
                 content = json.dumps(drf_response.data) if drf_response.data else "{}"
                 return HttpResponse(content=content, status=drf_response.status_code, content_type="application/json")
             except exceptions.APIException as e:
