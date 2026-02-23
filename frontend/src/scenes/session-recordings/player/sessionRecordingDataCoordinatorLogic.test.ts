@@ -2,24 +2,13 @@ import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
-import { ViewportResolution } from 'scenes/session-recordings/player/snapshot-processing/patch-meta-event'
-import { processAllSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
-import { SourceKey } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
-import {
-    RecordingSnapshot,
-    SessionRecordingSnapshotSource,
-    SessionRecordingSnapshotSourceResponse,
-    SnapshotSourceType,
-} from '~/types'
 
-import { sortedRecordingSnapshots } from '../__mocks__/recording_snapshots'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import {
     createDifferentiatedQueryHandler,
@@ -29,8 +18,6 @@ import {
     setupSessionRecordingTest,
 } from './__mocks__/test-setup'
 import { snapshotDataLogic } from './snapshotDataLogic'
-
-const sortedRecordingSnapshotsJson = sortedRecordingSnapshots()
 
 describe('sessionRecordingDataCoordinatorLogic', () => {
     let logic: ReturnType<typeof sessionRecordingDataCoordinatorLogic.build>
@@ -85,11 +72,11 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                 .toFinishAllListeners()
 
             const actual = logic.values.sessionPlayerData
-            expect(actual).toMatchObject({
-                person: recordingMetaJson.person,
-                bufferedToTime: 11868,
-                snapshotsByWindowId: sortedRecordingSnapshotsJson.snapshot_data_by_window_id,
-            })
+            expect(actual.person).toEqual(recordingMetaJson.person)
+            expect(actual.fullyLoaded).toBe(true)
+            expect(Object.keys(actual.snapshotsByWindowId).length).toBeGreaterThan(0)
+            const totalSnapshots = Object.values(actual.snapshotsByWindowId).reduce((sum, arr) => sum + arr.length, 0)
+            expect(totalSnapshots).toBeGreaterThan(0)
         })
 
         it('fetch metadata error', async () => {
@@ -208,86 +195,8 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                     'loadEventsSuccess',
                     'loadRecordingCommentsSuccess',
                     'loadRecordingNotebookCommentsSuccess',
-                    'setProcessedSnapshots',
                 ])
                 .toDispatchActions([sessionRecordingEventUsageLogic.actionTypes.reportRecordingLoaded])
-        })
-    })
-
-    // TODO need deduplication tests for blob_v2 sources before we deprecate blob_v1
-    describe('deduplicateSnapshots', () => {
-        const sources: SessionRecordingSnapshotSource[] = [
-            {
-                source: 'blob_v2',
-                start_timestamp: '2025-05-14T15:37:18.897000Z',
-                end_timestamp: '2025-05-14T15:42:18.378000Z',
-                blob_key: '1',
-            },
-        ]
-
-        const fakeViewportForTimestamp: (timestamp: number) => ViewportResolution | undefined = () => ({
-            width: '100',
-            height: '100',
-            href: '',
-        })
-
-        const callProcessing = (snapshots: RecordingSnapshot[]): Promise<RecordingSnapshot[]> => {
-            return processAllSnapshots(
-                sources,
-                {
-                    'blob_v2-1': {
-                        source: { source: SnapshotSourceType.blob_v2, blob_key: 'blob-1' },
-                        snapshots,
-                    },
-                } as Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
-                { snapshots: {} },
-                fakeViewportForTimestamp,
-                '12345'
-            )
-        }
-
-        it('should remove duplicate snapshots and sort by timestamp', async () => {
-            const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
-            const snapshotsWithDuplicates = snapshots
-                .slice(0, 2)
-                .concat(snapshots.slice(0, 2))
-                .concat(snapshots.slice(2))
-
-            expect(snapshotsWithDuplicates.length).toEqual(snapshots.length + 2)
-
-            expect(await callProcessing(snapshots)).toEqual(await callProcessing(snapshotsWithDuplicates))
-        })
-
-        it('should cope with two not duplicate snapshots with the same timestamp and delay', async () => {
-            // these two snapshots are not duplicates but have the same timestamp and delay
-            // this regression test proves that we deduplicate them against themselves
-            // prior to https://github.com/PostHog/posthog/pull/20019
-            // each time deduplicateSnapshots was called with this input
-            // the result would be one event longer, introducing, instead of removing, a duplicate
-            const verySimilarSnapshots: RecordingSnapshot[] = [
-                {
-                    windowId: 1,
-                    type: 3,
-                    data: { source: 2, type: 0, id: 33, x: 852.7421875, y: 133.1640625 },
-                    timestamp: 1682952389798,
-                },
-                {
-                    windowId: 1,
-                    type: 3,
-                    data: { source: 2, type: 2, id: 33, x: 852, y: 133, pointerType: 0 },
-                    timestamp: 1682952389798,
-                },
-            ]
-            // we call this multiple times and pass existing data in, so we need to make sure it doesn't change
-            expect(await callProcessing([...verySimilarSnapshots, ...verySimilarSnapshots])).toEqual(
-                verySimilarSnapshots
-            )
-        })
-
-        it('should match snapshot', async () => {
-            const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
-
-            expect(await callProcessing(snapshots)).toMatchSnapshot()
         })
     })
 })

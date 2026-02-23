@@ -1,3 +1,5 @@
+import { eventWithTime } from '@posthog/rrweb-types'
+
 import { dayjs } from 'lib/dayjs'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
 import {
@@ -7,18 +9,28 @@ import {
 
 import { RecordingSnapshot } from '~/types'
 
-import { createSegments, mapSnapshotsToWindowId } from './segmenter'
+import { createSegments } from './segmenter'
+
+function groupByWindowId(snapshots: RecordingSnapshot[]): Record<number, eventWithTime[]> {
+    const result: Record<number, eventWithTime[]> = {}
+    for (const snapshot of snapshots) {
+        if (!result[snapshot.windowId]) {
+            result[snapshot.windowId] = []
+        }
+        result[snapshot.windowId].push(snapshot)
+    }
+    return result
+}
 
 describe('segmenter', () => {
     it('matches snapshots', () => {
         const snapshots = convertSnapshotsResponse(sortedRecordingSnapshots().snapshot_data_by_window_id)
-        const snapshotsByWindowId = mapSnapshotsToWindowId(snapshots)
         const segments = createSegments(
             snapshots,
             dayjs(recordingMetaJson.start_time),
             dayjs(recordingMetaJson.end_time),
             null,
-            snapshotsByWindowId
+            groupByWindowId(snapshots)
         )
 
         expect(segments).toMatchSnapshot()
@@ -45,8 +57,6 @@ describe('segmenter', () => {
     })
 
     it('inserts gaps inclusively', () => {
-        // NOTE: It is important that the segments are "inclusive" of the start and end timestamps as the player logic
-        // depends on this to choose which segment should be played next
         const start = dayjs('2023-01-01T00:00:00.000Z')
         const end = dayjs('2023-01-01T00:10:00.000Z')
 
@@ -57,8 +67,7 @@ describe('segmenter', () => {
             { windowId: 2, timestamp: end.valueOf(), type: 3, data: {} } as any,
         ]
 
-        const snapshotsByWindowId = mapSnapshotsToWindowId(snapshots)
-        const segments = createSegments(snapshots, start, end, null, snapshotsByWindowId)
+        const segments = createSegments(snapshots, start, end, null, groupByWindowId(snapshots))
 
         expect(segments).toMatchSnapshot()
     })
@@ -75,8 +84,7 @@ describe('segmenter', () => {
             { windowId: 1, timestamp: end.valueOf(), type: 3, data: {} } as any,
         ]
 
-        const snapshotsByWindowId = mapSnapshotsToWindowId(snapshots)
-        const segments = createSegments(snapshots, start, end, null, snapshotsByWindowId)
+        const segments = createSegments(snapshots, start, end, null, groupByWindowId(snapshots))
 
         expect(segments).toMatchSnapshot()
     })
@@ -92,8 +100,7 @@ describe('segmenter', () => {
             { windowId: 2, timestamp: end, type: 3, data: {} } as any,
         ]
 
-        const snapshotsByWindowId = mapSnapshotsToWindowId(snapshots)
-        const segments = createSegments(snapshots, start, end, null, snapshotsByWindowId)
+        const segments = createSegments(snapshots, start, end, null, groupByWindowId(snapshots))
 
         expect(segments).toMatchSnapshot()
     })

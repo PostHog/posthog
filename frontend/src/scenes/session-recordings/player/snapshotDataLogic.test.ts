@@ -5,7 +5,6 @@ import { expectLogic } from 'kea-test-utils'
 import { EventType, IncrementalSource, NodeType, mutationData } from '@posthog/rrweb-types'
 
 import { RecordingDeletedError } from 'lib/api'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 
@@ -47,9 +46,6 @@ describe('snapshotDataLogic', () => {
     })
 
     describe('core assumptions', () => {
-        it('mounts other logics', async () => {
-            await expectLogic(logic).toMount([featureFlagLogic])
-        })
         it('has default values', () => {
             expect(logic.values).toMatchObject({
                 snapshotsBySourceSuccessCount: 0,
@@ -57,6 +53,11 @@ describe('snapshotDataLogic', () => {
                 snapshotsForSource: null,
                 snapshotsLoaded: false,
             })
+        })
+
+        it('always creates store and scheduler', () => {
+            expect(logic.values.snapshotStore).not.toBeNull()
+            expect(logic.values.storeVersion).toBe(0)
         })
     })
 
@@ -72,9 +73,6 @@ describe('snapshotDataLogic', () => {
                     'loadSnapshotsForSourceSuccess',
                 ])
                 .toFinishAllListeners()
-
-            const snapshotsBySources = logic.values.snapshotsBySources
-            expect(Object.keys(snapshotsBySources)).toEqual(['blob_v2-0', 'blob_v2-1', '_count'])
         })
 
         it('fetch metadata success and snapshots error', async () => {

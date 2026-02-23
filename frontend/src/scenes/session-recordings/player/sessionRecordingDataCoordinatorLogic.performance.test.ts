@@ -44,8 +44,21 @@ describe('sessionRecordingDataCoordinatorLogic performance', () => {
                 '/api/environments/:team_id/session_recordings/:id/snapshots': async (req, res, ctx) => {
                     if (req.url.searchParams.get('source') === 'blob_v2') {
                         const key = req.url.searchParams.get('blob_key')
-                        const contents = key === '0' ? keyZero : keyOne
-                        return res(ctx.text(contents))
+                        const startKey = req.url.searchParams.get('start_blob_key')
+                        const endKey = req.url.searchParams.get('end_blob_key')
+
+                        if (startKey === '0' && endKey === '1') {
+                            return res(ctx.text(`${keyZero}\n${keyOne}`))
+                        } else if (startKey === '0' && endKey === '0') {
+                            return res(ctx.text(keyZero))
+                        } else if (startKey === '1' && endKey === '1') {
+                            return res(ctx.text(keyOne))
+                        } else if (key === '0') {
+                            return res(ctx.text(keyZero))
+                        } else if (key === '1') {
+                            return res(ctx.text(keyOne))
+                        }
+                        return res(ctx.text(keyOne))
                     }
 
                     return [
