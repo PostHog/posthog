@@ -95,14 +95,12 @@ _KILL_SWITCH_SETTINGS: dict[KillSwitchLevel, dict[str, int]] = {
         "max_execution_time": 30,
         "max_threads": 45,
         "max_bytes_to_read": 5_000_000_000_000,  # 5TB
-        "max_result_rows": 1_000_000,
     },
     KillSwitchLevel.FULL: {
         "max_execution_time": 15,
         "max_memory_usage": 30_000_000_000,  # 30GB
         "max_threads": 30,
         "max_bytes_to_read": 1_000_000_000_000,  # 1TB
-        "max_result_rows": 100_000,
     },
 }
 
