@@ -6,6 +6,7 @@ from typing import Any
 
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Q
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -285,6 +286,11 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
         indexes = [
             models.Index(fields=["team", "is_active"]),
             models.Index(fields=["team", "name"]),
+            models.Index(
+                name="team_id_endpoint_name_active",
+                fields=["team", "name"],
+                condition=Q(deleted=False) | Q(deleted__isnull=True),
+            ),
         ]
 
     def __str__(self) -> str:
