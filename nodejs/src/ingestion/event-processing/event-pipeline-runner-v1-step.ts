@@ -18,7 +18,7 @@ import { ProcessingStep } from '../pipelines/steps'
 
 export interface EventPipelineRunnerInput {
     message: Message
-    eventWithPerson: PluginEvent
+    normalizedEvent: PluginEvent
     timestamp: DateTime
     team: Team
     headers: EventHeaders
@@ -42,7 +42,7 @@ export function createEventPipelineRunnerV1Step(
         input: EventPipelineRunnerInput
     ): Promise<PipelineResult<EventPipelineRunnerStepResult>> {
         const {
-            eventWithPerson,
+            normalizedEvent,
             timestamp,
             team,
             headers: inputHeaders,
@@ -56,11 +56,11 @@ export function createEventPipelineRunnerV1Step(
             kafkaProducer,
             teamManager,
             groupTypeManager,
-            eventWithPerson,
+            normalizedEvent,
             groupStore,
             inputHeaders
         )
-        const result = await runner.runEventPipeline(eventWithPerson, timestamp, team, processPerson, person)
+        const result = await runner.runEventPipeline(normalizedEvent, timestamp, team, processPerson, person)
 
         if (isOkResult(result)) {
             const stepResult: EventPipelineRunnerStepResult = {

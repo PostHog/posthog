@@ -143,7 +143,7 @@ describe('createProcessPersonsStep', () => {
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (isOkResult(result)) {
-            expect(result.value.eventWithPerson).toEqual({
+            expect(result.value.normalizedEvent).toEqual({
                 ...event,
                 properties: {
                     $browser: 'Chrome',
@@ -232,17 +232,6 @@ describe('createProcessPersonsStep', () => {
             expect((result.value as any).extraField).toBe('preserved')
             expect(result.value.team).toBe(input.team)
             expect(result.value.timestamp).toBe(input.timestamp)
-        }
-    })
-
-    it('replaces normalizedEvent with eventWithPerson in output', async () => {
-        const step = createProcessPersonsStep(options, hub.kafkaProducer, personsStore)
-        const result = await step(createInput())
-
-        expect(result.type).toBe(PipelineResultType.OK)
-        if (isOkResult(result)) {
-            expect(result.value.eventWithPerson).toBeDefined()
-            expect((result.value as any).normalizedEvent).toBeUndefined()
         }
     })
 

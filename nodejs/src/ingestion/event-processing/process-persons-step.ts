@@ -22,7 +22,6 @@ export type ProcessPersonsInput = {
 }
 
 export type ProcessPersonsOutput = {
-    eventWithPerson: PluginEvent
     person: Person
 }
 
@@ -30,7 +29,7 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
     options: EventPipelineRunnerOptions,
     kafkaProducer: KafkaProducerWrapper,
     personsStore: PersonsStore
-): ProcessingStep<TInput, Omit<TInput, 'normalizedEvent'> & ProcessPersonsOutput> {
+): ProcessingStep<TInput, TInput & ProcessPersonsOutput> {
     const mergeMode = determineMergeMode(
         options.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
         options.PERSON_MERGE_ASYNC_ENABLED,
@@ -38,9 +37,7 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
         options.PERSON_MERGE_SYNC_BATCH_SIZE
     )
 
-    return async function processPersonsStep(
-        input: TInput
-    ): Promise<PipelineResult<Omit<TInput, 'normalizedEvent'> & ProcessPersonsOutput>> {
+    return async function processPersonsStep(input: TInput): Promise<PipelineResult<TInput & ProcessPersonsOutput>> {
         const { normalizedEvent, team, timestamp, personlessPerson } = input
 
         let person: Person
@@ -74,25 +71,23 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
                 new PersonPropertyService(context),
                 new PersonMergeService(context)
             )
-            const [result, kafkaAck] = await processor.processEvent()
+            const result = await processor.processEvent()
 
             if (!isOkResult(result)) {
                 return result
             }
 
             person = result.value
-            sideEffects.push(kafkaAck)
+            sideEffects.push(...result.sideEffects)
 
             if (forceUpgrade) {
                 person.force_upgrade = true
             }
         }
 
-        const { normalizedEvent: _, ...rest } = input
         return ok(
             {
-                ...rest,
-                eventWithPerson: normalizedEvent,
+                ...input,
                 person: person!,
             },
             sideEffects
